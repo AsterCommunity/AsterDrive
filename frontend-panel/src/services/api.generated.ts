@@ -644,6 +644,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/admin/remote-nodes/{id}/ingress-profile-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_remote_node_ingress_profile_drivers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/admin/remote-nodes/{id}/ingress-profiles": {
         parameters: {
             query?: never;
@@ -5747,6 +5763,17 @@ export interface components {
             /** @enum {string} */
             status: "mfa_required";
         };
+        ManagedIngressDriverFieldDescriptor: {
+            help_key?: string | null;
+            kind: components["schemas"]["ManagedIngressDriverFieldKind"];
+            label_key: string;
+            name: string;
+            placeholder?: string | null;
+            required: boolean;
+            secret: boolean;
+        };
+        /** @enum {string} */
+        ManagedIngressDriverFieldKind: "text" | "secret" | "boolean" | "number";
         /**
          * @description Partial `/auth/me` response. The always-needed account identity is kept
          *     stable, while heavier or narrow-use groups are serialized only when selected.
@@ -6871,6 +6898,11 @@ export interface components {
             profile_key: string;
             updated_at: string;
         };
+        RemoteManagedIngressCapabilities: {
+            driver_types?: components["schemas"]["RemoteManagedIngressDriverType"][];
+            enabled: boolean;
+        };
+        RemoteManagedIngressDriverType: string;
         /** @enum {string} */
         RemoteNodeEnrollmentStatus: "not_started" | "pending" | "redeemed" | "completed" | "expired";
         RemoteNodeInfo: {
@@ -6902,6 +6934,7 @@ export interface components {
             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
             features?: components["schemas"]["RemoteStorageFeatureFlags"];
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
+            managed_ingress?: null | components["schemas"]["RemoteManagedIngressCapabilities"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
             server_version?: string | null;
@@ -11363,6 +11396,7 @@ export interface operations {
                             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
                             features?: components["schemas"]["RemoteStorageFeatureFlags"];
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
+                            managed_ingress?: null | components["schemas"]["RemoteManagedIngressCapabilities"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
                             server_version?: string | null;
@@ -11592,6 +11626,60 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_RemoteEnrollmentCommandInfo"];
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_remote_node_ingress_profile_drivers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List remote node ingress profile driver descriptors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            description_key: string;
+                            driver_type: components["schemas"]["DriverType"];
+                            fields: components["schemas"]["ManagedIngressDriverFieldDescriptor"][];
+                            label_key: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
                 };
             };
             /** @description Unauthorized */

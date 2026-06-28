@@ -7,6 +7,12 @@ import type {
 
 export type ManagedIngressDriverType = "local" | "s3";
 
+export function isManagedIngressDriverType(
+	driverType: unknown,
+): driverType is ManagedIngressDriverType {
+	return driverType === "local" || driverType === "s3";
+}
+
 export interface ManagedIngressProfileFormData {
 	name: string;
 	driver_type: ManagedIngressDriverType;

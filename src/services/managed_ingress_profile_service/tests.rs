@@ -1,6 +1,9 @@
 use super::{
     create, delete,
-    driver::{build_driver_from_profile, validate_driver_from_profile},
+    driver::{
+        build_driver_from_profile, list_registered_managed_ingress_driver_descriptors,
+        registered_managed_ingress_driver_types, validate_driver_from_profile,
+    },
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_managed_local_path},
@@ -386,18 +389,78 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
     assert_eq!(normalized.base_path, "local/profile");
 }
 
+#[test]
+fn managed_ingress_driver_registry_contains_supported_builtin_drivers() {
+    assert_eq!(
+        registered_managed_ingress_driver_types(),
+        vec![DriverType::Local, DriverType::S3]
+    );
+}
+
+#[test]
+fn managed_ingress_driver_descriptors_cover_builtin_profile_fields() {
+    let descriptors = list_registered_managed_ingress_driver_descriptors();
+    assert_eq!(descriptors.len(), 2);
+
+    let local = descriptors
+        .iter()
+        .find(|descriptor| descriptor.driver_type == DriverType::Local)
+        .expect("local managed ingress descriptor should be registered");
+    assert_eq!(
+        local
+            .fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["base_path", "max_file_size", "is_default"]
+    );
+
+    let s3 = descriptors
+        .iter()
+        .find(|descriptor| descriptor.driver_type == DriverType::S3)
+        .expect("s3 managed ingress descriptor should be registered");
+    assert_eq!(
+        s3.fields
+            .iter()
+            .map(|field| field.name.as_str())
+            .collect::<Vec<_>>(),
+        vec![
+            "endpoint",
+            "bucket",
+            "access_key",
+            "secret_key",
+            "base_path",
+            "max_file_size",
+            "is_default"
+        ]
+    );
+    assert!(
+        s3.fields
+            .iter()
+            .any(|field| field.name == "secret_key" && field.secret)
+    );
+}
+
 #[tokio::test]
 async fn driver_builder_rejects_remote_managed_ingress_profiles() {
     let state = setup_state().await;
     let profile = model_with_driver(DriverType::Remote);
 
     let validate_error = validate_driver_from_profile(&state, &profile).unwrap_err();
+    assert_eq!(
+        validate_error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
     assert!(
         validate_error
             .message()
             .contains("do not support the remote driver")
     );
     let build_error = expect_aster_err(build_driver_from_profile(&state, &profile));
+    assert_eq!(
+        build_error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
     assert!(
         build_error
             .message()
@@ -411,12 +474,20 @@ async fn driver_builder_rejects_tencent_cos_managed_ingress_profiles() {
     let profile = model_with_driver(DriverType::TencentCos);
 
     let validate_error = validate_driver_from_profile(&state, &profile).unwrap_err();
+    assert_eq!(
+        validate_error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
     assert!(
         validate_error
             .message()
             .contains("do not support the tencent_cos driver")
     );
     let build_error = expect_aster_err(build_driver_from_profile(&state, &profile));
+    assert_eq!(
+        build_error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
     assert!(
         build_error
             .message()

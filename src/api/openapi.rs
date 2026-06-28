@@ -309,6 +309,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::admin::remote_nodes::test_remote_node_params,
         crate::api::routes::admin::remote_nodes::create_remote_node_enrollment_token,
         crate::api::routes::admin::remote_nodes::list_remote_node_ingress_profiles,
+        crate::api::routes::admin::remote_nodes::list_remote_node_ingress_profile_drivers,
         crate::api::routes::admin::remote_nodes::create_remote_node_ingress_profile,
         crate::api::routes::admin::remote_nodes::update_remote_node_ingress_profile,
         crate::api::routes::admin::remote_nodes::delete_remote_node_ingress_profile,

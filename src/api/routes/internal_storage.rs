@@ -303,7 +303,10 @@ async fn get_capabilities(
         binding_id = binding.id,
         "follower internal storage capabilities requested"
     );
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageCapabilities::current())))
+    let capabilities = RemoteStorageCapabilities::current().with_managed_ingress_driver_types(
+        managed_ingress_profile_service::registered_managed_ingress_driver_types(),
+    );
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
 
 async fn get_capacity(

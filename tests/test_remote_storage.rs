@@ -31,9 +31,9 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
     RemoteBindingSyncRequest, RemoteCreateIngressProfileRequest,
-    RemoteCreateLocalIngressProfileRequest, RemoteStorageCapabilities, RemoteStorageClient,
-    RemoteStorageComposeRequest, RemoteUpdateIngressProfileRequest, sign_internal_request,
-    sign_presigned_request,
+    RemoteCreateLocalIngressProfileRequest, RemoteCreateS3IngressProfileRequest,
+    RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
+    RemoteUpdateIngressProfileRequest, sign_internal_request, sign_presigned_request,
 };
 use aster_drive::types::{
     DriverType, RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
@@ -942,6 +942,211 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
     provider_server.stop().await;
+}
+
+#[tokio::test]
+async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabilities() {
+    let consumer_state = common::setup().await;
+    let consumer_node = managed_follower_service::create(
+        &consumer_state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "managed-ingress-capability-create-node".to_string(),
+            base_url: "http://127.0.0.1:9".to_string(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("consumer remote node should be created");
+    mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current()
+            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+    )
+    .await;
+
+    let error = managed_ingress_profile_service::create_remote(
+        &consumer_state,
+        consumer_node.id,
+        RemoteCreateIngressProfileRequest::S3(RemoteCreateS3IngressProfileRequest {
+            name: "Unsupported S3".to_string(),
+            endpoint: "https://s3.example.com".to_string(),
+            bucket: "bucket".to_string(),
+            access_key: "access".to_string(),
+            secret_key: "secret".to_string(),
+            base_path: "unsupported-s3".to_string(),
+            max_file_size: 0,
+            is_default: true,
+        }),
+    )
+    .await
+    .expect_err("primary should reject S3 when remote capabilities only declare local ingress");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::ManagedIngressDriverUnsupported
+    );
+    assert!(
+        error
+            .message()
+            .contains("does not declare managed ingress support for the s3 driver"),
+        "unexpected error message: {}",
+        error.message()
+    );
+}
+
+#[tokio::test]
+async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabilities() {
+    let consumer_state = common::setup().await;
+    let consumer_node = managed_follower_service::create(
+        &consumer_state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "managed-ingress-capability-update-node".to_string(),
+            base_url: "http://127.0.0.1:9".to_string(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("consumer remote node should be created");
+    mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current()
+            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+    )
+    .await;
+
+    let error = managed_ingress_profile_service::update_remote(
+        &consumer_state,
+        consumer_node.id,
+        "profile-a",
+        RemoteUpdateIngressProfileRequest {
+            driver_type: Some(DriverType::S3),
+            endpoint: Some("https://s3.example.com".to_string()),
+            bucket: Some("bucket".to_string()),
+            access_key: Some("access".to_string()),
+            secret_key: Some("secret".to_string()),
+            base_path: Some("unsupported-s3".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err(
+        "primary should reject update to S3 when remote capabilities only declare local ingress",
+    );
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::ManagedIngressDriverUnsupported
+    );
+    assert!(
+        error
+            .message()
+            .contains("does not declare managed ingress support for the s3 driver"),
+        "unexpected error message: {}",
+        error.message()
+    );
+}
+
+#[tokio::test]
+async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_authoritative() {
+    let consumer_state = common::setup().await;
+    let consumer_node = managed_follower_service::create(
+        &consumer_state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "managed-ingress-capability-no-driver-update-node".to_string(),
+            base_url: "http://127.0.0.1:9".to_string(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("consumer remote node should be created");
+    mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current().with_managed_ingress_driver_types(vec![]),
+    )
+    .await;
+
+    let error = managed_ingress_profile_service::update_remote(
+        &consumer_state,
+        consumer_node.id,
+        "profile-a",
+        RemoteUpdateIngressProfileRequest {
+            name: Some("Rename Only".to_string()),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect_err("rename-only update should still be sent to the remote follower");
+
+    assert_ne!(
+        error.api_error_code(),
+        ApiErrorCode::ManagedIngressDriverUnsupported
+    );
+    assert!(
+        error.message().contains("update remote ingress profile"),
+        "unexpected error message: {}",
+        error.message()
+    );
+}
+
+#[actix_web::test]
+async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabilities() {
+    let consumer_state = common::setup().await;
+    let consumer_node = managed_follower_service::create(
+        &consumer_state,
+        managed_follower_service::CreateRemoteNodeInput {
+            name: "managed-ingress-driver-descriptor-node".to_string(),
+            base_url: "http://127.0.0.1:9".to_string(),
+            transport_mode: RemoteNodeTransportMode::Direct,
+            is_enabled: true,
+        },
+    )
+    .await
+    .expect("consumer remote node should be created");
+    mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current()
+            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+    )
+    .await;
+
+    let app = create_test_app!(consumer_state.clone());
+    let (token, _) = register_and_login!(app);
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/admin/remote-nodes/{}/ingress-profile-drivers",
+            consumer_node.id
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let descriptors = body["data"]
+        .as_array()
+        .expect("driver descriptors response should contain data array");
+    assert_eq!(descriptors.len(), 1);
+    assert_eq!(descriptors[0]["driver_type"], "local");
+    assert_eq!(
+        descriptors[0]["fields"]
+            .as_array()
+            .expect("local descriptor fields should be an array")
+            .iter()
+            .map(|field| field["name"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["base_path", "max_file_size", "is_default"]
+    );
 }
 
 async fn write_temp_upload_file(
@@ -2385,6 +2590,11 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     assert_eq!(body["data"]["features"]["object_head"], true);
     assert_eq!(body["data"]["features"]["browser_presigned_cors"], true);
     assert_eq!(body["data"]["supports_range_read"], true);
+    assert_eq!(body["data"]["managed_ingress"]["enabled"], true);
+    assert_eq!(
+        body["data"]["managed_ingress"]["driver_types"],
+        serde_json::json!(["local", "s3"])
+    );
 }
 
 #[actix_web::test]

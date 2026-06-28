@@ -70,11 +70,6 @@ pub fn new_short_token() -> String {
     Uuid::new_v4().simple().to_string()
 }
 
-/// 生成分享链接 token（32 字符 UUID v4 hex）
-pub fn new_share_token() -> String {
-    Uuid::new_v4().simple().to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -186,8 +181,8 @@ mod tests {
     }
 
     #[test]
-    fn new_share_token_uses_uuid_v4_hex_entropy() {
-        let token = new_share_token();
+    fn new_short_token_uses_uuid_v4_hex_entropy() {
+        let token = new_short_token();
 
         assert_eq!(token.len(), 32);
         assert!(!token.contains('-'));

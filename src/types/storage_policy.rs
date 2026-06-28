@@ -41,6 +41,32 @@ impl DriverType {
             Self::OneDrive => "onedrive",
         }
     }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value {
+            "local" => Some(Self::Local),
+            "s3" => Some(Self::S3),
+            "azure_blob" => Some(Self::AzureBlob),
+            "tencent_cos" => Some(Self::TencentCos),
+            "remote" => Some(Self::Remote),
+            "onedrive" => Some(Self::OneDrive),
+            _ => None,
+        }
+    }
+}
+
+impl std::str::FromStr for DriverType {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(())
+    }
+}
+
+impl AsRef<str> for DriverType {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
 }
 
 /// 上传 session 状态

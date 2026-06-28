@@ -16,7 +16,7 @@ use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_credential_service;
 use crate::services::{audit_service, auth_service::Claims, policy_service};
-use crate::types::{DriverType, StorageCredentialProvider};
+use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
 // ── Conversion helpers (must stay here because they use policy_service types) ──────────
@@ -629,7 +629,7 @@ pub async fn validate_storage_policy_credential(
     path: web::Path<(i64, String)>,
 ) -> Result<HttpResponse> {
     let (policy_id, provider) = path.into_inner();
-    let provider = StorageCredentialProvider::parse(&provider).ok_or_else(|| {
+    let provider = provider.parse().map_err(|()| {
         crate::errors::AsterError::validation_error("unsupported storage credential provider")
     })?;
     let result = storage_credential_service::validate_policy_credential(

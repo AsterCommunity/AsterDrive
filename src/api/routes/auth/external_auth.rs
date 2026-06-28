@@ -21,7 +21,7 @@ use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
 
 fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {
-    ExternalAuthProviderKind::parse(value).ok_or_else(|| {
+    value.parse().map_err(|()| {
         AsterError::record_not_found(format!("external auth provider kind '{value}'"))
     })
 }

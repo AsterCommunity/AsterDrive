@@ -409,7 +409,7 @@ async fn v4_remote_driver_rejects_v2_node_without_capacity_support() {
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        error.message().contains("local supports v4-v4"),
+        error.message().contains("local supports v4-v5"),
         "unexpected error message: {}",
         error.message()
     );

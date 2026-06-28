@@ -765,7 +765,7 @@ pub fn storage_authorization_provider(
     Ok(storage_driver_descriptor(driver_type)?
         .authorization_provider
         .as_deref()
-        .and_then(StorageCredentialProvider::parse))
+        .and_then(|provider| provider.parse().ok()))
 }
 
 pub fn ensure_storage_authorization_supported(
@@ -780,7 +780,7 @@ pub fn ensure_storage_authorization_supported(
     let supported_provider = descriptor
         .authorization_provider
         .as_deref()
-        .and_then(StorageCredentialProvider::parse);
+        .and_then(|provider| provider.parse().ok());
     if starts_authorization && supported_provider == Some(provider) {
         return Ok(StorageCredentialKind::OauthDelegated);
     }
@@ -805,7 +805,7 @@ pub fn ensure_storage_credential_validation_supported(
     let supported_provider = descriptor
         .authorization_provider
         .as_deref()
-        .and_then(StorageCredentialProvider::parse);
+        .and_then(|provider| provider.parse().ok());
     if validates_credential && supported_provider == Some(provider) {
         return Ok(StorageCredentialKind::OauthDelegated);
     }

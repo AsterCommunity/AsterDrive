@@ -55,6 +55,7 @@ import type {
 	ExternalAuthProviderTestResult,
 	FolderInfo,
 	LockPage,
+	ManagedIngressDriverDescriptor,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
 	PromoteS3CompatiblePolicyDriverRequest,
@@ -430,6 +431,11 @@ export const adminRemoteNodeService = {
 	listIngressProfiles: (id: number) =>
 		api.get<RemoteIngressProfileInfo[]>(
 			`/admin/remote-nodes/${id}/ingress-profiles`,
+		),
+
+	listIngressProfileDrivers: (id: number) =>
+		api.get<ManagedIngressDriverDescriptor[]>(
+			`/admin/remote-nodes/${id}/ingress-profile-drivers`,
 		),
 
 	createIngressProfile: (id: number, data: RemoteCreateIngressProfileRequest) =>

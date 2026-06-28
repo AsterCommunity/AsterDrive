@@ -17,19 +17,7 @@ use crate::services::{
 use crate::storage::remote_protocol::{
     RemoteCreateIngressProfileRequest, RemoteUpdateIngressProfileRequest,
 };
-use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, web};
-
-fn driver_type_audit_name(driver_type: DriverType) -> &'static str {
-    match driver_type {
-        DriverType::Local => "local",
-        DriverType::S3 => "s3",
-        DriverType::AzureBlob => "azure_blob",
-        DriverType::TencentCos => "tencent_cos",
-        DriverType::Remote => "remote",
-        DriverType::OneDrive => "onedrive",
-    }
-}
 
 fn enrollment_status_audit_name(
     status: managed_follower_service::RemoteNodeEnrollmentStatus,
@@ -397,6 +385,30 @@ pub async fn list_remote_node_ingress_profiles(
 }
 
 #[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/remote-nodes/{id}/ingress-profile-drivers",
+    tag = "admin",
+    operation_id = "list_remote_node_ingress_profile_drivers",
+    params(("id" = i64, Path, description = "Remote node ID")),
+    responses(
+        (status = 200, description = "List remote node ingress profile driver descriptors", body = inline(ApiResponse<Vec<crate::services::managed_ingress_profile_service::ManagedIngressDriverDescriptor>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_remote_node_ingress_profile_drivers(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let descriptors =
+        managed_ingress_profile_service::list_remote_driver_descriptors(state.get_ref(), *path)
+            .await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
+}
+
+#[api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles",
     tag = "admin",
@@ -433,7 +445,7 @@ pub async fn create_remote_node_ingress_profile(
         || {
             audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
                 profile_key: &profile.profile_key,
-                driver_type: driver_type_audit_name(profile.driver_type),
+                driver_type: profile.driver_type.as_str(),
                 is_default: profile.is_default,
             })
         },
@@ -487,7 +499,7 @@ pub async fn update_remote_node_ingress_profile(
         || {
             audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
                 profile_key: &profile.profile_key,
-                driver_type: driver_type_audit_name(profile.driver_type),
+                driver_type: profile.driver_type.as_str(),
                 is_default: profile.is_default,
             })
         },

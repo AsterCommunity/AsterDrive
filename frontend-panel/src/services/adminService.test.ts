@@ -605,6 +605,7 @@ describe("adminService", () => {
 	});
 
 	it("uses the expected managed ingress profile endpoints", () => {
+		adminRemoteNodeService.listIngressProfileDrivers(6);
 		adminRemoteNodeService.listIngressProfiles(6);
 		adminRemoteNodeService.createIngressProfile(6, {
 			name: "Ingress A",
@@ -623,6 +624,9 @@ describe("adminService", () => {
 		});
 		adminRemoteNodeService.deleteIngressProfile(6, "igp_demo");
 
+		expect(mockState.get).toHaveBeenCalledWith(
+			"/admin/remote-nodes/6/ingress-profile-drivers",
+		);
 		expect(mockState.get).toHaveBeenCalledWith(
 			"/admin/remote-nodes/6/ingress-profiles",
 		);

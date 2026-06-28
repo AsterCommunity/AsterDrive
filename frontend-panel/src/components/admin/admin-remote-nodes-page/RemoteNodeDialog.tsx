@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dialog";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
+	ManagedIngressDriverDescriptor,
 	RemoteCreateIngressProfileRequest,
 	RemoteIngressProfileInfo,
 	RemoteNodeInfo,
@@ -33,12 +34,17 @@ import {
 } from "./shared";
 
 const EMPTY_MANAGED_INGRESS_PROFILES: RemoteIngressProfileInfo[] = [];
+const EMPTY_MANAGED_INGRESS_DRIVER_DESCRIPTORS: ManagedIngressDriverDescriptor[] =
+	[];
 
 interface RemoteNodeDialogProps {
 	createStep: number;
 	createStepTouched: boolean;
 	editingNode: RemoteNodeInfo | null;
 	form: RemoteNodeFormData;
+	managedIngressDriverDescriptors?: ManagedIngressDriverDescriptor[];
+	managedIngressDriverDescriptorsError?: string | null;
+	managedIngressDriverDescriptorsLoading?: boolean;
 	managedIngressProfiles?: RemoteIngressProfileInfo[];
 	managedIngressProfilesEnabled?: boolean;
 	managedIngressProfilesError?: string | null;
@@ -73,6 +79,9 @@ export function RemoteNodeDialog({
 	createStepTouched,
 	editingNode,
 	form,
+	managedIngressDriverDescriptors = EMPTY_MANAGED_INGRESS_DRIVER_DESCRIPTORS,
+	managedIngressDriverDescriptorsError = null,
+	managedIngressDriverDescriptorsLoading = false,
 	managedIngressProfiles = EMPTY_MANAGED_INGRESS_PROFILES,
 	managedIngressProfilesEnabled = false,
 	managedIngressProfilesError = null,
@@ -264,6 +273,15 @@ export function RemoteNodeDialog({
 								enabledToneClass={enabledToneClass}
 								form={form}
 								managedIngressProfiles={managedIngressProfiles}
+								managedIngressDriverDescriptors={
+									managedIngressDriverDescriptors
+								}
+								managedIngressDriverDescriptorsError={
+									managedIngressDriverDescriptorsError
+								}
+								managedIngressDriverDescriptorsLoading={
+									managedIngressDriverDescriptorsLoading
+								}
 								managedIngressProfilesEnabled={managedIngressProfilesEnabled}
 								managedIngressProfilesError={managedIngressProfilesError}
 								managedIngressProfilesLoading={managedIngressProfilesLoading}

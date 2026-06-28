@@ -142,6 +142,7 @@
 	"remote_node_ingress_profile_local_scope_hint": "这个配置会写入 follower 本地存储。上面的基础路径永远只会相对于 `server.follower.managed_ingress_local_root` 解析，不会接受任意宿主机绝对路径。",
 	"remote_node_ingress_profile_driver_local": "本地",
 	"remote_node_ingress_profile_driver_s3": "S3",
+	"remote_node_ingress_profile_driver_unsupported": "这台 follower 没有声明支持当前接收驱动。",
 	"remote_node_ingress_profile_default_toggle": "设为默认接收落点",
 	"remote_node_ingress_profile_default_hint": "主控写入这台 follower 的对象默认会落到这里。",
 	"remote_node_ingress_profile_default_locked_hint": "这条落点已经是默认值。要切换默认，请先把另一条设为默认。",

@@ -10,10 +10,11 @@ use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 4;
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 5;
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 4;
-pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v4";
+pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v5";
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL: &str = "v4";
+const LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION: u16 = 4;
 pub const REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS: &str = "content-type, range";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS: &str = "ETag";
@@ -33,6 +34,8 @@ pub struct RemoteStorageCapabilities {
     pub browser_cors: RemoteStorageBrowserCorsContract,
     #[serde(default)]
     pub limits: RemoteStorageProtocolLimits,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub managed_ingress: Option<RemoteManagedIngressCapabilities>,
     #[serde(default)]
     pub supports_list: bool,
     #[serde(default)]
@@ -59,6 +62,7 @@ impl RemoteStorageCapabilities {
             features: RemoteStorageFeatureFlags::current(),
             browser_cors: RemoteStorageBrowserCorsContract::current(),
             limits: RemoteStorageProtocolLimits::default(),
+            managed_ingress: Some(RemoteManagedIngressCapabilities::default()),
             supports_list: true,
             supports_range_read: true,
             supports_stream_upload: true,
@@ -74,11 +78,33 @@ impl RemoteStorageCapabilities {
             features: RemoteStorageFeatureFlags::default(),
             browser_cors: RemoteStorageBrowserCorsContract::default(),
             limits: RemoteStorageProtocolLimits::default(),
+            managed_ingress: None,
             supports_list: false,
             supports_range_read: false,
             supports_stream_upload: false,
             supports_capacity: false,
         }
+    }
+
+    pub fn with_managed_ingress_driver_types(mut self, driver_types: Vec<DriverType>) -> Self {
+        self.managed_ingress = Some(RemoteManagedIngressCapabilities::from_known_driver_types(
+            driver_types,
+        ));
+        self
+    }
+
+    pub fn effective_managed_ingress(&self) -> RemoteManagedIngressCapabilities {
+        if let Some(capabilities) = &self.managed_ingress {
+            return capabilities.clone();
+        }
+
+        if parse_protocol_version(&self.protocol_version)
+            == Some(LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION)
+        {
+            return RemoteManagedIngressCapabilities::legacy_v4_default();
+        }
+
+        RemoteManagedIngressCapabilities::default()
     }
 
     pub fn from_stored_json(raw: &str) -> Self {
@@ -294,6 +320,61 @@ impl RemoteStorageCapabilities {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteManagedIngressCapabilities {
+    pub enabled: bool,
+    #[serde(default)]
+    pub driver_types: Vec<RemoteManagedIngressDriverType>,
+}
+
+impl RemoteManagedIngressCapabilities {
+    pub fn from_known_driver_types(driver_types: Vec<DriverType>) -> Self {
+        Self {
+            enabled: !driver_types.is_empty(),
+            driver_types: driver_types
+                .into_iter()
+                .map(RemoteManagedIngressDriverType::from_known_driver_type)
+                .collect(),
+        }
+    }
+
+    fn legacy_v4_default() -> Self {
+        Self::from_known_driver_types(vec![DriverType::Local, DriverType::S3])
+    }
+
+    pub fn supports_known_driver(&self, driver_type: DriverType) -> bool {
+        self.enabled
+            && self
+                .driver_types
+                .iter()
+                .any(|candidate| candidate.matches_known_driver(driver_type))
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteManagedIngressDriverType(String);
+
+impl RemoteManagedIngressDriverType {
+    pub fn from_known_driver_type(driver_type: DriverType) -> Self {
+        Self(driver_type.as_str().to_string())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+
+    pub fn as_known_driver_type(&self) -> Option<DriverType> {
+        self.0.parse().ok()
+    }
+
+    pub fn matches_known_driver(&self, driver_type: DriverType) -> bool {
+        self.as_str() == driver_type.as_str()
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[derive(Default)]
@@ -468,6 +549,15 @@ pub struct RemoteIngressProfileInfo {
 pub enum RemoteCreateIngressProfileRequest {
     Local(RemoteCreateLocalIngressProfileRequest),
     S3(RemoteCreateS3IngressProfileRequest),
+}
+
+impl RemoteCreateIngressProfileRequest {
+    pub fn driver_type(&self) -> DriverType {
+        match self {
+            Self::Local(_) => DriverType::Local,
+            Self::S3(_) => DriverType::S3,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

@@ -66,8 +66,9 @@ pub use policies::{
 pub use remote_nodes::{
     create_remote_node, create_remote_node_enrollment_token, create_remote_node_ingress_profile,
     delete_remote_node, delete_remote_node_ingress_profile, get_remote_node,
-    list_remote_node_ingress_profiles, list_remote_nodes, test_remote_node,
-    test_remote_node_params, update_remote_node, update_remote_node_ingress_profile,
+    list_remote_node_ingress_profile_drivers, list_remote_node_ingress_profiles, list_remote_nodes,
+    test_remote_node, test_remote_node_params, update_remote_node,
+    update_remote_node_ingress_profile,
 };
 pub use shares::{admin_delete_share, list_all_shares};
 pub use storage_migrations::{
@@ -165,6 +166,10 @@ pub fn routes(
                     .route(
                         "/remote-nodes/{id}/ingress-profiles",
                         web::get().to(list_remote_node_ingress_profiles),
+                    )
+                    .route(
+                        "/remote-nodes/{id}/ingress-profile-drivers",
+                        web::get().to(list_remote_node_ingress_profile_drivers),
                     )
                     .route(
                         "/remote-nodes/{id}/ingress-profiles",

@@ -32,6 +32,20 @@ impl StorageCredentialProvider {
     }
 }
 
+impl std::str::FromStr for StorageCredentialProvider {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(())
+    }
+}
+
+impl AsRef<str> for StorageCredentialProvider {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 /// Authentication material shape for a storage policy credential.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

@@ -81,6 +81,20 @@ impl ExternalAuthProviderKind {
     }
 }
 
+impl std::str::FromStr for ExternalAuthProviderKind {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::parse(value).ok_or(())
+    }
+}
+
+impl AsRef<str> for ExternalAuthProviderKind {
+    fn as_ref(&self) -> &str {
+        self.as_str()
+    }
+}
+
 /// 外部认证协议族。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

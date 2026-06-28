@@ -85,7 +85,7 @@ pub(crate) async fn create_share_in_scope(
 
     let now = Utc::now();
     let model = share::ActiveModel {
-        token: Set(id::new_share_token()),
+        token: Set(id::new_short_token()),
         user_id: Set(scope.actor_user_id()),
         team_id: Set(scope.team_id()),
         file_id: Set(file_id),

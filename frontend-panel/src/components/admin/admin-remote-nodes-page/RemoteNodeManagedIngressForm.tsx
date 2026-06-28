@@ -1,5 +1,8 @@
 import { useTranslation } from "react-i18next";
-import type { ManagedIngressProfileFormData } from "@/components/admin/managedIngressProfileDialogShared";
+import {
+	isManagedIngressDriverType,
+	type ManagedIngressProfileFormData,
+} from "@/components/admin/managedIngressProfileDialogShared";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -13,7 +16,11 @@ import {
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import type { RemoteIngressProfileInfo } from "@/types/api";
+import type {
+	ManagedIngressDriverDescriptor,
+	ManagedIngressDriverFieldDescriptor,
+	RemoteIngressProfileInfo,
+} from "@/types/api";
 import type {
 	RemoteNodeManagedIngressDraftMode,
 	RemoteNodeManagedIngressFieldChangeHandler,
@@ -23,6 +30,8 @@ interface RemoteNodeManagedIngressFormProps {
 	accessKeyError: string | null;
 	bucketError: string | null;
 	defaultToggleLocked: boolean;
+	driverDescriptors: ManagedIngressDriverDescriptor[];
+	driverTypeError: string | null;
 	draftMode: RemoteNodeManagedIngressDraftMode;
 	editingProfile: RemoteIngressProfileInfo | null;
 	endpointError: string | null;
@@ -42,6 +51,8 @@ export function RemoteNodeManagedIngressForm({
 	accessKeyError,
 	bucketError,
 	defaultToggleLocked,
+	driverDescriptors,
+	driverTypeError,
 	draftMode,
 	editingProfile,
 	endpointError,
@@ -57,16 +68,31 @@ export function RemoteNodeManagedIngressForm({
 	submitting,
 }: RemoteNodeManagedIngressFormProps) {
 	const { t } = useTranslation("admin");
-	const driverTypeOptions = [
-		{
-			label: t("remote_node_ingress_profile_driver_local"),
-			value: "local",
-		},
-		{
-			label: t("remote_node_ingress_profile_driver_s3"),
-			value: "s3",
-		},
-	] as const;
+	const driverTypeOptions = driverDescriptors.map((descriptor) => ({
+		label: t(descriptor.label_key),
+		value: descriptor.driver_type,
+	}));
+	const activeDriverDescriptor =
+		driverDescriptors.find(
+			(descriptor) => descriptor.driver_type === form.driver_type,
+		) ?? null;
+	const fieldByName = new Map(
+		activeDriverDescriptor?.fields.map((field) => [field.name, field]) ?? [],
+	);
+	const field = (name: string) => fieldByName.get(name);
+	const fieldHelp = (
+		descriptor: ManagedIngressDriverFieldDescriptor | undefined,
+	) => (descriptor?.help_key ? t(descriptor.help_key) : null);
+	const fieldPlaceholder = (
+		descriptor: ManagedIngressDriverFieldDescriptor | undefined,
+	) => descriptor?.placeholder ?? undefined;
+	const basePathField = field("base_path");
+	const maxFileSizeField = field("max_file_size");
+	const endpointField = field("endpoint");
+	const bucketField = field("bucket");
+	const accessKeyField = field("access_key");
+	const secretKeyField = field("secret_key");
+	const isDefaultField = field("is_default");
 
 	return (
 		<div className="mt-4 rounded-2xl border border-border/70 bg-muted/10 p-4">
@@ -114,7 +140,7 @@ export function RemoteNodeManagedIngressForm({
 						items={driverTypeOptions}
 						value={form.driver_type}
 						onValueChange={(value) => {
-							if (value === "local" || value === "s3") {
+							if (isManagedIngressDriverType(value)) {
 								onFieldChange("driver_type", value);
 							}
 						}}
@@ -133,163 +159,186 @@ export function RemoteNodeManagedIngressForm({
 							))}
 						</SelectContent>
 					</Select>
-				</div>
-
-				<div className="space-y-2">
-					<Label htmlFor="managed-ingress-base-path">{t("base_path")}</Label>
-					<Input
-						id="managed-ingress-base-path"
-						value={form.base_path}
-						onChange={(event) => onFieldChange("base_path", event.target.value)}
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						aria-invalid={localPathError ? true : undefined}
-						placeholder={
-							form.driver_type === "local" ? "tenant-a/incoming" : "prefix"
-						}
-					/>
-					<p className="text-xs text-muted-foreground">
-						{form.driver_type === "local"
-							? t("remote_node_ingress_profile_local_path_hint")
-							: t("remote_node_ingress_profile_s3_path_hint")}
-					</p>
-					{localPathError ? (
-						<p className="text-xs text-destructive">{localPathError}</p>
+					{driverTypeError ? (
+						<p className="text-xs text-destructive">{driverTypeError}</p>
 					) : null}
 				</div>
 
-				<div className="space-y-2">
-					<Label htmlFor="managed-ingress-max-file-size">
-						{t("max_file_size")} (bytes)
-					</Label>
-					<Input
-						id="managed-ingress-max-file-size"
-						type="number"
-						min="0"
-						step="1"
-						value={form.max_file_size}
-						onChange={(event) =>
-							onFieldChange("max_file_size", event.target.value)
-						}
-						className={ADMIN_CONTROL_HEIGHT_CLASS}
-						aria-invalid={maxFileSizeError ? true : undefined}
-						placeholder="0"
-					/>
-					<p className="text-xs text-muted-foreground">
-						{t("remote_node_ingress_profile_max_file_size_hint")}
-					</p>
-					{maxFileSizeError ? (
-						<p className="text-xs text-destructive">{maxFileSizeError}</p>
-					) : null}
-				</div>
-
-				{form.driver_type === "s3" ? (
-					<>
-						<div className="space-y-2">
-							<Label htmlFor="managed-ingress-endpoint">{t("endpoint")}</Label>
-							<Input
-								id="managed-ingress-endpoint"
-								value={form.endpoint}
-								onChange={(event) =>
-									onFieldChange("endpoint", event.target.value)
-								}
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								aria-invalid={endpointError ? true : undefined}
-								placeholder="https://s3.example.com"
-							/>
-							{endpointError ? (
-								<p className="text-xs text-destructive">{endpointError}</p>
-							) : null}
-						</div>
-
-						<div className="space-y-2">
-							<Label htmlFor="managed-ingress-bucket">{t("bucket")}</Label>
-							<Input
-								id="managed-ingress-bucket"
-								value={form.bucket}
-								onChange={(event) =>
-									onFieldChange("bucket", event.target.value)
-								}
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								aria-invalid={bucketError ? true : undefined}
-							/>
-							{bucketError ? (
-								<p className="text-xs text-destructive">{bucketError}</p>
-							) : null}
-						</div>
-
-						<div className="space-y-2">
-							<Label htmlFor="managed-ingress-access-key">
-								{t("access_key")}
-							</Label>
-							<Input
-								id="managed-ingress-access-key"
-								value={form.access_key}
-								onChange={(event) =>
-									onFieldChange("access_key", event.target.value)
-								}
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								aria-invalid={accessKeyError ? true : undefined}
-							/>
-							{accessKeyError ? (
-								<p className="text-xs text-destructive">{accessKeyError}</p>
-							) : null}
-						</div>
-
-						<div className="space-y-2">
-							<Label htmlFor="managed-ingress-secret-key">
-								{t("secret_key")}
-							</Label>
-							<Input
-								id="managed-ingress-secret-key"
-								type="password"
-								value={form.secret_key}
-								onChange={(event) =>
-									onFieldChange("secret_key", event.target.value)
-								}
-								className={ADMIN_CONTROL_HEIGHT_CLASS}
-								aria-invalid={secretKeyError ? true : undefined}
-								placeholder={
-									draftMode === "edit" && editingProfile?.driver_type === "s3"
-										? "••••••••"
-										: undefined
-								}
-							/>
+				{basePathField ? (
+					<div className="space-y-2">
+						<Label htmlFor="managed-ingress-base-path">{t("base_path")}</Label>
+						<Input
+							id="managed-ingress-base-path"
+							value={form.base_path}
+							onChange={(event) =>
+								onFieldChange("base_path", event.target.value)
+							}
+							className={ADMIN_CONTROL_HEIGHT_CLASS}
+							aria-invalid={localPathError ? true : undefined}
+							placeholder={fieldPlaceholder(basePathField)}
+						/>
+						{fieldHelp(basePathField) ? (
 							<p className="text-xs text-muted-foreground">
-								{draftMode === "edit" && editingProfile?.driver_type === "s3"
-									? t("remote_node_ingress_profile_credentials_optional_hint")
-									: t("remote_node_ingress_profile_credentials_hint")}
+								{fieldHelp(basePathField)}
 							</p>
-							{secretKeyError ? (
-								<p className="text-xs text-destructive">{secretKeyError}</p>
-							) : null}
-						</div>
+						) : null}
+						{localPathError ? (
+							<p className="text-xs text-destructive">{localPathError}</p>
+						) : null}
+					</div>
+				) : null}
+
+				{maxFileSizeField ? (
+					<div className="space-y-2">
+						<Label htmlFor="managed-ingress-max-file-size">
+							{t("max_file_size")} (bytes)
+						</Label>
+						<Input
+							id="managed-ingress-max-file-size"
+							type="number"
+							min="0"
+							step="1"
+							value={form.max_file_size}
+							onChange={(event) =>
+								onFieldChange("max_file_size", event.target.value)
+							}
+							className={ADMIN_CONTROL_HEIGHT_CLASS}
+							aria-invalid={maxFileSizeError ? true : undefined}
+							placeholder={fieldPlaceholder(maxFileSizeField)}
+						/>
+						{fieldHelp(maxFileSizeField) ? (
+							<p className="text-xs text-muted-foreground">
+								{fieldHelp(maxFileSizeField)}
+							</p>
+						) : null}
+						{maxFileSizeError ? (
+							<p className="text-xs text-destructive">{maxFileSizeError}</p>
+						) : null}
+					</div>
+				) : null}
+
+				{endpointField || bucketField || accessKeyField || secretKeyField ? (
+					<>
+						{endpointField ? (
+							<div className="space-y-2">
+								<Label htmlFor="managed-ingress-endpoint">
+									{t("endpoint")}
+								</Label>
+								<Input
+									id="managed-ingress-endpoint"
+									value={form.endpoint}
+									onChange={(event) =>
+										onFieldChange("endpoint", event.target.value)
+									}
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									aria-invalid={endpointError ? true : undefined}
+									placeholder={fieldPlaceholder(endpointField)}
+								/>
+								{endpointError ? (
+									<p className="text-xs text-destructive">{endpointError}</p>
+								) : null}
+							</div>
+						) : null}
+
+						{bucketField ? (
+							<div className="space-y-2">
+								<Label htmlFor="managed-ingress-bucket">{t("bucket")}</Label>
+								<Input
+									id="managed-ingress-bucket"
+									value={form.bucket}
+									onChange={(event) =>
+										onFieldChange("bucket", event.target.value)
+									}
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									aria-invalid={bucketError ? true : undefined}
+								/>
+								{bucketError ? (
+									<p className="text-xs text-destructive">{bucketError}</p>
+								) : null}
+							</div>
+						) : null}
+
+						{accessKeyField ? (
+							<div className="space-y-2">
+								<Label htmlFor="managed-ingress-access-key">
+									{t("access_key")}
+								</Label>
+								<Input
+									id="managed-ingress-access-key"
+									value={form.access_key}
+									onChange={(event) =>
+										onFieldChange("access_key", event.target.value)
+									}
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									aria-invalid={accessKeyError ? true : undefined}
+								/>
+								{accessKeyError ? (
+									<p className="text-xs text-destructive">{accessKeyError}</p>
+								) : null}
+							</div>
+						) : null}
+
+						{secretKeyField ? (
+							<div className="space-y-2">
+								<Label htmlFor="managed-ingress-secret-key">
+									{t("secret_key")}
+								</Label>
+								<Input
+									id="managed-ingress-secret-key"
+									type="password"
+									value={form.secret_key}
+									onChange={(event) =>
+										onFieldChange("secret_key", event.target.value)
+									}
+									className={ADMIN_CONTROL_HEIGHT_CLASS}
+									aria-invalid={secretKeyError ? true : undefined}
+									placeholder={
+										draftMode === "edit" && editingProfile?.driver_type === "s3"
+											? "••••••••"
+											: undefined
+									}
+								/>
+								<p className="text-xs text-muted-foreground">
+									{draftMode === "edit" && editingProfile?.driver_type === "s3"
+										? t("remote_node_ingress_profile_credentials_optional_hint")
+										: t("remote_node_ingress_profile_credentials_hint")}
+								</p>
+								{secretKeyError ? (
+									<p className="text-xs text-destructive">{secretKeyError}</p>
+								) : null}
+							</div>
+						) : null}
 					</>
-				) : (
+				) : activeDriverDescriptor ? (
 					<div className="rounded-2xl border border-dashed border-border/70 bg-background/70 p-4 md:col-span-2">
 						<p className="text-sm leading-6 text-muted-foreground">
-							{t("remote_node_ingress_profile_local_scope_hint")}
+							{activeDriverDescriptor.description_key
+								? t(activeDriverDescriptor.description_key)
+								: t(activeDriverDescriptor.label_key)}
 						</p>
 					</div>
-				)}
+				) : null}
 
-				<div className="space-y-2 md:col-span-2">
-					<div className="flex items-center gap-2">
-						<Switch
-							id="managed-ingress-default"
-							checked={form.is_default}
-							onCheckedChange={(value) => onFieldChange("is_default", value)}
-							disabled={defaultToggleLocked}
-						/>
-						<Label htmlFor="managed-ingress-default">
-							{t("remote_node_ingress_profile_default_toggle")}
-						</Label>
+				{isDefaultField ? (
+					<div className="space-y-2 md:col-span-2">
+						<div className="flex items-center gap-2">
+							<Switch
+								id="managed-ingress-default"
+								checked={form.is_default}
+								onCheckedChange={(value) => onFieldChange("is_default", value)}
+								disabled={defaultToggleLocked}
+							/>
+							<Label htmlFor="managed-ingress-default">
+								{t("remote_node_ingress_profile_default_toggle")}
+							</Label>
+						</div>
+						<p className="text-xs text-muted-foreground">
+							{defaultToggleLocked
+								? t("remote_node_ingress_profile_default_locked_hint")
+								: t("remote_node_ingress_profile_default_hint")}
+						</p>
 					</div>
-					<p className="text-xs text-muted-foreground">
-						{defaultToggleLocked
-							? t("remote_node_ingress_profile_default_locked_hint")
-							: t("remote_node_ingress_profile_default_hint")}
-					</p>
-				</div>
+				) : null}
 			</div>
 
 			<div className="mt-4 flex justify-end gap-2">

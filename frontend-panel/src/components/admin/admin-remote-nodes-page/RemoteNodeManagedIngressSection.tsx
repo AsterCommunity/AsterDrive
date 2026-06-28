@@ -5,12 +5,15 @@ import {
 	buildUpdateManagedIngressProfilePayload,
 	emptyManagedIngressProfileForm,
 	getManagedIngressProfileForm,
+	isManagedIngressDriverType,
+	type ManagedIngressDriverType,
 	type ManagedIngressProfileFormData,
 } from "@/components/admin/managedIngressProfileDialogShared";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
+	ManagedIngressDriverDescriptor,
 	RemoteCreateIngressProfileRequest,
 	RemoteIngressProfileInfo,
 	RemoteUpdateIngressProfileRequest,
@@ -18,7 +21,13 @@ import type {
 import { RemoteNodeManagedIngressForm } from "./RemoteNodeManagedIngressForm";
 import { RemoteNodeManagedIngressProfilesList } from "./RemoteNodeManagedIngressProfilesList";
 
+type SupportedManagedIngressDriverDescriptor =
+	ManagedIngressDriverDescriptor & {
+		driver_type: ManagedIngressDriverType;
+	};
+
 interface RemoteNodeManagedIngressSectionProps {
+	driverDescriptors: ManagedIngressDriverDescriptor[];
 	errorMessage: string | null;
 	loading: boolean;
 	onCreateProfile: (
@@ -33,6 +42,7 @@ interface RemoteNodeManagedIngressSectionProps {
 }
 
 export function RemoteNodeManagedIngressSection({
+	driverDescriptors,
 	errorMessage,
 	loading,
 	onCreateProfile,
@@ -60,6 +70,28 @@ export function RemoteNodeManagedIngressSection({
 			: null;
 	const activeDraftMode =
 		draftMode === "edit" && editingProfile == null ? null : draftMode;
+	const supportedDriverDescriptors = driverDescriptors.flatMap(
+		(descriptor): SupportedManagedIngressDriverDescriptor[] =>
+			isManagedIngressDriverType(descriptor.driver_type)
+				? [{ ...descriptor, driver_type: descriptor.driver_type }]
+				: [],
+	);
+	const activeDriverDescriptor =
+		supportedDriverDescriptors.find(
+			(descriptor) => descriptor.driver_type === form.driver_type,
+		) ?? null;
+	const firstSupportedDriverType =
+		supportedDriverDescriptors[0]?.driver_type ?? null;
+	const supportedDriverTypes = new Set(
+		supportedDriverDescriptors.map((descriptor) => descriptor.driver_type),
+	);
+	const driverTypeError =
+		activeDraftMode != null && !supportedDriverTypes.has(form.driver_type)
+			? t("remote_node_ingress_profile_driver_unsupported")
+			: null;
+	const activeFieldNames = new Set(
+		activeDriverDescriptor?.fields.map((field) => field.name) ?? [],
+	);
 	const activePendingDeleteProfileKey = profiles.some(
 		(profile) => profile.profile_key === pendingDeleteProfileKey,
 	)
@@ -67,10 +99,14 @@ export function RemoteNodeManagedIngressSection({
 		: null;
 
 	const startCreate = () => {
+		if (!firstSupportedDriverType) {
+			return;
+		}
 		setDraftMode("create");
 		setEditingProfileKey(null);
 		setForm({
 			...emptyManagedIngressProfileForm,
+			driver_type: firstSupportedDriverType,
 			is_default: profiles.length === 0,
 		});
 	};
@@ -104,7 +140,7 @@ export function RemoteNodeManagedIngressSection({
 			: t("remote_node_ingress_profile_max_file_size_invalid");
 	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
 	const localPathError =
-		form.driver_type === "local"
+		activeFieldNames.has("base_path") && form.driver_type === "local"
 			? !form.base_path.trim()
 				? t("remote_node_ingress_profile_base_path_required")
 				: localPathCandidate.startsWith("/") ||
@@ -114,15 +150,15 @@ export function RemoteNodeManagedIngressSection({
 					: null
 			: null;
 	const endpointError =
-		form.driver_type === "s3" && !form.endpoint.trim()
+		activeFieldNames.has("endpoint") && !form.endpoint.trim()
 			? t("remote_node_ingress_profile_endpoint_required")
 			: null;
 	const bucketError =
-		form.driver_type === "s3" && !form.bucket.trim()
+		activeFieldNames.has("bucket") && !form.bucket.trim()
 			? t("remote_node_ingress_profile_bucket_required")
 			: null;
 	const requiresS3Credentials =
-		form.driver_type === "s3" &&
+		activeFieldNames.has("access_key") &&
 		(activeDraftMode === "create" || editingProfile?.driver_type !== "s3");
 	const accessKeyError =
 		requiresS3Credentials && !form.access_key.trim()
@@ -140,6 +176,7 @@ export function RemoteNodeManagedIngressSection({
 		Boolean(
 			nameError ||
 				maxFileSizeError ||
+				driverTypeError ||
 				localPathError ||
 				endpointError ||
 				bucketError ||
@@ -193,7 +230,11 @@ export function RemoteNodeManagedIngressSection({
 						size="sm"
 						className={ADMIN_CONTROL_HEIGHT_CLASS}
 						onClick={startCreate}
-						disabled={loading || Boolean(errorMessage)}
+						disabled={
+							loading ||
+							Boolean(errorMessage) ||
+							firstSupportedDriverType == null
+						}
 					>
 						<Icon name="Plus" className="mr-1 size-4" />
 						{t("remote_node_ingress_profiles_create")}
@@ -212,6 +253,8 @@ export function RemoteNodeManagedIngressSection({
 					accessKeyError={accessKeyError}
 					bucketError={bucketError}
 					defaultToggleLocked={Boolean(defaultToggleLocked)}
+					driverDescriptors={supportedDriverDescriptors}
+					driverTypeError={driverTypeError}
 					draftMode={activeDraftMode}
 					editingProfile={editingProfile}
 					endpointError={endpointError}

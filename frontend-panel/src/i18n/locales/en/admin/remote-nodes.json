@@ -142,6 +142,7 @@
 	"remote_node_ingress_profile_local_scope_hint": "This profile writes into follower-local storage. The base path above is always resolved relative to `server.follower.managed_ingress_local_root`, never as an arbitrary host path.",
 	"remote_node_ingress_profile_driver_local": "Local",
 	"remote_node_ingress_profile_driver_s3": "S3",
+	"remote_node_ingress_profile_driver_unsupported": "This follower does not declare support for the selected ingress driver.",
 	"remote_node_ingress_profile_default_toggle": "Use as the default ingress profile",
 	"remote_node_ingress_profile_default_hint": "Managed follower ingress always lands on the default profile.",
 	"remote_node_ingress_profile_default_locked_hint": "This profile is already default. To change it, set another profile as default first.",

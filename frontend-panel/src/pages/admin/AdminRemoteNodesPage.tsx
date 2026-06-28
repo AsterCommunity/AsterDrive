@@ -46,6 +46,9 @@ export default function AdminRemoteNodesPage() {
 		handleVerifyEnrollmentConnection,
 		loading,
 		managedIngressProfiles,
+		managedIngressDriverDescriptors,
+		managedIngressDriverDescriptorsError,
+		managedIngressDriverDescriptorsLoading,
 		managedIngressProfilesError,
 		managedIngressProfilesLoading,
 		nextPageDisabled,
@@ -153,6 +156,13 @@ export default function AdminRemoteNodesPage() {
 						hasCompletedRemoteNodeEnrollment(editingNode)
 					}
 					managedIngressProfiles={managedIngressProfiles}
+					managedIngressDriverDescriptors={managedIngressDriverDescriptors}
+					managedIngressDriverDescriptorsError={
+						managedIngressDriverDescriptorsError
+					}
+					managedIngressDriverDescriptorsLoading={
+						managedIngressDriverDescriptorsLoading
+					}
 					managedIngressProfilesLoading={managedIngressProfilesLoading}
 					managedIngressProfilesError={managedIngressProfilesError}
 					onFieldChange={setField}

@@ -140,6 +140,40 @@ bun run test:e2e
 - 数据库事务失败不用手写多余 `rollback()`；SeaORM transaction drop 会自动回滚。
 - 不要把下载、上传完成、配额扣减、版本写入、审计写入拆成互相看不见的散逻辑；跨表一致性要在 service/repo 边界清楚表达。
 
+### Service 边界约束
+
+AI 很容易把能跑的代码堆到一个 service 里，后面就没人敢改。改后端 service 前必须先判断本次逻辑属于哪一层，并按层放置：
+
+- `src/api/routes/*`：只做协议适配、鉴权/权限 guard、参数提取、调用 service、响应映射；不要做业务规则、driver 分支、复杂 DTO 拼装。
+- `src/services/*`：只做 use case 编排，例如加载上下文、调用领域校验/解析器、调用 repo、触发必要 side effects；不要把 normalize、capability 判断、descriptor 拼装、协议转发、driver 构造全塞在一个函数里。
+- `src/services/<domain>/*` 内部模块：承载可测试的领域规则，例如 normalization、target selection、capability resolver、descriptor builder、finalization contract；能写成纯函数就不要依赖 `AppState`。
+- `src/db/repository/*`：只做数据访问和原子 SQL，不写 transport、driver、UI descriptor、产品流程判断。
+- `src/storage/remote_protocol/*`：只处理 wire protocol、签名、path encoding、HTTP/tunnel transport、capability wire model 和 response parsing；不要决定 UI 展示、policy target 选择、default target 这类产品语义。
+- `src/storage/connectors/*` / `src/storage/traits/*`：表达存储能力、driver/connector descriptor 和对象内容能力；业务层不要绕过这些抽象直接分支到具体 SDK。
+
+触发以下信号时先拆模块，不要继续往当前函数里堆：
+
+- 一个 service 函数同时出现 `AppState`、repo 写入、remote protocol client、driver 构造、descriptor 拼装、audit/registry reload。
+- 大量 `match driver_type` 出现在业务 service 中，而不是 driver/connector/target registry 或 capability resolver 中。
+- 同一个函数既做输入 normalize，又做远端能力判断，又做 DB side effect。
+- 为了 UI 表单展示在 service use case 里拼字段矩阵。
+- 函数超过约 80-120 行且没有清晰的“编排步骤”，需要说明为什么不拆。
+
+推荐的 service 函数形状：
+
+```rust
+pub async fn create_xxx(state, input) -> Result<Output> {
+    let input = normalize(input)?;
+    let context = load_context(state, &input).await?;
+    validate(&context, &input)?;
+    let result = repo::create(...).await?;
+    run_required_side_effects(state, &result).await?;
+    Ok(present(result))
+}
+```
+
+如果新功能需要跨 route/service/domain/repo/storage/protocol 多层，先在实现说明里列出每层各改什么。边界说不清就停下问 1547，别硬写。
+
 ## 数据库和类型约定
 
 - 运行态通过 `DbHandles` 保存 writer 和 reader。写入、事务、读后写、配额权威判断、登录签发 session、refresh token rotation、上传 init/chunk/complete/cancel 继续走 writer。

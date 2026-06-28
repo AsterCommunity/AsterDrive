@@ -8,7 +8,10 @@ import {
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteNodeManagedIngressSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeManagedIngressSection";
-import type { RemoteIngressProfileInfo } from "@/types/api";
+import type {
+	ManagedIngressDriverDescriptor,
+	RemoteIngressProfileInfo,
+} from "@/types/api";
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
@@ -164,7 +167,116 @@ const profile = (
 	...overrides,
 });
 
+const localDriverDescriptor: ManagedIngressDriverDescriptor = {
+	description_key: "remote_node_ingress_profile_local_scope_hint",
+	driver_type: "local",
+	fields: [
+		{
+			help_key: "remote_node_ingress_profile_local_path_hint",
+			kind: "text",
+			label_key: "base_path",
+			name: "base_path",
+			placeholder: "tenant-a/incoming",
+			required: true,
+			secret: false,
+		},
+		{
+			help_key: "remote_node_ingress_profile_max_file_size_hint",
+			kind: "number",
+			label_key: "max_file_size",
+			name: "max_file_size",
+			placeholder: "0",
+			required: false,
+			secret: false,
+		},
+		{
+			help_key: "remote_node_ingress_profile_default_hint",
+			kind: "boolean",
+			label_key: "remote_node_ingress_profile_default_toggle",
+			name: "is_default",
+			placeholder: null,
+			required: false,
+			secret: false,
+		},
+	],
+	label_key: "remote_node_ingress_profile_driver_local",
+};
+
+const s3DriverDescriptor: ManagedIngressDriverDescriptor = {
+	description_key: "remote_node_ingress_profile_s3_path_hint",
+	driver_type: "s3",
+	fields: [
+		{
+			help_key: null,
+			kind: "text",
+			label_key: "endpoint",
+			name: "endpoint",
+			placeholder: "https://s3.example.com",
+			required: true,
+			secret: false,
+		},
+		{
+			help_key: null,
+			kind: "text",
+			label_key: "bucket",
+			name: "bucket",
+			placeholder: null,
+			required: true,
+			secret: false,
+		},
+		{
+			help_key: null,
+			kind: "text",
+			label_key: "access_key",
+			name: "access_key",
+			placeholder: null,
+			required: true,
+			secret: false,
+		},
+		{
+			help_key: null,
+			kind: "secret",
+			label_key: "secret_key",
+			name: "secret_key",
+			placeholder: null,
+			required: true,
+			secret: true,
+		},
+		{
+			help_key: "remote_node_ingress_profile_s3_path_hint",
+			kind: "text",
+			label_key: "base_path",
+			name: "base_path",
+			placeholder: "prefix",
+			required: false,
+			secret: false,
+		},
+		{
+			help_key: "remote_node_ingress_profile_max_file_size_hint",
+			kind: "number",
+			label_key: "max_file_size",
+			name: "max_file_size",
+			placeholder: "0",
+			required: false,
+			secret: false,
+		},
+		{
+			help_key: "remote_node_ingress_profile_default_hint",
+			kind: "boolean",
+			label_key: "remote_node_ingress_profile_default_toggle",
+			name: "is_default",
+			placeholder: null,
+			required: false,
+			secret: false,
+		},
+	],
+	label_key: "remote_node_ingress_profile_driver_s3",
+};
+
+const defaultDriverDescriptors = [localDriverDescriptor, s3DriverDescriptor];
+
 function renderSection({
+	driverDescriptors = defaultDriverDescriptors,
 	errorMessage = null,
 	loading = false,
 	onCreateProfile = vi.fn().mockResolvedValue(undefined),
@@ -174,6 +286,7 @@ function renderSection({
 } = {}) {
 	render(
 		<RemoteNodeManagedIngressSection
+			driverDescriptors={driverDescriptors}
 			errorMessage={errorMessage}
 			loading={loading}
 			onCreateProfile={onCreateProfile}
@@ -197,6 +310,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 	it("shows loading, empty and error states", () => {
 		const { rerender } = render(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading
 				onCreateProfile={vi.fn()}
@@ -210,6 +324,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 
 		rerender(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateProfile={vi.fn()}
@@ -225,6 +340,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 
 		rerender(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage="cannot reach node"
 				loading={false}
 				onCreateProfile={vi.fn()}
@@ -280,6 +396,16 @@ describe("RemoteNodeManagedIngressSection", () => {
 		expect(
 			screen.queryByText("remote_node_ingress_profile_form_create_title"),
 		).not.toBeInTheDocument();
+	});
+
+	it("does not create profiles when no supported driver descriptor is returned", () => {
+		renderSection({ driverDescriptors: [] });
+
+		expect(
+			screen.getByRole("button", {
+				name: /remote_node_ingress_profiles_create/,
+			}),
+		).toBeDisabled();
 	});
 
 	it("validates S3 credentials on create and submits normalized fields", async () => {
@@ -378,6 +504,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		const onDeleteProfile = vi.fn().mockResolvedValue(undefined);
 		const { rerender } = render(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateProfile={vi.fn()}
@@ -394,6 +521,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 
 		rerender(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateProfile={vi.fn()}
@@ -409,6 +537,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 
 		rerender(
 			<RemoteNodeManagedIngressSection
+				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
 				onCreateProfile={vi.fn()}

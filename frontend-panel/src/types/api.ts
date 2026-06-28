@@ -327,6 +327,10 @@ export type RemoteEnrollmentCommandInfo =
 	components["schemas"]["RemoteEnrollmentCommandInfo"];
 export type RemoteIngressProfileInfo =
 	components["schemas"]["RemoteIngressProfileInfo"];
+export type ManagedIngressDriverFieldDescriptor =
+	components["schemas"]["ManagedIngressDriverFieldDescriptor"];
+export type ManagedIngressDriverDescriptor =
+	OperationData<"list_remote_node_ingress_profile_drivers">[number];
 export type RemoteNodeEnrollmentStatus =
 	components["schemas"]["RemoteNodeEnrollmentStatus"];
 export type RemoteNodeInfo = components["schemas"]["RemoteNodeInfo"];

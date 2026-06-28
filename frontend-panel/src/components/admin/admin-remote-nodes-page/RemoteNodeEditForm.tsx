@@ -5,6 +5,7 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
+	ManagedIngressDriverDescriptor,
 	RemoteCreateIngressProfileRequest,
 	RemoteIngressProfileInfo,
 	RemoteNodeInfo,
@@ -30,6 +31,9 @@ interface RemoteNodeEditFormProps {
 	editingNode: RemoteNodeInfo | null;
 	enabledToneClass: string;
 	form: RemoteNodeFormData;
+	managedIngressDriverDescriptors: ManagedIngressDriverDescriptor[];
+	managedIngressDriverDescriptorsError: string | null;
+	managedIngressDriverDescriptorsLoading: boolean;
 	managedIngressProfiles: RemoteIngressProfileInfo[];
 	managedIngressProfilesEnabled: boolean;
 	managedIngressProfilesError: string | null;
@@ -55,6 +59,9 @@ export function RemoteNodeEditForm({
 	editingNode,
 	enabledToneClass,
 	form,
+	managedIngressDriverDescriptors,
+	managedIngressDriverDescriptorsError,
+	managedIngressDriverDescriptorsLoading,
 	managedIngressProfiles,
 	managedIngressProfilesEnabled,
 	managedIngressProfilesError,
@@ -144,8 +151,15 @@ export function RemoteNodeEditForm({
 				onDeleteManagedIngressProfile ? (
 					<RemoteNodeManagedIngressSection
 						profiles={managedIngressProfiles}
-						loading={managedIngressProfilesLoading}
-						errorMessage={managedIngressProfilesError}
+						driverDescriptors={managedIngressDriverDescriptors}
+						loading={
+							managedIngressProfilesLoading ||
+							managedIngressDriverDescriptorsLoading
+						}
+						errorMessage={
+							managedIngressProfilesError ??
+							managedIngressDriverDescriptorsError
+						}
 						onCreateProfile={onCreateManagedIngressProfile}
 						onUpdateProfile={onUpdateManagedIngressProfile}
 						onDeleteProfile={onDeleteManagedIngressProfile}

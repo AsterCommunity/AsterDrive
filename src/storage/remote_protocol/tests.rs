@@ -638,7 +638,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .probe_capabilities()
         .await
         .expect("capabilities should load");
-    assert_eq!(capabilities.protocol_version, "v4");
+    assert_eq!(capabilities.protocol_version, "v5");
     assert_eq!(capabilities.min_supported_protocol_version, "v4");
     assert!(capabilities.features.object_get);
     assert!(capabilities.features.object_head);
@@ -965,7 +965,7 @@ async fn remote_client_probe_rejects_v2_capabilities_without_capacity_support() 
         Some(StorageErrorKind::Misconfigured)
     );
     assert!(
-        capabilities.message().contains("local supports v4-v4"),
+        capabilities.message().contains("local supports v4-v5"),
         "unexpected error message: {}",
         capabilities.message()
     );
@@ -1087,7 +1087,7 @@ fn capabilities_validation_rejects_incompatible_protocol_versions() {
         error.message()
     );
     assert!(
-        error.message().contains("local supports v4-v4"),
+        error.message().contains("local supports v4-v5"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1106,9 +1106,175 @@ fn capabilities_validation_rejects_v2_remote_nodes() {
         .validate_protocol("test remote node")
         .expect_err("v2 discovery should be incompatible with v4");
     assert!(
-        error.message().contains("local supports v4-v4"),
+        error.message().contains("local supports v4-v5"),
         "unexpected error message: {}",
         error.message()
+    );
+}
+
+#[test]
+fn managed_ingress_capabilities_accept_unknown_driver_ids() {
+    let capabilities: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": {
+            "enabled": true,
+            "driver_types": ["local", "plugin.example.archive"]
+        }
+    }))
+    .expect("unknown managed ingress driver ids should stay wire-compatible");
+
+    let managed_ingress = capabilities
+        .managed_ingress
+        .as_ref()
+        .expect("managed ingress capabilities should decode");
+    assert!(managed_ingress.supports_known_driver(DriverType::Local));
+    assert!(!managed_ingress.supports_known_driver(DriverType::S3));
+    assert_eq!(
+        managed_ingress.driver_types[0].as_known_driver_type(),
+        Some(DriverType::Local)
+    );
+    assert_eq!(managed_ingress.driver_types[1].as_known_driver_type(), None);
+    assert_eq!(
+        managed_ingress.driver_types[1].as_str(),
+        "plugin.example.archive"
+    );
+}
+
+#[test]
+fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
+    let disabled: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": {
+            "enabled": false,
+            "driver_types": ["local", "s3"]
+        }
+    }))
+    .expect("disabled managed ingress capabilities should decode");
+    assert!(
+        !disabled
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let enabled_without_driver_types: RemoteStorageCapabilities =
+        serde_json::from_value(serde_json::json!({
+            "protocol_version": "v5",
+            "min_supported_protocol_version": "v4",
+            "managed_ingress": {
+                "enabled": true
+            }
+        }))
+        .expect("missing managed ingress driver_types should decode as empty");
+    assert!(
+        !enabled_without_driver_types
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let enabled_with_unknown_only: RemoteStorageCapabilities =
+        serde_json::from_value(serde_json::json!({
+            "protocol_version": "v5",
+            "min_supported_protocol_version": "v4",
+            "managed_ingress": {
+                "enabled": true,
+                "driver_types": ["plugin.example.archive"]
+            }
+        }))
+        .expect("unknown-only managed ingress capabilities should decode");
+    assert!(
+        !enabled_with_unknown_only
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+}
+
+#[test]
+fn managed_ingress_capabilities_serialize_known_driver_ids_as_strings() {
+    let capabilities = RemoteStorageCapabilities::current()
+        .with_managed_ingress_driver_types(vec![DriverType::Local, DriverType::S3]);
+
+    let value =
+        serde_json::to_value(&capabilities).expect("managed ingress capabilities should serialize");
+    assert_eq!(
+        value["managed_ingress"]["driver_types"],
+        serde_json::json!(["local", "s3"])
+    );
+    assert_eq!(value["managed_ingress"]["enabled"], serde_json::json!(true));
+
+    let roundtripped: RemoteStorageCapabilities =
+        serde_json::from_value(value).expect("serialized capabilities should roundtrip");
+    let effective = roundtripped.effective_managed_ingress();
+    assert!(effective.supports_known_driver(DriverType::Local));
+    assert!(effective.supports_known_driver(DriverType::S3));
+    assert!(!effective.supports_known_driver(DriverType::Remote));
+}
+
+#[test]
+fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
+    let legacy_v4: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v4",
+        "min_supported_protocol_version": "v4"
+    }))
+    .expect("legacy v4 capabilities without managed ingress should decode");
+
+    let effective_legacy = legacy_v4.effective_managed_ingress();
+    assert!(effective_legacy.supports_known_driver(DriverType::Local));
+    assert!(effective_legacy.supports_known_driver(DriverType::S3));
+    assert!(!effective_legacy.supports_known_driver(DriverType::Remote));
+
+    let unknown = RemoteStorageCapabilities::unknown();
+    assert!(
+        !unknown
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let empty = RemoteStorageCapabilities::from_stored_json("{}");
+    assert!(
+        !empty
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let v5_without_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4"
+    }))
+    .expect("v5 capabilities without managed ingress should decode conservatively");
+    assert!(
+        !v5_without_field
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let v4_with_null_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
+        "protocol_version": "v4",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": null
+    }))
+    .expect("legacy v4 capabilities with explicit null managed_ingress should decode");
+    assert!(
+        v4_with_null_field
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
+    );
+
+    let v4_with_explicit_empty_field: RemoteStorageCapabilities =
+        serde_json::from_value(serde_json::json!({
+            "protocol_version": "v4",
+            "min_supported_protocol_version": "v4",
+            "managed_ingress": {
+                "enabled": false,
+                "driver_types": []
+            }
+        }))
+        .expect("legacy v4 capabilities with explicit managed_ingress should decode");
+    assert!(
+        !v4_with_explicit_empty_field
+            .effective_managed_ingress()
+            .supports_known_driver(DriverType::Local)
     );
 }
 

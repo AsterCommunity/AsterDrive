@@ -1,14 +1,12 @@
-use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::managed_ingress_profile;
-use crate::errors::{AsterError, Result, validation_error_with_code};
-use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
+use crate::errors::{AsterError, Result};
 use crate::storage::remote_protocol::{
     RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
     RemoteCreateS3IngressProfileRequest, RemoteUpdateIngressProfileRequest,
 };
 use crate::types::DriverType;
 
-use super::paths::normalize_relative_local_path;
+use super::driver::{ManagedIngressDriverFields, normalize_driver_fields};
 
 pub(in crate::services::managed_ingress_profile_service) struct NormalizedIngressProfileInput {
     pub name: String,
@@ -154,43 +152,26 @@ fn normalize_profile_fields(fields: IngressProfileFields) -> Result<NormalizedIn
         ));
     }
 
-    match driver_type {
-        DriverType::AzureBlob
-        | DriverType::TencentCos
-        | DriverType::Remote
-        | DriverType::OneDrive => Err(validation_error_with_code(
-            ApiErrorCode::ManagedIngressDriverUnsupported,
-            "managed ingress profiles only support local and s3 drivers",
-        )),
-        DriverType::Local => Ok(NormalizedIngressProfileInput {
-            name,
-            driver_type,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: normalize_relative_local_path(&base_path)?,
-            max_file_size,
-            is_default,
-        }),
-        DriverType::S3 => {
-            let normalized = normalize_s3_endpoint_and_bucket(&endpoint, &bucket)
-                .map_err(|error| error.into_aster_error())?;
-            let access_key = normalize_non_blank("access_key", &access_key)?;
-            let secret_key = normalize_non_blank("secret_key", &secret_key)?;
-            Ok(NormalizedIngressProfileInput {
-                name,
-                driver_type,
-                endpoint: normalized.endpoint,
-                bucket: normalized.bucket,
-                access_key,
-                secret_key,
-                base_path: base_path.trim().trim_matches('/').to_string(),
-                max_file_size,
-                is_default,
-            })
-        }
-    }
+    let normalized = normalize_driver_fields(ManagedIngressDriverFields {
+        driver_type,
+        endpoint,
+        bucket,
+        access_key,
+        secret_key,
+        base_path,
+    })?;
+
+    Ok(NormalizedIngressProfileInput {
+        name,
+        driver_type: normalized.driver_type,
+        endpoint: normalized.endpoint,
+        bucket: normalized.bucket,
+        access_key: normalized.access_key,
+        secret_key: normalized.secret_key,
+        base_path: normalized.base_path,
+        max_file_size,
+        is_default,
+    })
 }
 
 fn normalize_non_blank(field: &str, value: &str) -> Result<String> {
