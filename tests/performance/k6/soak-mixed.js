@@ -2,6 +2,7 @@ import { Counter, Trend } from "k6/metrics";
 
 import {
 	benchConfig,
+	benchSummaryTrendStats,
 	durationEnv,
 	intEnv,
 	listFolderName,
@@ -26,6 +27,7 @@ const soakOps = new Counter("aster_soak_operations");
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_SOAK_VUS", 6),
 	duration: durationEnv("ASTER_BENCH_SOAK_DURATION", "10m"),
 	thresholds: {
@@ -62,7 +64,6 @@ export function setup() {
 		env("ASTER_BENCH_SOAK_UPLOAD_FOLDER", "bench-upload-soak"),
 	);
 	return {
-		session,
 		listFolderId,
 		downloadFileId,
 		uploadFolderId,
@@ -76,7 +77,10 @@ function env(name, fallback) {
 
 export default function (data) {
 	if (!state) {
-		state = data;
+		state = {
+			...data,
+			session: login(),
+		};
 	}
 
 	const op = __ITER % 5;

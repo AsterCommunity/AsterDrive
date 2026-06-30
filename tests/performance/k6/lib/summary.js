@@ -14,6 +14,7 @@ function snapshotMetric(data, name) {
 		p90: values["p(90)"] ?? null,
 		p95: values["p(95)"] ?? null,
 		p99: values["p(99)"] ?? null,
+		p999: values["p(99.9)"] ?? null,
 		max: values.max ?? null,
 	};
 }
@@ -52,4 +53,3 @@ export function createSummary(scriptName, extraMetrics = []) {
 		return outputs;
 	};
 }
-

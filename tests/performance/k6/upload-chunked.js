@@ -10,7 +10,12 @@ import {
 	uniqueName,
 	uploadChunk,
 } from "./lib/client.js";
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
+import {
+	benchConfig,
+	benchSummaryTrendStats,
+	durationEnv,
+	intEnv,
+} from "./lib/config.js";
 import { createSummary } from "./lib/summary.js";
 
 const flowDuration = new Trend("aster_upload_chunked_flow_duration", true);
@@ -29,6 +34,7 @@ const totalBytes = intEnv("ASTER_BENCH_CHUNKED_TOTAL_BYTES", 10 * 1024 * 1024);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_CHUNKED_UPLOAD_VUS", 3),
 	duration: durationEnv("ASTER_BENCH_CHUNKED_UPLOAD_DURATION", "30s"),
 	thresholds: {

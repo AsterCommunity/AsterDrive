@@ -1,7 +1,12 @@
 import { sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
+import {
+	benchConfig,
+	benchSummaryTrendStats,
+	durationEnv,
+	intEnv,
+} from "./lib/config.js";
 import {
 	ensureRootFolder,
 	login,
@@ -18,6 +23,7 @@ const payload = "U".repeat(uploadBytes);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_DIRECT_UPLOAD_VUS", 4),
 	duration: durationEnv("ASTER_BENCH_DIRECT_UPLOAD_DURATION", "30s"),
 	thresholds: {

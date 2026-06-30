@@ -138,6 +138,19 @@ ASTER_BENCH_SUMMARY_DIR=tests/performance/results \
 k6 run tests/performance/k6/soak-mixed.js
 ```
 
+All k6 scripts include `summaryTrendStats` for `p(99)` and `p(99.9)`, and
+the compact JSON summary exposes them as `p99` and `p999`.
+
+## Rust Microbenchmarks
+
+Rust benchmarks cover isolated internal hotspots. They are not a replacement
+for k6 service-level latency tests, but they are useful for catching regressions
+in path and naming helpers used by file, upload, and WebDAV flows.
+
+```bash
+cargo bench --bench path_hotspots
+```
+
 ## Collecting Summaries
 
 If `ASTER_BENCH_SUMMARY_DIR` is set, each script writes a compact JSON summary:

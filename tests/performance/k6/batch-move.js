@@ -1,7 +1,12 @@
 import { sleep } from "k6";
 import { Trend } from "k6/metrics";
 
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
+import {
+	benchConfig,
+	benchSummaryTrendStats,
+	durationEnv,
+	intEnv,
+} from "./lib/config.js";
 import {
 	batchMove,
 	createFolder,
@@ -18,6 +23,7 @@ const fileCount = intEnv("ASTER_BENCH_BATCH_FILE_COUNT", 10);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_BATCH_VUS", 3),
 	duration: durationEnv("ASTER_BENCH_BATCH_DURATION", "30s"),
 	thresholds: {
@@ -74,4 +80,3 @@ export default function (data) {
 export const handleSummary = createSummary("batch-move", [
 	"aster_batch_move_duration",
 ]);
-

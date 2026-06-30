@@ -3,6 +3,7 @@ import { Trend } from "k6/metrics";
 
 import {
 	benchConfig,
+	benchSummaryTrendStats,
 	durationEnv,
 	intEnv,
 	listFolderName,
@@ -20,6 +21,7 @@ const datasetSize = intEnv("ASTER_BENCH_SEARCH_DATASET_SIZE", 10000);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_SEARCH_VUS", 8),
 	duration: durationEnv("ASTER_BENCH_SEARCH_DURATION", "30s"),
 	thresholds: {
@@ -66,4 +68,3 @@ export default function (data) {
 export const handleSummary = createSummary("search", [
 	"aster_search_duration",
 ]);
-

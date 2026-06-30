@@ -1,7 +1,12 @@
 import { sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
+import {
+	benchConfig,
+	benchSummaryTrendStats,
+	durationEnv,
+	intEnv,
+} from "./lib/config.js";
 import { listWebdavAccounts, login, uniqueName, webdavRequest } from "./lib/client.js";
 import { createSummary } from "./lib/summary.js";
 
@@ -15,6 +20,7 @@ const payloadBytes = intEnv("ASTER_BENCH_WEBDAV_PAYLOAD_BYTES", 64 * 1024);
 const payload = "W".repeat(payloadBytes);
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_WEBDAV_VUS", 4),
 	duration: durationEnv("ASTER_BENCH_WEBDAV_DURATION", "30s"),
 	thresholds: {

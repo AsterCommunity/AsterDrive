@@ -4,6 +4,7 @@ import { Counter, Trend } from "k6/metrics";
 
 import {
 	benchConfig,
+	benchSummaryTrendStats,
 	durationEnv,
 	intEnv,
 	listFolderName,
@@ -35,6 +36,7 @@ const uploadPayload = "M".repeat(uploadBytes);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	scenarios: {
 		mixed_ramp: {
 			executor: "ramping-vus",
@@ -82,7 +84,6 @@ export function setup() {
 		__ENV.ASTER_BENCH_MIXED_RAMP_UPLOAD_FOLDER || "bench-upload-ramp",
 	);
 	return {
-		session,
 		listFolderId,
 		downloadFileId: downloadFixture.id,
 		downloadFileSize: Number(downloadFixture.size),
@@ -92,7 +93,10 @@ export function setup() {
 
 export default function (data) {
 	if (!state) {
-		state = data;
+		state = {
+			...data,
+			session: login(),
+		};
 	}
 
 	state.session = maybeRefreshSession(state.session);

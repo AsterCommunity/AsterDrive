@@ -3,6 +3,7 @@ import { Trend } from "k6/metrics";
 
 import {
 	benchConfig,
+	benchSummaryTrendStats,
 	durationEnv,
 	intEnv,
 	listFolderName,
@@ -21,6 +22,7 @@ const fileLimit = intEnv("ASTER_BENCH_LIST_FILE_LIMIT", 100);
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_FOLDER_LIST_VUS", 8),
 	duration: durationEnv("ASTER_BENCH_FOLDER_LIST_DURATION", "30s"),
 	thresholds: {
@@ -68,4 +70,3 @@ export default function (data) {
 export const handleSummary = createSummary(`folder-list-${listSize}`, [
 	"aster_folder_list_duration",
 ]);
-

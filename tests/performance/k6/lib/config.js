@@ -35,6 +35,17 @@ export function stagesEnv(name, fallback) {
 		});
 }
 
+export const benchSummaryTrendStats = [
+	"avg",
+	"min",
+	"med",
+	"p(90)",
+	"p(95)",
+	"p(99)",
+	"p(99.9)",
+	"max",
+];
+
 function stripTrailingSlash(value) {
 	return value.endsWith("/") ? value.slice(0, -1) : value;
 }

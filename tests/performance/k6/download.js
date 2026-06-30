@@ -1,7 +1,12 @@
 import { sleep } from "k6";
 import { Counter, Trend } from "k6/metrics";
 
-import { benchConfig, durationEnv, intEnv } from "./lib/config.js";
+import {
+	benchConfig,
+	benchSummaryTrendStats,
+	durationEnv,
+	intEnv,
+} from "./lib/config.js";
 import {
 	downloadFile,
 	findFileEntryInFolder,
@@ -16,6 +21,7 @@ const downloadBytes = new Counter("aster_download_bytes");
 let state;
 
 export const options = {
+	summaryTrendStats: benchSummaryTrendStats,
 	vus: intEnv("ASTER_BENCH_DOWNLOAD_VUS", 6),
 	duration: durationEnv("ASTER_BENCH_DOWNLOAD_DURATION", "30s"),
 	thresholds: {
