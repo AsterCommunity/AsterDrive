@@ -30,6 +30,7 @@ const mockState = vi.hoisted(() => ({
 	listAllPolicies: vi.fn(),
 	listPolicies: vi.fn(),
 	listRemoteNodes: vi.fn(),
+	listStorageTargets: vi.fn(),
 	listStorageDriverDescriptors: vi.fn(),
 	listStorageCredentials: vi.fn(),
 	loading: false,
@@ -37,6 +38,10 @@ const mockState = vi.hoisted(() => ({
 	promoteS3CompatibleDriver: vi.fn(),
 	reload: vi.fn(),
 	remoteNodes: [] as Array<Record<string, unknown>>,
+	remoteStorageTargetsByNode: {} as Record<
+		number,
+		Array<Record<string, unknown>>
+	>,
 	searchParams: "",
 	setSearchParams: vi.fn(),
 	testConnection: vi.fn(),
@@ -578,6 +583,8 @@ vi.mock("@/services/adminService", () => ({
 	},
 	adminRemoteNodeService: {
 		list: (...args: unknown[]) => mockState.listRemoteNodes(...args),
+		listStorageTargets: (...args: unknown[]) =>
+			mockState.listStorageTargets(...args),
 	},
 }));
 
@@ -598,6 +605,26 @@ function createPolicy(overrides: Record<string, unknown> = {}) {
 		name: "Local Policy",
 		options: {},
 		remote_node_id: null,
+		remote_storage_target_key: null,
+		updated_at: "2026-03-28T00:00:00Z",
+		...overrides,
+	};
+}
+
+function createRemoteStorageTarget(overrides: Record<string, unknown> = {}) {
+	return {
+		applied_revision: 1,
+		base_path: "",
+		bucket: "",
+		created_at: "2026-03-28T00:00:00Z",
+		desired_revision: 1,
+		driver_type: "local",
+		endpoint: "",
+		is_default: false,
+		last_error: "",
+		max_file_size: 0,
+		name: "Default Target",
+		target_key: "rst_default",
 		updated_at: "2026-03-28T00:00:00Z",
 		...overrides,
 	};
@@ -1113,6 +1140,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.listAllPolicies.mockReset();
 		mockState.listPolicies.mockReset();
 		mockState.listRemoteNodes.mockReset();
+		mockState.listStorageTargets.mockReset();
 		mockState.listStorageDriverDescriptors.mockReset();
 		mockState.listStorageCredentials.mockReset();
 		mockState.loading = false;
@@ -1120,6 +1148,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.promoteS3CompatibleDriver.mockReset();
 		mockState.reload.mockReset();
 		mockState.remoteNodes = [];
+		mockState.remoteStorageTargetsByNode = {};
 		mockState.searchParams = "";
 		mockState.setSearchParams.mockReset();
 		mockState.testConnection.mockReset();
@@ -1174,6 +1203,13 @@ describe("AdminPoliciesPage", () => {
 			items: mockState.remoteNodes,
 			total: mockState.remoteNodes.length,
 		}));
+		mockState.listStorageTargets.mockImplementation(async (nodeId: number) =>
+			(
+				mockState.remoteStorageTargetsByNode[nodeId] ?? [
+					createRemoteStorageTarget(),
+				]
+			).map((target) => ({ ...target })),
+		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(
 			createStorageDriverDescriptors(),
 		);
@@ -2972,6 +3008,7 @@ describe("AdminPoliciesPage", () => {
 					remote_upload_strategy: "relay_stream",
 				},
 				remote_node_id: 7,
+				remote_storage_target_key: "rst_default",
 				secret_key: undefined,
 			});
 		});
@@ -2997,6 +3034,7 @@ describe("AdminPoliciesPage", () => {
 					remote_upload_strategy: "relay_stream",
 				},
 				remote_node_id: 7,
+				remote_storage_target_key: "rst_default",
 				secret_key: "",
 			});
 		});
@@ -3049,6 +3087,7 @@ describe("AdminPoliciesPage", () => {
 					remote_upload_strategy: "presigned",
 				},
 				remote_node_id: 9,
+				remote_storage_target_key: "rst_default",
 				secret_key: "",
 			});
 		});
@@ -3101,6 +3140,7 @@ describe("AdminPoliciesPage", () => {
 					remote_upload_strategy: "relay_stream",
 				},
 				remote_node_id: 10,
+				remote_storage_target_key: "rst_default",
 				secret_key: "",
 			});
 		});

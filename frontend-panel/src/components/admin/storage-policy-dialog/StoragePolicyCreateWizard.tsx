@@ -28,6 +28,7 @@ import { cn } from "@/lib/utils";
 import type {
 	DriverType,
 	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 } from "@/types/api";
 import {
@@ -51,7 +52,7 @@ interface StoragePolicyCreateWizardProps {
 	createNameError: string | null;
 	createOneDriveClientIdError: string | null;
 	createOneDriveClientSecretError: string | null;
-	createRemoteNodeError: string | null;
+	createRemoteTargetError: string | null;
 	createStep: number;
 	createStepDirection: "idle" | "forward" | "backward";
 	createSteps: StoragePolicyDialogStep[];
@@ -67,6 +68,9 @@ interface StoragePolicyCreateWizardProps {
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	s3CompatibleDriverSuggestionTargetLabel: string | null;
 	stepAnimationKey: string;
 	storageOptions: StoragePolicyDriverOption[];
@@ -78,7 +82,7 @@ export function StoragePolicyCreateWizard({
 	createNameError,
 	createOneDriveClientIdError,
 	createOneDriveClientSecretError,
-	createRemoteNodeError,
+	createRemoteTargetError,
 	createStep,
 	createStepDirection,
 	createSteps,
@@ -94,6 +98,9 @@ export function StoragePolicyCreateWizard({
 	onApplyS3CompatibleDriverSuggestion,
 	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	s3CompatibleDriverSuggestionTargetLabel,
 	stepAnimationKey,
 	storageOptions,
@@ -148,7 +155,7 @@ export function StoragePolicyCreateWizard({
 								createOneDriveClientSecretError={
 									createOneDriveClientSecretError
 								}
-								createRemoteNodeError={createRemoteNodeError}
+								createRemoteTargetError={createRemoteTargetError}
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={endpointValidationMessage}
 								form={form}
@@ -164,16 +171,22 @@ export function StoragePolicyCreateWizard({
 									onSyncNormalizedObjectStorageForm
 								}
 								remoteNodes={remoteNodes}
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 								t={t}
 							/>
 						) : (
 							<BehaviorStep
-								createRemoteNodeError={createRemoteNodeError}
+								createRemoteTargetError={createRemoteTargetError}
 								currentStorageOption={currentStorageOption}
 								form={form}
 								storageDriverDescriptor={storageDriverDescriptor}
 								onFieldChange={onFieldChange}
 								remoteNodes={remoteNodes}
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 								summaryItems={summaryItems}
 								t={t}
 							/>
@@ -346,7 +359,7 @@ interface ConnectionStepProps {
 	createNameError: string | null;
 	createOneDriveClientIdError: string | null;
 	createOneDriveClientSecretError: string | null;
-	createRemoteNodeError: string | null;
+	createRemoteTargetError: string | null;
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
@@ -356,6 +369,9 @@ interface ConnectionStepProps {
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	t: Translate;
 }
 
@@ -364,7 +380,7 @@ function ConnectionStep({
 	createNameError,
 	createOneDriveClientIdError,
 	createOneDriveClientSecretError,
-	createRemoteNodeError,
+	createRemoteTargetError,
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
@@ -374,6 +390,9 @@ function ConnectionStep({
 	onFieldChange,
 	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	t,
 }: ConnectionStepProps) {
 	const canUseObjectStorageConnection = supportsObjectStorageConnection(
@@ -424,8 +443,11 @@ function ConnectionStep({
 				) : canUseRemoteNodeBinding ? (
 					<RemoteNodeField
 						form={form}
-						error={createRemoteNodeError}
+						error={createRemoteTargetError}
 						remoteNodes={remoteNodes}
+						remoteStorageTargets={remoteStorageTargets}
+						remoteStorageTargetsError={remoteStorageTargetsError}
+						remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 						showCreateValidation
 						t={t}
 						onFieldChange={onFieldChange}
@@ -567,23 +589,29 @@ function getDriverHelperKey(descriptor: StorageConnectorDescriptor | null) {
 }
 
 interface BehaviorStepProps {
-	createRemoteNodeError: string | null;
+	createRemoteTargetError: string | null;
 	currentStorageOption: StoragePolicyDriverOption;
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	summaryItems: StoragePolicySummaryItem[];
 	t: Translate;
 }
 
 function BehaviorStep({
-	createRemoteNodeError,
+	createRemoteTargetError,
 	currentStorageOption,
 	form,
 	storageDriverDescriptor,
 	onFieldChange,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	summaryItems,
 	t,
 }: BehaviorStepProps) {
@@ -591,11 +619,14 @@ function BehaviorStep({
 		<div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_300px]">
 			<div className="space-y-4">
 				<DriverBehaviorFields
-					createRemoteNodeError={createRemoteNodeError}
+					createRemoteTargetError={createRemoteTargetError}
 					form={form}
 					storageDriverDescriptor={storageDriverDescriptor}
 					onFieldChange={onFieldChange}
 					remoteNodes={remoteNodes}
+					remoteStorageTargets={remoteStorageTargets}
+					remoteStorageTargetsError={remoteStorageTargetsError}
+					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 					t={t}
 				/>
 				<LimitsFields form={form} t={t} onFieldChange={onFieldChange} />
@@ -628,20 +659,26 @@ function BehaviorStep({
 }
 
 interface DriverBehaviorFieldsProps {
-	createRemoteNodeError: string | null;
+	createRemoteTargetError: string | null;
 	form: PolicyFormData;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	t: Translate;
 }
 
 function DriverBehaviorFields({
-	createRemoteNodeError,
+	createRemoteTargetError,
 	form,
 	storageDriverDescriptor,
 	onFieldChange,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	t,
 }: DriverBehaviorFieldsProps) {
 	if (supportsObjectStorageTransferStrategy(storageDriverDescriptor)) {
@@ -677,8 +714,11 @@ function DriverBehaviorFields({
 				/>
 				<RemoteNodeField
 					form={form}
-					error={createRemoteNodeError}
+					error={createRemoteTargetError}
 					remoteNodes={remoteNodes}
+					remoteStorageTargets={remoteStorageTargets}
+					remoteStorageTargetsError={remoteStorageTargetsError}
+					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 					t={t}
 					onFieldChange={onFieldChange}
 				/>

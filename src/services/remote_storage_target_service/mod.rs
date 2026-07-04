@@ -22,4 +22,4 @@ pub use models::ResolvedRemoteStorageTarget;
 pub use remote::{
     create_remote, delete_remote, list_remote, list_remote_driver_descriptors, update_remote,
 };
-pub use target::resolve_effective_target;
+pub use target::{resolve_effective_target, resolve_target_by_key};

@@ -18,6 +18,7 @@ fn build_policy(base: &Path) -> crate::entities::storage_policy::Model {
         secret_key: String::new(),
         base_path: base.to_string_lossy().into(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
         options: crate::types::StoredStoragePolicyOptions::empty(),

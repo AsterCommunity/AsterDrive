@@ -45,6 +45,7 @@ mod m20260618_000001_rename_upload_session_object_fields;
 mod m20260619_000001_add_storage_connector_application_configs;
 mod m20260620_000001_enforce_json_text_not_null;
 mod m20260704_000001_rename_managed_ingress_profiles_to_remote_storage_targets;
+mod m20260704_000002_add_remote_storage_target_key_to_storage_policies;
 mod search_acceleration;
 mod time;
 
@@ -152,6 +153,9 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260620_000001_enforce_json_text_not_null::Migration),
             Box::new(
                 m20260704_000001_rename_managed_ingress_profiles_to_remote_storage_targets::Migration,
+            ),
+            Box::new(
+                m20260704_000002_add_remote_storage_target_key_to_storage_policies::Migration,
             ),
         ]
     }

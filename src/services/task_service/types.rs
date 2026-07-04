@@ -358,6 +358,7 @@ pub(crate) struct StoragePolicyCleanupPolicySnapshot {
     pub secret_key: String,
     pub base_path: String,
     pub remote_node_id: Option<i64>,
+    pub remote_storage_target_key: Option<String>,
     pub max_file_size: i64,
     pub allowed_types: String,
     pub options: String,

@@ -42,6 +42,7 @@ pub struct StorageConnectorConnectionInput {
     pub secret_key: String,
     pub base_path: String,
     pub remote_node_id: Option<i64>,
+    pub remote_storage_target_key: Option<String>,
     pub options: crate::types::StoragePolicyOptions,
 }
 

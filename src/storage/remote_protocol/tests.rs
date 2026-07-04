@@ -529,6 +529,23 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
     );
     assert!(query.contains_key("aster_signature"));
 
+    let target_url = client
+        .with_storage_target_key(Some("rst-primary"))
+        .presigned_put_url("object.bin", Duration::from_secs(60))
+        .expect("target-scoped presigned URL should build");
+    let target_query = reqwest::Url::parse(&target_url)
+        .expect("target URL should parse")
+        .query_pairs()
+        .into_owned()
+        .collect::<HashMap<_, _>>();
+    assert_eq!(
+        target_query
+            .get(REMOTE_STORAGE_TARGET_KEY_QUERY)
+            .map(String::as_str),
+        Some("rst-primary")
+    );
+    assert!(target_query.contains_key(PRESIGNED_AUTH_SIGNATURE_QUERY));
+
     let zero = client
         .presigned_put_url("object.bin", Duration::ZERO)
         .expect_err("zero expiry should fail");

@@ -18,6 +18,7 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
         secret_key: "SECRETEXAMPLE".to_string(),
         base_path: "tenant/prefix".to_string(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),

@@ -41,6 +41,7 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
         secret_key: String::new(),
         base_path: base_path.to_string(),
         remote_node_id: Some(7),
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
         options: crate::types::StoredStoragePolicyOptions::empty(),
@@ -91,6 +92,12 @@ fn build_reverse_follower_with_capabilities(last_capabilities: &str) -> managed_
 fn build_driver(base_url: &str, base_path: &str) -> RemoteDriver {
     RemoteDriver::new(&build_policy(base_path), &build_follower(base_url))
         .expect("remote driver should build")
+}
+
+fn build_target_scoped_driver(base_url: &str, base_path: &str, target_key: &str) -> RemoteDriver {
+    let mut policy = build_policy(base_path);
+    policy.remote_storage_target_key = Some(target_key.to_string());
+    RemoteDriver::new(&policy, &build_follower(base_url)).expect("remote driver should build")
 }
 
 fn build_driver_with_capabilities_err(
@@ -222,7 +229,7 @@ async fn list_paths_sends_scoped_prefix_and_strips_base_path() {
 
 #[tokio::test]
 async fn presigned_urls_include_base_path_response_options_and_signature() {
-    let driver = build_driver("http://storage.example.com/root/", "base");
+    let driver = build_target_scoped_driver("http://storage.example.com/root/", "base", "rst-a");
 
     let download_url = driver
         .presigned_url(
@@ -245,6 +252,12 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
     assert_eq!(
         parsed.path(),
         "/root/api/v1/internal/storage/objects/base/folder/file%20name.txt"
+    );
+    assert_eq!(
+        query
+            .get(crate::storage::remote_protocol::REMOTE_STORAGE_TARGET_KEY_QUERY)
+            .map(String::as_str),
+        Some("rst-a")
     );
     assert_eq!(
         query
@@ -282,6 +295,9 @@ async fn presigned_urls_include_base_path_response_options_and_signature() {
         parsed_put.path(),
         "/root/api/v1/internal/storage/objects/base/upload.bin"
     );
+    assert!(parsed_put.query_pairs().any(|(key, value)| key
+        == crate::storage::remote_protocol::REMOTE_STORAGE_TARGET_KEY_QUERY
+        && value == "rst-a"));
     assert!(
         parsed_put
             .query_pairs()

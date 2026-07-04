@@ -416,6 +416,7 @@ mod tests {
             secret_key: "c2VjcmV0".to_string(),
             base_path: "base path".to_string(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

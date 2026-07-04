@@ -337,6 +337,7 @@ mod tests {
             secret_key: "SECRETEXAMPLE".to_string(),
             base_path: String::new(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

@@ -25,6 +25,7 @@ pub struct Model {
     pub secret_key: String,
     pub base_path: String,
     pub remote_node_id: Option<i64>,
+    pub remote_storage_target_key: Option<String>,
     pub max_file_size: i64, // 0 = unlimited
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub allowed_types: StoredStoragePolicyAllowedTypes, // JSON array
@@ -50,6 +51,7 @@ impl fmt::Debug for Model {
             .field("secret_key", &"***REDACTED***")
             .field("base_path", &self.base_path)
             .field("remote_node_id", &self.remote_node_id)
+            .field("remote_storage_target_key", &self.remote_storage_target_key)
             .field("max_file_size", &self.max_file_size)
             .field("allowed_types", &self.allowed_types)
             .field("options", &self.options)
@@ -136,6 +138,7 @@ mod tests {
             secret_key: "plain-secret-key".to_string(),
             base_path: "base".to_string(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::from("[]".to_string()),
             options: StoredStoragePolicyOptions::from("{}".to_string()),

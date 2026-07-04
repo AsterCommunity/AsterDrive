@@ -476,6 +476,7 @@ fn build_policy_model<S: FollowerRuntimeState>(
         secret_key: target.secret_key.clone(),
         base_path,
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: target.max_file_size,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),

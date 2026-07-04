@@ -528,6 +528,7 @@ async fn test_state_with_driver_and_options(
         secret_key: Set(String::new()),
         base_path: Set(String::new()),
         remote_node_id: Set(None),
+        remote_storage_target_key: Set(None),
         max_file_size: Set(0),
         allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
         options: Set(crate::types::serialize_storage_policy_options(&options)

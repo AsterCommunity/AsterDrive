@@ -29,6 +29,7 @@ import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
 	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
@@ -50,7 +51,7 @@ import type { StoragePolicyFieldChangeHandler } from "./StoragePolicyDialogTypes
 interface StoragePolicyEditFormProps {
 	createBucketError: string | null;
 	createNameError: string | null;
-	createRemoteNodeError: string | null;
+	createRemoteTargetError: string | null;
 	currentDriverBadgeClass: string;
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
@@ -81,12 +82,15 @@ interface StoragePolicyEditFormProps {
 	onRequestS3DriverPromotion: () => void;
 	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 }
 
 export function StoragePolicyEditForm({
 	createBucketError,
 	createNameError,
-	createRemoteNodeError,
+	createRemoteTargetError,
 	currentDriverBadgeClass,
 	currentStorageOption,
 	endpointValidationMessage,
@@ -117,6 +121,9 @@ export function StoragePolicyEditForm({
 	onRequestS3DriverPromotion,
 	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 }: StoragePolicyEditFormProps) {
 	const { t } = useTranslation("admin");
 	const renderedS3DriverPromotionTargetLabelRef = useRef(
@@ -248,8 +255,11 @@ export function StoragePolicyEditForm({
 						<div className="space-y-4">
 							<RemoteNodeField
 								form={form}
-								error={createRemoteNodeError}
+								error={createRemoteTargetError}
 								remoteNodes={remoteNodes}
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 								t={t}
 								onFieldChange={onFieldChange}
 							/>

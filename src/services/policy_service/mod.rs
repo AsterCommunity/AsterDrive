@@ -65,7 +65,7 @@ fn policy_action_audit_details(
 }
 
 pub async fn create_with_audit(
-    state: &impl SharedRuntimeState,
+    state: &(impl RemoteProtocolRuntimeState + Sync),
     input: CreateStoragePolicyInput,
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
@@ -84,7 +84,7 @@ pub async fn create_with_audit(
 }
 
 pub async fn update_with_audit(
-    state: &impl SharedRuntimeState,
+    state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
     input: UpdateStoragePolicyInput,
     audit_ctx: &AuditContext,

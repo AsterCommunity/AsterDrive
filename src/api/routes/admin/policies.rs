@@ -29,6 +29,7 @@ struct PolicyConnectionInputParts {
     secret_key: Option<String>,
     base_path: Option<String>,
     remote_node_id: Option<i64>,
+    remote_storage_target_key: Option<String>,
     options: crate::types::StoragePolicyOptions,
 }
 
@@ -42,6 +43,7 @@ impl From<PolicyConnectionInputParts> for policy_service::StoragePolicyConnectio
             secret_key: value.secret_key.unwrap_or_default(),
             base_path: value.base_path.unwrap_or_default(),
             remote_node_id: value.remote_node_id,
+            remote_storage_target_key: value.remote_storage_target_key,
             options: value.options,
         }
     }
@@ -59,6 +61,7 @@ impl From<CreatePolicyReq> for policy_service::CreateStoragePolicyInput {
                 secret_key: value.secret_key,
                 base_path: value.base_path,
                 remote_node_id: value.remote_node_id,
+                remote_storage_target_key: value.remote_storage_target_key.clone(),
                 options: crate::types::StoragePolicyOptions::default(),
             }
             .into(),
@@ -67,6 +70,7 @@ impl From<CreatePolicyReq> for policy_service::CreateStoragePolicyInput {
             is_default: value.is_default.unwrap_or(false),
             allowed_types: value.allowed_types,
             options: value.options,
+            remote_storage_target_key: value.remote_storage_target_key,
             application_config: value.application_config.unwrap_or_default(),
         }
     }
@@ -82,6 +86,7 @@ impl From<PatchPolicyReq> for policy_service::UpdateStoragePolicyInput {
             secret_key: value.secret_key,
             base_path: value.base_path,
             remote_node_id: value.remote_node_id,
+            remote_storage_target_key: value.remote_storage_target_key,
             max_file_size: value.max_file_size,
             chunk_size: value.chunk_size,
             is_default: value.is_default,
@@ -104,6 +109,7 @@ impl From<TestPolicyParamsReq> for policy_service::TestDraftStoragePolicyConnect
                 secret_key: value.secret_key,
                 base_path: value.base_path,
                 remote_node_id: value.remote_node_id,
+                remote_storage_target_key: value.remote_storage_target_key,
                 options: value.options.unwrap_or_default(),
             }
             .into(),
@@ -126,6 +132,7 @@ impl From<ExecuteDraftStoragePolicyActionReq>
                 secret_key: value.secret_key,
                 base_path: value.base_path,
                 remote_node_id: value.remote_node_id,
+                remote_storage_target_key: value.remote_storage_target_key,
                 options: value.options.unwrap_or_default(),
             }
             .into(),

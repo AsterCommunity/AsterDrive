@@ -116,6 +116,8 @@ pub struct CreatePolicyReq {
     pub base_path: Option<String>,
     #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
     pub remote_node_id: Option<i64>,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
+    pub remote_storage_target_key: Option<String>,
     #[validate(range(min = 0, message = "max_file_size must be non-negative"))]
     pub max_file_size: Option<i64>,
     #[validate(range(min = 1, message = "chunk_size must be greater than 0"))]
@@ -141,6 +143,8 @@ pub struct PatchPolicyReq {
     pub base_path: Option<String>,
     #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
     pub remote_node_id: Option<i64>,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
+    pub remote_storage_target_key: Option<String>,
     #[validate(range(min = 0, message = "max_file_size must be non-negative"))]
     pub max_file_size: Option<i64>,
     #[validate(range(min = 1, message = "chunk_size must be greater than 0"))]
@@ -177,6 +181,8 @@ pub struct TestPolicyParamsReq {
     pub base_path: Option<String>,
     #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
     pub remote_node_id: Option<i64>,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
+    pub remote_storage_target_key: Option<String>,
     #[validate(nested)]
     pub options: Option<crate::types::StoragePolicyOptions>,
 }
@@ -196,6 +202,8 @@ pub struct ExecuteDraftStoragePolicyActionReq {
     pub base_path: Option<String>,
     #[validate(range(min = 1, message = "remote_node_id must be greater than 0"))]
     pub remote_node_id: Option<i64>,
+    #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
+    pub remote_storage_target_key: Option<String>,
     #[validate(nested)]
     pub options: Option<crate::types::StoragePolicyOptions>,
 }

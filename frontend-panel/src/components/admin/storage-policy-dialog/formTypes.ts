@@ -35,6 +35,7 @@ export interface PolicyFormData {
 	secret_key: string;
 	base_path: string;
 	remote_node_id: string;
+	remote_storage_target_key: string;
 	max_file_size: string;
 	chunk_size: string;
 	is_default: boolean;
@@ -72,6 +73,7 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 		base_path: policy.base_path,
 		remote_node_id:
 			policy.remote_node_id != null ? String(policy.remote_node_id) : "",
+		remote_storage_target_key: policy.remote_storage_target_key ?? "",
 		max_file_size:
 			policy.max_file_size != null ? String(policy.max_file_size) : "",
 		chunk_size:
@@ -132,6 +134,7 @@ export const emptyForm: PolicyFormData = {
 	secret_key: "",
 	base_path: "",
 	remote_node_id: "",
+	remote_storage_target_key: "",
 	max_file_size: "",
 	chunk_size: "5",
 	is_default: false,

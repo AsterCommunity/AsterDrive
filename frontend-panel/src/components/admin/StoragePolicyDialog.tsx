@@ -30,6 +30,7 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	DriverType,
 	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StorageConnectorUiDescriptor,
 	StoragePolicyCapacityInfo,
@@ -61,6 +62,9 @@ interface StoragePolicyDialogProps {
 	s3DriverPromotionSubmitting: boolean;
 	s3DriverPromotionTargetLabel: string | null;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	submitting: boolean;
 	createStep: number;
 	createStepTouched: boolean;
@@ -135,6 +139,9 @@ function useStoragePolicyDialogContent({
 	s3DriverPromotionSubmitting,
 	s3DriverPromotionTargetLabel,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	submitting,
 	createStep,
 	createStepTouched,
@@ -282,6 +289,13 @@ function useStoragePolicyDialogContent({
 		!form.remote_node_id
 			? t("policy_wizard_remote_node_required")
 			: null;
+	const createRemoteTargetError =
+		canUseRemoteNodeBinding &&
+		form.remote_node_id &&
+		!form.remote_storage_target_key &&
+		(!isCreateMode || (createStep === 1 && createStepTouched))
+			? t("policy_wizard_remote_storage_target_required")
+			: createRemoteNodeError;
 	const selectedRemoteNode =
 		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
 	const s3UploadStrategyLabel =
@@ -514,7 +528,7 @@ function useStoragePolicyDialogContent({
 								createOneDriveClientSecretError={
 									createOneDriveClientSecretError
 								}
-								createRemoteNodeError={createRemoteNodeError}
+								createRemoteTargetError={createRemoteTargetError}
 								createStep={createStep}
 								createStepDirection={createStepDirection}
 								createSteps={createSteps}
@@ -536,6 +550,9 @@ function useStoragePolicyDialogContent({
 									onSyncNormalizedObjectStorageForm
 								}
 								remoteNodes={remoteNodes}
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 								s3CompatibleDriverSuggestionTargetLabel={
 									s3CompatibleDriverSuggestionTargetLabel
 								}
@@ -547,7 +564,7 @@ function useStoragePolicyDialogContent({
 							<StoragePolicyEditForm
 								createBucketError={createBucketError}
 								createNameError={createNameError}
-								createRemoteNodeError={createRemoteNodeError}
+								createRemoteTargetError={createRemoteTargetError}
 								currentDriverBadgeClass={currentDriverBadgeClass}
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={endpointValidationMessage}
@@ -584,6 +601,9 @@ function useStoragePolicyDialogContent({
 								cosCorsSubmitting={cosCorsSubmitting}
 								cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 								remoteNodes={remoteNodes}
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 							/>
 						)}
 					</div>

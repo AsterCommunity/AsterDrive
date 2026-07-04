@@ -9,6 +9,7 @@ import {
 import type {
 	RemoteDownloadStrategy,
 	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	RemoteUploadStrategy,
 } from "@/types/api";
 import type {
@@ -23,11 +24,17 @@ export function RemoteNodeField({
 	form,
 	onFieldChange,
 	remoteNodes,
+	remoteStorageTargets = [],
+	remoteStorageTargetsError = null,
+	remoteStorageTargetsLoading = false,
 	showCreateValidation = false,
 	t,
 }: SharedFieldProps & {
 	error: string | null;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets?: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError?: string | null;
+	remoteStorageTargetsLoading?: boolean;
 	showCreateValidation?: boolean;
 }) {
 	const remoteNodeOptions = remoteNodes.map((node) => ({
@@ -36,6 +43,16 @@ export function RemoteNodeField({
 	}));
 	const selectedRemoteNode =
 		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
+	const targetOptions = remoteStorageTargets.map((target) => ({
+		label: target.is_default
+			? `${target.name} (${t("core:default")})`
+			: target.name,
+		value: target.target_key,
+	}));
+	const selectedTarget =
+		remoteStorageTargets.find(
+			(target) => target.target_key === form.remote_storage_target_key,
+		) ?? null;
 
 	return (
 		<div className="space-y-2">
@@ -43,12 +60,13 @@ export function RemoteNodeField({
 			<Select
 				items={remoteNodeOptions}
 				value={form.remote_node_id || "__none__"}
-				onValueChange={(value) =>
+				onValueChange={(value) => {
 					onFieldChange(
 						"remote_node_id",
 						value == null || value === "__none__" ? "" : value,
-					)
-				}
+					);
+					onFieldChange("remote_storage_target_key", "");
+				}}
 			>
 				<SelectTrigger id="remote_node_id">
 					<SelectValue />
@@ -64,7 +82,7 @@ export function RemoteNodeField({
 					))}
 				</SelectContent>
 			</Select>
-			{showCreateValidation && error ? (
+			{showCreateValidation && error && !form.remote_node_id ? (
 				<p className="text-xs text-destructive">{error}</p>
 			) : null}
 			{selectedRemoteNode ? (
@@ -79,6 +97,60 @@ export function RemoteNodeField({
 				<p className="text-xs text-muted-foreground">
 					{t("policy_wizard_remote_nodes_empty")}
 				</p>
+			) : null}
+			{selectedRemoteNode ? (
+				<div className="space-y-2 pt-2">
+					<Label htmlFor="remote_storage_target_key">
+						{t("remote_storage_target")}
+					</Label>
+					<Select
+						items={targetOptions}
+						value={form.remote_storage_target_key || "__none__"}
+						onValueChange={(value) =>
+							onFieldChange(
+								"remote_storage_target_key",
+								value == null || value === "__none__" ? "" : value,
+							)
+						}
+						disabled={remoteStorageTargetsLoading}
+					>
+						<SelectTrigger id="remote_storage_target_key">
+							<SelectValue />
+						</SelectTrigger>
+						<SelectContent>
+							<SelectItem value="__none__">
+								{remoteStorageTargetsLoading
+									? t("remote_storage_targets_loading")
+									: t("select_remote_storage_target_placeholder")}
+							</SelectItem>
+							{targetOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									{option.label}
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+					{error && form.remote_node_id ? (
+						<p className="text-xs text-destructive">{error}</p>
+					) : null}
+					{remoteStorageTargetsError ? (
+						<p className="text-xs text-destructive">
+							{remoteStorageTargetsError}
+						</p>
+					) : selectedTarget ? (
+						<p className="text-xs text-muted-foreground">
+							{t("remote_storage_target_hint", {
+								driver: selectedTarget.driver_type,
+								base_path: selectedTarget.base_path || "/",
+							})}
+						</p>
+					) : !remoteStorageTargetsLoading &&
+						remoteStorageTargets.length === 0 ? (
+						<p className="text-xs text-muted-foreground">
+							{t("remote_storage_targets_empty")}
+						</p>
+					) : null}
+				</div>
 			) : null}
 		</div>
 	);

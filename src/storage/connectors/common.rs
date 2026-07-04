@@ -65,6 +65,7 @@ where
         secret_key: input.secret_key,
         base_path: input.base_path,
         remote_node_id: input.remote_node_id,
+        remote_storage_target_key: input.remote_storage_target_key,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: serialize_connector_options(&input.options)?,
@@ -136,6 +137,16 @@ pub(super) fn reject_unexpected_remote_node(remote_node_id: Option<i64>) -> Resu
         ));
     }
     Ok(None)
+}
+
+pub(super) fn reject_unexpected_remote_storage_target_key(target_key: Option<&str>) -> Result<()> {
+    if target_key.is_some_and(|value| !value.trim().is_empty()) {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyRemoteNodeUnexpected,
+            "remote_storage_target_key is only valid for remote storage policies",
+        ));
+    }
+    Ok(())
 }
 
 fn validate_connection_secret(value: &str, field: &str, driver: &str) -> Result<()> {

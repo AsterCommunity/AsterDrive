@@ -324,6 +324,7 @@ describe("storage policy dialog helper modules", () => {
 			secret_key: "",
 			base_path: "/data/archive",
 			remote_node_id: "",
+			remote_storage_target_key: "",
 			max_file_size: "1024",
 			chunk_size: "10",
 			is_default: true,
@@ -860,7 +861,7 @@ describe("storage policy dialog helper modules", () => {
 		});
 	});
 
-	it("builds remote payloads with remote node binding only", () => {
+	it("builds remote payloads with remote node binding and storage target", () => {
 		expect(
 			buildCreatePolicyPayload({
 				name: "Remote Edge",
@@ -871,6 +872,7 @@ describe("storage policy dialog helper modules", () => {
 				secret_key: "",
 				base_path: "tenant-a/uploads",
 				remote_node_id: "9",
+				remote_storage_target_key: "rst_hot",
 				max_file_size: "",
 				chunk_size: "4",
 				is_default: false,
@@ -892,6 +894,7 @@ describe("storage policy dialog helper modules", () => {
 			secret_key: "",
 			base_path: "tenant-a/uploads",
 			remote_node_id: 9,
+			remote_storage_target_key: "rst_hot",
 			max_file_size: undefined,
 			chunk_size: 4 * 1024 * 1024,
 			is_default: false,
@@ -911,6 +914,7 @@ describe("storage policy dialog helper modules", () => {
 				secret_key: "",
 				base_path: "tenant-a/uploads",
 				remote_node_id: "9",
+				remote_storage_target_key: "rst_hot",
 				max_file_size: "",
 				chunk_size: "4",
 				is_default: false,
@@ -931,6 +935,7 @@ describe("storage policy dialog helper modules", () => {
 			secret_key: undefined,
 			base_path: "tenant-a/uploads",
 			remote_node_id: 9,
+			remote_storage_target_key: "rst_hot",
 			options: {
 				remote_download_strategy: "presigned",
 				remote_upload_strategy: "presigned",
@@ -948,6 +953,7 @@ describe("storage policy dialog helper modules", () => {
 					secret_key: "",
 					base_path: "tenant-a/uploads",
 					remote_node_id: "9",
+					remote_storage_target_key: "rst_hot",
 					max_file_size: "",
 					chunk_size: "4",
 					is_default: false,
@@ -979,6 +985,7 @@ describe("storage policy dialog helper modules", () => {
 					secret_key: "",
 					base_path: "tenant-a/uploads",
 					remote_node_id: "9",
+					remote_storage_target_key: "rst_hot",
 					max_file_size: "",
 					chunk_size: "4",
 					is_default: false,

@@ -46,6 +46,8 @@ export function buildPolicyTestPayload(
 		secret_key: normalizedForm.secret_key || undefined,
 		base_path: normalizedForm.base_path || undefined,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		remote_storage_target_key:
+			normalizedForm.remote_storage_target_key || undefined,
 		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
 }
@@ -67,6 +69,8 @@ export function buildTencentCosCorsPayload(
 		secret_key: normalizedForm.secret_key || undefined,
 		base_path: normalizedForm.base_path || undefined,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		remote_storage_target_key:
+			normalizedForm.remote_storage_target_key || undefined,
 		options: buildPolicyOptions(normalizedForm, descriptor),
 	};
 }
@@ -91,6 +95,8 @@ export function buildCreatePolicyPayload(
 		secret_key: usesApplicationConfig ? "" : normalizedForm.secret_key,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		remote_storage_target_key:
+			normalizedForm.remote_storage_target_key || undefined,
 		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
 		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,
@@ -117,6 +123,8 @@ export function buildUpdatePolicyPayload(
 		bucket: normalizedForm.bucket,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		remote_storage_target_key:
+			normalizedForm.remote_storage_target_key || undefined,
 		max_file_size: parseOptionalFiniteNumber(normalizedForm.max_file_size),
 		chunk_size: parseOptionalChunkSizeBytes(normalizedForm.chunk_size),
 		is_default: normalizedForm.is_default,

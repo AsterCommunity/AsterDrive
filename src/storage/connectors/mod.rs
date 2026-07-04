@@ -106,6 +106,9 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         _db: &C,
         input: &StorageConnectorConnectionInput,
     ) -> Result<Option<i64>> {
+        common::reject_unexpected_remote_storage_target_key(
+            input.remote_storage_target_key.as_deref(),
+        )?;
         common::reject_unexpected_remote_node(input.remote_node_id)
     }
 

@@ -11,7 +11,7 @@ use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_EXPIRES_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
-    normalize_remote_base_url, sign_presigned_request,
+    REMOTE_STORAGE_TARGET_KEY_QUERY, normalize_remote_base_url, sign_presigned_request,
 };
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
@@ -123,7 +123,7 @@ pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     req: &actix_web::HttpRequest,
 ) -> Result<AuthorizedMasterBinding> {
     let binding = authorize_binding_request(state, req, false).await?;
-    resolve_authorized_ingress(state, binding).await
+    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?).await
 }
 
 pub async fn authorize_internal_binding_request<S: FollowerRuntimeState>(
@@ -151,7 +151,7 @@ pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
     }
 
     let binding = authorize_presigned_binding_request(state, req).await?;
-    resolve_authorized_ingress(state, binding).await
+    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?).await
 }
 
 pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
@@ -165,7 +165,7 @@ pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
     }
 
     let binding = authorize_presigned_binding_request(state, req).await?;
-    resolve_authorized_ingress(state, binding).await
+    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?).await
 }
 
 pub async fn sync_from_primary<S: FollowerRuntimeState>(
@@ -353,8 +353,19 @@ pub async fn assert_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result
 async fn resolve_authorized_ingress<S: FollowerRuntimeState>(
     state: &S,
     binding: master_binding::Model,
+    target_key: Option<String>,
 ) -> Result<AuthorizedMasterBinding> {
-    let target = remote_storage_target_service::resolve_effective_target(state, &binding).await?;
+    let target = match target_key.as_deref() {
+        Some(target_key) => {
+            remote_storage_target_service::resolve_target_by_key(state, &binding, target_key)
+                .await?
+        }
+        // Compatibility only: policies created before remote_storage_target_key
+        // existed do not send target_key in signed internal/presigned requests.
+        // Keep them on the binding default target instead of guessing a target
+        // from primary-side state.
+        None => remote_storage_target_service::resolve_effective_target(state, &binding).await?,
+    };
 
     Ok(AuthorizedMasterBinding {
         binding,
@@ -474,6 +485,22 @@ fn query_value(req: &actix_web::HttpRequest, name: &str) -> Result<String> {
     .cloned()
     .filter(|value| !value.is_empty())
     .ok_or_else(|| AsterError::auth_token_invalid(format!("missing query parameter '{name}'")))
+}
+
+fn optional_query_value(req: &actix_web::HttpRequest, name: &str) -> Result<Option<String>> {
+    Ok(
+        actix_web::web::Query::<std::collections::HashMap<String, String>>::from_query(
+            req.query_string(),
+        )
+        .map_err(|_| AsterError::auth_token_invalid("invalid query string"))?
+        .get(name)
+        .cloned()
+        .filter(|value| !value.trim().is_empty()),
+    )
+}
+
+fn remote_storage_target_key(req: &actix_web::HttpRequest) -> Result<Option<String>> {
+    optional_query_value(req, REMOTE_STORAGE_TARGET_KEY_QUERY)
 }
 
 fn normalize_non_blank(field: &str, value: &str) -> Result<String> {

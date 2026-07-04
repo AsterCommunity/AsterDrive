@@ -209,6 +209,7 @@ mod tests {
             secret_key: String::new(),
             base_path: String::new(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             max_file_size,
             allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
             options: crate::types::StoredStoragePolicyOptions::empty(),

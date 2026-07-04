@@ -87,6 +87,7 @@ fn draft_connection(driver_type: DriverType) -> StorageConnectorConnectionInput 
         secret_key: String::new(),
         base_path: "tenant-b".to_string(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         options: StoragePolicyOptions::default(),
     }
 }
@@ -520,6 +521,7 @@ fn onedrive_prepare_connection_for_storage_clears_legacy_policy_key_fields() {
             secret_key: "legacy-client-secret".to_string(),
             base_path: "docs".to_string(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             options: StoragePolicyOptions::default(),
         },
         &StorageConnectorApplicationConfigInput {
@@ -548,6 +550,7 @@ fn non_onedrive_connectors_reject_microsoft_graph_application_config() {
             secret_key: "secret".to_string(),
             base_path: String::new(),
             remote_node_id: None,
+            remote_storage_target_key: None,
             options: StoragePolicyOptions::default(),
         },
         &StorageConnectorApplicationConfigInput {
@@ -924,6 +927,7 @@ fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> stora
         secret_key: String::new(),
         base_path: String::new(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: options.to_string().into(),

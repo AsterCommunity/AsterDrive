@@ -573,6 +573,7 @@ mod tests {
             secret_key: String::new(),
             base_path: "base".to_string(),
             remote_node_id,
+            remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
             options: StoredStoragePolicyOptions::empty(),

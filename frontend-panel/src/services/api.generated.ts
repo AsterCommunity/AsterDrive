@@ -5173,6 +5173,7 @@ export interface components {
             options?: null | components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
             remote_node_id?: number | null;
+            remote_storage_target_key?: string | null;
             secret_key?: string | null;
         };
         /** @description Create a remote node. */
@@ -5304,6 +5305,7 @@ export interface components {
             policy_id?: number | null;
             /** Format: int64 */
             remote_node_id?: number | null;
+            remote_storage_target_key?: string | null;
             secret_key?: string | null;
         };
         /** @description Execute a storage policy action for a saved policy. */
@@ -6400,6 +6402,7 @@ export interface components {
                 options: components["schemas"]["StoragePolicyOptions"];
                 /** Format: int64 */
                 remote_node_id?: number | null;
+                remote_storage_target_key?: string | null;
                 updated_at: string;
             }[];
             /** Format: int64 */
@@ -6674,6 +6677,7 @@ export interface components {
             options?: null | components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
             remote_node_id?: number | null;
+            remote_storage_target_key?: string | null;
             secret_key?: string | null;
         };
         /** @description Patch a remote node. */
@@ -7527,6 +7531,7 @@ export interface components {
             options: components["schemas"]["StoragePolicyOptions"];
             /** Format: int64 */
             remote_node_id?: number | null;
+            remote_storage_target_key?: string | null;
             updated_at: string;
         };
         StoragePolicyActionResult: {
@@ -8014,6 +8019,7 @@ export interface components {
             policy_id?: number | null;
             /** Format: int64 */
             remote_node_id?: number | null;
+            remote_storage_target_key?: string | null;
             secret_key?: string | null;
         };
         /** @description Test remote node connection without saving. */
@@ -9973,6 +9979,7 @@ export interface operations {
                                 options: components["schemas"]["StoragePolicyOptions"];
                                 /** Format: int64 */
                                 remote_node_id?: number | null;
+                                remote_storage_target_key?: string | null;
                                 updated_at: string;
                             }[];
                             /** Format: int64 */
@@ -10042,6 +10049,7 @@ export interface operations {
                             options: components["schemas"]["StoragePolicyOptions"];
                             /** Format: int64 */
                             remote_node_id?: number | null;
+                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10341,6 +10349,7 @@ export interface operations {
                             options: components["schemas"]["StoragePolicyOptions"];
                             /** Format: int64 */
                             remote_node_id?: number | null;
+                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10457,6 +10466,7 @@ export interface operations {
                             options: components["schemas"]["StoragePolicyOptions"];
                             /** Format: int64 */
                             remote_node_id?: number | null;
+                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10653,6 +10663,7 @@ export interface operations {
                             options: components["schemas"]["StoragePolicyOptions"];
                             /** Format: int64 */
                             remote_node_id?: number | null;
+                            remote_storage_target_key?: string | null;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];

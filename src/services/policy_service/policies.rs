@@ -9,6 +9,7 @@ use crate::db::repository::{file_repo, policy_group_repo, policy_repo, upload_se
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
+use crate::services::remote_storage_target_service;
 use crate::types::{DriverType, parse_storage_policy_options};
 
 use super::models::{
@@ -107,7 +108,7 @@ pub(crate) async fn capacity_info_or_status(
 }
 
 pub async fn create(
-    state: &impl SharedRuntimeState,
+    state: &(impl RemoteProtocolRuntimeState + Sync),
     input: CreateStoragePolicyInput,
 ) -> Result<StoragePolicy> {
     let CreateStoragePolicyInput {
@@ -118,8 +119,14 @@ pub async fn create(
         is_default,
         allowed_types,
         options,
+        remote_storage_target_key,
         application_config,
     } = input;
+    let mut connection = connection;
+    let remote_storage_target_key = normalize_remote_storage_target_key(
+        remote_storage_target_key.or_else(|| connection.remote_storage_target_key.clone()),
+    );
+    connection.remote_storage_target_key = remote_storage_target_key.clone();
     let connection =
         crate::storage::connectors::normalize_policy_connection(state.writer_db(), connection)
             .await?;
@@ -131,6 +138,7 @@ pub async fn create(
         secret_key,
         base_path,
         remote_node_id,
+        remote_storage_target_key: normalized_connection_target_key,
         options: _,
     } = crate::storage::connectors::prepare_connection_for_storage(
         connection,
@@ -147,6 +155,14 @@ pub async fn create(
         &options,
     )
     .await?;
+    let remote_storage_target_key = validate_remote_storage_policy_target(
+        state,
+        driver_type,
+        remote_node_id,
+        remote_storage_target_key.or(normalized_connection_target_key),
+        true,
+    )
+    .await?;
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let now = Utc::now();
@@ -159,6 +175,7 @@ pub async fn create(
         secret_key: Set(secret_key),
         base_path: Set(base_path),
         remote_node_id: Set(remote_node_id),
+        remote_storage_target_key: Set(remote_storage_target_key),
         max_file_size: Set(max_file_size),
         allowed_types: Set(serialize_allowed_types(&allowed_types)?),
         options: Set(serialized_options),
@@ -297,7 +314,7 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
 }
 
 pub async fn update(
-    state: &impl SharedRuntimeState,
+    state: &(impl RemoteProtocolRuntimeState + Sync),
     id: i64,
     input: UpdateStoragePolicyInput,
 ) -> Result<StoragePolicy> {
@@ -309,6 +326,7 @@ pub async fn update(
         secret_key,
         base_path,
         remote_node_id,
+        remote_storage_target_key,
         max_file_size,
         chunk_size,
         is_default,
@@ -324,6 +342,7 @@ pub async fn update(
     let existing_secret_key = existing.secret_key.clone();
     let existing_driver_type = existing.driver_type;
     let existing_remote_node_id = existing.remote_node_id;
+    let existing_remote_storage_target_key = existing.remote_storage_target_key.clone();
     let existing_options = parse_storage_policy_options(existing.options.as_ref());
     let final_endpoint = endpoint.unwrap_or_else(|| existing_endpoint.clone());
     let final_bucket = bucket.unwrap_or_else(|| existing_bucket.clone());
@@ -346,6 +365,11 @@ pub async fn update(
             secret_key: final_secret_key,
             base_path: final_base_path,
             remote_node_id: remote_node_id.or(existing.remote_node_id),
+            remote_storage_target_key: normalize_remote_storage_target_key(
+                remote_storage_target_key
+                    .clone()
+                    .or(existing_remote_storage_target_key.clone()),
+            ),
             options: existing_options.clone(),
         },
     )
@@ -359,6 +383,8 @@ pub async fn update(
     let normalized_access_key = normalized_connection.access_key.clone();
     let normalized_secret_key = normalized_connection.secret_key.clone();
     let normalized_remote_node_id = normalized_connection.remote_node_id;
+    let normalized_remote_storage_target_key =
+        normalized_connection.remote_storage_target_key.clone();
     let options_provided = options.is_some();
     let final_options = options.unwrap_or(existing_options).normalized();
     let serialized_final_options = serialize_options(&final_options)?;
@@ -367,6 +393,14 @@ pub async fn update(
         existing_driver_type,
         normalized_remote_node_id,
         &final_options,
+    )
+    .await?;
+    let final_remote_storage_target_key = validate_remote_storage_policy_target(
+        state,
+        existing_driver_type,
+        normalized_remote_node_id,
+        normalized_remote_storage_target_key,
+        remote_node_id.is_some() || remote_storage_target_key.is_some(),
     )
     .await?;
 
@@ -405,6 +439,9 @@ pub async fn update(
     }
     if normalized_remote_node_id != existing_remote_node_id {
         active.remote_node_id = Set(normalized_remote_node_id);
+    }
+    if final_remote_storage_target_key != existing_remote_storage_target_key {
+        active.remote_storage_target_key = Set(final_remote_storage_target_key);
     }
     if let Some(v) = max_file_size {
         active.max_file_size = Set(v);
@@ -482,6 +519,7 @@ pub async fn promote_s3_compatible_driver(
             secret_key: existing.secret_key.clone(),
             base_path: existing.base_path.clone(),
             remote_node_id: existing.remote_node_id,
+            remote_storage_target_key: existing.remote_storage_target_key.clone(),
             options: existing_options,
         },
     )
@@ -589,6 +627,85 @@ async fn verify_s3_compatible_promotion_sample(
     }
 
     Ok(())
+}
+
+fn normalize_remote_storage_target_key(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+async fn validate_remote_storage_policy_target<S: RemoteProtocolRuntimeState + Sync>(
+    state: &S,
+    driver_type: DriverType,
+    remote_node_id: Option<i64>,
+    target_key: Option<String>,
+    require_explicit: bool,
+) -> Result<Option<String>> {
+    if driver_type != DriverType::Remote {
+        if target_key.is_some() {
+            return Err(validation_error_with_code(
+                ApiErrorCode::PolicyRemoteNodeUnexpected,
+                "remote_storage_target_key is only valid for remote storage policies",
+            ));
+        }
+        return Ok(None);
+    }
+
+    let Some(remote_node_id) = remote_node_id else {
+        return Err(validation_error_with_code(
+            ApiErrorCode::PolicyRemoteNodeRequired,
+            "remote storage policy requires remote_node_id",
+        ));
+    };
+    let Some(target_key) = target_key else {
+        if require_explicit {
+            return Err(validation_error_with_code(
+                ApiErrorCode::ManagedIngressRequired,
+                "remote storage policy requires remote_storage_target_key",
+            ));
+        }
+        // TODO(remote-storage-target): legacy remote policies created before
+        // 0.4.0 may not have a target key. The primary database cannot safely
+        // infer which follower-side target was intended, so keep the null value
+        // only while the policy's remote binding remains unchanged. Runtime
+        // requests without target_key fall back to the follower binding default.
+        return Ok(None);
+    };
+
+    let targets = remote_storage_target_service::list_remote(state, remote_node_id).await?;
+    let target = targets
+        .into_iter()
+        .find(|target| target.target_key == target_key)
+        .ok_or_else(|| {
+            validation_error_with_code(
+                ApiErrorCode::ManagedIngressRequired,
+                format!(
+                    "remote storage target '{}' does not exist on remote node #{}",
+                    target_key, remote_node_id
+                ),
+            )
+        })?;
+    if !target.last_error.trim().is_empty() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::ManagedIngressDefaultError,
+            format!(
+                "remote storage target '{}' is not ready: {}",
+                target.target_key, target.last_error
+            ),
+        ));
+    }
+    if target.applied_revision < target.desired_revision {
+        return Err(validation_error_with_code(
+            ApiErrorCode::ManagedIngressDefaultNotApplied,
+            format!(
+                "remote storage target '{}' is pending apply",
+                target.target_key
+            ),
+        ));
+    }
+
+    Ok(Some(target.target_key))
 }
 
 pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) -> Result<()> {
@@ -807,6 +924,7 @@ mod tests {
                     secret_key: "legacy-client-secret".to_string(),
                     base_path: String::new(),
                     remote_node_id: None,
+                    remote_storage_target_key: None,
                     options: StoragePolicyOptions::default(),
                 },
                 max_file_size: 0,
@@ -814,6 +932,7 @@ mod tests {
                 is_default: false,
                 allowed_types: None,
                 options: Some(onedrive_options()),
+                remote_storage_target_key: None,
                 application_config: crate::storage::StorageConnectorApplicationConfigInput {
                     microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
                         client_id: Some("metadata-client-id".to_string()),

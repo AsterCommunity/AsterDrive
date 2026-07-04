@@ -6,6 +6,7 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {
 	DriverType,
 	RemoteNodeInfo,
+	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
 	StoragePolicyCredentialInfo,
@@ -49,6 +50,9 @@ interface PolicyDialogsProps {
 	s3DriverPromotionSubmitting: boolean;
 	s3DriverPromotionTargetLabel: string | null;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargets: RemoteStorageTargetInfo[];
+	remoteStorageTargetsError: string | null;
+	remoteStorageTargetsLoading: boolean;
 	saveAnywayConfirmOpen: boolean;
 	submitting: boolean;
 	onApplyS3CompatibleDriverSuggestion: () => void;
@@ -107,6 +111,9 @@ export function PolicyDialogs({
 	s3DriverPromotionSubmitting,
 	s3DriverPromotionTargetLabel,
 	remoteNodes,
+	remoteStorageTargets,
+	remoteStorageTargetsError,
+	remoteStorageTargetsLoading,
 	saveAnywayConfirmOpen,
 	submitting,
 	onApplyS3CompatibleDriverSuggestion,
@@ -176,6 +183,9 @@ export function PolicyDialogs({
 				s3DriverPromotionSubmitting={s3DriverPromotionSubmitting}
 				s3DriverPromotionTargetLabel={s3DriverPromotionTargetLabel}
 				remoteNodes={remoteNodes}
+				remoteStorageTargets={remoteStorageTargets}
+				remoteStorageTargetsError={remoteStorageTargetsError}
+				remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 				submitting={submitting}
 				createStep={createStep}
 				createStepTouched={createStepTouched}

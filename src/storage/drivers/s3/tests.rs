@@ -146,6 +146,7 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
         secret_key: "secret".to_string(),
         base_path: String::new(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
         options: crate::types::StoredStoragePolicyOptions::empty(),

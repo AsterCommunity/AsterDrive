@@ -50,6 +50,7 @@ impl RemoteDriver {
     ) -> Result<Self> {
         let capabilities = RemoteStorageCapabilities::from_stored_json(&follower.last_capabilities);
         capabilities.validate_protocol("remote storage driver")?;
+        let client = client.with_storage_target_key(policy.remote_storage_target_key.as_deref());
         Ok(Self {
             client,
             base_path: policy.base_path.trim_matches('/').to_string(),

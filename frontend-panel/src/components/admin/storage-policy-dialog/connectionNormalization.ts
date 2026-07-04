@@ -197,6 +197,8 @@ export function hasConnectionFieldChanges(
 		return (
 			parseRemoteNodeId(normalizedForm.remote_node_id) !==
 				editingPolicy.remote_node_id ||
+			normalizedForm.remote_storage_target_key !==
+				(editingPolicy.remote_storage_target_key ?? "") ||
 			normalizedForm.base_path !== editingPolicy.base_path
 		);
 	}
@@ -228,6 +230,7 @@ export function getPolicyConnectionTestKey(
 		secret_key: normalizedForm.secret_key,
 		base_path: normalizedForm.base_path,
 		remote_node_id: parseRemoteNodeId(normalizedForm.remote_node_id),
+		remote_storage_target_key: normalizedForm.remote_storage_target_key,
 		options: buildPolicyOptions(normalizedForm, descriptor),
 	});
 }
