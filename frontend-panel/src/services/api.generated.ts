@@ -6880,8 +6880,6 @@ export interface components {
         RemoteCreateLocalStorageTargetRequest: {
             base_path: string;
             is_default?: boolean;
-            /** Format: int64 */
-            max_file_size: number;
             name: string;
         };
         RemoteCreateS3StorageTargetRequest: {
@@ -6890,8 +6888,6 @@ export interface components {
             bucket: string;
             endpoint: string;
             is_default?: boolean;
-            /** Format: int64 */
-            max_file_size: number;
             name: string;
             secret_key: string;
         };
@@ -7014,8 +7010,6 @@ export interface components {
             endpoint: string;
             is_default: boolean;
             last_error: string;
-            /** Format: int64 */
-            max_file_size: number;
             name: string;
             target_key: string;
             updated_at: string;
@@ -7034,8 +7028,6 @@ export interface components {
             driver_type?: null | components["schemas"]["DriverType"];
             endpoint?: string | null;
             is_default?: boolean | null;
-            /** Format: int64 */
-            max_file_size?: number | null;
             name?: string | null;
             secret_key?: string | null;
         };
@@ -11801,8 +11793,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;
@@ -11878,8 +11868,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;
@@ -12008,8 +11996,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;
@@ -12135,8 +12121,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;
@@ -12212,8 +12196,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;
@@ -12342,8 +12324,6 @@ export interface operations {
                             endpoint: string;
                             is_default: boolean;
                             last_error: string;
-                            /** Format: int64 */
-                            max_file_size: number;
                             name: string;
                             target_key: string;
                             updated_at: string;

@@ -16,7 +16,6 @@ pub(in crate::services::remote_storage_target_service) struct NormalizedStorageT
     pub access_key: String,
     pub secret_key: String,
     pub base_path: String,
-    pub max_file_size: i64,
     pub is_default: Option<bool>,
 }
 
@@ -28,7 +27,6 @@ struct StorageTargetFields {
     access_key: String,
     secret_key: String,
     base_path: String,
-    max_file_size: i64,
     is_default: Option<bool>,
 }
 
@@ -39,7 +37,6 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name,
             base_path,
-            max_file_size,
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
             name: normalize_non_blank("name", &name)?,
@@ -49,7 +46,6 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
             access_key: String::new(),
             secret_key: String::new(),
             base_path,
-            max_file_size,
             is_default: Some(is_default),
         }),
         RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
@@ -59,7 +55,6 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
             access_key,
             secret_key,
             base_path,
-            max_file_size,
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
             name: normalize_non_blank("name", &name)?,
@@ -69,7 +64,6 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
             access_key,
             secret_key,
             base_path,
-            max_file_size,
             is_default: Some(is_default),
         }),
     }
@@ -124,7 +118,6 @@ pub(in crate::services::remote_storage_target_service) fn normalize_update_input
                 ".".to_string()
             }
         }),
-        max_file_size: input.max_file_size.unwrap_or(existing.max_file_size),
         is_default: input.is_default,
     })
 }
@@ -142,15 +135,8 @@ fn normalize_target_fields(fields: StorageTargetFields) -> Result<NormalizedStor
         access_key,
         secret_key,
         base_path,
-        max_file_size,
         is_default,
     } = fields;
-
-    if max_file_size < 0 {
-        return Err(AsterError::validation_error(
-            "max_file_size must be non-negative",
-        ));
-    }
 
     let normalized = normalize_driver_fields(RemoteStorageTargetDriverFields {
         driver_type,
@@ -169,7 +155,6 @@ fn normalize_target_fields(fields: StorageTargetFields) -> Result<NormalizedStor
         access_key: normalized.access_key,
         secret_key: normalized.secret_key,
         base_path: normalized.base_path,
-        max_file_size,
         is_default,
     })
 }

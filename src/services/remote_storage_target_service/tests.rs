@@ -134,16 +134,10 @@ async fn create_binding(state: &TestFollowerState, access_key: &str) -> master_b
     .unwrap()
 }
 
-fn local_create(
-    name: &str,
-    base_path: &str,
-    max_file_size: i64,
-    is_default: bool,
-) -> RemoteCreateStorageTargetRequest {
+fn local_create(name: &str, base_path: &str, is_default: bool) -> RemoteCreateStorageTargetRequest {
     RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
         name: name.to_string(),
         base_path: base_path.to_string(),
-        max_file_size,
         is_default,
     })
 }
@@ -162,7 +156,6 @@ fn s3_create(
         access_key: "access".to_string(),
         secret_key: "secret".to_string(),
         base_path: base_path.to_string(),
-        max_file_size: 0,
         is_default,
     })
 }
@@ -180,7 +173,6 @@ fn model_with_driver(driver_type: DriverType) -> remote_storage_target::Model {
         access_key: "access".to_string(),
         secret_key: "secret".to_string(),
         base_path: "profile".to_string(),
-        max_file_size: 0,
         is_default: true,
         desired_revision: 1,
         applied_revision: 1,
@@ -298,11 +290,10 @@ fn resolve_remote_storage_target_local_path_rejects_empty_root() {
 
 #[test]
 fn normalize_create_input_trims_local_and_s3_fields() {
-    let local = normalize_create_input(local_create(" Local ", " ./dropbox/ ", 42, true)).unwrap();
+    let local = normalize_create_input(local_create(" Local ", " ./dropbox/ ", true)).unwrap();
     assert_eq!(local.name, "Local");
     assert_eq!(local.driver_type, DriverType::Local);
     assert_eq!(local.base_path, "dropbox");
-    assert_eq!(local.max_file_size, 42);
     assert_eq!(local.is_default, Some(true));
 
     let s3 = normalize_create_input(s3_create(
@@ -323,19 +314,8 @@ fn normalize_create_input_trims_local_and_s3_fields() {
 
 #[test]
 fn normalize_create_input_rejects_invalid_values() {
-    let error = expect_aster_err(normalize_create_input(local_create(
-        " ", "profile", 0, false,
-    )));
+    let error = expect_aster_err(normalize_create_input(local_create(" ", "profile", false)));
     assert!(error.message().contains("name cannot be blank"));
-
-    let error = expect_aster_err(normalize_create_input(local_create(
-        "Local", "profile", -1, false,
-    )));
-    assert!(
-        error
-            .message()
-            .contains("max_file_size must be non-negative")
-    );
 
     let error = expect_aster_err(normalize_create_input(s3_create(
         "S3",
@@ -355,7 +335,6 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
         RemoteUpdateStorageTargetRequest {
             name: Some(" Updated ".to_string()),
             base_path: Some(" /next/ ".to_string()),
-            max_file_size: Some(128),
             is_default: Some(true),
             ..Default::default()
         },
@@ -369,7 +348,6 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
     assert_eq!(normalized.access_key, existing.access_key);
     assert_eq!(normalized.secret_key, existing.secret_key);
     assert_eq!(normalized.base_path, "next");
-    assert_eq!(normalized.max_file_size, 128);
     assert_eq!(normalized.is_default, Some(true));
 }
 
@@ -406,23 +384,6 @@ fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials(
 
     assert_eq!(normalized.access_key, "new-access");
     assert_eq!(normalized.secret_key, "new-secret");
-}
-
-#[test]
-fn normalize_update_input_rejects_negative_max_file_size() {
-    let error = expect_aster_err(normalize_update_input(
-        model_with_driver(DriverType::S3),
-        RemoteUpdateStorageTargetRequest {
-            max_file_size: Some(-1),
-            ..Default::default()
-        },
-    ));
-
-    assert!(
-        error
-            .message()
-            .contains("max_file_size must be non-negative")
-    );
 }
 
 #[test]
@@ -469,7 +430,7 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
             .iter()
             .map(|field| field.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["base_path", "max_file_size", "is_default"]
+        vec!["base_path", "is_default"]
     );
 
     let s3 = descriptors
@@ -487,7 +448,6 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
             "access_key",
             "secret_key",
             "base_path",
-            "max_file_size",
             "is_default"
         ]
     );
@@ -671,7 +631,7 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
     let profile = create(
         &state,
         &binding,
-        local_create(" First ", " first/profile ", 512, false),
+        local_create(" First ", " first/profile ", false),
     )
     .await
     .unwrap();
@@ -679,14 +639,12 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
     assert!(profile.target_key.starts_with("rst_"));
     assert_eq!(profile.name, "First");
     assert_eq!(profile.base_path, "first/profile");
-    assert_eq!(profile.max_file_size, 512);
     assert!(profile.is_default);
     assert_eq!(profile.desired_revision, 1);
     assert_eq!(profile.applied_revision, 1);
     assert_eq!(profile.last_error, "");
 
     let resolved = resolve_effective_target(&state, &binding).await.unwrap();
-    assert_eq!(resolved.max_file_size, 512);
     assert!(resolved.driver.exists(".").await.is_ok());
 }
 
@@ -694,10 +652,10 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
 async fn update_can_promote_second_profile_to_default_and_increments_revision() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-update").await;
-    let first = create(&state, &binding, local_create("First", "first", 0, false))
+    let first = create(&state, &binding, local_create("First", "first", false))
         .await
         .unwrap();
-    let second = create(&state, &binding, local_create("Second", "second", 0, false))
+    let second = create(&state, &binding, local_create("Second", "second", false))
         .await
         .unwrap();
     assert!(first.is_default);
@@ -710,7 +668,6 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
         RemoteUpdateStorageTargetRequest {
             name: Some(" Promoted ".to_string()),
             base_path: Some(" promoted ".to_string()),
-            max_file_size: Some(2048),
             is_default: Some(true),
             ..Default::default()
         },
@@ -721,7 +678,6 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
     assert!(updated.is_default);
     assert_eq!(updated.name, "Promoted");
     assert_eq!(updated.base_path, "promoted");
-    assert_eq!(updated.max_file_size, 2048);
     assert_eq!(updated.desired_revision, 2);
     assert_eq!(updated.applied_revision, 2);
 
@@ -736,13 +692,9 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
 async fn update_rejects_unsetting_current_default_directly() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-unset").await;
-    let profile = create(
-        &state,
-        &binding,
-        local_create("Default", "default", 0, true),
-    )
-    .await
-    .unwrap();
+    let profile = create(&state, &binding, local_create("Default", "default", true))
+        .await
+        .unwrap();
 
     let error = update(
         &state,
@@ -766,10 +718,10 @@ async fn update_rejects_unsetting_current_default_directly() {
 async fn delete_protects_default_when_other_profiles_exist_then_allows_after_replacement() {
     let state = setup_state().await;
     let binding = create_binding(&state, "ak-delete").await;
-    let first = create(&state, &binding, local_create("First", "first", 0, true))
+    let first = create(&state, &binding, local_create("First", "first", true))
         .await
         .unwrap();
-    let second = create(&state, &binding, local_create("Second", "second", 0, false))
+    let second = create(&state, &binding, local_create("Second", "second", false))
         .await
         .unwrap();
 
@@ -811,13 +763,9 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
         Some(ApiErrorCode::ManagedIngressRequired)
     );
 
-    let profile = create(
-        &state,
-        &binding,
-        local_create("Default", "default", 0, true),
-    )
-    .await
-    .unwrap();
+    let profile = create(&state, &binding, local_create("Default", "default", true))
+        .await
+        .unwrap();
     let mut stored = remote_storage_target_repo::find_by_binding_and_target_key(
         state.writer_db(),
         binding.id,

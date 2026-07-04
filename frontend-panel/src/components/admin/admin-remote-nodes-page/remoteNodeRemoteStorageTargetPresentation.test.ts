@@ -17,7 +17,6 @@ const profile = (
 	endpoint: "",
 	is_default: false,
 	last_error: "",
-	max_file_size: 0,
 	name: "Default",
 	target_key: "default",
 	updated_at: "2026-05-02T00:00:00Z",

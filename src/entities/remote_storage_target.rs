@@ -25,7 +25,6 @@ pub struct Model {
     #[serde(skip_serializing)]
     pub secret_key: String,
     pub base_path: String,
-    pub max_file_size: i64,
     pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
@@ -49,7 +48,6 @@ impl fmt::Debug for Model {
             .field("access_key", &"***REDACTED***")
             .field("secret_key", &"***REDACTED***")
             .field("base_path", &self.base_path)
-            .field("max_file_size", &self.max_file_size)
             .field("is_default", &self.is_default)
             .field("desired_revision", &self.desired_revision)
             .field("applied_revision", &self.applied_revision)
@@ -98,7 +96,6 @@ mod tests {
             access_key: "plain-access-key".to_string(),
             secret_key: "plain-secret-key".to_string(),
             base_path: "base".to_string(),
-            max_file_size: 0,
             is_default: false,
             desired_revision: 1,
             applied_revision: 1,

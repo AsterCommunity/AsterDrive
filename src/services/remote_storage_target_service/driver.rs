@@ -90,24 +90,6 @@ fn remote_storage_target_text_field(
     }
 }
 
-fn remote_storage_target_number_field(
-    name: &str,
-    label_key: &str,
-    placeholder: Option<&str>,
-    help_key: Option<&str>,
-    required: bool,
-) -> RemoteStorageTargetDriverFieldDescriptor {
-    RemoteStorageTargetDriverFieldDescriptor {
-        name: name.to_string(),
-        kind: RemoteStorageTargetDriverFieldKind::Number,
-        required,
-        secret: false,
-        label_key: label_key.to_string(),
-        placeholder: placeholder.map(str::to_string),
-        help_key: help_key.map(str::to_string),
-    }
-}
-
 fn remote_storage_target_boolean_field(
     name: &str,
     label_key: &str,
@@ -163,13 +145,6 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
                     Some("tenant-a/incoming"),
                     Some("remote_node_ingress_profile_local_path_hint"),
                     true,
-                    false,
-                ),
-                remote_storage_target_number_field(
-                    "max_file_size",
-                    "max_file_size",
-                    Some("0"),
-                    Some("remote_node_ingress_profile_max_file_size_hint"),
                     false,
                 ),
                 remote_storage_target_boolean_field(
@@ -272,13 +247,6 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
                     Some("prefix"),
                     Some("remote_node_ingress_profile_s3_path_hint"),
                     false,
-                    false,
-                ),
-                remote_storage_target_number_field(
-                    "max_file_size",
-                    "max_file_size",
-                    Some("0"),
-                    Some("remote_node_ingress_profile_max_file_size_hint"),
                     false,
                 ),
                 remote_storage_target_boolean_field(
@@ -477,7 +445,7 @@ fn build_policy_model<S: FollowerRuntimeState>(
         base_path,
         remote_node_id: None,
         remote_storage_target_key: None,
-        max_file_size: target.max_file_size,
+        max_file_size: 0,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),
         is_default: target.is_default,

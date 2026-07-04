@@ -80,8 +80,5 @@ fn build_resolved_target<S: FollowerRuntimeState>(
         ));
     }
     let driver = build_driver_from_target(state, &target)?;
-    Ok(ResolvedRemoteStorageTarget {
-        driver,
-        max_file_size: target.max_file_size,
-    })
+    Ok(ResolvedRemoteStorageTarget { driver })
 }

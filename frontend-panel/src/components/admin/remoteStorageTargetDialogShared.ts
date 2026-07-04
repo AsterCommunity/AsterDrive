@@ -22,7 +22,6 @@ export interface RemoteStorageTargetFormData {
 	access_key: string;
 	secret_key: string;
 	base_path: string;
-	max_file_size: string;
 	is_default: boolean;
 }
 
@@ -57,7 +56,6 @@ export function getRemoteStorageTargetForm(
 		access_key: "",
 		secret_key: "",
 		base_path: profile.base_path,
-		max_file_size: String(profile.max_file_size),
 		is_default: profile.is_default,
 	};
 }
@@ -86,11 +84,6 @@ function normalizeRemoteStorageTargetForm(
 	};
 }
 
-function parseMaxFileSize(value: string): number {
-	const trimmed = value.trim();
-	return trimmed === "" ? 0 : Number(trimmed);
-}
-
 export function buildCreateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
 	supportedFields: RemoteStorageTargetSupportedFields,
@@ -105,7 +98,6 @@ export function buildCreateRemoteStorageTargetPayload(
 		access_key: normalized.access_key,
 		secret_key: normalized.secret_key,
 		base_path: normalized.base_path,
-		max_file_size: parseMaxFileSize(normalized.max_file_size),
 		is_default: normalized.is_default,
 	};
 }
@@ -124,7 +116,6 @@ export function buildUpdateRemoteStorageTargetPayload(
 		name: normalized.name,
 		driver_type: normalized.driver_type,
 		base_path: normalized.base_path,
-		max_file_size: parseMaxFileSize(normalized.max_file_size),
 		is_default: normalized.is_default,
 	};
 
@@ -161,6 +152,5 @@ export const emptyRemoteStorageTargetForm: RemoteStorageTargetFormData = {
 	access_key: "",
 	secret_key: "",
 	base_path: ".",
-	max_file_size: "0",
 	is_default: false,
 };

@@ -76,7 +76,6 @@ fn profile_json(target_key: &str) -> serde_json::Value {
         "endpoint": "",
         "bucket": "",
         "base_path": "ingress-base",
-        "max_file_size": 1024,
         "is_default": true,
         "desired_revision": 3,
         "applied_revision": 2,
@@ -437,7 +436,6 @@ fn s3_ingress_profile_create_debug_redacts_credentials() {
         access_key: "plain-access-key".to_string(),
         secret_key: "plain-secret-key".to_string(),
         base_path: "ingress".to_string(),
-        max_file_size: 1024,
         is_default: true,
     };
 
@@ -459,7 +457,6 @@ fn ingress_profile_update_debug_redacts_optional_credentials() {
         access_key: Some("plain-access-key".to_string()),
         secret_key: Some("plain-secret-key".to_string()),
         base_path: Some("ingress".to_string()),
-        max_file_size: Some(1024),
         is_default: Some(true),
     };
 
@@ -530,7 +527,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
     assert!(query.contains_key("aster_signature"));
 
     let target_url = client
-        .with_storage_target_key(Some("rst-primary"))
+        .with_policy_context(Some("rst-primary"), 4096)
         .presigned_put_url("object.bin", Duration::from_secs(60))
         .expect("target-scoped presigned URL should build");
     let target_query = reqwest::Url::parse(&target_url)
@@ -544,7 +541,33 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
             .map(String::as_str),
         Some("rst-primary")
     );
+    assert_eq!(
+        target_query
+            .get(REMOTE_POLICY_MAX_FILE_SIZE_QUERY)
+            .map(String::as_str),
+        Some("4096")
+    );
     assert!(target_query.contains_key(PRESIGNED_AUTH_SIGNATURE_QUERY));
+
+    for max_file_size in [0, -1] {
+        let url = client
+            .with_policy_context(Some("rst-primary"), max_file_size)
+            .presigned_put_url("object.bin", Duration::from_secs(60))
+            .expect("non-positive policy max should not block URL signing");
+        let query = reqwest::Url::parse(&url)
+            .expect("target URL should parse")
+            .query_pairs()
+            .into_owned()
+            .collect::<HashMap<_, _>>();
+        assert_eq!(
+            query
+                .get(REMOTE_STORAGE_TARGET_KEY_QUERY)
+                .map(String::as_str),
+            Some("rst-primary")
+        );
+        assert!(!query.contains_key(REMOTE_POLICY_MAX_FILE_SIZE_QUERY));
+        assert!(query.contains_key(PRESIGNED_AUTH_SIGNATURE_QUERY));
+    }
 
     let zero = client
         .presigned_put_url("object.bin", Duration::ZERO)
@@ -752,7 +775,6 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
             RemoteCreateLocalStorageTargetRequest {
                 name: "Managed local".to_string(),
                 base_path: "ingress-base".to_string(),
-                max_file_size: 1024,
                 is_default: true,
             },
         ))

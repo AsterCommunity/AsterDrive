@@ -539,7 +539,6 @@ pub struct RemoteStorageTargetInfo {
     pub endpoint: String,
     pub bucket: String,
     pub base_path: String,
-    pub max_file_size: i64,
     pub is_default: bool,
     pub desired_revision: i64,
     pub applied_revision: i64,
@@ -572,7 +571,6 @@ impl RemoteCreateStorageTargetRequest {
 pub struct RemoteCreateLocalStorageTargetRequest {
     pub name: String,
     pub base_path: String,
-    pub max_file_size: i64,
     #[serde(default)]
     pub is_default: bool,
 }
@@ -586,7 +584,6 @@ pub struct RemoteCreateS3StorageTargetRequest {
     pub access_key: String,
     pub secret_key: String,
     pub base_path: String,
-    pub max_file_size: i64,
     #[serde(default)]
     pub is_default: bool,
 }
@@ -600,7 +597,6 @@ impl fmt::Debug for RemoteCreateS3StorageTargetRequest {
             .field("access_key", &"<redacted>")
             .field("secret_key", &"<redacted>")
             .field("base_path", &self.base_path)
-            .field("max_file_size", &self.max_file_size)
             .field("is_default", &self.is_default)
             .finish()
     }
@@ -616,7 +612,6 @@ pub struct RemoteUpdateStorageTargetRequest {
     pub access_key: Option<String>,
     pub secret_key: Option<String>,
     pub base_path: Option<String>,
-    pub max_file_size: Option<i64>,
     pub is_default: Option<bool>,
 }
 
@@ -636,7 +631,6 @@ impl fmt::Debug for RemoteUpdateStorageTargetRequest {
                 &self.secret_key.as_ref().map(|_| "<redacted>"),
             )
             .field("base_path", &self.base_path)
-            .field("max_file_size", &self.max_file_size)
             .field("is_default", &self.is_default)
             .finish()
     }

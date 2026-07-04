@@ -615,7 +615,6 @@ describe("adminService", () => {
 			access_key: "",
 			secret_key: "",
 			base_path: "tenant-a/incoming",
-			max_file_size: 2048,
 			is_default: true,
 		});
 		adminRemoteNodeService.updateStorageTarget(6, "igp_demo", {
@@ -640,7 +639,6 @@ describe("adminService", () => {
 				access_key: "",
 				secret_key: "",
 				base_path: "tenant-a/incoming",
-				max_file_size: 2048,
 				is_default: true,
 			},
 		);

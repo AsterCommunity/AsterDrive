@@ -166,7 +166,6 @@ const profile = (
 	endpoint: "",
 	is_default: false,
 	last_error: "",
-	max_file_size: 0,
 	name: "Local ingress",
 	target_key: "local-default",
 	updated_at: "2026-05-02T00:00:00Z",
@@ -184,15 +183,6 @@ const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			name: "base_path",
 			placeholder: "tenant-a/incoming",
 			required: true,
-			secret: false,
-		},
-		{
-			help_key: "remote_node_ingress_profile_max_file_size_hint",
-			kind: "number",
-			label_key: "max_file_size",
-			name: "max_file_size",
-			placeholder: "0",
-			required: false,
 			secret: false,
 		},
 		{
@@ -254,15 +244,6 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 			label_key: "base_path",
 			name: "base_path",
 			placeholder: "prefix",
-			required: false,
-			secret: false,
-		},
-		{
-			help_key: "remote_node_ingress_profile_max_file_size_hint",
-			kind: "number",
-			label_key: "max_file_size",
-			name: "max_file_size",
-			placeholder: "0",
 			required: false,
 			secret: false,
 		},
@@ -475,7 +456,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driver_type: "local",
 				endpoint: "",
 				is_default: true,
-				max_file_size: 0,
 				name: "Local upload",
 				secret_key: "",
 			});
@@ -580,7 +560,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",
 				is_default: true,
-				max_file_size: 0,
 				name: "S3 renamed",
 			});
 		});

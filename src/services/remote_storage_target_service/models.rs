@@ -7,7 +7,6 @@ use crate::storage::remote_protocol::RemoteStorageTargetInfo;
 #[derive(Clone)]
 pub struct ResolvedRemoteStorageTarget {
     pub driver: Arc<dyn StorageDriver>,
-    pub max_file_size: i64,
 }
 
 impl From<remote_storage_target::Model> for RemoteStorageTargetInfo {
@@ -19,7 +18,6 @@ impl From<remote_storage_target::Model> for RemoteStorageTargetInfo {
             endpoint: model.endpoint,
             bucket: model.bucket,
             base_path: model.base_path,
-            max_file_size: model.max_file_size,
             is_default: model.is_default,
             desired_revision: model.desired_revision,
             applied_revision: model.applied_revision,

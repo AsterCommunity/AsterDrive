@@ -9,6 +9,8 @@ const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
 const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
     "m20260619_000001_add_storage_connector_application_configs";
 const ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION: &str = "m20260620_000001_enforce_json_text_not_null";
+const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
+    "m20260705_000001_drop_remote_storage_target_max_file_size";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -40,6 +42,10 @@ fn steps_to_roll_back_upload_session_object_fields() -> u32 {
 
 fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
     steps_to_roll_back_migration(ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION)
+}
+
+fn steps_to_roll_back_remote_storage_target_max_file_size() -> u32 {
+    steps_to_roll_back_migration(DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION)
 }
 
 async fn roll_back_allow_shared_webdav_locks(
@@ -251,6 +257,48 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(has_column(&reapplied_columns, "object_multipart_id"));
     assert!(!has_column(&reapplied_columns, "s3_temp_key"));
     assert!(!has_column(&reapplied_columns, "s3_multipart_id"));
+}
+
+#[tokio::test]
+async fn remote_storage_target_max_file_size_migration_removes_target_level_limit() {
+    assert!(
+        CurrentMigrator::migrations().iter().any(
+            |migration| migration.name() == DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION
+        ),
+        "remote storage target max_file_size drop migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(has_column(&current_columns, "target_key"));
+    assert!(
+        !has_column(&current_columns, "max_file_size"),
+        "current schema should not store target-level max_file_size"
+    );
+
+    CurrentMigrator::down(
+        &db,
+        Some(steps_to_roll_back_remote_storage_target_max_file_size()),
+    )
+    .await
+    .expect("max_file_size drop migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(
+        has_column(&rolled_back_columns, "max_file_size"),
+        "rollback should restore the legacy target-level max_file_size column"
+    );
+
+    CurrentMigrator::up(
+        &db,
+        Some(steps_to_roll_back_remote_storage_target_max_file_size()),
+    )
+    .await
+    .expect("max_file_size drop migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "remote_storage_targets").await;
+    assert!(
+        !has_column(&reapplied_columns, "max_file_size"),
+        "reapply should remove target-level max_file_size again"
+    );
 }
 
 #[tokio::test]

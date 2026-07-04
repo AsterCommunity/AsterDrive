@@ -48,7 +48,6 @@ pub async fn create<S: FollowerRuntimeState>(
                 access_key: Set(normalized.access_key),
                 secret_key: Set(normalized.secret_key),
                 base_path: Set(normalized.base_path),
-                max_file_size: Set(normalized.max_file_size),
                 is_default: Set(false),
                 desired_revision: Set(1),
                 applied_revision: Set(0),
@@ -95,7 +94,6 @@ pub async fn update<S: FollowerRuntimeState>(
         active.access_key = Set(normalized.access_key);
         active.secret_key = Set(normalized.secret_key);
         active.base_path = Set(normalized.base_path);
-        active.max_file_size = Set(normalized.max_file_size);
         active.desired_revision =
             Set(existing.desired_revision.checked_add(1).ok_or_else(|| {
                 AsterError::internal_error("remote storage target desired_revision overflow")

@@ -6,14 +6,13 @@ import {
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import type { RemoteStorageTargetInfo } from "@/types/api";
 
-const localFields = new Set(["base_path", "max_file_size", "is_default"]);
+const localFields = new Set(["base_path", "is_default"]);
 const s3Fields = new Set([
 	"endpoint",
 	"bucket",
 	"access_key",
 	"secret_key",
 	"base_path",
-	"max_file_size",
 	"is_default",
 ]);
 
@@ -27,7 +26,6 @@ describe("remoteStorageTargetDialogShared", () => {
 				endpoint: "",
 				bucket: "",
 				base_path: "cache/inbox",
-				max_file_size: 2048,
 				is_default: true,
 				desired_revision: 3,
 				applied_revision: 3,
@@ -43,7 +41,6 @@ describe("remoteStorageTargetDialogShared", () => {
 			access_key: "",
 			secret_key: "",
 			base_path: "cache/inbox",
-			max_file_size: "2048",
 			is_default: true,
 		});
 	});
@@ -59,7 +56,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					access_key: "ACCESS",
 					secret_key: "SECRET",
 					base_path: "tenant-a/incoming",
-					max_file_size: "8192",
 					is_default: false,
 				},
 				s3Fields,
@@ -72,7 +68,6 @@ describe("remoteStorageTargetDialogShared", () => {
 			access_key: "ACCESS",
 			secret_key: "SECRET",
 			base_path: "tenant-a/incoming",
-			max_file_size: 8192,
 			is_default: false,
 		});
 	});
@@ -88,7 +83,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					access_key: "",
 					secret_key: "",
 					base_path: "tenant-a/incoming",
-					max_file_size: "",
 					is_default: true,
 				},
 				s3Fields,
@@ -99,7 +93,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					endpoint: "https://s3.example.test",
 					bucket: "uploads",
 					base_path: "tenant-a/incoming",
-					max_file_size: 1024,
 					is_default: false,
 					desired_revision: 2,
 					applied_revision: 2,
@@ -114,7 +107,6 @@ describe("remoteStorageTargetDialogShared", () => {
 			endpoint: "https://s3.example.test/uploads",
 			bucket: "uploads",
 			base_path: "tenant-a/incoming",
-			max_file_size: 0,
 			is_default: true,
 		});
 	});
@@ -130,7 +122,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					access_key: "ROTATED",
 					secret_key: "SECRET",
 					base_path: "tenant-a/incoming",
-					max_file_size: "4096",
 					is_default: false,
 				},
 				s3Fields,
@@ -141,7 +132,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					endpoint: "",
 					bucket: "",
 					base_path: ".",
-					max_file_size: 0,
 					is_default: true,
 					desired_revision: 1,
 					applied_revision: 1,
@@ -158,7 +148,6 @@ describe("remoteStorageTargetDialogShared", () => {
 			access_key: "ROTATED",
 			secret_key: "SECRET",
 			base_path: "tenant-a/incoming",
-			max_file_size: 4096,
 			is_default: false,
 		});
 	});
@@ -174,7 +163,6 @@ describe("remoteStorageTargetDialogShared", () => {
 					access_key: "unused-access",
 					secret_key: "unused-secret",
 					base_path: "tenant-a/local",
-					max_file_size: "0",
 					is_default: true,
 				},
 				localFields,
@@ -187,7 +175,6 @@ describe("remoteStorageTargetDialogShared", () => {
 			access_key: "",
 			secret_key: "",
 			base_path: "tenant-a/local",
-			max_file_size: 0,
 			is_default: true,
 		});
 	});

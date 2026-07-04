@@ -29,7 +29,7 @@ use super::tunnel::server::RemoteTunnelBroker;
 use super::{
     INTERNAL_STORAGE_BASE_PATH, PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY,
     PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY, PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
-    REMOTE_STORAGE_TARGET_KEY_QUERY,
+    REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY,
 };
 
 const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
@@ -48,6 +48,7 @@ const STORAGE_TARGET_KEY_ENCODE_SET: &AsciiSet = &STORAGE_KEY_ENCODE_SET.add(b'/
 pub struct RemoteStorageClient {
     transport: Arc<dyn RemoteTransport>,
     storage_target_key: Option<String>,
+    policy_max_file_size: i64,
 }
 
 impl RemoteStorageClient {
@@ -55,6 +56,7 @@ impl RemoteStorageClient {
         Ok(Self {
             transport: Arc::new(DirectHttpTransport::new(base_url, access_key, secret_key)?),
             storage_target_key: None,
+            policy_max_file_size: 0,
         })
     }
 
@@ -65,10 +67,11 @@ impl RemoteStorageClient {
         Ok(Self {
             transport: Arc::new(ReverseTunnelTransport::new(remote_node, broker)),
             storage_target_key: None,
+            policy_max_file_size: 0,
         })
     }
 
-    pub fn with_storage_target_key(&self, target_key: Option<&str>) -> Self {
+    pub fn with_policy_context(&self, target_key: Option<&str>, max_file_size: i64) -> Self {
         Self {
             transport: self.transport.clone(),
             // None is preserved for legacy remote policies that rely on the
@@ -78,6 +81,7 @@ impl RemoteStorageClient {
                 .map(str::trim)
                 .filter(|value| !value.is_empty())
                 .map(str::to_string),
+            policy_max_file_size: max_file_size.max(0),
         }
     }
 
@@ -111,7 +115,8 @@ impl RemoteStorageClient {
     }
 
     pub async fn put_bytes(&self, key: &str, data: &[u8]) -> Result<()> {
-        let path = self.object_path(key);
+        let mut path = self.object_path(key);
+        self.append_policy_max_file_size(&mut path);
         let response = self
             .send_signed(
                 Method::PUT,
@@ -129,7 +134,8 @@ impl RemoteStorageClient {
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: u64,
     ) -> Result<()> {
-        let path = self.object_path(key);
+        let mut path = self.object_path(key);
+        self.append_policy_max_file_size(&mut path);
         let response = self
             .send_signed(
                 Method::PUT,
@@ -381,8 +387,9 @@ impl RemoteStorageClient {
     }
 
     pub fn presigned_put_url(&self, key: &str, expires: Duration) -> Result<String> {
-        self.transport
-            .presigned_url(Method::PUT, &self.object_path(key), expires)
+        let mut path = self.object_path(key);
+        self.append_policy_max_file_size(&mut path);
+        self.transport.presigned_url(Method::PUT, &path, expires)
     }
 
     pub fn presigned_url(
@@ -417,6 +424,7 @@ impl RemoteStorageClient {
     ) -> Result<RemoteStorageComposeResponse> {
         let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/compose");
         self.append_storage_target_key(&mut path);
+        self.append_policy_max_file_size(&mut path);
         let body = serde_json::to_vec(&RemoteStorageComposeRequest {
             target_key: target_key.to_string(),
             part_keys,
@@ -502,6 +510,18 @@ impl RemoteStorageClient {
             append_query_pairs(
                 path,
                 [(REMOTE_STORAGE_TARGET_KEY_QUERY, target_key.clone())],
+            );
+        }
+    }
+
+    fn append_policy_max_file_size(&self, path: &mut String) {
+        if self.policy_max_file_size > 0 {
+            append_query_pairs(
+                path,
+                [(
+                    REMOTE_POLICY_MAX_FILE_SIZE_QUERY,
+                    self.policy_max_file_size.to_string(),
+                )],
             );
         }
     }

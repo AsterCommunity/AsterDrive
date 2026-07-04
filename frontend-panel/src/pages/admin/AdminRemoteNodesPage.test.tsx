@@ -505,7 +505,6 @@ describe("AdminRemoteNodesPage", () => {
 				endpoint: "",
 				is_default: true,
 				last_error: "",
-				max_file_size: 0,
 				name: "Default ingress",
 				target_key: "default",
 				updated_at: "2026-05-02T00:00:00Z",

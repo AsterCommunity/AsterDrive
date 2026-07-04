@@ -41,3 +41,4 @@ pub const PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY: &str = "response-cache-control
 pub const PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY: &str = "response-content-disposition";
 pub const PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY: &str = "response-content-type";
 pub const REMOTE_STORAGE_TARGET_KEY_QUERY: &str = "target_key";
+pub const REMOTE_POLICY_MAX_FILE_SIZE_QUERY: &str = "max_file_size";

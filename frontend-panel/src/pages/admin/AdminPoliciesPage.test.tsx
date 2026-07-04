@@ -56,6 +56,38 @@ const mockState = vi.hoisted(() => ({
 	validateStorageCredential: vi.fn(),
 }));
 
+const mockTranslate = vi.hoisted(
+	() => (key: string, values?: Record<string, string | number>) => {
+		if (typeof values?.driver === "string") {
+			return `${key}:${values.driver}`;
+		}
+		switch (key) {
+			case "driver_type_local":
+				return "Local";
+			case "driver_type_s3":
+				return "S3";
+			case "driver_type_tencent_cos":
+				return "Tencent COS";
+			case "driver_type_azure_blob":
+				return "Azure Blob";
+			case "driver_type_remote":
+				return "Remote";
+			case "driver_type_onedrive":
+				return "OneDrive";
+			case "azure_blob_account_name":
+				return "Account Name";
+			case "azure_blob_account_key":
+				return "Account Key";
+			case "access_key":
+				return "Access Key";
+			case "secret_key":
+				return "Secret Key";
+			default:
+				return key;
+		}
+	},
+);
+
 vi.mock("react-router-dom", () => ({
 	useNavigate: () => mockState.navigate,
 	useSearchParams: () => [
@@ -66,35 +98,7 @@ vi.mock("react-router-dom", () => ({
 
 vi.mock("react-i18next", () => ({
 	useTranslation: () => ({
-		t: (key: string, values?: Record<string, string | number>) => {
-			if (typeof values?.driver === "string") {
-				return `${key}:${values.driver}`;
-			}
-			switch (key) {
-				case "driver_type_local":
-					return "Local";
-				case "driver_type_s3":
-					return "S3";
-				case "driver_type_tencent_cos":
-					return "Tencent COS";
-				case "driver_type_azure_blob":
-					return "Azure Blob";
-				case "driver_type_remote":
-					return "Remote";
-				case "driver_type_onedrive":
-					return "OneDrive";
-				case "azure_blob_account_name":
-					return "Account Name";
-				case "azure_blob_account_key":
-					return "Account Key";
-				case "access_key":
-					return "Access Key";
-				case "secret_key":
-					return "Secret Key";
-				default:
-					return key;
-			}
-		},
+		t: mockTranslate,
 	}),
 	initReactI18next: {
 		type: "3rdParty",
@@ -628,7 +632,6 @@ function createRemoteStorageTarget(overrides: Record<string, unknown> = {}) {
 		endpoint: "",
 		is_default: false,
 		last_error: "",
-		max_file_size: 0,
 		name: "Default Target",
 		target_key: "rst_default",
 		updated_at: "2026-03-28T00:00:00Z",
@@ -649,15 +652,6 @@ function createRemoteStorageTargetDriverDescriptors() {
 					name: "base_path",
 					placeholder: "tenant-a/incoming",
 					required: true,
-					secret: false,
-				},
-				{
-					help_key: "remote_node_ingress_profile_max_file_size_hint",
-					kind: "number",
-					label_key: "max_file_size",
-					name: "max_file_size",
-					placeholder: "0",
-					required: false,
 					secret: false,
 				},
 				{
@@ -1167,6 +1161,10 @@ async function openMigrationDialog() {
 		}),
 	);
 	await screen.findByText("policy_migration_title");
+}
+
+async function waitForDefaultRemoteStorageTargetSelection() {
+	await screen.findByText("remote_storage_target_hint:local");
 }
 
 describe("AdminPoliciesPage", () => {
@@ -3056,6 +3054,7 @@ describe("AdminPoliciesPage", () => {
 			).toBeInTheDocument();
 		});
 		fireEvent.click(screen.getByRole("button", { name: "select-item:7" }));
+		await waitForDefaultRemoteStorageTargetSelection();
 
 		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
 
@@ -3125,6 +3124,7 @@ describe("AdminPoliciesPage", () => {
 			).toBeInTheDocument();
 		});
 		fireEvent.click(screen.getByRole("button", { name: "select-item:9" }));
+		await waitForDefaultRemoteStorageTargetSelection();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "policy_wizard_review" }),
@@ -3178,6 +3178,7 @@ describe("AdminPoliciesPage", () => {
 			).toBeInTheDocument();
 		});
 		fireEvent.click(screen.getByRole("button", { name: "select-item:10" }));
+		await waitForDefaultRemoteStorageTargetSelection();
 
 		fireEvent.click(
 			screen.getByRole("button", { name: "policy_wizard_review" }),
