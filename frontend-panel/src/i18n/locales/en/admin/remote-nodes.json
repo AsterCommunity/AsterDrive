@@ -153,7 +153,6 @@
 	"remote_node_ingress_profile_deleted": "Remote storage target deleted",
 	"remote_node_ingress_profile_delete_title": "Delete remote storage target \"{{name}}\"?",
 	"remote_node_ingress_profile_delete_desc": "This removes the remote storage target from the follower. Make another target default first if this one is still the default and others remain.",
-	"remote_node_ingress_profile_revision": "Revision (applied / desired)",
 	"remote_node_ingress_profile_last_error": "Last Apply Error",
 	"remote_node_ingress_profile_last_error_empty": "No recorded error"
 }

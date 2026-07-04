@@ -5,7 +5,9 @@ import type { ConfirmDialogProps } from "@/components/common/ConfirmDialog";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import type {
 	DriverType,
+	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
+	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
@@ -50,6 +52,9 @@ interface PolicyDialogsProps {
 	s3DriverPromotionSubmitting: boolean;
 	s3DriverPromotionTargetLabel: string | null;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	remoteStorageTargetDriverDescriptorsError: string | null;
+	remoteStorageTargetDriverDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsError: string | null;
 	remoteStorageTargetsLoading: boolean;
@@ -64,6 +69,9 @@ interface PolicyDialogsProps {
 	onConfirmS3DriverPromotion: () => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
+	onCreateRemoteStorageTarget: (
+		payload: RemoteCreateStorageTargetRequest,
+	) => Promise<void>;
 	onCreateBack: () => void;
 	onCreateNext: () => void;
 	onCreateStepChange: (step: number) => void;
@@ -111,6 +119,9 @@ export function PolicyDialogs({
 	s3DriverPromotionSubmitting,
 	s3DriverPromotionTargetLabel,
 	remoteNodes,
+	remoteStorageTargetDriverDescriptors,
+	remoteStorageTargetDriverDescriptorsError,
+	remoteStorageTargetDriverDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsError,
 	remoteStorageTargetsLoading,
@@ -125,6 +136,7 @@ export function PolicyDialogs({
 	onConfirmS3DriverPromotion,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
+	onCreateRemoteStorageTarget,
 	onCreateBack,
 	onCreateNext,
 	onCreateStepChange,
@@ -183,6 +195,15 @@ export function PolicyDialogs({
 				s3DriverPromotionSubmitting={s3DriverPromotionSubmitting}
 				s3DriverPromotionTargetLabel={s3DriverPromotionTargetLabel}
 				remoteNodes={remoteNodes}
+				remoteStorageTargetDriverDescriptors={
+					remoteStorageTargetDriverDescriptors
+				}
+				remoteStorageTargetDriverDescriptorsError={
+					remoteStorageTargetDriverDescriptorsError
+				}
+				remoteStorageTargetDriverDescriptorsLoading={
+					remoteStorageTargetDriverDescriptorsLoading
+				}
 				remoteStorageTargets={remoteStorageTargets}
 				remoteStorageTargetsError={remoteStorageTargetsError}
 				remoteStorageTargetsLoading={remoteStorageTargetsLoading}
@@ -203,6 +224,7 @@ export function PolicyDialogs({
 				onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
 				onStartStorageAuthorization={onStartStorageAuthorization}
 				onValidateStorageCredential={onValidateStorageCredential}
+				onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
 				onSubmit={onSubmit}
 				onRequestS3DriverPromotion={onRequestS3DriverPromotion}
 				onRunConnectionTest={onRunConnectionTest}

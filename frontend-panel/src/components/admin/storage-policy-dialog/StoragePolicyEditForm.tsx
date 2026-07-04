@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { useTranslation } from "react-i18next";
+import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import {
 	DefaultPolicyToggle,
 	LimitsFields,
@@ -28,7 +29,9 @@ import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type {
+	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
+	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StoragePolicyCapacityInfo,
@@ -79,9 +82,15 @@ interface StoragePolicyEditFormProps {
 	onConfirmS3DriverPromotion: () => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
+	onCreateRemoteStorageTarget: (
+		payload: RemoteCreateStorageTargetRequest,
+	) => Promise<void>;
 	onRequestS3DriverPromotion: () => void;
 	onSyncNormalizedObjectStorageForm: () => void;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	remoteStorageTargetDriverDescriptorsError: string | null;
+	remoteStorageTargetDriverDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsError: string | null;
 	remoteStorageTargetsLoading: boolean;
@@ -118,9 +127,13 @@ export function StoragePolicyEditForm({
 	onConfirmS3DriverPromotion,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
+	onCreateRemoteStorageTarget,
 	onRequestS3DriverPromotion,
 	onSyncNormalizedObjectStorageForm,
 	remoteNodes,
+	remoteStorageTargetDriverDescriptors,
+	remoteStorageTargetDriverDescriptorsError,
+	remoteStorageTargetDriverDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsError,
 	remoteStorageTargetsLoading,
@@ -264,6 +277,27 @@ export function StoragePolicyEditForm({
 								onFieldChange={onFieldChange}
 							/>
 							<RemoteRulesHelper t={t} />
+							{form.remote_node_id ? (
+								<RemoteNodeRemoteStorageTargetSection
+									allowCreate
+									createLabelKey="policy_remote_storage_targets_quick_create"
+									descriptionKey="policy_remote_storage_targets_view_desc"
+									driverDescriptors={remoteStorageTargetDriverDescriptors}
+									errorMessage={
+										remoteStorageTargetsError ??
+										remoteStorageTargetDriverDescriptorsError
+									}
+									loading={
+										remoteStorageTargetsLoading ||
+										remoteStorageTargetDriverDescriptorsLoading
+									}
+									onCreateTarget={onCreateRemoteStorageTarget}
+									readOnly
+									surface="plain"
+									targets={remoteStorageTargets}
+									titleKey="policy_remote_storage_targets_view_title"
+								/>
+							) : null}
 						</div>
 					</section>
 				) : canUseOneDriveConnection ? (

@@ -153,7 +153,6 @@
 	"remote_node_ingress_profile_deleted": "远程存储目标已删除",
 	"remote_node_ingress_profile_delete_title": "删除远程存储目标“{{name}}”？",
 	"remote_node_ingress_profile_delete_desc": "这会把这个远程存储目标从 follower 上删除。如果它还是默认目标且还有其他目标存在，请先把别的目标设为默认。",
-	"remote_node_ingress_profile_revision": "Revision（已应用 / 期望）",
 	"remote_node_ingress_profile_last_error": "最近一次应用错误",
 	"remote_node_ingress_profile_last_error_empty": "没有记录到错误"
 }

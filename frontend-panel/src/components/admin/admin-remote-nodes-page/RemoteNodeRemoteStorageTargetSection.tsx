@@ -9,6 +9,7 @@ import {
 	type RemoteStorageTargetDriverType,
 	type RemoteStorageTargetFormData,
 } from "@/components/admin/remoteStorageTargetDialogShared";
+import { AnimatedCollapsible } from "@/components/common/AnimatedCollapsible";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
@@ -27,26 +28,40 @@ type SupportedRemoteStorageTargetDriverDescriptor =
 	};
 
 interface RemoteNodeRemoteStorageTargetSectionProps {
-	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	allowCreate?: boolean;
+	createLabelKey?: string;
+	descriptionKey?: string;
+	driverDescriptors?: RemoteStorageTargetDriverDescriptor[];
 	errorMessage: string | null;
+	listViewportClassName?: string;
 	loading: boolean;
-	onCreateTarget: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
-	onDeleteTarget: (target: RemoteStorageTargetInfo) => Promise<void>;
-	onUpdateTarget: (
+	onCreateTarget?: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
+	onDeleteTarget?: (target: RemoteStorageTargetInfo) => Promise<void>;
+	onUpdateTarget?: (
 		targetKey: string,
 		payload: RemoteUpdateStorageTargetRequest,
 	) => Promise<void>;
+	readOnly?: boolean;
+	surface?: "card" | "plain";
 	targets: RemoteStorageTargetInfo[];
+	titleKey?: string;
 }
 
 export function RemoteNodeRemoteStorageTargetSection({
-	driverDescriptors,
+	allowCreate = false,
+	createLabelKey = "remote_node_ingress_profiles_create",
+	descriptionKey = "remote_node_ingress_profiles_desc",
+	driverDescriptors = [],
 	errorMessage,
+	listViewportClassName,
 	loading,
 	onCreateTarget,
 	onDeleteTarget,
 	onUpdateTarget,
+	readOnly = false,
+	surface = "card",
 	targets,
+	titleKey = "remote_node_ingress_profiles_title",
 }: RemoteNodeRemoteStorageTargetSectionProps) {
 	const { t } = useTranslation("admin");
 	const [draftMode, setDraftMode] = useState<"create" | "edit" | null>(null);
@@ -58,13 +73,19 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const [pendingDeleteTargetKey, setPendingDeleteTargetKey] = useState<
 		string | null
 	>(null);
+	const [readOnlyOpen, setReadOnlyOpen] = useState(false);
 	const editingTarget =
 		draftMode === "edit"
 			? (targets.find((target) => target.target_key === editingTargetKey) ??
 				null)
 			: null;
 	const activeDraftMode =
-		draftMode === "edit" && editingTarget == null ? null : draftMode;
+		(readOnly && !allowCreate) ||
+		(draftMode === "edit" && editingTarget == null)
+			? null
+			: draftMode;
+	const canCreateTargets =
+		Boolean(onCreateTarget) && (!readOnly || allowCreate);
 	const supportedDriverDescriptors = driverDescriptors.flatMap(
 		(descriptor): SupportedRemoteStorageTargetDriverDescriptor[] =>
 			isRemoteStorageTargetDriverType(descriptor.driver_type)
@@ -94,11 +115,12 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: null;
 
 	const startCreate = () => {
-		if (!firstSupportedDriverType) {
+		if (!canCreateTargets || !firstSupportedDriverType) {
 			return;
 		}
 		setDraftMode("create");
 		setEditingTargetKey(null);
+		setReadOnlyOpen(true);
 		setForm({
 			...emptyRemoteStorageTargetForm,
 			driver_type: firstSupportedDriverType,
@@ -126,13 +148,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const nameError = form.name.trim()
 		? null
 		: t("remote_node_ingress_profile_name_required");
-	const maxFileSizeValue = form.max_file_size.trim();
-	const parsedMaxFileSize =
-		maxFileSizeValue === "" ? 0 : Number(maxFileSizeValue);
-	const maxFileSizeError =
-		Number.isSafeInteger(parsedMaxFileSize) && parsedMaxFileSize >= 0
-			? null
-			: t("remote_node_ingress_profile_max_file_size_invalid");
 	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
 	const localPathError =
 		activeFieldNames.has("base_path") && form.driver_type === "local"
@@ -170,7 +185,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 		Boolean(errorMessage) ||
 		Boolean(
 			nameError ||
-				maxFileSizeError ||
 				driverTypeError ||
 				localPathError ||
 				endpointError ||
@@ -186,11 +200,11 @@ export function RemoteNodeRemoteStorageTargetSection({
 
 		setSubmitting(true);
 		try {
-			if (activeDraftMode === "create") {
+			if (activeDraftMode === "create" && onCreateTarget) {
 				await onCreateTarget(
 					buildCreateRemoteStorageTargetPayload(form, activeFieldNames),
 				);
-			} else if (editingTarget != null) {
+			} else if (editingTarget != null && onUpdateTarget) {
 				await onUpdateTarget(
 					editingTarget.target_key,
 					buildUpdateRemoteStorageTargetPayload(
@@ -207,6 +221,9 @@ export function RemoteNodeRemoteStorageTargetSection({
 	};
 
 	const handleDeleteTarget = async (target: RemoteStorageTargetInfo) => {
+		if (!onDeleteTarget) {
+			return;
+		}
 		setPendingDeleteTargetKey(null);
 		await onDeleteTarget(target);
 		if (editingTargetKey === target.target_key) {
@@ -214,18 +231,65 @@ export function RemoteNodeRemoteStorageTargetSection({
 		}
 	};
 
+	const Root = surface === "card" ? "section" : "div";
+	const rootClassName =
+		surface === "card"
+			? "rounded-2xl border border-border/70 bg-background/70 p-5"
+			: "space-y-4 border-t border-border/70 pt-4";
+
 	return (
-		<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
+		<Root className={rootClassName}>
 			<div className="flex flex-wrap items-start justify-between gap-3">
 				<div>
 					<h3 className="text-base font-semibold text-foreground">
-						{t("remote_node_ingress_profiles_title")}
+						{t(titleKey)}
 					</h3>
 					<p className="mt-1 text-sm text-muted-foreground">
-						{t("remote_node_ingress_profiles_desc")}
+						{t(descriptionKey)}
 					</p>
 				</div>
-				{activeDraftMode == null ? (
+				{readOnly ? (
+					<div className="flex flex-wrap items-center gap-2">
+						{allowCreate && activeDraftMode == null ? (
+							<Button
+								type="button"
+								size="sm"
+								className={ADMIN_CONTROL_HEIGHT_CLASS}
+								onClick={startCreate}
+								disabled={
+									loading ||
+									Boolean(errorMessage) ||
+									firstSupportedDriverType == null ||
+									!canCreateTargets
+								}
+							>
+								<Icon name="Plus" aria-hidden className="mr-1 size-4" />
+								{t(createLabelKey)}
+							</Button>
+						) : null}
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							className={ADMIN_CONTROL_HEIGHT_CLASS}
+							aria-expanded={readOnlyOpen}
+							onClick={() => setReadOnlyOpen((open) => !open)}
+						>
+							<Icon
+								name="CaretDown"
+								aria-hidden
+								className={`mr-1 size-3.5 transition-transform ${
+									readOnlyOpen ? "rotate-180" : ""
+								}`}
+							/>
+							{t(
+								readOnlyOpen
+									? "policy_remote_storage_targets_hide"
+									: "policy_remote_storage_targets_show",
+							)}
+						</Button>
+					</div>
+				) : activeDraftMode == null ? (
 					<Button
 						type="button"
 						size="sm"
@@ -237,8 +301,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 							firstSupportedDriverType == null
 						}
 					>
-						<Icon name="Plus" className="mr-1 size-4" />
-						{t("remote_node_ingress_profiles_create")}
+						<Icon name="Plus" aria-hidden className="mr-1 size-4" />
+						{t(createLabelKey)}
 					</Button>
 				) : null}
 			</div>
@@ -261,7 +325,6 @@ export function RemoteNodeRemoteStorageTargetSection({
 					endpointError={endpointError}
 					form={form}
 					localPathError={localPathError}
-					maxFileSizeError={maxFileSizeError}
 					nameError={nameError}
 					onCancel={resetDraft}
 					onFieldChange={setField}
@@ -272,18 +335,41 @@ export function RemoteNodeRemoteStorageTargetSection({
 				/>
 			) : null}
 
-			<RemoteNodeRemoteStorageTargetsList
-				errorMessage={errorMessage}
-				loading={loading}
-				pendingDeleteTargetKey={activePendingDeleteTargetKey}
-				onCancelDelete={() => setPendingDeleteTargetKey(null)}
-				onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
-				onRequestDeleteTarget={(target) =>
-					setPendingDeleteTargetKey(target.target_key)
-				}
-				onEditTarget={startEdit}
-				targets={targets}
-			/>
-		</section>
+			{readOnly ? (
+				<AnimatedCollapsible
+					open={readOnlyOpen}
+					contentClassName="max-h-[min(52vh,28rem)] overflow-y-auto pr-1"
+				>
+					<RemoteNodeRemoteStorageTargetsList
+						errorMessage={errorMessage}
+						loading={loading}
+						pendingDeleteTargetKey={activePendingDeleteTargetKey}
+						readOnly
+						onCancelDelete={() => setPendingDeleteTargetKey(null)}
+						onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
+						onRequestDeleteTarget={(target) =>
+							setPendingDeleteTargetKey(target.target_key)
+						}
+						onEditTarget={startEdit}
+						targets={targets}
+					/>
+				</AnimatedCollapsible>
+			) : (
+				<div className={listViewportClassName}>
+					<RemoteNodeRemoteStorageTargetsList
+						errorMessage={errorMessage}
+						loading={loading}
+						pendingDeleteTargetKey={activePendingDeleteTargetKey}
+						onCancelDelete={() => setPendingDeleteTargetKey(null)}
+						onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
+						onRequestDeleteTarget={(target) =>
+							setPendingDeleteTargetKey(target.target_key)
+						}
+						onEditTarget={startEdit}
+						targets={targets}
+					/>
+				</div>
+			)}
+		</Root>
 	);
 }

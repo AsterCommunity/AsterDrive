@@ -37,7 +37,6 @@ interface RemoteNodeRemoteStorageTargetFormProps {
 	endpointError: string | null;
 	form: RemoteStorageTargetFormData;
 	localPathError: string | null;
-	maxFileSizeError: string | null;
 	nameError: string | null;
 	onCancel: () => void;
 	onFieldChange: RemoteNodeRemoteStorageTargetFieldChangeHandler;
@@ -58,7 +57,6 @@ export function RemoteNodeRemoteStorageTargetForm({
 	endpointError,
 	form,
 	localPathError,
-	maxFileSizeError,
 	nameError,
 	onCancel,
 	onFieldChange,
@@ -87,7 +85,6 @@ export function RemoteNodeRemoteStorageTargetForm({
 		descriptor: RemoteStorageTargetDriverFieldDescriptor | undefined,
 	) => descriptor?.placeholder ?? undefined;
 	const basePathField = field("base_path");
-	const maxFileSizeField = field("max_file_size");
 	const endpointField = field("endpoint");
 	const bucketField = field("bucket");
 	const accessKeyField = field("access_key");
@@ -184,35 +181,6 @@ export function RemoteNodeRemoteStorageTargetForm({
 						) : null}
 						{localPathError ? (
 							<p className="text-xs text-destructive">{localPathError}</p>
-						) : null}
-					</div>
-				) : null}
-
-				{maxFileSizeField ? (
-					<div className="space-y-2">
-						<Label htmlFor="managed-ingress-max-file-size">
-							{t("max_file_size")} (bytes)
-						</Label>
-						<Input
-							id="managed-ingress-max-file-size"
-							type="number"
-							min="0"
-							step="1"
-							value={form.max_file_size}
-							onChange={(event) =>
-								onFieldChange("max_file_size", event.target.value)
-							}
-							className={ADMIN_CONTROL_HEIGHT_CLASS}
-							aria-invalid={maxFileSizeError ? true : undefined}
-							placeholder={fieldPlaceholder(maxFileSizeField)}
-						/>
-						{fieldHelp(maxFileSizeField) ? (
-							<p className="text-xs text-muted-foreground">
-								{fieldHelp(maxFileSizeField)}
-							</p>
-						) : null}
-						{maxFileSizeError ? (
-							<p className="text-xs text-destructive">{maxFileSizeError}</p>
 						) : null}
 					</div>
 				) : null}

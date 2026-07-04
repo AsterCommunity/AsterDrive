@@ -19,6 +19,7 @@ import { ApiErrorCode } from "@/types/api-helpers";
 
 const mockState = vi.hoisted(() => ({
 	create: vi.fn(),
+	createStorageTarget: vi.fn(),
 	dryRunMigration: vi.fn(),
 	executeDraftPolicyAction: vi.fn(),
 	executeSavedPolicyAction: vi.fn(),
@@ -30,6 +31,7 @@ const mockState = vi.hoisted(() => ({
 	listAllPolicies: vi.fn(),
 	listPolicies: vi.fn(),
 	listRemoteNodes: vi.fn(),
+	listStorageTargetDrivers: vi.fn(),
 	listStorageTargets: vi.fn(),
 	listStorageDriverDescriptors: vi.fn(),
 	listStorageCredentials: vi.fn(),
@@ -582,7 +584,11 @@ vi.mock("@/services/adminService", () => ({
 			mockState.validateStorageCredential(...args),
 	},
 	adminRemoteNodeService: {
+		createStorageTarget: (...args: unknown[]) =>
+			mockState.createStorageTarget(...args),
 		list: (...args: unknown[]) => mockState.listRemoteNodes(...args),
+		listStorageTargetDrivers: (...args: unknown[]) =>
+			mockState.listStorageTargetDrivers(...args),
 		listStorageTargets: (...args: unknown[]) =>
 			mockState.listStorageTargets(...args),
 	},
@@ -628,6 +634,45 @@ function createRemoteStorageTarget(overrides: Record<string, unknown> = {}) {
 		updated_at: "2026-03-28T00:00:00Z",
 		...overrides,
 	};
+}
+
+function createRemoteStorageTargetDriverDescriptors() {
+	return [
+		{
+			description_key: "remote_node_ingress_profile_local_scope_hint",
+			driver_type: "local",
+			fields: [
+				{
+					help_key: "remote_node_ingress_profile_local_path_hint",
+					kind: "text",
+					label_key: "base_path",
+					name: "base_path",
+					placeholder: "tenant-a/incoming",
+					required: true,
+					secret: false,
+				},
+				{
+					help_key: "remote_node_ingress_profile_max_file_size_hint",
+					kind: "number",
+					label_key: "max_file_size",
+					name: "max_file_size",
+					placeholder: "0",
+					required: false,
+					secret: false,
+				},
+				{
+					help_key: "remote_node_ingress_profile_default_hint",
+					kind: "boolean",
+					label_key: "remote_node_ingress_profile_default_toggle",
+					name: "is_default",
+					placeholder: null,
+					required: false,
+					secret: false,
+				},
+			],
+			label_key: "remote_node_ingress_profile_driver_local",
+		},
+	];
 }
 
 function fieldDescriptor(
@@ -1130,6 +1175,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.executeSavedPolicyAction.mockReset();
 		mockState.getPolicy.mockReset();
 		mockState.create.mockReset();
+		mockState.createStorageTarget.mockReset();
 		mockState.dryRunMigration.mockReset();
 		mockState.createMigration.mockReset();
 		mockState.deletePolicy.mockReset();
@@ -1140,6 +1186,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.listAllPolicies.mockReset();
 		mockState.listPolicies.mockReset();
 		mockState.listRemoteNodes.mockReset();
+		mockState.listStorageTargetDrivers.mockReset();
 		mockState.listStorageTargets.mockReset();
 		mockState.listStorageDriverDescriptors.mockReset();
 		mockState.listStorageCredentials.mockReset();
@@ -1209,6 +1256,22 @@ describe("AdminPoliciesPage", () => {
 					createRemoteStorageTarget(),
 				]
 			).map((target) => ({ ...target })),
+		);
+		mockState.listStorageTargetDrivers.mockResolvedValue(
+			createRemoteStorageTargetDriverDescriptors(),
+		);
+		mockState.createStorageTarget.mockImplementation(
+			async (nodeId: number, payload: Record<string, unknown>) => {
+				const created = createRemoteStorageTarget({
+					...payload,
+					target_key: payload.target_key ?? "rst_created",
+				});
+				mockState.remoteStorageTargetsByNode[nodeId] = [
+					...(mockState.remoteStorageTargetsByNode[nodeId] ?? []),
+					created,
+				];
+				return created;
+			},
 		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(
 			createStorageDriverDescriptors(),

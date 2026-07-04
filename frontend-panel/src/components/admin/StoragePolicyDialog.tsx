@@ -29,7 +29,9 @@ import { Icon } from "@/components/ui/icon";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
 	DriverType,
+	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
+	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	StorageConnectorDescriptor,
 	StorageConnectorUiDescriptor,
@@ -62,6 +64,9 @@ interface StoragePolicyDialogProps {
 	s3DriverPromotionSubmitting: boolean;
 	s3DriverPromotionTargetLabel: string | null;
 	remoteNodes: RemoteNodeInfo[];
+	remoteStorageTargetDriverDescriptors: RemoteStorageTargetDriverDescriptor[];
+	remoteStorageTargetDriverDescriptorsError: string | null;
+	remoteStorageTargetDriverDescriptorsLoading: boolean;
 	remoteStorageTargets: RemoteStorageTargetInfo[];
 	remoteStorageTargetsError: string | null;
 	remoteStorageTargetsLoading: boolean;
@@ -84,6 +89,9 @@ interface StoragePolicyDialogProps {
 	onConfirmS3DriverPromotion: () => void;
 	onStartStorageAuthorization: () => void;
 	onValidateStorageCredential: () => void;
+	onCreateRemoteStorageTarget: (
+		payload: RemoteCreateStorageTargetRequest,
+	) => Promise<void>;
 	onSubmit: () => void;
 	onRequestS3DriverPromotion: () => void;
 	onRunConnectionTest: () => Promise<boolean>;
@@ -139,6 +147,9 @@ function useStoragePolicyDialogContent({
 	s3DriverPromotionSubmitting,
 	s3DriverPromotionTargetLabel,
 	remoteNodes,
+	remoteStorageTargetDriverDescriptors,
+	remoteStorageTargetDriverDescriptorsError,
+	remoteStorageTargetDriverDescriptorsLoading,
 	remoteStorageTargets,
 	remoteStorageTargetsError,
 	remoteStorageTargetsLoading,
@@ -161,6 +172,7 @@ function useStoragePolicyDialogContent({
 	onConfirmS3DriverPromotion,
 	onStartStorageAuthorization,
 	onValidateStorageCredential,
+	onCreateRemoteStorageTarget,
 	onSubmit,
 	onRequestS3DriverPromotion,
 	onRunConnectionTest,
@@ -543,6 +555,7 @@ function useStoragePolicyDialogContent({
 								onCreateStepChange={onCreateStepChange}
 								onDriverTypeChange={onDriverTypeChange}
 								onFieldChange={onFieldChange}
+								onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
 								onApplyS3CompatibleDriverSuggestion={
 									onApplyS3CompatibleDriverSuggestion
 								}
@@ -550,6 +563,15 @@ function useStoragePolicyDialogContent({
 									onSyncNormalizedObjectStorageForm
 								}
 								remoteNodes={remoteNodes}
+								remoteStorageTargetDriverDescriptors={
+									remoteStorageTargetDriverDescriptors
+								}
+								remoteStorageTargetDriverDescriptorsError={
+									remoteStorageTargetDriverDescriptorsError
+								}
+								remoteStorageTargetDriverDescriptorsLoading={
+									remoteStorageTargetDriverDescriptorsLoading
+								}
 								remoteStorageTargets={remoteStorageTargets}
 								remoteStorageTargetsError={remoteStorageTargetsError}
 								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
@@ -592,6 +614,7 @@ function useStoragePolicyDialogContent({
 								onConfirmS3DriverPromotion={onConfirmS3DriverPromotion}
 								onStartStorageAuthorization={onStartStorageAuthorization}
 								onValidateStorageCredential={onValidateStorageCredential}
+								onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
 								onRequestS3DriverPromotion={onRequestS3DriverPromotion}
 								onSyncNormalizedObjectStorageForm={
 									onSyncNormalizedObjectStorageForm
@@ -601,6 +624,15 @@ function useStoragePolicyDialogContent({
 								cosCorsSubmitting={cosCorsSubmitting}
 								cosCorsUsesDraftValues={cosCorsUsesDraftValues}
 								remoteNodes={remoteNodes}
+								remoteStorageTargetDriverDescriptors={
+									remoteStorageTargetDriverDescriptors
+								}
+								remoteStorageTargetDriverDescriptorsError={
+									remoteStorageTargetDriverDescriptorsError
+								}
+								remoteStorageTargetDriverDescriptorsLoading={
+									remoteStorageTargetDriverDescriptorsLoading
+								}
 								remoteStorageTargets={remoteStorageTargets}
 								remoteStorageTargetsError={remoteStorageTargetsError}
 								remoteStorageTargetsLoading={remoteStorageTargetsLoading}

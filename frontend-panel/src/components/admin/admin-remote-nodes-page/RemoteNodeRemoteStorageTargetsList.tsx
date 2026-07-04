@@ -3,7 +3,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
-import { formatBytes, formatDateTime } from "@/lib/format";
+import { formatDateTime } from "@/lib/format";
 import type { RemoteStorageTargetInfo } from "@/types/api";
 import {
 	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
@@ -14,6 +14,7 @@ interface RemoteNodeRemoteStorageTargetsListProps {
 	errorMessage: string | null;
 	loading: boolean;
 	pendingDeleteTargetKey: string | null;
+	readOnly?: boolean;
 	onCancelDelete: () => void;
 	onConfirmDeleteTarget: (target: RemoteStorageTargetInfo) => void;
 	onRequestDeleteTarget: (target: RemoteStorageTargetInfo) => void;
@@ -25,6 +26,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 	errorMessage,
 	loading,
 	pendingDeleteTargetKey,
+	readOnly = false,
 	onCancelDelete,
 	onConfirmDeleteTarget,
 	onRequestDeleteTarget,
@@ -60,6 +62,7 @@ export function RemoteNodeRemoteStorageTargetsList({
 						onConfirmDelete={() => onConfirmDeleteTarget(target)}
 						onRequestDelete={() => onRequestDeleteTarget(target)}
 						onEdit={() => onEditTarget(target)}
+						readOnly={readOnly}
 						target={target}
 					/>
 				))
@@ -74,6 +77,7 @@ interface RemoteNodeRemoteStorageTargetCardProps {
 	onConfirmDelete: () => void;
 	onRequestDelete: () => void;
 	onEdit: () => void;
+	readOnly: boolean;
 	target: RemoteStorageTargetInfo;
 }
 
@@ -83,6 +87,7 @@ function RemoteNodeRemoteStorageTargetCard({
 	onConfirmDelete,
 	onRequestDelete,
 	onEdit,
+	readOnly,
 	target,
 }: RemoteNodeRemoteStorageTargetCardProps) {
 	const { t } = useTranslation("admin");
@@ -118,56 +123,55 @@ function RemoteNodeRemoteStorageTargetCard({
 							{t(status.labelKey)}
 						</Badge>
 					</div>
-					<p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-						{target.target_key}
-					</p>
 				</div>
 
-				<div className="flex shrink-0 gap-1">
-					<Button
-						type="button"
-						variant="ghost"
-						size="icon"
-						className={ADMIN_ICON_BUTTON_CLASS}
-						onClick={onEdit}
-						aria-label={t("core:edit")}
-						title={t("core:edit")}
-					>
-						<Icon name="PencilSimple" className="size-3.5" />
-					</Button>
-					{deleteConfirming ? (
-						<div className="flex items-center gap-1 duration-150 animate-in fade-in zoom-in-95 motion-reduce:animate-none">
-							<Button
-								type="button"
-								variant="destructive"
-								size="sm"
-								onClick={onConfirmDelete}
-							>
-								{t("core:delete")}
-							</Button>
-							<Button
-								type="button"
-								variant="ghost"
-								size="sm"
-								onClick={onCancelDelete}
-							>
-								{t("core:cancel")}
-							</Button>
-						</div>
-					) : (
+				{readOnly ? null : (
+					<div className="flex shrink-0 gap-1">
 						<Button
 							type="button"
 							variant="ghost"
 							size="icon"
-							className={`${ADMIN_ICON_BUTTON_CLASS} text-destructive`}
-							onClick={onRequestDelete}
-							aria-label={t("core:delete")}
-							title={t("core:delete")}
+							className={ADMIN_ICON_BUTTON_CLASS}
+							onClick={onEdit}
+							aria-label={t("core:edit")}
+							title={t("core:edit")}
 						>
-							<Icon name="Trash" className="size-3.5" />
+							<Icon name="PencilSimple" className="size-3.5" />
 						</Button>
-					)}
-				</div>
+						{deleteConfirming ? (
+							<div className="flex items-center gap-1 duration-150 animate-in fade-in zoom-in-95 motion-reduce:animate-none">
+								<Button
+									type="button"
+									variant="destructive"
+									size="sm"
+									onClick={onConfirmDelete}
+								>
+									{t("core:delete")}
+								</Button>
+								<Button
+									type="button"
+									variant="ghost"
+									size="sm"
+									onClick={onCancelDelete}
+								>
+									{t("core:cancel")}
+								</Button>
+							</div>
+						) : (
+							<Button
+								type="button"
+								variant="ghost"
+								size="icon"
+								className={`${ADMIN_ICON_BUTTON_CLASS} text-destructive`}
+								onClick={onRequestDelete}
+								aria-label={t("core:delete")}
+								title={t("core:delete")}
+							>
+								<Icon name="Trash" className="size-3.5" />
+							</Button>
+						)}
+					</div>
+				)}
 			</div>
 
 			{deleteConfirming ? (
@@ -192,16 +196,6 @@ function RemoteNodeRemoteStorageTargetCard({
 						{target.base_path || "."}
 					</dd>
 				</div>
-				<div>
-					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("max_file_size")}
-					</dt>
-					<dd className="mt-1 font-medium">
-						{target.max_file_size > 0
-							? formatBytes(target.max_file_size)
-							: t("core:unlimited")}
-					</dd>
-				</div>
 				{target.driver_type === "s3" ? (
 					<>
 						<div>
@@ -218,14 +212,6 @@ function RemoteNodeRemoteStorageTargetCard({
 						</div>
 					</>
 				) : null}
-				<div>
-					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
-						{t("remote_node_ingress_profile_revision")}
-					</dt>
-					<dd className="mt-1 font-medium">
-						{target.applied_revision} / {target.desired_revision}
-					</dd>
-				</div>
 				<div>
 					<dt className="text-[11px] font-medium uppercase tracking-[0.14em] text-muted-foreground">
 						{t("core:updated_at")}

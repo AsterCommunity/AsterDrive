@@ -152,6 +152,7 @@ export function RemoteNodeEditForm({
 					<RemoteNodeRemoteStorageTargetSection
 						targets={remoteStorageTargets}
 						driverDescriptors={remoteStorageTargetDriverDescriptors}
+						listViewportClassName="max-h-[min(52vh,28rem)] overflow-y-auto pr-1"
 						loading={
 							remoteStorageTargetsLoading ||
 							remoteStorageTargetDriverDescriptorsLoading

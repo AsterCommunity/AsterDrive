@@ -5,6 +5,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
@@ -49,7 +50,13 @@ vi.mock("@/components/ui/button", () => ({
 }));
 
 vi.mock("@/components/ui/icon", () => ({
-	Icon: ({ name }: { name: string }) => <span>{name}</span>,
+	Icon: ({
+		"aria-hidden": ariaHidden,
+		name,
+	}: {
+		"aria-hidden"?: boolean;
+		name: string;
+	}) => <span aria-hidden={ariaHidden}>{name}</span>,
 }));
 
 vi.mock("@/components/ui/input", () => ({
@@ -144,7 +151,6 @@ vi.mock("@/components/ui/switch", () => ({
 }));
 
 vi.mock("@/lib/format", () => ({
-	formatBytes: (value: number) => `bytes:${value}`,
 	formatDateTime: (value: string) => `date:${value}`,
 }));
 
@@ -276,22 +282,28 @@ const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 const defaultDriverDescriptors = [localDriverDescriptor, s3DriverDescriptor];
 
 function renderSection({
+	allowCreate = false,
+	createLabelKey,
 	driverDescriptors = defaultDriverDescriptors,
 	errorMessage = null,
 	loading = false,
 	onCreateTarget = vi.fn().mockResolvedValue(undefined),
 	onDeleteTarget = vi.fn().mockResolvedValue(undefined),
 	onUpdateTarget = vi.fn().mockResolvedValue(undefined),
+	readOnly = false,
 	targets = [] as RemoteStorageTargetInfo[],
 } = {}) {
 	render(
 		<RemoteNodeRemoteStorageTargetSection
+			allowCreate={allowCreate}
+			createLabelKey={createLabelKey}
 			driverDescriptors={driverDescriptors}
 			errorMessage={errorMessage}
 			loading={loading}
 			onCreateTarget={onCreateTarget}
 			onDeleteTarget={onDeleteTarget}
 			onUpdateTarget={onUpdateTarget}
+			readOnly={readOnly}
 			targets={targets}
 		/>,
 	);
@@ -358,6 +370,84 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		).toBeDisabled();
 	});
 
+	it("renders existing targets behind a collapsed read-only disclosure", async () => {
+		const user = userEvent.setup();
+		renderSection({
+			readOnly: true,
+			targets: [profile()],
+		});
+
+		const toggle = screen.getByRole("button", {
+			name: "policy_remote_storage_targets_show",
+		});
+		expect(toggle).toHaveAttribute("aria-expanded", "false");
+		expect(screen.queryByText("Local ingress")).not.toBeInTheDocument();
+
+		await user.click(toggle);
+
+		expect(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_hide",
+			}),
+		).toHaveAttribute("aria-expanded", "true");
+		expect(screen.getByText("Local ingress")).toBeInTheDocument();
+		expect(screen.queryByText("local-default")).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", {
+				name: "remote_node_ingress_profiles_create",
+			}),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "core:edit" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "core:delete" }),
+		).not.toBeInTheDocument();
+	});
+
+	it("allows quick creation in a read-only target list without exposing management actions", async () => {
+		const user = userEvent.setup();
+		const { onCreateTarget } = renderSection({
+			allowCreate: true,
+			createLabelKey: "policy_remote_storage_targets_quick_create",
+			readOnly: true,
+			targets: [profile()],
+		});
+
+		expect(screen.queryByText("Local ingress")).not.toBeInTheDocument();
+		await user.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_quick_create",
+			}),
+		);
+
+		expect(screen.getByText("Local ingress")).toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "core:edit" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "core:delete" }),
+		).not.toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Policy quick target" },
+		});
+		fireEvent.change(screen.getByLabelText("base_path"), {
+			target: { value: "policy/incoming" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
+
+		await waitFor(() => {
+			expect(onCreateTarget).toHaveBeenCalledWith(
+				expect.objectContaining({
+					base_path: "policy/incoming",
+					driver_type: "local",
+					is_default: false,
+					name: "Policy quick target",
+				}),
+			);
+		});
+	});
+
 	it("creates the first local profile as the default", async () => {
 		const { onCreateTarget } = renderSection();
 
@@ -375,9 +465,6 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.change(screen.getByLabelText("base_path"), {
 			target: { value: "teams/incoming" },
 		});
-		fireEvent.change(screen.getByLabelText(/max_file_size/), {
-			target: { value: "1048576" },
-		});
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
@@ -388,7 +475,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driver_type: "local",
 				endpoint: "",
 				is_default: true,
-				max_file_size: 1_048_576,
+				max_file_size: 0,
 				name: "Local upload",
 				secret_key: "",
 			});
