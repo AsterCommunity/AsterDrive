@@ -2,9 +2,12 @@
 host = "127.0.0.1"
 port = 3000
 workers = 0  # 0 = auto (num_cpus)
-temp_dir = "data/.tmp"
-upload_temp_dir = "data/.uploads"
+temp_dir = ".tmp"
+upload_temp_dir = ".uploads"
 start_mode = "primary"  # "primary" | "follower"
+
+[server.follower]
+remote_storage_target_local_root = "remote-storage-targets"
 
 [database]
 url = "sqlite://asterdrive.db?mode=rwc"  # 或 postgres://user:pass@localhost/asterdrive

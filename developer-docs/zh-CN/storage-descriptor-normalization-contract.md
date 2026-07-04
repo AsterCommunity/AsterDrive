@@ -24,7 +24,7 @@
 
 字段规范化属于 backend use case 或 connector/driver-specific pure helper，不能散落在 handler 或前端组件里。
 
-- local remote storage target `base_path` 使用 `normalize_relative_local_path`：trim 空白，支持 `.` 当前目录归一化，拒绝空值、绝对路径、`..`、Windows prefix 和反斜杠逃逸，最终路径必须落在 `server.follower.managed_ingress_local_root` 内。
+- local remote storage target `base_path` 使用 `normalize_relative_local_path`：trim 空白，支持 `.` 当前目录归一化，拒绝空值、绝对路径、`..`、Windows prefix 和反斜杠逃逸，最终路径必须落在 `server.follower.remote_storage_target_local_root` 内。
 - object-storage remote storage target `base_path` 当前按 prefix 处理：trim 空白并去掉首尾 `/`，允许空 prefix 表示 bucket/container 根。
 - storage policy object-storage endpoint/bucket 使用 `normalize_s3_endpoint_and_bucket` 及 connector 错误码映射：endpoint 非空时必须是 `http://` 或 `https://` 且包含 hostname，bucket/container 不能为空。
 - `max_file_size` 的 `0` 表示不声明额外限制；负数无效。上传链路仍要在使用 policy/target 时执行最终大小校验。

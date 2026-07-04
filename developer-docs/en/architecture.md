@@ -329,7 +329,7 @@ It mainly controls:
 - database connection
 - WebDAV prefix
 - cache and logging
-- follower managed local ingress root: `server.follower.managed_ingress_local_root`, default `managed-ingress`
+- follower remote storage target local root: `server.follower.remote_storage_target_local_root`, default `remote-storage-targets`
 
 The first startup creates `data/config.toml` automatically. Relative paths in the config file are resolved relative to `data/` by default. For compatibility, old values already written as `data/...` avoid being expanded into `data/data/...`. The old root-level `config.toml` is no longer the default read location.
 

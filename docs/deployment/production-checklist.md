@@ -27,7 +27,7 @@
 - 默认本地存储目录
 - 额外创建的本地 `local` 存储策略目录
 - 头像目录，默认通常是 `data/avatar`
-- 从节点的 `managed_ingress_local_root`，如果你用了远程节点本地接收落点
+- 从节点的 `remote_storage_target_local_root`，如果你用了远程节点本地接收落点
 
 如果使用 Docker bind mount，宿主机目录还要确认属主和权限符合容器运行用户。官方镜像默认 UID/GID 是 `10001:10001`。
 

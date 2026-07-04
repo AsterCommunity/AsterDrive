@@ -93,14 +93,14 @@ The base path of a `local` ingress target can only be a relative path.
 It is ultimately placed under the follower node's own:
 
 ```text
-server.follower.managed_ingress_local_root
+server.follower.remote_storage_target_local_root
 ```
 
 For example, if the follower node configuration is:
 
 ```toml
 [server.follower]
-managed_ingress_local_root = "/data/managed-ingress"
+remote_storage_target_local_root = "/data/remote-storage-targets"
 ```
 
 And the ingress target base path is:
@@ -112,7 +112,7 @@ default
 Objects are ultimately written to:
 
 ```text
-/data/managed-ingress/default
+/data/remote-storage-targets/default
 ```
 
 ::: warning Without a default ingress target, a remote policy cannot actually write data
@@ -377,7 +377,7 @@ First confirm whether anyone recently changed:
 
 - the remote node bound by the remote policy
 - the follower ingress target
-- `managed_ingress_local_root`
+- `remote_storage_target_local_root`
 - the follower local directory
 - the S3 endpoint / bucket / prefix used by the follower ingress target
 

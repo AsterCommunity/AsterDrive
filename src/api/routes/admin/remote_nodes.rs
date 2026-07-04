@@ -41,6 +41,18 @@ fn remote_node_audit_details(
     })
 }
 
+fn remote_storage_target_audit_details(
+    target: &crate::storage::remote_protocol::RemoteStorageTargetInfo,
+) -> Option<serde_json::Value> {
+    // TODO(remote-storage-target): audit action/detail names keep the old
+    // remote ingress profile strings for stored audit compatibility.
+    audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
+        target_key: &target.target_key,
+        driver_type: target.driver_type.as_str(),
+        is_default: target.is_default,
+    })
+}
+
 impl From<CreateRemoteNodeReq> for managed_follower_service::CreateRemoteNodeInput {
     fn from(value: CreateRemoteNodeReq) -> Self {
         Self {
@@ -520,13 +532,7 @@ pub async fn create_remote_node_storage_target(
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(*path),
         Some(&target.target_key),
-        || {
-            audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-                target_key: &target.target_key,
-                driver_type: target.driver_type.as_str(),
-                is_default: target.is_default,
-            })
-        },
+        || remote_storage_target_audit_details(&target),
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
@@ -607,13 +613,7 @@ pub async fn update_remote_node_storage_target(
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(id),
         Some(&target.target_key),
-        || {
-            audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-                target_key: &target.target_key,
-                driver_type: target.driver_type.as_str(),
-                is_default: target.is_default,
-            })
-        },
+        || remote_storage_target_audit_details(&target),
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))

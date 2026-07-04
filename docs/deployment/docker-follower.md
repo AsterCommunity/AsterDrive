@@ -110,7 +110,7 @@ services:
     environment:
       ASTER__SERVER__HOST: 0.0.0.0
       ASTER__SERVER__START_MODE: follower
-      ASTER__SERVER__FOLLOWER__MANAGED_INGRESS_LOCAL_ROOT: /data/managed-ingress
+      ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT: /data/remote-storage-targets
       ASTER__DATABASE__URL: sqlite:///data/asterdrive.db?mode=rwc
       ASTER_BOOTSTRAP_REMOTE_MASTER_URL: https://drive.example.com
       ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN: enr_replace_me
@@ -133,7 +133,7 @@ services:
 | --- | --- | --- |
 | `ASTER__SERVER__HOST` | 让容器内服务监听所有网卡，方便 Docker 端口映射 | Docker 场景通常保留 |
 | `ASTER__SERVER__START_MODE` | 把实例切成 `follower` 模式 | 从节点长期保留 |
-| `ASTER__SERVER__FOLLOWER__MANAGED_INGRESS_LOCAL_ROOT` | 限制主控下发的 `local` 接收落点根目录 | 需要本地接收落点时保留 |
+| `ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT` | 限制主控下发的 `local` 接收落点根目录 | 需要本地接收落点时保留 |
 | `ASTER__DATABASE__URL` | 指定 follower 自己的数据库 | Docker 场景建议显式写清楚 |
 | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL` | 首次 enroll 时访问的主控地址 | 成功后移除 |
 | `ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | 主控生成的一次性 enrollment token | 成功后移除 |
@@ -206,7 +206,7 @@ curl http://127.0.0.1:3001/health/ready
 - 基础路径：`default` 这类相对路径
 - 勾选“设为默认接收落点”
 
-local 接收落点的路径会被限制在 follower 的 `server.follower.managed_ingress_local_root` 下面。
+local 接收落点的路径会被限制在 follower 的 `server.follower.remote_storage_target_local_root` 下面。
 如果你要让 follower 再写到 S3 / MinIO，也是在这里创建 `s3` 接收落点，而不是在 bootstrap ENV 里传。
 
 接收落点应用成功后，再去：

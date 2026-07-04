@@ -179,7 +179,7 @@ OneDrive 策略的授权按钮只使用已经保存的 Microsoft Graph 应用配
 - 直连模式需要 `base_url`；反向通道可以留空；自动模式下留空即走反向通道
 - 反向通道仍处于测试阶段，适合 `relay_stream`；远程 `presigned` 仍然需要直连和浏览器可访问的 follower `base_url`
 - 接收落点由主控节点下发到 follower，当前支持 `local` 和 `s3`
-- `local` 接收落点只能填相对路径，最终会落在 follower 的 `server.follower.managed_ingress_local_root` 下面
+- `local` 接收落点只能填相对路径，最终会落在 follower 的 `server.follower.remote_storage_target_local_root` 下面
 - 没有已应用的默认接收落点时，远程写入会被拒绝
 - 删除节点前，先把引用它的远程存储策略改绑掉
 - 具体接入流程看 [远程节点](./remote-nodes)

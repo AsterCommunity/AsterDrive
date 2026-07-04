@@ -27,7 +27,7 @@ Confirm these contents will not be lost when containers are recreated, the syste
 - default local storage directory
 - additional local `local` storage policy directories
 - avatar directory, usually `data/avatar` by default
-- the follower node's `managed_ingress_local_root`, if you use follower local receiving targets
+- the follower node's `remote_storage_target_local_root`, if you use follower local receiving targets
 
 If you use Docker bind mounts, also confirm the host directory owner and permissions match the container runtime user. The official image uses UID/GID `10001:10001` by default.
 

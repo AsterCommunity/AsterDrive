@@ -12,21 +12,21 @@ pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage
     let trimmed_root = root.trim();
     if trimmed_root.is_empty() {
         return Err(AsterError::config_error(
-            "server.follower.managed_ingress_local_root cannot be empty",
+            "server.follower.remote_storage_target_local_root cannot be empty",
         ));
     }
     let normalized = normalize_relative_local_path(relative)?;
     let root_path = Path::new(trimmed_root);
     fs::create_dir_all(root_path).map_aster_err_ctx(
         &format!(
-            "create server.follower.managed_ingress_local_root '{}'",
+            "create server.follower.remote_storage_target_local_root '{}'",
             root_path.display()
         ),
         AsterError::config_error,
     )?;
     let canonical_root = fs::canonicalize(root_path).map_aster_err_ctx(
         &format!(
-            "canonicalize server.follower.managed_ingress_local_root '{}'",
+            "canonicalize server.follower.remote_storage_target_local_root '{}'",
             root_path.display()
         ),
         AsterError::config_error,
@@ -82,7 +82,7 @@ pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage
         Ok(resolved)
     } else {
         Err(AsterError::config_error(format!(
-            "local remote storage target base_path '{}' escapes server.follower.managed_ingress_local_root '{}'",
+            "local remote storage target base_path '{}' escapes server.follower.remote_storage_target_local_root '{}'",
             relative,
             root_path.display()
         )))
@@ -109,7 +109,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_relative_loc
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
                 return Err(validation_error_with_code(
                     ApiErrorCode::ManagedIngressLocalPathInvalid,
-                    "local remote storage target base_path must stay within server.follower.managed_ingress_local_root",
+                    "local remote storage target base_path must stay within server.follower.remote_storage_target_local_root",
                 ));
             }
         }

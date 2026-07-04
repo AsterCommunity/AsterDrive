@@ -139,7 +139,7 @@
 	"remote_node_ingress_profile_max_file_size_hint": "Use 0 for unlimited.",
 	"remote_node_ingress_profile_local_path_hint": "Relative only. The follower resolves this path under its local target root.",
 	"remote_node_ingress_profile_s3_path_hint": "Optional object prefix inside the bucket.",
-	"remote_node_ingress_profile_local_scope_hint": "This target writes into follower-local storage. The base path above is always resolved relative to `server.follower.managed_ingress_local_root`, never as an arbitrary host path.",
+	"remote_node_ingress_profile_local_scope_hint": "This target writes into follower-local storage. The base path above is always resolved relative to `server.follower.remote_storage_target_local_root`, never as an arbitrary host path.",
 	"remote_node_ingress_profile_driver_local": "Local",
 	"remote_node_ingress_profile_driver_s3": "S3",
 	"remote_node_ingress_profile_driver_unsupported": "This follower does not declare support for the selected remote storage target driver.",

@@ -200,7 +200,11 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
         target: &remote_storage_target::Model,
     ) -> Result<String> {
         Ok(resolve_remote_storage_target_local_path(
-            &state.config().server.follower.managed_ingress_local_root,
+            &state
+                .config()
+                .server
+                .follower
+                .remote_storage_target_local_root,
             &target.base_path,
         )?
         .to_string_lossy()

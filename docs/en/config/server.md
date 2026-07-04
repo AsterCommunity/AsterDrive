@@ -15,10 +15,10 @@ upload_temp_dir = ".uploads"
 start_mode = "primary"
 
 [server.follower]
-managed_ingress_local_root = "managed-ingress"
+remote_storage_target_local_root = "remote-storage-targets"
 ```
 
-If `data/config.toml` was generated automatically, relative paths are resolved to `data/` at runtime, such as `data/.tmp`, `data/.uploads`, and `data/managed-ingress`.
+If `data/config.toml` was generated automatically, relative paths are resolved to `data/` at runtime, such as `data/.tmp`, `data/.uploads`, and `data/remote-storage-targets`.
 
 ## When to Change It
 
@@ -26,7 +26,7 @@ If `data/config.toml` was generated automatically, relative paths are resolved t
 - **Port is occupied** - Change `port`.
 - **The disk containing temporary directories is small** - Move `temp_dir` and `upload_temp_dir` to a larger disk.
 - **Unsure about worker count** - Keep `workers = 0` and let AsterDrive choose based on CPU.
-- **This instance should run as a follower node** - Change `start_mode` to `follower`, and make sure `managed_ingress_local_root` is on a disk with suitable capacity.
+- **This instance should run as a follower node** - Change `start_mode` to `follower`, and make sure `remote_storage_target_local_root` is on a disk with suitable capacity.
 
 ## Options
 
@@ -38,7 +38,7 @@ If `data/config.toml` was generated automatically, relative paths are resolved t
 | `temp_dir` | `".tmp"` | General server-side temporary file directory |
 | `upload_temp_dir` | `".uploads"` | Temporary directory for chunked uploads and upload recovery |
 | `start_mode` | `"primary"` | Node startup role. `primary` is the normal controller; `follower` is a remote storage follower node. |
-| `follower.managed_ingress_local_root` | `"managed-ingress"` | Root directory for local ingress targets managed by the primary on the follower |
+| `follower.remote_storage_target_local_root` | `"remote-storage-targets"` | Root directory for local ingress targets managed by the primary on the follower |
 
 ## Where Temporary Directories Are Used
 
@@ -69,15 +69,15 @@ A follower is not a second login site. It only provides health checks and intern
 
 ## Follower Ingress Root
 
-`[server.follower].managed_ingress_local_root` only matters in follower mode.
+`[server.follower].remote_storage_target_local_root` only matters in follower mode.
 
-When the primary creates a `local` ingress target in the follower node details, it can only enter a relative path. The follower joins that relative path under `managed_ingress_local_root`, so the primary cannot write arbitrary host directories directly.
+When the primary creates a `local` ingress target in the follower node details, it can only enter a relative path. The follower joins that relative path under `remote_storage_target_local_root`, so the primary cannot write arbitrary host directories directly.
 
 For example:
 
 ```toml
 [server.follower]
-managed_ingress_local_root = "/data/managed-ingress"
+remote_storage_target_local_root = "/data/remote-storage-targets"
 ```
 
 When the primary creates the ingress target, enter:
@@ -89,15 +89,15 @@ base_path = "default"
 The final write location is:
 
 ```text
-/data/managed-ingress/default
+/data/remote-storage-targets/default
 ```
 
 Plan this directory together with real file capacity. It is not a temporary directory; it stores real objects received by the follower.
 
 ::: tip The configuration key is under `[server.follower]`
-The ingress root is now `server.follower.managed_ingress_local_root`.
+The ingress root is now `server.follower.remote_storage_target_local_root`.
 
-If an old configuration still uses `server.managed_ingress_local_root`, startup will prompt you to migrate it to the new location.
+If an old configuration still uses `managed_ingress_local_root` under `[server.follower]`, it remains accepted as a compatibility alias. New configurations should use `remote_storage_target_local_root`.
 :::
 
 ## Common Examples
@@ -138,7 +138,7 @@ upload_temp_dir = "/data/.uploads"
 start_mode = "follower"
 
 [server.follower]
-managed_ingress_local_root = "/data/managed-ingress"
+remote_storage_target_local_root = "/data/remote-storage-targets"
 ```
 
 ## Practical Notes
@@ -156,5 +156,5 @@ ASTER__SERVER__WORKERS=0
 ASTER__SERVER__TEMP_DIR=/data/.tmp
 ASTER__SERVER__UPLOAD_TEMP_DIR=/data/.uploads
 ASTER__SERVER__START_MODE=follower
-ASTER__SERVER__FOLLOWER__MANAGED_INGRESS_LOCAL_ROOT=/data/managed-ingress
+ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/data/remote-storage-targets
 ```

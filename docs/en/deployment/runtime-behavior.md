@@ -84,10 +84,10 @@ If you use default relative paths, after first startup you will usually see:
 - `data/uploads`
 - `data/.tmp`
 - `data/.uploads`
-- `data/managed-ingress` (when a follower uses a local receiving target)
+- `data/remote-storage-targets` (when a follower uses a local receiving target)
 
 `data/.tmp` and `data/.uploads` are runtime temporary directories, not long-term data directories.  
-`data/managed-ingress` is the local receiving root managed by the primary for a follower. It only matters if this instance is used as a follower node.
+`data/remote-storage-targets` is the local receiving root managed by the primary for a follower. It only matters if this instance is used as a follower node.
 
 `auth.jwt_secret` and `auth.mfa_secret_key` in `data/config.toml` are written as random values when first generated. Keep them during future backup, migration, and restore. If MFA is enabled, replacing `mfa_secret_key` prevents existing authenticators from continuing to verify.
 

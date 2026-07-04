@@ -34,6 +34,10 @@ pub struct RemoteStorageCapabilities {
     pub browser_cors: RemoteStorageBrowserCorsContract,
     #[serde(default)]
     pub limits: RemoteStorageProtocolLimits,
+    // TODO(remote-storage-target): this wire field remains `managed_ingress`
+    // for internal protocol v4/v5 compatibility. Keep the Rust payload shape
+    // target-named, but do not rename the serialized field until the primary /
+    // follower protocol can negotiate a successor capability key.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub managed_ingress: Option<RemoteStorageTargetCapabilities>,
     #[serde(default)]

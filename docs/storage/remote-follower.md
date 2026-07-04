@@ -93,14 +93,14 @@ flowchart TD
 最终会落在从节点自己的：
 
 ```text
-server.follower.managed_ingress_local_root
+server.follower.remote_storage_target_local_root
 ```
 
 下面。例如从节点配置是：
 
 ```toml
 [server.follower]
-managed_ingress_local_root = "/data/managed-ingress"
+remote_storage_target_local_root = "/data/remote-storage-targets"
 ```
 
 接收落点基础路径是：
@@ -112,7 +112,7 @@ default
 最终对象会写到：
 
 ```text
-/data/managed-ingress/default
+/data/remote-storage-targets/default
 ```
 
 ::: warning 没有默认接收落点，remote 策略不能真正写入
@@ -377,7 +377,7 @@ flowchart TD
 
 - remote 策略绑定的远程节点
 - 从节点接收落点
-- `managed_ingress_local_root`
+- `remote_storage_target_local_root`
 - 从节点本地目录
 - 从节点接收落点的 S3 endpoint / bucket / prefix
 

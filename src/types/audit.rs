@@ -39,6 +39,9 @@ macro_rules! define_audit_action_list {
             AdminDeleteRemoteNode,
             AdminTestRemoteNode,
             AdminCreateRemoteNodeEnrollmentToken,
+            // TODO(remote-storage-target): keep these enum variant names and
+            // stored string values stable for audit log compatibility. New UI
+            // copy should present them as remote storage target events.
             AdminCreateRemoteIngressProfile,
             AdminUpdateRemoteIngressProfile,
             AdminDeleteRemoteIngressProfile,
@@ -151,6 +154,9 @@ macro_rules! define_audit_action_list {
             FollowerObjectWrite,
             FollowerObjectDelete,
             FollowerObjectCompose,
+            // TODO(remote-storage-target): keep follower ingress action names
+            // stable for existing audit rows; presentation maps them to target
+            // terminology.
             FollowerIngressProfileCreate,
             FollowerIngressProfileUpdate,
             FollowerIngressProfileDelete,
@@ -239,6 +245,8 @@ define_audit_entity_type! {
     MfaFactor => "mfa_factor",
     Passkey => "passkey",
     PolicyGroup => "policy_group",
+    // TODO(remote-storage-target): stored entity type remains
+    // remote_ingress_profile for historical audit rows.
     RemoteIngressProfile => "remote_ingress_profile",
     RemoteNode => "remote_node",
     ResourceLock => "resource_lock",

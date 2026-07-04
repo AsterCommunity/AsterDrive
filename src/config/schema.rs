@@ -47,21 +47,24 @@ pub struct ServerConfig {
 pub struct ServerFollowerConfig {
     /// follower 受 primary 托管的 local remote storage target 根目录。
     /// primary 下发的本地落点只能在这个根目录下使用相对路径。
-    #[serde(default = "ServerFollowerConfig::default_managed_ingress_local_root")]
-    pub managed_ingress_local_root: String,
+    #[serde(
+        default = "ServerFollowerConfig::default_remote_storage_target_local_root",
+        alias = "managed_ingress_local_root"
+    )]
+    pub remote_storage_target_local_root: String,
 }
 
 impl Default for ServerFollowerConfig {
     fn default() -> Self {
         Self {
-            managed_ingress_local_root: Self::default_managed_ingress_local_root(),
+            remote_storage_target_local_root: Self::default_remote_storage_target_local_root(),
         }
     }
 }
 
 impl ServerFollowerConfig {
-    fn default_managed_ingress_local_root() -> String {
-        "managed-ingress".to_string()
+    fn default_remote_storage_target_local_root() -> String {
+        "remote-storage-targets".to_string()
     }
 }
 

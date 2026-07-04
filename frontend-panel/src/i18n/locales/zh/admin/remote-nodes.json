@@ -139,7 +139,7 @@
 	"remote_node_ingress_profile_max_file_size_hint": "填 0 表示不限制。",
 	"remote_node_ingress_profile_local_path_hint": "这里只能填相对路径，follower 会把它拼到自己的本地目标根目录下。",
 	"remote_node_ingress_profile_s3_path_hint": "可选，对应存储桶内的对象前缀。",
-	"remote_node_ingress_profile_local_scope_hint": "这个目标会写入 follower 本地存储。上面的基础路径永远只会相对于 `server.follower.managed_ingress_local_root` 解析，不会接受任意宿主机绝对路径。",
+	"remote_node_ingress_profile_local_scope_hint": "这个目标会写入 follower 本地存储。上面的基础路径永远只会相对于 `server.follower.remote_storage_target_local_root` 解析，不会接受任意宿主机绝对路径。",
 	"remote_node_ingress_profile_driver_local": "本地",
 	"remote_node_ingress_profile_driver_s3": "S3",
 	"remote_node_ingress_profile_driver_unsupported": "这台 follower 没有声明支持当前远程存储目标驱动。",

@@ -170,7 +170,8 @@ define_api_error_codes! {
     LockNotOwner => "lock.not_owner",
     ShareScopeDenied => "share.scope_denied",
 
-    // managed_ingress services: local/remote remote storage target validation and binding failures.
+    // TODO(remote-storage-target): keep managed_ingress.* wire codes stable
+    // for existing clients while the service/API names use remote storage target terms.
     ManagedIngressBindingMismatch => "managed_ingress.binding_mismatch",
     ManagedIngressDefaultDeleteRequiresReplacement => "managed_ingress.default_delete_requires_replacement",
     ManagedIngressDefaultError => "managed_ingress.default_error",

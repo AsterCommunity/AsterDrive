@@ -92,7 +92,7 @@ async fn setup_state() -> TestFollowerState {
     let config = Arc::new(crate::config::Config {
         server: crate::config::ServerConfig {
             follower: crate::config::ServerFollowerConfig {
-                managed_ingress_local_root: root.to_string_lossy().into_owned(),
+                remote_storage_target_local_root: root.to_string_lossy().into_owned(),
             },
             ..Default::default()
         },
@@ -209,7 +209,7 @@ fn normalize_relative_local_path_rejects_escape_attempts() {
     assert!(
         error
             .message()
-            .contains("server.follower.managed_ingress_local_root")
+            .contains("server.follower.remote_storage_target_local_root")
     );
 }
 
@@ -219,7 +219,7 @@ fn normalize_relative_local_path_rejects_backslash_escape_attempts() {
     assert!(
         error
             .message()
-            .contains("server.follower.managed_ingress_local_root")
+            .contains("server.follower.remote_storage_target_local_root")
     );
 }
 
@@ -264,7 +264,7 @@ fn resolve_remote_storage_target_local_path_rejects_symlink_escape() {
     assert!(
         error
             .message()
-            .contains("server.follower.managed_ingress_local_root")
+            .contains("server.follower.remote_storage_target_local_root")
     );
 
     let _ = fs::remove_dir_all(&root);
@@ -292,7 +292,7 @@ fn resolve_remote_storage_target_local_path_rejects_empty_root() {
     assert!(
         error
             .message()
-            .contains("managed_ingress_local_root cannot be empty")
+            .contains("remote_storage_target_local_root cannot be empty")
     );
 }
 

@@ -104,7 +104,7 @@ For the first follower, create a `local` ingress target first and use a simple r
 default
 ```
 
-This path is restricted by the follower under its own `server.follower.managed_ingress_local_root`, so the primary cannot write arbitrary host paths.
+This path is restricted by the follower under its own `server.follower.remote_storage_target_local_root`, so the primary cannot write arbitrary host paths.
 The reason is not that "S3 cannot be used"; it is that **getting the primary-follower path working first, then switching to a more complex target, lowers diagnosis cost**.
 
 ## 1. Configure the Primary Node First
@@ -131,7 +131,7 @@ At minimum, confirm:
 
 - It has its own working directory and data volume
 - Its `[server].start_mode` is `follower`
-- If you use primary-managed local ingress targets, `[server.follower].managed_ingress_local_root` points to a directory with enough capacity
+- If you use primary-managed local ingress targets, `[server.follower].remote_storage_target_local_root` points to a directory with enough capacity
 
 The most direct approach is editing `config.toml`:
 
@@ -140,14 +140,14 @@ The most direct approach is editing `config.toml`:
 start_mode = "follower"
 
 [server.follower]
-managed_ingress_local_root = "data/managed-ingress"
+remote_storage_target_local_root = "data/remote-storage-targets"
 ```
 
 If you deploy with Docker, you can also override with environment variables:
 
 ```bash
 ASTER__SERVER__START_MODE=follower
-ASTER__SERVER__FOLLOWER__MANAGED_INGRESS_LOCAL_ROOT=/data/managed-ingress
+ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/data/remote-storage-targets
 ASTER__DATABASE__URL=sqlite:///data/asterdrive.db?mode=rwc
 ```
 
@@ -261,10 +261,10 @@ The local path here **can only be relative** and is always restricted under the 
 
 ```toml
 [server.follower]
-managed_ingress_local_root = "data/managed-ingress"
+remote_storage_target_local_root = "data/remote-storage-targets"
 ```
 
-That means `base_path = "default"` ultimately lands under a directory such as `data/managed-ingress/default` on the follower.
+That means `base_path = "default"` ultimately lands under a directory such as `data/remote-storage-targets/default` on the follower.
 If you want the follower to write objects directly to S3, create an `s3` ingress target here and fill endpoint, bucket, credentials, and optional prefix.
 
 ::: warning Remote writes are rejected without a default ingress target
