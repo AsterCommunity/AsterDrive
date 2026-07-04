@@ -651,6 +651,7 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: operations["list_remote_node_ingress_profile_drivers"];
         put?: never;
         post?: never;
@@ -667,8 +668,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
+        /** @deprecated */
         get: operations["list_remote_node_ingress_profiles"];
         put?: never;
+        /** @deprecated */
         post: operations["create_remote_node_ingress_profile"];
         delete?: never;
         options?: never;
@@ -676,7 +679,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{profile_key}": {
+    "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{target_key}": {
         parameters: {
             query?: never;
             header?: never;
@@ -686,10 +689,60 @@ export interface paths {
         get?: never;
         put?: never;
         post?: never;
+        /** @deprecated */
         delete: operations["delete_remote_node_ingress_profile"];
         options?: never;
         head?: never;
+        /** @deprecated */
         patch: operations["update_remote_node_ingress_profile"];
+        trace?: never;
+    };
+    "/api/v1/admin/remote-nodes/{id}/storage-target-drivers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_remote_node_storage_target_drivers"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/remote-nodes/{id}/storage-targets": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["list_remote_node_storage_targets"];
+        put?: never;
+        post: operations["create_remote_node_storage_target"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete: operations["delete_remote_node_storage_target"];
+        options?: never;
+        head?: never;
+        patch: operations["update_remote_node_storage_target"];
         trace?: never;
     };
     "/api/v1/admin/remote-nodes/{id}/test": {
@@ -5763,17 +5816,6 @@ export interface components {
             /** @enum {string} */
             status: "mfa_required";
         };
-        ManagedIngressDriverFieldDescriptor: {
-            help_key?: string | null;
-            kind: components["schemas"]["ManagedIngressDriverFieldKind"];
-            label_key: string;
-            name: string;
-            placeholder?: string | null;
-            required: boolean;
-            secret: boolean;
-        };
-        /** @enum {string} */
-        ManagedIngressDriverFieldKind: "text" | "secret" | "boolean" | "number";
         /**
          * @description Partial `/auth/me` response. The always-needed account identity is kept
          *     stable, while heavier or narrow-use groups are serialized only when selected.
@@ -6831,21 +6873,14 @@ export interface components {
             password: string;
             username: string;
         };
-        RemoteCreateIngressProfileRequest: (components["schemas"]["RemoteCreateLocalIngressProfileRequest"] & {
-            /** @enum {string} */
-            driver_type: "local";
-        }) | (components["schemas"]["RemoteCreateS3IngressProfileRequest"] & {
-            /** @enum {string} */
-            driver_type: "s3";
-        });
-        RemoteCreateLocalIngressProfileRequest: {
+        RemoteCreateLocalStorageTargetRequest: {
             base_path: string;
             is_default?: boolean;
             /** Format: int64 */
             max_file_size: number;
             name: string;
         };
-        RemoteCreateS3IngressProfileRequest: {
+        RemoteCreateS3StorageTargetRequest: {
             access_key: string;
             base_path: string;
             bucket: string;
@@ -6856,6 +6891,13 @@ export interface components {
             name: string;
             secret_key: string;
         };
+        RemoteCreateStorageTargetRequest: (components["schemas"]["RemoteCreateLocalStorageTargetRequest"] & {
+            /** @enum {string} */
+            driver_type: "local";
+        }) | (components["schemas"]["RemoteCreateS3StorageTargetRequest"] & {
+            /** @enum {string} */
+            driver_type: "s3";
+        });
         /**
          * @description Remote 下载传输策略（存储策略 options JSON）
          * @enum {string}
@@ -6880,29 +6922,6 @@ export interface components {
             remote_node_name: string;
             token: string;
         };
-        RemoteIngressProfileInfo: {
-            /** Format: int64 */
-            applied_revision: number;
-            base_path: string;
-            bucket: string;
-            created_at: string;
-            /** Format: int64 */
-            desired_revision: number;
-            driver_type: components["schemas"]["DriverType"];
-            endpoint: string;
-            is_default: boolean;
-            last_error: string;
-            /** Format: int64 */
-            max_file_size: number;
-            name: string;
-            profile_key: string;
-            updated_at: string;
-        };
-        RemoteManagedIngressCapabilities: {
-            driver_types?: components["schemas"]["RemoteManagedIngressDriverType"][];
-            enabled: boolean;
-        };
-        RemoteManagedIngressDriverType: string;
         /** @enum {string} */
         RemoteNodeEnrollmentStatus: "not_started" | "pending" | "redeemed" | "completed" | "expired";
         RemoteNodeInfo: {
@@ -6934,7 +6953,7 @@ export interface components {
             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
             features?: components["schemas"]["RemoteStorageFeatureFlags"];
             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-            managed_ingress?: null | components["schemas"]["RemoteManagedIngressCapabilities"];
+            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
             min_supported_protocol_version?: string;
             protocol_version?: string;
             server_version?: string | null;
@@ -6963,6 +6982,40 @@ export interface components {
             /** Format: int64 */
             max_ingress_size?: number | null;
         };
+        RemoteStorageTargetCapabilities: {
+            driver_types?: components["schemas"]["RemoteStorageTargetDriverType"][];
+            enabled: boolean;
+        };
+        RemoteStorageTargetDriverFieldDescriptor: {
+            help_key?: string | null;
+            kind: components["schemas"]["RemoteStorageTargetDriverFieldKind"];
+            label_key: string;
+            name: string;
+            placeholder?: string | null;
+            required: boolean;
+            secret: boolean;
+        };
+        /** @enum {string} */
+        RemoteStorageTargetDriverFieldKind: "text" | "secret" | "boolean" | "number";
+        RemoteStorageTargetDriverType: string;
+        RemoteStorageTargetInfo: {
+            /** Format: int64 */
+            applied_revision: number;
+            base_path: string;
+            bucket: string;
+            created_at: string;
+            /** Format: int64 */
+            desired_revision: number;
+            driver_type: components["schemas"]["DriverType"];
+            endpoint: string;
+            is_default: boolean;
+            last_error: string;
+            /** Format: int64 */
+            max_file_size: number;
+            name: string;
+            target_key: string;
+            updated_at: string;
+        };
         RemoteTunnelInfo: {
             last_error: string;
             last_seen_at?: string | null;
@@ -6970,7 +7023,7 @@ export interface components {
         };
         /** @enum {string} */
         RemoteTunnelOnlineStatus: "online" | "offline";
-        RemoteUpdateIngressProfileRequest: {
+        RemoteUpdateStorageTargetRequest: {
             access_key?: string | null;
             base_path?: string | null;
             bucket?: string | null;
@@ -11396,7 +11449,7 @@ export interface operations {
                             browser_cors?: components["schemas"]["RemoteStorageBrowserCorsContract"];
                             features?: components["schemas"]["RemoteStorageFeatureFlags"];
                             limits?: components["schemas"]["RemoteStorageProtocolLimits"];
-                            managed_ingress?: null | components["schemas"]["RemoteManagedIngressCapabilities"];
+                            managed_ingress?: null | components["schemas"]["RemoteStorageTargetCapabilities"];
                             min_supported_protocol_version?: string;
                             protocol_version?: string;
                             server_version?: string | null;
@@ -11663,7 +11716,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List remote node ingress profile driver descriptors */
+            /** @description Deprecated since 0.4.0; use /storage-target-drivers. List remote node remote storage target driver descriptors */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11674,7 +11727,7 @@ export interface operations {
                         data?: {
                             description_key: string;
                             driver_type: components["schemas"]["DriverType"];
-                            fields: components["schemas"]["ManagedIngressDriverFieldDescriptor"][];
+                            fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
                             label_key: string;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11717,7 +11770,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description List remote node ingress profiles */
+            /** @description Deprecated since 0.4.0; use /storage-targets. List remote node remote storage targets */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11740,7 +11793,7 @@ export interface operations {
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            profile_key: string;
+                            target_key: string;
                             updated_at: string;
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11769,7 +11822,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed ingress profiles require a single primary binding */
+            /** @description Managed remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -11790,11 +11843,11 @@ export interface operations {
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RemoteCreateIngressProfileRequest"];
+                "application/json": components["schemas"]["RemoteCreateStorageTargetRequest"];
             };
         };
         responses: {
-            /** @description Remote node ingress profile created */
+            /** @description Deprecated since 0.4.0; use /storage-targets. Remote node remote storage target created */
             201: {
                 headers: {
                     [name: string]: unknown;
@@ -11817,7 +11870,7 @@ export interface operations {
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            profile_key: string;
+                            target_key: string;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11846,7 +11899,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed ingress profiles require a single primary binding */
+            /** @description Managed remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -11862,14 +11915,14 @@ export interface operations {
             path: {
                 /** @description Remote node ID */
                 id: number;
-                /** @description Remote ingress profile key */
-                profile_key: string;
+                /** @description Remote storage target key */
+                target_key: string;
             };
             cookie?: never;
         };
         requestBody?: never;
         responses: {
-            /** @description Remote node ingress profile deleted */
+            /** @description Deprecated since 0.4.0; use /storage-targets/{target_key}. Remote node remote storage target deleted */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11890,14 +11943,14 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Remote node or ingress profile not found */
+            /** @description Remote node or remote storage target not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Managed ingress profiles require a single primary binding */
+            /** @description Managed remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -11913,18 +11966,18 @@ export interface operations {
             path: {
                 /** @description Remote node ID */
                 id: number;
-                /** @description Remote ingress profile key */
-                profile_key: string;
+                /** @description Remote storage target key */
+                target_key: string;
             };
             cookie?: never;
         };
         requestBody: {
             content: {
-                "application/json": components["schemas"]["RemoteUpdateIngressProfileRequest"];
+                "application/json": components["schemas"]["RemoteUpdateStorageTargetRequest"];
             };
         };
         responses: {
-            /** @description Remote node ingress profile updated */
+            /** @description Deprecated since 0.4.0; use /storage-targets/{target_key}. Remote node remote storage target updated */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -11947,7 +12000,7 @@ export interface operations {
                             /** Format: int64 */
                             max_file_size: number;
                             name: string;
-                            profile_key: string;
+                            target_key: string;
                             updated_at: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11969,14 +12022,348 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Remote node or ingress profile not found */
+            /** @description Remote node or remote storage target not found */
             404: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content?: never;
             };
-            /** @description Managed ingress profiles require a single primary binding */
+            /** @description Managed remote storage targets require a single primary binding */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_remote_node_storage_target_drivers: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List remote node storage target driver descriptors */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            description_key: string;
+                            driver_type: components["schemas"]["DriverType"];
+                            fields: components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"][];
+                            label_key: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    list_remote_node_storage_targets: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description List remote node storage targets */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            applied_revision: number;
+                            base_path: string;
+                            bucket: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            desired_revision: number;
+                            driver_type: components["schemas"]["DriverType"];
+                            endpoint: string;
+                            is_default: boolean;
+                            last_error: string;
+                            /** Format: int64 */
+                            max_file_size: number;
+                            name: string;
+                            target_key: string;
+                            updated_at: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote storage targets require a single primary binding */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    create_remote_node_storage_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteCreateStorageTargetRequest"];
+            };
+        };
+        responses: {
+            /** @description Remote node storage target created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            applied_revision: number;
+                            base_path: string;
+                            bucket: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            desired_revision: number;
+                            driver_type: components["schemas"]["DriverType"];
+                            endpoint: string;
+                            is_default: boolean;
+                            last_error: string;
+                            /** Format: int64 */
+                            max_file_size: number;
+                            name: string;
+                            target_key: string;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote storage targets require a single primary binding */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_remote_node_storage_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+                /** @description Remote storage target key */
+                target_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Remote node storage target deleted */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node or storage target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote storage targets require a single primary binding */
+            412: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    update_remote_node_storage_target: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Remote node ID */
+                id: number;
+                /** @description Remote storage target key */
+                target_key: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RemoteUpdateStorageTargetRequest"];
+            };
+        };
+        responses: {
+            /** @description Remote node storage target updated */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            applied_revision: number;
+                            base_path: string;
+                            bucket: string;
+                            created_at: string;
+                            /** Format: int64 */
+                            desired_revision: number;
+                            driver_type: components["schemas"]["DriverType"];
+                            endpoint: string;
+                            is_default: boolean;
+                            last_error: string;
+                            /** Format: int64 */
+                            max_file_size: number;
+                            name: string;
+                            target_key: string;
+                            updated_at: string;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote node or storage target not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;

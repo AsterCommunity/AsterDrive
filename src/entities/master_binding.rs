@@ -43,13 +43,13 @@ impl fmt::Debug for Model {
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
 pub enum Relation {
-    #[sea_orm(has_many = "super::managed_ingress_profile::Entity")]
-    ManagedIngressProfiles,
+    #[sea_orm(has_many = "super::remote_storage_target::Entity")]
+    RemoteStorageTargets,
 }
 
-impl Related<super::managed_ingress_profile::Entity> for Entity {
+impl Related<super::remote_storage_target::Entity> for Entity {
     fn to() -> RelationDef {
-        Relation::ManagedIngressProfiles.def()
+        Relation::RemoteStorageTargets.def()
     }
 }
 

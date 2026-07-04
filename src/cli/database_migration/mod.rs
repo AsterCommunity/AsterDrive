@@ -73,7 +73,7 @@ const COPY_TABLE_ORDER: &[&str] = &[
     "external_auth_login_flows",
     "external_auth_email_verification_flows",
     "master_bindings",
-    "managed_ingress_profiles",
+    "remote_storage_targets",
     "system_config",
     "audit_logs",
     "mail_outbox",

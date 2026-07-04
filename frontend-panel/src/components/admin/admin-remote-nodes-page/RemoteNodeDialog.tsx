@@ -11,11 +11,11 @@ import {
 } from "@/components/ui/dialog";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
-	ManagedIngressDriverDescriptor,
-	RemoteCreateIngressProfileRequest,
-	RemoteIngressProfileInfo,
+	RemoteCreateStorageTargetRequest,
 	RemoteNodeInfo,
-	RemoteUpdateIngressProfileRequest,
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetInfo,
+	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
 import {
 	getRemoteNodeBaseUrlValidationMessage,
@@ -33,8 +33,8 @@ import {
 	TestConnectionButton,
 } from "./shared";
 
-const EMPTY_MANAGED_INGRESS_PROFILES: RemoteIngressProfileInfo[] = [];
-const EMPTY_MANAGED_INGRESS_DRIVER_DESCRIPTORS: ManagedIngressDriverDescriptor[] =
+const EMPTY_REMOTE_STORAGE_TARGETS: RemoteStorageTargetInfo[] = [];
+const EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS: RemoteStorageTargetDriverDescriptor[] =
 	[];
 
 interface RemoteNodeDialogProps {
@@ -42,19 +42,19 @@ interface RemoteNodeDialogProps {
 	createStepTouched: boolean;
 	editingNode: RemoteNodeInfo | null;
 	form: RemoteNodeFormData;
-	managedIngressDriverDescriptors?: ManagedIngressDriverDescriptor[];
-	managedIngressDriverDescriptorsError?: string | null;
-	managedIngressDriverDescriptorsLoading?: boolean;
-	managedIngressProfiles?: RemoteIngressProfileInfo[];
-	managedIngressProfilesEnabled?: boolean;
-	managedIngressProfilesError?: string | null;
-	managedIngressProfilesLoading?: boolean;
+	remoteStorageTargetDriverDescriptors?: RemoteStorageTargetDriverDescriptor[];
+	remoteStorageTargetDriverDescriptorsError?: string | null;
+	remoteStorageTargetDriverDescriptorsLoading?: boolean;
+	remoteStorageTargets?: RemoteStorageTargetInfo[];
+	remoteStorageTargetsEnabled?: boolean;
+	remoteStorageTargetsError?: string | null;
+	remoteStorageTargetsLoading?: boolean;
 	mode: "create" | "edit";
-	onCreateManagedIngressProfile?: (
-		payload: RemoteCreateIngressProfileRequest,
+	onCreateRemoteStorageTarget?: (
+		payload: RemoteCreateStorageTargetRequest,
 	) => Promise<void>;
-	onDeleteManagedIngressProfile?: (
-		profile: RemoteIngressProfileInfo,
+	onDeleteRemoteStorageTarget?: (
+		profile: RemoteStorageTargetInfo,
 	) => Promise<void>;
 	onCreateBack: () => void;
 	onCreateNext: () => void;
@@ -66,9 +66,9 @@ interface RemoteNodeDialogProps {
 	onOpenChange: (open: boolean) => void;
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
-	onUpdateManagedIngressProfile?: (
+	onUpdateRemoteStorageTarget?: (
 		profileKey: string,
-		payload: RemoteUpdateIngressProfileRequest,
+		payload: RemoteUpdateStorageTargetRequest,
 	) => Promise<void>;
 	open: boolean;
 	submitting: boolean;
@@ -79,16 +79,16 @@ export function RemoteNodeDialog({
 	createStepTouched,
 	editingNode,
 	form,
-	managedIngressDriverDescriptors = EMPTY_MANAGED_INGRESS_DRIVER_DESCRIPTORS,
-	managedIngressDriverDescriptorsError = null,
-	managedIngressDriverDescriptorsLoading = false,
-	managedIngressProfiles = EMPTY_MANAGED_INGRESS_PROFILES,
-	managedIngressProfilesEnabled = false,
-	managedIngressProfilesError = null,
-	managedIngressProfilesLoading = false,
+	remoteStorageTargetDriverDescriptors = EMPTY_REMOTE_STORAGE_TARGET_DRIVER_DESCRIPTORS,
+	remoteStorageTargetDriverDescriptorsError = null,
+	remoteStorageTargetDriverDescriptorsLoading = false,
+	remoteStorageTargets = EMPTY_REMOTE_STORAGE_TARGETS,
+	remoteStorageTargetsEnabled = false,
+	remoteStorageTargetsError = null,
+	remoteStorageTargetsLoading = false,
 	mode,
-	onCreateManagedIngressProfile,
-	onDeleteManagedIngressProfile,
+	onCreateRemoteStorageTarget,
+	onDeleteRemoteStorageTarget,
 	onCreateBack,
 	onCreateNext,
 	onCreateStepChange,
@@ -96,7 +96,7 @@ export function RemoteNodeDialog({
 	onOpenChange,
 	onRunConnectionTest,
 	onSubmit,
-	onUpdateManagedIngressProfile,
+	onUpdateRemoteStorageTarget,
 	open,
 	submitting,
 }: RemoteNodeDialogProps) {
@@ -272,24 +272,24 @@ export function RemoteNodeDialog({
 								editingNode={editingNode}
 								enabledToneClass={enabledToneClass}
 								form={form}
-								managedIngressProfiles={managedIngressProfiles}
-								managedIngressDriverDescriptors={
-									managedIngressDriverDescriptors
+								remoteStorageTargets={remoteStorageTargets}
+								remoteStorageTargetDriverDescriptors={
+									remoteStorageTargetDriverDescriptors
 								}
-								managedIngressDriverDescriptorsError={
-									managedIngressDriverDescriptorsError
+								remoteStorageTargetDriverDescriptorsError={
+									remoteStorageTargetDriverDescriptorsError
 								}
-								managedIngressDriverDescriptorsLoading={
-									managedIngressDriverDescriptorsLoading
+								remoteStorageTargetDriverDescriptorsLoading={
+									remoteStorageTargetDriverDescriptorsLoading
 								}
-								managedIngressProfilesEnabled={managedIngressProfilesEnabled}
-								managedIngressProfilesError={managedIngressProfilesError}
-								managedIngressProfilesLoading={managedIngressProfilesLoading}
+								remoteStorageTargetsEnabled={remoteStorageTargetsEnabled}
+								remoteStorageTargetsError={remoteStorageTargetsError}
+								remoteStorageTargetsLoading={remoteStorageTargetsLoading}
 								modeToneClass={modeToneClass}
-								onCreateManagedIngressProfile={onCreateManagedIngressProfile}
-								onDeleteManagedIngressProfile={onDeleteManagedIngressProfile}
+								onCreateRemoteStorageTarget={onCreateRemoteStorageTarget}
+								onDeleteRemoteStorageTarget={onDeleteRemoteStorageTarget}
 								onFieldChange={onFieldChange}
-								onUpdateManagedIngressProfile={onUpdateManagedIngressProfile}
+								onUpdateRemoteStorageTarget={onUpdateRemoteStorageTarget}
 								summaryItems={createSummaryItems}
 								transportOptions={transportOptions}
 							/>

@@ -21,16 +21,16 @@ const mockState = vi.hoisted(() => ({
 const adminRemoteNodeServiceMocks = vi.hoisted(() => ({
 	create: vi.fn(),
 	createEnrollmentCommand: vi.fn(),
-	createIngressProfile: vi.fn(),
+	createStorageTarget: vi.fn(),
 	delete: vi.fn(),
-	deleteIngressProfile: vi.fn(),
+	deleteStorageTarget: vi.fn(),
 	get: vi.fn(),
 	list: vi.fn(),
-	listIngressProfileDrivers: vi.fn(),
-	listIngressProfiles: vi.fn(),
+	listStorageTargetDrivers: vi.fn(),
+	listStorageTargets: vi.fn(),
 	testConnection: vi.fn(),
 	update: vi.fn(),
-	updateIngressProfile: vi.fn(),
+	updateStorageTarget: vi.fn(),
 }));
 
 vi.mock("react-i18next", () => ({
@@ -65,38 +65,38 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 	RemoteNodeDialog: ({
 		editingNode,
 		form,
-		managedIngressDriverDescriptors = [],
-		managedIngressDriverDescriptorsError = null,
-		managedIngressProfiles = [],
-		managedIngressProfilesEnabled,
-		managedIngressProfilesError,
+		remoteStorageTargetDriverDescriptors = [],
+		remoteStorageTargetDriverDescriptorsError = null,
+		remoteStorageTargets = [],
+		remoteStorageTargetsEnabled,
+		remoteStorageTargetsError,
 		mode,
-		onCreateManagedIngressProfile,
+		onCreateRemoteStorageTarget,
 		onCreateBack,
 		onCreateNext,
 		createStep,
-		onDeleteManagedIngressProfile,
+		onDeleteRemoteStorageTarget,
 		onFieldChange,
 		open,
 		onOpenChange,
 		onRunConnectionTest,
 		onSubmit,
-		onUpdateManagedIngressProfile,
+		onUpdateRemoteStorageTarget,
 	}: {
 		editingNode: { id: number; name: string } | null;
 		form: { base_url: string; is_enabled: boolean; name: string };
-		managedIngressDriverDescriptors?: unknown[];
-		managedIngressDriverDescriptorsError?: string | null;
-		managedIngressProfiles?: unknown[];
-		managedIngressProfilesEnabled: boolean;
-		managedIngressProfilesError: string | null;
+		remoteStorageTargetDriverDescriptors?: unknown[];
+		remoteStorageTargetDriverDescriptorsError?: string | null;
+		remoteStorageTargets?: unknown[];
+		remoteStorageTargetsEnabled: boolean;
+		remoteStorageTargetsError: string | null;
 		mode: "create" | "edit";
-		onCreateManagedIngressProfile: (payload: unknown) => Promise<void>;
+		onCreateRemoteStorageTarget: (payload: unknown) => Promise<void>;
 		onCreateBack: () => void;
 		onCreateNext: () => void;
 		createStep: number;
-		onDeleteManagedIngressProfile: (profile: {
-			profile_key: string;
+		onDeleteRemoteStorageTarget: (profile: {
+			target_key: string;
 		}) => Promise<void>;
 		onFieldChange: (
 			key: "base_url" | "is_enabled" | "name",
@@ -105,7 +105,7 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 		onOpenChange: (open: boolean) => void;
 		onRunConnectionTest: () => Promise<boolean>;
 		onSubmit: () => void;
-		onUpdateManagedIngressProfile: (
+		onUpdateRemoteStorageTarget: (
 			profileKey: string,
 			payload: unknown,
 		) => Promise<void>;
@@ -117,19 +117,19 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 				<div data-testid="remote-node-name">{form.name}</div>
 				<div data-testid="create-step">{createStep}</div>
 				<div data-testid="managed-ingress-enabled">
-					{String(managedIngressProfilesEnabled)}
+					{String(remoteStorageTargetsEnabled)}
 				</div>
 				<div data-testid="managed-ingress-error">
-					{managedIngressProfilesError ?? ""}
+					{remoteStorageTargetsError ?? ""}
 				</div>
 				<div data-testid="managed-ingress-profile-count">
-					{managedIngressProfiles.length}
+					{remoteStorageTargets.length}
 				</div>
 				<div data-testid="managed-ingress-driver-count">
-					{managedIngressDriverDescriptors.length}
+					{remoteStorageTargetDriverDescriptors.length}
 				</div>
 				<div data-testid="managed-ingress-driver-error">
-					{managedIngressDriverDescriptorsError ?? ""}
+					{remoteStorageTargetDriverDescriptorsError ?? ""}
 				</div>
 				<div data-testid="editing-node-name">{editingNode?.name ?? ""}</div>
 				<button
@@ -167,7 +167,7 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 				<button
 					type="button"
 					onClick={() => {
-						void onCreateManagedIngressProfile({ name: "Ingress" });
+						void onCreateRemoteStorageTarget({ name: "Ingress" });
 					}}
 				>
 					create-ingress
@@ -175,7 +175,7 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 				<button
 					type="button"
 					onClick={() => {
-						void onUpdateManagedIngressProfile("default", { name: "Ingress" });
+						void onUpdateRemoteStorageTarget("default", { name: "Ingress" });
 					}}
 				>
 					update-ingress
@@ -183,7 +183,7 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 				<button
 					type="button"
 					onClick={() => {
-						void onDeleteManagedIngressProfile({ profile_key: "default" });
+						void onDeleteRemoteStorageTarget({ target_key: "default" });
 					}}
 				>
 					delete-ingress
@@ -461,10 +461,10 @@ describe("AdminRemoteNodesPage", () => {
 			token: "token",
 		});
 		adminRemoteNodeServiceMocks.delete.mockResolvedValue(undefined);
-		adminRemoteNodeServiceMocks.createIngressProfile.mockResolvedValue(
+		adminRemoteNodeServiceMocks.createStorageTarget.mockResolvedValue(
 			undefined,
 		);
-		adminRemoteNodeServiceMocks.deleteIngressProfile.mockResolvedValue(
+		adminRemoteNodeServiceMocks.deleteStorageTarget.mockResolvedValue(
 			undefined,
 		);
 		adminRemoteNodeServiceMocks.get.mockResolvedValue({
@@ -476,7 +476,7 @@ describe("AdminRemoteNodesPage", () => {
 			items: [],
 			total: 0,
 		});
-		adminRemoteNodeServiceMocks.listIngressProfileDrivers.mockResolvedValue([
+		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockResolvedValue([
 			{
 				description_key: "remote_node_ingress_profile_local_scope_hint",
 				driver_type: "local",
@@ -494,7 +494,7 @@ describe("AdminRemoteNodesPage", () => {
 				label_key: "remote_node_ingress_profile_driver_local",
 			},
 		]);
-		adminRemoteNodeServiceMocks.listIngressProfiles.mockResolvedValue([
+		adminRemoteNodeServiceMocks.listStorageTargets.mockResolvedValue([
 			{
 				applied_revision: 1,
 				base_path: "incoming",
@@ -507,7 +507,7 @@ describe("AdminRemoteNodesPage", () => {
 				last_error: "",
 				max_file_size: 0,
 				name: "Default ingress",
-				profile_key: "default",
+				target_key: "default",
 				updated_at: "2026-05-02T00:00:00Z",
 			},
 		]);
@@ -522,7 +522,7 @@ describe("AdminRemoteNodesPage", () => {
 			id: 7,
 			name: "Edge Beta",
 		});
-		adminRemoteNodeServiceMocks.updateIngressProfile.mockResolvedValue(
+		adminRemoteNodeServiceMocks.updateStorageTarget.mockResolvedValue(
 			undefined,
 		);
 	});
@@ -605,7 +605,7 @@ describe("AdminRemoteNodesPage", () => {
 		expect(mockState.setItems).toHaveBeenCalled();
 	});
 
-	it("opens completed nodes for editing and manages ingress profiles", async () => {
+	it("opens completed nodes for editing and manages remote storage targets", async () => {
 		const node = {
 			base_url: "https://edge.example.com",
 			enrollment_status: "completed",
@@ -627,11 +627,11 @@ describe("AdminRemoteNodesPage", () => {
 
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.listIngressProfiles,
+				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listIngressProfileDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("remote-node-dialog")).toHaveTextContent("edit");
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
@@ -656,19 +656,19 @@ describe("AdminRemoteNodesPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "create-ingress" }));
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.createIngressProfile,
+				adminRemoteNodeServiceMocks.createStorageTarget,
 			).toHaveBeenCalledWith(7, { name: "Ingress" });
 		});
 		fireEvent.click(screen.getByRole("button", { name: "update-ingress" }));
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.updateIngressProfile,
+				adminRemoteNodeServiceMocks.updateStorageTarget,
 			).toHaveBeenCalledWith(7, "default", { name: "Ingress" });
 		});
 		fireEvent.click(screen.getByRole("button", { name: "delete-ingress" }));
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.deleteIngressProfile,
+				adminRemoteNodeServiceMocks.deleteStorageTarget,
 			).toHaveBeenCalledWith(7, "default");
 		});
 	});
@@ -702,14 +702,14 @@ describe("AdminRemoteNodesPage", () => {
 			"remote_node_ingress_profiles_base_url_required",
 		);
 		expect(
-			adminRemoteNodeServiceMocks.listIngressProfiles,
+			adminRemoteNodeServiceMocks.listStorageTargets,
 		).not.toHaveBeenCalled();
 		expect(
-			adminRemoteNodeServiceMocks.listIngressProfileDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
 		).not.toHaveBeenCalled();
 	});
 
-	it("loads managed ingress profiles for reverse tunnel nodes without base_url", async () => {
+	it("loads managed remote storage targets for reverse tunnel nodes without base_url", async () => {
 		mockState.useApiList.mockReturnValue({
 			items: [
 				{
@@ -738,11 +738,11 @@ describe("AdminRemoteNodesPage", () => {
 
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.listIngressProfiles,
+				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listIngressProfileDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -750,7 +750,7 @@ describe("AdminRemoteNodesPage", () => {
 		expect(screen.getByTestId("managed-ingress-error")).toBeEmptyDOMElement();
 	});
 
-	it("loads managed ingress profiles for auto nodes without base_url", async () => {
+	it("loads managed remote storage targets for auto nodes without base_url", async () => {
 		mockState.useApiList.mockReturnValue({
 			items: [
 				{
@@ -779,11 +779,11 @@ describe("AdminRemoteNodesPage", () => {
 
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.listIngressProfiles,
+				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 		});
 		expect(
-			adminRemoteNodeServiceMocks.listIngressProfileDrivers,
+			adminRemoteNodeServiceMocks.listStorageTargetDrivers,
 		).toHaveBeenCalledWith(7);
 		expect(screen.getByTestId("managed-ingress-enabled")).toHaveTextContent(
 			"true",
@@ -792,7 +792,7 @@ describe("AdminRemoteNodesPage", () => {
 	});
 
 	it("surfaces managed ingress errors for nodes that cannot load profiles", async () => {
-		adminRemoteNodeServiceMocks.listIngressProfiles.mockRejectedValueOnce(
+		adminRemoteNodeServiceMocks.listStorageTargets.mockRejectedValueOnce(
 			new Error("profile failed"),
 		);
 		mockState.useApiList.mockReturnValue({
@@ -824,7 +824,7 @@ describe("AdminRemoteNodesPage", () => {
 	});
 
 	it("surfaces managed ingress driver descriptor errors without canceling profile loading", async () => {
-		adminRemoteNodeServiceMocks.listIngressProfileDrivers.mockRejectedValueOnce(
+		adminRemoteNodeServiceMocks.listStorageTargetDrivers.mockRejectedValueOnce(
 			new Error("descriptor failed"),
 		);
 		mockState.useApiList.mockReturnValue({
@@ -849,10 +849,10 @@ describe("AdminRemoteNodesPage", () => {
 
 		await waitFor(() => {
 			expect(
-				adminRemoteNodeServiceMocks.listIngressProfiles,
+				adminRemoteNodeServiceMocks.listStorageTargets,
 			).toHaveBeenCalledWith(7);
 			expect(
-				adminRemoteNodeServiceMocks.listIngressProfileDrivers,
+				adminRemoteNodeServiceMocks.listStorageTargetDrivers,
 			).toHaveBeenCalledWith(7);
 		});
 		await waitFor(() => {

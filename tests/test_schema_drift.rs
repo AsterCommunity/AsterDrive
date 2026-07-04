@@ -9,12 +9,12 @@ use aster_drive::entities::{
     audit_log, auth_session, background_task, blob_media_metadata, contact_verification_token,
     entity_property, external_auth_email_verification_flow, external_auth_identity,
     external_auth_login_flow, external_auth_provider, file, file_blob, file_version, folder,
-    follower_enrollment_session, mail_outbox, managed_follower, managed_ingress_profile,
-    master_binding, mfa_email_code, mfa_factor, mfa_login_flow, mfa_recovery_code,
-    mfa_totp_setup_flow, passkey, resource_lock, share, storage_migration_checkpoint,
-    storage_policy, storage_policy_group, storage_policy_group_item, system_config, tag, team,
-    team_member, upload_session, upload_session_part, user, user_invitation, user_profile,
-    webdav_account, wopi_session,
+    follower_enrollment_session, mail_outbox, managed_follower, master_binding, mfa_email_code,
+    mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey,
+    remote_storage_target, resource_lock, share, storage_migration_checkpoint, storage_policy,
+    storage_policy_group, storage_policy_group_item, system_config, tag, team, team_member,
+    upload_session, upload_session_part, user, user_invitation, user_profile, webdav_account,
+    wopi_session,
 };
 use aster_drive::runtime::SharedRuntimeState;
 use sea_orm::{
@@ -63,7 +63,7 @@ fn all_entity_schemas() -> Vec<EntitySchema> {
         entity_schema!(follower_enrollment_session::Entity),
         entity_schema!(mail_outbox::Entity),
         entity_schema!(managed_follower::Entity),
-        entity_schema!(managed_ingress_profile::Entity),
+        entity_schema!(remote_storage_target::Entity),
         entity_schema!(master_binding::Entity),
         entity_schema!(mfa_email_code::Entity),
         entity_schema!(mfa_factor::Entity),

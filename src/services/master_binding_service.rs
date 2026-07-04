@@ -5,7 +5,7 @@ use crate::db::repository::master_binding_repo;
 use crate::entities::master_binding;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
-use crate::services::managed_ingress_profile_service;
+use crate::services::remote_storage_target_service;
 use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
@@ -345,7 +345,7 @@ pub async fn assert_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result
     }
 
     for binding in enabled_bindings {
-        let _ = managed_ingress_profile_service::resolve_effective_target(state, &binding).await?;
+        let _ = remote_storage_target_service::resolve_effective_target(state, &binding).await?;
     }
     Ok(())
 }
@@ -354,7 +354,7 @@ async fn resolve_authorized_ingress<S: FollowerRuntimeState>(
     state: &S,
     binding: master_binding::Model,
 ) -> Result<AuthorizedMasterBinding> {
-    let target = managed_ingress_profile_service::resolve_effective_target(state, &binding).await?;
+    let target = remote_storage_target_service::resolve_effective_target(state, &binding).await?;
 
     Ok(AuthorizedMasterBinding {
         binding,

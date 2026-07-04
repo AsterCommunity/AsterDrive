@@ -332,10 +332,13 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/remote-nodes/{id}/test` | 测试已保存远端节点连接 |
 | `POST` | `/admin/remote-nodes/test` | 用临时参数测试远端节点连接 |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | 生成 follower enrollment 命令 |
-| `GET` | `/admin/remote-nodes/{id}/ingress-profiles` | 列出 follower 侧受管 ingress profile |
-| `POST` | `/admin/remote-nodes/{id}/ingress-profiles` | 创建 follower 侧受管 ingress profile |
-| `PATCH` | `/admin/remote-nodes/{id}/ingress-profiles/{profile_key}` | 更新 follower 侧受管 ingress profile |
-| `DELETE` | `/admin/remote-nodes/{id}/ingress-profiles/{profile_key}` | 删除 follower 侧受管 ingress profile |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | 列出 follower 侧远程存储目标可用 driver descriptor |
+| `GET` | `/admin/remote-nodes/{id}/storage-targets` | 列出 follower 侧远程存储目标 |
+| `POST` | `/admin/remote-nodes/{id}/storage-targets` | 创建 follower 侧远程存储目标 |
+| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower 侧远程存储目标 |
+| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除 follower 侧远程存储目标 |
+
+`/ingress-profile-drivers` 和 `/ingress-profiles` 自 0.4.0 起作为 deprecated 兼容 alias 保留；新代码应优先使用 `/storage-target-drivers` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
 
 创建远端节点示例：
 
@@ -360,7 +363,7 @@ POST /api/v1/admin/policies/action
 - 远端节点详情会返回 `transport_mode`、`enrollment_status`、`last_error`、`capabilities`、`last_checked_at` 和 `tunnel`
 - `tunnel` 当前包含 `status`、`last_error`、`last_seen_at`，用于管理端展示 reverse tunnel 在线状态
 - reverse tunnel 模式不能配合 remote 浏览器预签名上传 / 下载策略使用。创建或更新远端策略、切换远端节点传输模式时，如果引用该节点的策略使用 `remote_upload_strategy = "presigned"` 或 `remote_download_strategy = "presigned"`，服务端会拒绝这个组合
-- ingress profile 的请求体和 follower 内部协议一致，见 [内部存储协议](./internal-storage.md)
+- 远程存储目标的请求体和 follower 内部协议一致，见 [内部存储协议](./internal-storage.md)
 
 ## 外部认证提供商
 

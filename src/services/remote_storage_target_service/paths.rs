@@ -5,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 
-pub(in crate::services::managed_ingress_profile_service) fn resolve_managed_local_path(
+pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage_target_local_path(
     root: &str,
     relative: &str,
 ) -> Result<PathBuf> {
@@ -45,14 +45,14 @@ pub(in crate::services::managed_ingress_profile_service) fn resolve_managed_loca
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let Some(name) = existing_ancestor.file_name() else {
                     return Err(AsterError::config_error(format!(
-                        "managed ingress local path has no existing ancestor: {}",
+                        "remote storage target local path has no existing ancestor: {}",
                         candidate.display()
                     )));
                 };
                 missing_components.push(name.to_os_string());
                 let Some(parent) = existing_ancestor.parent() else {
                     return Err(AsterError::config_error(format!(
-                        "managed ingress local path has no parent: {}",
+                        "remote storage target local path has no parent: {}",
                         candidate.display()
                     )));
                 };
@@ -60,7 +60,7 @@ pub(in crate::services::managed_ingress_profile_service) fn resolve_managed_loca
             }
             Err(error) => {
                 return Err(AsterError::config_error(format!(
-                    "inspect managed ingress local path '{}': {error}",
+                    "inspect remote storage target local path '{}': {error}",
                     existing_ancestor.display()
                 )));
             }
@@ -69,7 +69,7 @@ pub(in crate::services::managed_ingress_profile_service) fn resolve_managed_loca
 
     let mut resolved = fs::canonicalize(&existing_ancestor).map_aster_err_ctx(
         &format!(
-            "canonicalize managed ingress local path '{}'",
+            "canonicalize remote storage target local path '{}'",
             existing_ancestor.display()
         ),
         AsterError::config_error,
@@ -82,20 +82,20 @@ pub(in crate::services::managed_ingress_profile_service) fn resolve_managed_loca
         Ok(resolved)
     } else {
         Err(AsterError::config_error(format!(
-            "local ingress base_path '{}' escapes server.follower.managed_ingress_local_root '{}'",
+            "local remote storage target base_path '{}' escapes server.follower.managed_ingress_local_root '{}'",
             relative,
             root_path.display()
         )))
     }
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn normalize_relative_local_path(
+pub(in crate::services::remote_storage_target_service) fn normalize_relative_local_path(
     value: &str,
 ) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
         return Err(AsterError::validation_error(
-            "base_path cannot be blank for local ingress profiles",
+            "base_path cannot be blank for local remote storage targets",
         ));
     }
 
@@ -109,7 +109,7 @@ pub(in crate::services::managed_ingress_profile_service) fn normalize_relative_l
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
                 return Err(validation_error_with_code(
                     ApiErrorCode::ManagedIngressLocalPathInvalid,
-                    "local ingress base_path must stay within server.follower.managed_ingress_local_root",
+                    "local remote storage target base_path must stay within server.follower.managed_ingress_local_root",
                 ));
             }
         }

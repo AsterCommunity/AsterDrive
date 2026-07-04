@@ -1,8 +1,8 @@
 import { useTranslation } from "react-i18next";
 import {
-	isManagedIngressDriverType,
-	type ManagedIngressProfileFormData,
-} from "@/components/admin/managedIngressProfileDialogShared";
+	isRemoteStorageTargetDriverType,
+	type RemoteStorageTargetFormData,
+} from "@/components/admin/remoteStorageTargetDialogShared";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
@@ -17,37 +17,37 @@ import {
 import { Switch } from "@/components/ui/switch";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import type {
-	ManagedIngressDriverDescriptor,
-	ManagedIngressDriverFieldDescriptor,
-	RemoteIngressProfileInfo,
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetDriverFieldDescriptor,
+	RemoteStorageTargetInfo,
 } from "@/types/api";
 import type {
-	RemoteNodeManagedIngressDraftMode,
-	RemoteNodeManagedIngressFieldChangeHandler,
-} from "./RemoteNodeManagedIngressTypes";
+	RemoteNodeRemoteStorageTargetDraftMode,
+	RemoteNodeRemoteStorageTargetFieldChangeHandler,
+} from "./RemoteNodeRemoteStorageTargetTypes";
 
-interface RemoteNodeManagedIngressFormProps {
+interface RemoteNodeRemoteStorageTargetFormProps {
 	accessKeyError: string | null;
 	bucketError: string | null;
 	defaultToggleLocked: boolean;
-	driverDescriptors: ManagedIngressDriverDescriptor[];
+	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	driverTypeError: string | null;
-	draftMode: RemoteNodeManagedIngressDraftMode;
-	editingProfile: RemoteIngressProfileInfo | null;
+	draftMode: RemoteNodeRemoteStorageTargetDraftMode;
+	editingProfile: RemoteStorageTargetInfo | null;
 	endpointError: string | null;
-	form: ManagedIngressProfileFormData;
+	form: RemoteStorageTargetFormData;
 	localPathError: string | null;
 	maxFileSizeError: string | null;
 	nameError: string | null;
 	onCancel: () => void;
-	onFieldChange: RemoteNodeManagedIngressFieldChangeHandler;
+	onFieldChange: RemoteNodeRemoteStorageTargetFieldChangeHandler;
 	onSubmit: () => void;
 	secretKeyError: string | null;
 	submitDisabled: boolean;
 	submitting: boolean;
 }
 
-export function RemoteNodeManagedIngressForm({
+export function RemoteNodeRemoteStorageTargetForm({
 	accessKeyError,
 	bucketError,
 	defaultToggleLocked,
@@ -66,7 +66,7 @@ export function RemoteNodeManagedIngressForm({
 	secretKeyError,
 	submitDisabled,
 	submitting,
-}: RemoteNodeManagedIngressFormProps) {
+}: RemoteNodeRemoteStorageTargetFormProps) {
 	const { t } = useTranslation("admin");
 	const driverTypeOptions = driverDescriptors.map((descriptor) => ({
 		label: t(descriptor.label_key),
@@ -81,10 +81,10 @@ export function RemoteNodeManagedIngressForm({
 	);
 	const field = (name: string) => fieldByName.get(name);
 	const fieldHelp = (
-		descriptor: ManagedIngressDriverFieldDescriptor | undefined,
+		descriptor: RemoteStorageTargetDriverFieldDescriptor | undefined,
 	) => (descriptor?.help_key ? t(descriptor.help_key) : null);
 	const fieldPlaceholder = (
-		descriptor: ManagedIngressDriverFieldDescriptor | undefined,
+		descriptor: RemoteStorageTargetDriverFieldDescriptor | undefined,
 	) => descriptor?.placeholder ?? undefined;
 	const basePathField = field("base_path");
 	const maxFileSizeField = field("max_file_size");
@@ -140,7 +140,7 @@ export function RemoteNodeManagedIngressForm({
 						items={driverTypeOptions}
 						value={form.driver_type}
 						onValueChange={(value) => {
-							if (isManagedIngressDriverType(value)) {
+							if (isRemoteStorageTargetDriverType(value)) {
 								onFieldChange("driver_type", value);
 							}
 						}}

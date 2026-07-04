@@ -116,18 +116,18 @@ export const ApiErrorCode = {
 	FolderNameConflict: "folder.name_conflict",
 	LockNotOwner: "lock.not_owner",
 	ShareScopeDenied: "share.scope_denied",
-	ManagedIngressBindingMismatch: "managed_ingress.binding_mismatch",
-	ManagedIngressDefaultDeleteRequiresReplacement:
+	RemoteStorageTargetBindingMismatch: "managed_ingress.binding_mismatch",
+	RemoteStorageTargetDefaultDeleteRequiresReplacement:
 		"managed_ingress.default_delete_requires_replacement",
-	ManagedIngressDefaultError: "managed_ingress.default_error",
-	ManagedIngressDefaultMissing: "managed_ingress.default_missing",
-	ManagedIngressDefaultNotApplied: "managed_ingress.default_not_applied",
-	ManagedIngressDefaultUpdateRequiresReplacement:
+	RemoteStorageTargetDefaultError: "managed_ingress.default_error",
+	RemoteStorageTargetDefaultMissing: "managed_ingress.default_missing",
+	RemoteStorageTargetDefaultNotApplied: "managed_ingress.default_not_applied",
+	RemoteStorageTargetDefaultUpdateRequiresReplacement:
 		"managed_ingress.default_update_requires_replacement",
-	ManagedIngressDriverUnsupported: "managed_ingress.driver_unsupported",
-	ManagedIngressLocalPathInvalid: "managed_ingress.local_path_invalid",
-	ManagedIngressRequired: "managed_ingress.required",
-	ManagedIngressSinglePrimaryRequired:
+	RemoteStorageTargetDriverUnsupported: "managed_ingress.driver_unsupported",
+	RemoteStorageTargetLocalPathInvalid: "managed_ingress.local_path_invalid",
+	RemoteStorageTargetRequired: "managed_ingress.required",
+	RemoteStorageTargetSinglePrimaryRequired:
 		"managed_ingress.single_primary_required",
 	MasterBindingDisabled: "master_binding.disabled",
 	PasskeyNameInvalid: "passkey.name_invalid",

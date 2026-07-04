@@ -67,10 +67,10 @@ fn log_request(req: &HttpRequest, body: &[u8], log: &web::Data<Arc<ProtocolLog>>
         });
 }
 
-fn profile_json(profile_key: &str) -> serde_json::Value {
+fn profile_json(target_key: &str) -> serde_json::Value {
     let now = chrono::Utc::now();
     serde_json::json!({
-        "profile_key": profile_key,
+        "target_key": target_key,
         "name": "Local ingress",
         "driver_type": "local",
         "endpoint": "",
@@ -280,19 +280,19 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
             )
             .route("/api/v1/internal/storage/binding", web::put().to(binding))
             .route(
-                "/api/v1/internal/storage/ingress-profiles",
+                "/api/v1/internal/storage/targets",
                 web::get().to(list_profiles),
             )
             .route(
-                "/api/v1/internal/storage/ingress-profiles",
+                "/api/v1/internal/storage/targets",
                 web::post().to(create_profile),
             )
             .route(
-                "/api/v1/internal/storage/ingress-profiles/{key:.*}",
+                "/api/v1/internal/storage/targets/{key:.*}",
                 web::patch().to(update_profile),
             )
             .route(
-                "/api/v1/internal/storage/ingress-profiles/{key:.*}",
+                "/api/v1/internal/storage/targets/{key:.*}",
                 web::delete().to(delete_profile),
             )
             .route("/api/v1/internal/storage/compose", web::post().to(compose))
@@ -430,7 +430,7 @@ fn remote_api_error_maps_storage_quota_exceeded() {
 
 #[test]
 fn s3_ingress_profile_create_debug_redacts_credentials() {
-    let request = RemoteCreateS3IngressProfileRequest {
+    let request = RemoteCreateS3StorageTargetRequest {
         name: "s3".to_string(),
         endpoint: "https://s3.example.com".to_string(),
         bucket: "bucket-a".to_string(),
@@ -451,7 +451,7 @@ fn s3_ingress_profile_create_debug_redacts_credentials() {
 
 #[test]
 fn ingress_profile_update_debug_redacts_optional_credentials() {
-    let request = RemoteUpdateIngressProfileRequest {
+    let request = RemoteUpdateStorageTargetRequest {
         name: Some("s3".to_string()),
         driver_type: Some(DriverType::S3),
         endpoint: Some("https://s3.example.com".to_string()),
@@ -472,13 +472,13 @@ fn ingress_profile_update_debug_redacts_optional_credentials() {
 }
 
 #[test]
-fn ingress_profile_path_encodes_path_separators_inside_profile_key() {
+fn storage_target_path_encodes_path_separators_inside_target_key() {
     let client = RemoteStorageClient::new("http://storage.example.com", "ak", "sk")
         .expect("remote client should build");
 
     assert_eq!(
-        client.ingress_profile_path(" a/b "),
-        "/api/v1/internal/storage/ingress-profiles/a%2Fb"
+        client.storage_target_path(" a/b "),
+        "/api/v1/internal/storage/targets/a%2Fb"
     );
 }
 
@@ -552,20 +552,20 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
 fn not_found_record_error_uses_contextual_remote_message() {
     let body = serde_json::json!({
         "code": "not_found",
-        "msg": "managed_ingress_profile 'profile-a'",
+        "msg": "remote_storage_target 'profile-a'",
     })
     .to_string();
     let err = build_remote_status_error_from_parts(
         reqwest::StatusCode::NOT_FOUND,
         &body,
-        "update remote ingress profile",
+        "update remote remote storage target",
         false,
     );
 
     assert!(matches!(err, AsterError::RecordNotFound(_)));
     assert_eq!(
         err.message(),
-        "update remote ingress profile: managed_ingress_profile 'profile-a'"
+        "update remote remote storage target: remote_storage_target 'profile-a'"
     );
 }
 
@@ -726,13 +726,13 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         .await
         .expect("binding sync should succeed");
 
-    let profiles = client.list_ingress_profiles().await.unwrap();
+    let profiles = client.list_storage_targets().await.unwrap();
     assert_eq!(profiles.len(), 1);
-    assert_eq!(profiles[0].profile_key, "profile-a");
+    assert_eq!(profiles[0].target_key, "profile-a");
 
     let created = client
-        .create_ingress_profile(&RemoteCreateIngressProfileRequest::Local(
-            RemoteCreateLocalIngressProfileRequest {
+        .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
+            RemoteCreateLocalStorageTargetRequest {
                 name: "Managed local".to_string(),
                 base_path: "ingress-base".to_string(),
                 max_file_size: 1024,
@@ -741,22 +741,22 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         ))
         .await
         .expect("profile create should succeed");
-    assert_eq!(created.profile_key, "created-profile");
+    assert_eq!(created.target_key, "created-profile");
 
     let updated = client
-        .update_ingress_profile(
+        .update_storage_target(
             "profile/a",
-            &RemoteUpdateIngressProfileRequest {
+            &RemoteUpdateStorageTargetRequest {
                 name: Some("Updated".to_string()),
                 ..Default::default()
             },
         )
         .await
         .expect("profile update should succeed");
-    assert_eq!(updated.profile_key, "updated-profile");
+    assert_eq!(updated.target_key, "updated-profile");
 
     client
-        .delete_ingress_profile("profile/a")
+        .delete_storage_target("profile/a")
         .await
         .expect("profile delete should succeed");
     client
@@ -803,10 +803,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         request.method == "GET" && request.path_and_query == "/api/v1/internal/storage/capacity"
     }));
     assert!(requests.iter().any(|request| {
-        request.method == "PATCH"
-            && request
-                .path_and_query
-                .contains("/ingress-profiles/profile%2Fa")
+        request.method == "PATCH" && request.path_and_query.contains("/targets/profile%2Fa")
     }));
     assert!(requests.iter().any(|request| {
         request.method == "POST"
@@ -1154,7 +1151,7 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
     .expect("disabled managed ingress capabilities should decode");
     assert!(
         !disabled
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1169,7 +1166,7 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
         .expect("missing managed ingress driver_types should decode as empty");
     assert!(
         !enabled_without_driver_types
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1185,7 +1182,7 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
         .expect("unknown-only managed ingress capabilities should decode");
     assert!(
         !enabled_with_unknown_only
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 }
@@ -1193,7 +1190,7 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
 #[test]
 fn managed_ingress_capabilities_serialize_known_driver_ids_as_strings() {
     let capabilities = RemoteStorageCapabilities::current()
-        .with_managed_ingress_driver_types(vec![DriverType::Local, DriverType::S3]);
+        .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]);
 
     let value =
         serde_json::to_value(&capabilities).expect("managed ingress capabilities should serialize");
@@ -1205,7 +1202,7 @@ fn managed_ingress_capabilities_serialize_known_driver_ids_as_strings() {
 
     let roundtripped: RemoteStorageCapabilities =
         serde_json::from_value(value).expect("serialized capabilities should roundtrip");
-    let effective = roundtripped.effective_managed_ingress();
+    let effective = roundtripped.effective_remote_storage_targets();
     assert!(effective.supports_known_driver(DriverType::Local));
     assert!(effective.supports_known_driver(DriverType::S3));
     assert!(!effective.supports_known_driver(DriverType::Remote));
@@ -1219,7 +1216,7 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
     }))
     .expect("legacy v4 capabilities without managed ingress should decode");
 
-    let effective_legacy = legacy_v4.effective_managed_ingress();
+    let effective_legacy = legacy_v4.effective_remote_storage_targets();
     assert!(effective_legacy.supports_known_driver(DriverType::Local));
     assert!(effective_legacy.supports_known_driver(DriverType::S3));
     assert!(!effective_legacy.supports_known_driver(DriverType::Remote));
@@ -1227,14 +1224,14 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
     let unknown = RemoteStorageCapabilities::unknown();
     assert!(
         !unknown
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
     let empty = RemoteStorageCapabilities::from_stored_json("{}");
     assert!(
         !empty
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1245,7 +1242,7 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
     .expect("v5 capabilities without managed ingress should decode conservatively");
     assert!(
         !v5_without_field
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1257,7 +1254,7 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
     .expect("legacy v4 capabilities with explicit null managed_ingress should decode");
     assert!(
         v4_with_null_field
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1273,7 +1270,7 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
         .expect("legacy v4 capabilities with explicit managed_ingress should decode");
     assert!(
         !v4_with_explicit_empty_field
-            .effective_managed_ingress()
+            .effective_remote_storage_targets()
             .supports_known_driver(DriverType::Local)
     );
 }

@@ -7,10 +7,10 @@ import {
 } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { RemoteNodeManagedIngressSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeManagedIngressSection";
+import { RemoteNodeRemoteStorageTargetSection } from "@/components/admin/admin-remote-nodes-page/RemoteNodeRemoteStorageTargetSection";
 import type {
-	ManagedIngressDriverDescriptor,
-	RemoteIngressProfileInfo,
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetInfo,
 } from "@/types/api";
 
 vi.mock("react-i18next", () => ({
@@ -149,8 +149,8 @@ vi.mock("@/lib/format", () => ({
 }));
 
 const profile = (
-	overrides: Partial<RemoteIngressProfileInfo> = {},
-): RemoteIngressProfileInfo => ({
+	overrides: Partial<RemoteStorageTargetInfo> = {},
+): RemoteStorageTargetInfo => ({
 	applied_revision: 2,
 	base_path: "incoming",
 	bucket: "",
@@ -162,12 +162,12 @@ const profile = (
 	last_error: "",
 	max_file_size: 0,
 	name: "Local ingress",
-	profile_key: "local-default",
+	target_key: "local-default",
 	updated_at: "2026-05-02T00:00:00Z",
 	...overrides,
 });
 
-const localDriverDescriptor: ManagedIngressDriverDescriptor = {
+const localDriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	description_key: "remote_node_ingress_profile_local_scope_hint",
 	driver_type: "local",
 	fields: [
@@ -202,7 +202,7 @@ const localDriverDescriptor: ManagedIngressDriverDescriptor = {
 	label_key: "remote_node_ingress_profile_driver_local",
 };
 
-const s3DriverDescriptor: ManagedIngressDriverDescriptor = {
+const s3DriverDescriptor: RemoteStorageTargetDriverDescriptor = {
 	description_key: "remote_node_ingress_profile_s3_path_hint",
 	driver_type: "s3",
 	fields: [
@@ -282,10 +282,10 @@ function renderSection({
 	onCreateProfile = vi.fn().mockResolvedValue(undefined),
 	onDeleteProfile = vi.fn().mockResolvedValue(undefined),
 	onUpdateProfile = vi.fn().mockResolvedValue(undefined),
-	profiles = [] as RemoteIngressProfileInfo[],
+	profiles = [] as RemoteStorageTargetInfo[],
 } = {}) {
 	render(
-		<RemoteNodeManagedIngressSection
+		<RemoteNodeRemoteStorageTargetSection
 			driverDescriptors={driverDescriptors}
 			errorMessage={errorMessage}
 			loading={loading}
@@ -302,14 +302,14 @@ function renderSection({
 	};
 }
 
-describe("RemoteNodeManagedIngressSection", () => {
+describe("RemoteNodeRemoteStorageTargetSection", () => {
 	beforeEach(() => {
 		vi.clearAllMocks();
 	});
 
 	it("shows loading, empty and error states", () => {
 		const { rerender } = render(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading
@@ -323,7 +323,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		expect(screen.getByText("core:loading")).toBeInTheDocument();
 
 		rerender(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
@@ -339,7 +339,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		).toBeInTheDocument();
 
 		rerender(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage="cannot reach node"
 				loading={false}
@@ -470,7 +470,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 			endpoint: "https://s3.example.com",
 			is_default: true,
 			name: "S3 ingress",
-			profile_key: "s3-default",
+			target_key: "s3-default",
 		});
 		const { onUpdateProfile } = renderSection({ profiles: [existing] });
 
@@ -503,7 +503,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		const existing = profile();
 		const onDeleteProfile = vi.fn().mockResolvedValue(undefined);
 		const { rerender } = render(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
@@ -520,7 +520,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		).toBeInTheDocument();
 
 		rerender(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
@@ -536,7 +536,7 @@ describe("RemoteNodeManagedIngressSection", () => {
 		).not.toBeInTheDocument();
 
 		rerender(
-			<RemoteNodeManagedIngressSection
+			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}

@@ -1,4 +1,4 @@
-//! SeaORM 实体定义：`managed_ingress_profile`。
+//! SeaORM 实体定义：`remote_storage_target`。
 
 use sea_orm::entity::prelude::*;
 use serde::{Deserialize, Serialize};
@@ -10,12 +10,12 @@ use crate::types::DriverType;
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[sea_orm(table_name = "managed_ingress_profiles")]
+#[sea_orm(table_name = "remote_storage_targets")]
 pub struct Model {
     #[sea_orm(primary_key)]
     pub id: i64,
     pub master_binding_id: i64,
-    pub profile_key: String,
+    pub target_key: String,
     pub name: String,
     pub driver_type: DriverType,
     pub endpoint: String,
@@ -41,7 +41,7 @@ impl fmt::Debug for Model {
         f.debug_struct("Model")
             .field("id", &self.id)
             .field("master_binding_id", &self.master_binding_id)
-            .field("profile_key", &self.profile_key)
+            .field("target_key", &self.target_key)
             .field("name", &self.name)
             .field("driver_type", &self.driver_type)
             .field("endpoint", &self.endpoint)
@@ -85,12 +85,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn debug_redacts_managed_ingress_profile_credentials() {
+    fn debug_redacts_remote_storage_target_credentials() {
         let now = chrono::Utc::now();
         let model = Model {
             id: 1,
             master_binding_id: 2,
-            profile_key: "profile".to_string(),
+            target_key: "profile".to_string(),
             name: "ingress".to_string(),
             driver_type: DriverType::S3,
             endpoint: "https://s3.example.test".to_string(),

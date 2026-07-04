@@ -1,14 +1,14 @@
-use crate::entities::managed_ingress_profile;
+use crate::entities::remote_storage_target;
 use crate::errors::{AsterError, Result};
 use crate::storage::remote_protocol::{
-    RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
-    RemoteCreateS3IngressProfileRequest, RemoteUpdateIngressProfileRequest,
+    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
+    RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use crate::types::DriverType;
 
-use super::driver::{ManagedIngressDriverFields, normalize_driver_fields};
+use super::driver::{RemoteStorageTargetDriverFields, normalize_driver_fields};
 
-pub(in crate::services::managed_ingress_profile_service) struct NormalizedIngressProfileInput {
+pub(in crate::services::remote_storage_target_service) struct NormalizedStorageTargetInput {
     pub name: String,
     pub driver_type: DriverType,
     pub endpoint: String,
@@ -20,7 +20,7 @@ pub(in crate::services::managed_ingress_profile_service) struct NormalizedIngres
     pub is_default: Option<bool>,
 }
 
-struct IngressProfileFields {
+struct StorageTargetFields {
     name: String,
     driver_type: DriverType,
     endpoint: String,
@@ -32,16 +32,16 @@ struct IngressProfileFields {
     is_default: Option<bool>,
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn normalize_create_input(
-    input: RemoteCreateIngressProfileRequest,
-) -> Result<NormalizedIngressProfileInput> {
+pub(in crate::services::remote_storage_target_service) fn normalize_create_input(
+    input: RemoteCreateStorageTargetRequest,
+) -> Result<NormalizedStorageTargetInput> {
     match input {
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name,
             base_path,
             max_file_size,
             is_default,
-        }) => normalize_profile_fields(IngressProfileFields {
+        }) => normalize_target_fields(StorageTargetFields {
             name: normalize_non_blank("name", &name)?,
             driver_type: DriverType::Local,
             endpoint: String::new(),
@@ -52,7 +52,7 @@ pub(in crate::services::managed_ingress_profile_service) fn normalize_create_inp
             max_file_size,
             is_default: Some(is_default),
         }),
-        RemoteCreateIngressProfileRequest::S3(RemoteCreateS3IngressProfileRequest {
+        RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
             name,
             endpoint,
             bucket,
@@ -61,7 +61,7 @@ pub(in crate::services::managed_ingress_profile_service) fn normalize_create_inp
             base_path,
             max_file_size,
             is_default,
-        }) => normalize_profile_fields(IngressProfileFields {
+        }) => normalize_target_fields(StorageTargetFields {
             name: normalize_non_blank("name", &name)?,
             driver_type: DriverType::S3,
             endpoint,
@@ -75,13 +75,13 @@ pub(in crate::services::managed_ingress_profile_service) fn normalize_create_inp
     }
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn normalize_update_input(
-    existing: managed_ingress_profile::Model,
-    input: RemoteUpdateIngressProfileRequest,
-) -> Result<NormalizedIngressProfileInput> {
+pub(in crate::services::remote_storage_target_service) fn normalize_update_input(
+    existing: remote_storage_target::Model,
+    input: RemoteUpdateStorageTargetRequest,
+) -> Result<NormalizedStorageTargetInput> {
     let driver_type = input.driver_type.unwrap_or(existing.driver_type);
     let same_driver_type = driver_type == existing.driver_type;
-    normalize_profile_fields(IngressProfileFields {
+    normalize_target_fields(StorageTargetFields {
         name: input
             .name
             .as_deref()
@@ -129,12 +129,12 @@ pub(in crate::services::managed_ingress_profile_service) fn normalize_update_inp
     })
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn new_profile_key() -> String {
-    format!("igp_{}", crate::utils::id::new_short_token())
+pub(in crate::services::remote_storage_target_service) fn new_target_key() -> String {
+    format!("rst_{}", crate::utils::id::new_short_token())
 }
 
-fn normalize_profile_fields(fields: IngressProfileFields) -> Result<NormalizedIngressProfileInput> {
-    let IngressProfileFields {
+fn normalize_target_fields(fields: StorageTargetFields) -> Result<NormalizedStorageTargetInput> {
+    let StorageTargetFields {
         name,
         driver_type,
         endpoint,
@@ -152,7 +152,7 @@ fn normalize_profile_fields(fields: IngressProfileFields) -> Result<NormalizedIn
         ));
     }
 
-    let normalized = normalize_driver_fields(ManagedIngressDriverFields {
+    let normalized = normalize_driver_fields(RemoteStorageTargetDriverFields {
         driver_type,
         endpoint,
         bucket,
@@ -161,7 +161,7 @@ fn normalize_profile_fields(fields: IngressProfileFields) -> Result<NormalizedIn
         base_path,
     })?;
 
-    Ok(NormalizedIngressProfileInput {
+    Ok(NormalizedStorageTargetInput {
         name,
         driver_type: normalized.driver_type,
         endpoint: normalized.endpoint,

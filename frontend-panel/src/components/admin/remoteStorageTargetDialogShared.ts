@@ -1,21 +1,21 @@
 import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
-	RemoteCreateIngressProfileRequest,
-	RemoteIngressProfileInfo,
-	RemoteUpdateIngressProfileRequest,
+	RemoteCreateStorageTargetRequest,
+	RemoteStorageTargetInfo,
+	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
 
-export type ManagedIngressDriverType = "local" | "s3";
+export type RemoteStorageTargetDriverType = "local" | "s3";
 
-export function isManagedIngressDriverType(
+export function isRemoteStorageTargetDriverType(
 	driverType: unknown,
-): driverType is ManagedIngressDriverType {
+): driverType is RemoteStorageTargetDriverType {
 	return driverType === "local" || driverType === "s3";
 }
 
-export interface ManagedIngressProfileFormData {
+export interface RemoteStorageTargetFormData {
 	name: string;
-	driver_type: ManagedIngressDriverType;
+	driver_type: RemoteStorageTargetDriverType;
 	endpoint: string;
 	bucket: string;
 	access_key: string;
@@ -25,9 +25,9 @@ export interface ManagedIngressProfileFormData {
 	is_default: boolean;
 }
 
-export function getManagedIngressProfileForm(
-	profile: RemoteIngressProfileInfo,
-): ManagedIngressProfileFormData {
+export function getRemoteStorageTargetForm(
+	profile: RemoteStorageTargetInfo,
+): RemoteStorageTargetFormData {
 	return {
 		name: profile.name,
 		driver_type: profile.driver_type === "s3" ? "s3" : "local",
@@ -41,9 +41,9 @@ export function getManagedIngressProfileForm(
 	};
 }
 
-function normalizeManagedIngressProfileForm(
-	form: ManagedIngressProfileFormData,
-): ManagedIngressProfileFormData {
+function normalizeRemoteStorageTargetForm(
+	form: RemoteStorageTargetFormData,
+): RemoteStorageTargetFormData {
 	if (form.driver_type !== "s3") {
 		return {
 			...form,
@@ -72,10 +72,10 @@ function parseMaxFileSize(value: string): number {
 	return trimmed === "" ? 0 : Number(trimmed);
 }
 
-export function buildCreateManagedIngressProfilePayload(
-	form: ManagedIngressProfileFormData,
-): RemoteCreateIngressProfileRequest {
-	const normalized = normalizeManagedIngressProfileForm(form);
+export function buildCreateRemoteStorageTargetPayload(
+	form: RemoteStorageTargetFormData,
+): RemoteCreateStorageTargetRequest {
+	const normalized = normalizeRemoteStorageTargetForm(form);
 	const isS3 = normalized.driver_type === "s3";
 
 	return {
@@ -91,14 +91,14 @@ export function buildCreateManagedIngressProfilePayload(
 	};
 }
 
-export function buildUpdateManagedIngressProfilePayload(
-	form: ManagedIngressProfileFormData,
-	editingProfile: RemoteIngressProfileInfo,
-): RemoteUpdateIngressProfileRequest {
-	const normalized = normalizeManagedIngressProfileForm(form);
+export function buildUpdateRemoteStorageTargetPayload(
+	form: RemoteStorageTargetFormData,
+	editingProfile: RemoteStorageTargetInfo,
+): RemoteUpdateStorageTargetRequest {
+	const normalized = normalizeRemoteStorageTargetForm(form);
 	const isS3 = normalized.driver_type === "s3";
 	const sameDriverType = editingProfile.driver_type === normalized.driver_type;
-	const payload: RemoteUpdateIngressProfileRequest = {
+	const payload: RemoteUpdateStorageTargetRequest = {
 		name: normalized.name,
 		driver_type: normalized.driver_type,
 		base_path: normalized.base_path,
@@ -129,7 +129,7 @@ export function buildUpdateManagedIngressProfilePayload(
 	return payload;
 }
 
-export const emptyManagedIngressProfileForm: ManagedIngressProfileFormData = {
+export const emptyRemoteStorageTargetForm: RemoteStorageTargetFormData = {
 	name: "",
 	driver_type: "local",
 	endpoint: "",

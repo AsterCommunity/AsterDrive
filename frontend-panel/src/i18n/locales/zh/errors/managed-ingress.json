@@ -1,12 +1,12 @@
 {
-	"managed_ingress_binding_mismatch": "当前 follower 只允许唯一 primary 管理这些接收落点",
-	"managed_ingress_default_delete_requires_replacement": "删除默认接收落点前，请先把其他落点设为默认",
-	"managed_ingress_default_error": "默认接收落点当前存在错误，暂时不可用",
-	"managed_ingress_default_missing": "已经存在接收落点，但缺少默认落点",
-	"managed_ingress_default_not_applied": "默认接收落点尚未完成应用，请稍后再试",
-	"managed_ingress_required": "这台 follower 还没有主控指定的默认接收落点，暂时不能接收写入",
-	"managed_ingress_default_update_requires_replacement": "默认接收落点不能直接取消，请先把其他落点设为默认",
-	"managed_ingress_driver_unsupported": "这些接收落点只支持 local 和 s3 驱动",
-	"managed_ingress_local_path_invalid": "本地接收路径必须是接收根目录下的相对路径",
-	"managed_ingress_single_primary_required": "这些接收落点要求 follower 只绑定一个 primary，多主绑定会被直接拒绝"
+	"managed_ingress_binding_mismatch": "当前 follower 只允许唯一 primary 管理这些远程存储目标",
+	"managed_ingress_default_delete_requires_replacement": "删除默认远程存储目标前，请先把其他目标设为默认",
+	"managed_ingress_default_error": "默认远程存储目标当前存在错误，暂时不可用",
+	"managed_ingress_default_missing": "已经存在远程存储目标，但缺少默认目标",
+	"managed_ingress_default_not_applied": "默认远程存储目标尚未完成应用，请稍后再试",
+	"managed_ingress_required": "这台 follower 还没有主控指定的默认远程存储目标，暂时不能接收写入",
+	"managed_ingress_default_update_requires_replacement": "默认远程存储目标不能直接取消，请先把其他目标设为默认",
+	"managed_ingress_driver_unsupported": "这些远程存储目标只支持 local 和 s3 驱动",
+	"managed_ingress_local_path_invalid": "本地目标路径必须是 follower 本地目标根目录下的相对路径",
+	"managed_ingress_single_primary_required": "这些远程存储目标要求 follower 只绑定一个 primary，多主绑定会被直接拒绝"
 }

@@ -12,10 +12,10 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service, auth_service::Claims, managed_follower_enrollment_service,
-    managed_follower_service, managed_ingress_profile_service,
+    managed_follower_service, remote_storage_target_service,
 };
 use crate::storage::remote_protocol::{
-    RemoteCreateIngressProfileRequest, RemoteUpdateIngressProfileRequest,
+    RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -368,20 +368,43 @@ pub async fn create_remote_node_enrollment_token(
     operation_id = "list_remote_node_ingress_profiles",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "List remote node ingress profiles", body = inline(ApiResponse<Vec<crate::storage::remote_protocol::RemoteIngressProfileInfo>>)),
+        (status = 200, description = "Deprecated since 0.4.0; use /storage-targets. List remote node remote storage targets", body = inline(ApiResponse<Vec<crate::storage::remote_protocol::RemoteStorageTargetInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
-        (status = 412, description = "Managed ingress profiles require a single primary binding"),
+        (status = 412, description = "Managed remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
+#[deprecated(since = "0.4.0", note = "use list_remote_node_storage_targets instead")]
 pub async fn list_remote_node_ingress_profiles(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let profiles = managed_ingress_profile_service::list_remote(state.get_ref(), *path).await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(profiles)))
+    list_remote_node_storage_targets(state, path).await
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/remote-nodes/{id}/storage-targets",
+    tag = "admin",
+    operation_id = "list_remote_node_storage_targets",
+    params(("id" = i64, Path, description = "Remote node ID")),
+    responses(
+        (status = 200, description = "List remote node storage targets", body = inline(ApiResponse<Vec<crate::storage::remote_protocol::RemoteStorageTargetInfo>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node not found"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_remote_node_storage_targets(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
+    let targets = remote_storage_target_service::list_remote(state.get_ref(), *path).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
 }
 
 #[api_docs_macros::path(
@@ -391,19 +414,44 @@ pub async fn list_remote_node_ingress_profiles(
     operation_id = "list_remote_node_ingress_profile_drivers",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "List remote node ingress profile driver descriptors", body = inline(ApiResponse<Vec<crate::services::managed_ingress_profile_service::ManagedIngressDriverDescriptor>>)),
+        (status = 200, description = "Deprecated since 0.4.0; use /storage-target-drivers. List remote node remote storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote_storage_target_service::RemoteStorageTargetDriverDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
     ),
     security(("bearer" = [])),
 )]
+#[deprecated(
+    since = "0.4.0",
+    note = "use list_remote_node_storage_target_drivers instead"
+)]
 pub async fn list_remote_node_ingress_profile_drivers(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
+    list_remote_node_storage_target_drivers(state, path).await
+}
+
+#[api_docs_macros::path(
+    get,
+    path = "/api/v1/admin/remote-nodes/{id}/storage-target-drivers",
+    tag = "admin",
+    operation_id = "list_remote_node_storage_target_drivers",
+    params(("id" = i64, Path, description = "Remote node ID")),
+    responses(
+        (status = 200, description = "List remote node storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote_storage_target_service::RemoteStorageTargetDriverDescriptor>>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node not found"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn list_remote_node_storage_target_drivers(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<i64>,
+) -> Result<HttpResponse> {
     let descriptors =
-        managed_ingress_profile_service::list_remote_driver_descriptors(state.get_ref(), *path)
+        remote_storage_target_service::list_remote_driver_descriptors(state.get_ref(), *path)
             .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
 }
@@ -414,25 +462,55 @@ pub async fn list_remote_node_ingress_profile_drivers(
     tag = "admin",
     operation_id = "create_remote_node_ingress_profile",
     params(("id" = i64, Path, description = "Remote node ID")),
-    request_body = RemoteCreateIngressProfileRequest,
+    request_body = RemoteCreateStorageTargetRequest,
     responses(
-        (status = 201, description = "Remote node ingress profile created", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteIngressProfileInfo>)),
+        (status = 201, description = "Deprecated since 0.4.0; use /storage-targets. Remote node remote storage target created", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteStorageTargetInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
-        (status = 412, description = "Managed ingress profiles require a single primary binding"),
+        (status = 412, description = "Managed remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
+)]
+#[deprecated(
+    since = "0.4.0",
+    note = "use create_remote_node_storage_target instead"
 )]
 pub async fn create_remote_node_ingress_profile(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<i64>,
-    body: web::Json<RemoteCreateIngressProfileRequest>,
+    body: web::Json<RemoteCreateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
-    let profile =
-        managed_ingress_profile_service::create_remote(state.get_ref(), *path, body.into_inner())
+    create_remote_node_storage_target(state, claims, req, path, body).await
+}
+
+#[api_docs_macros::path(
+    post,
+    path = "/api/v1/admin/remote-nodes/{id}/storage-targets",
+    tag = "admin",
+    operation_id = "create_remote_node_storage_target",
+    params(("id" = i64, Path, description = "Remote node ID")),
+    request_body = RemoteCreateStorageTargetRequest,
+    responses(
+        (status = 201, description = "Remote node storage target created", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteStorageTargetInfo>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node not found"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn create_remote_node_storage_target(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<i64>,
+    body: web::Json<RemoteCreateStorageTargetRequest>,
+) -> Result<HttpResponse> {
+    let target =
+        remote_storage_target_service::create_remote(state.get_ref(), *path, body.into_inner())
             .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
@@ -441,50 +519,83 @@ pub async fn create_remote_node_ingress_profile(
         audit_service::AuditAction::AdminCreateRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(*path),
-        Some(&profile.profile_key),
+        Some(&target.target_key),
         || {
             audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-                profile_key: &profile.profile_key,
-                driver_type: profile.driver_type.as_str(),
-                is_default: profile.is_default,
+                target_key: &target.target_key,
+                driver_type: target.driver_type.as_str(),
+                is_default: target.is_default,
             })
         },
     )
     .await;
-    Ok(HttpResponse::Created().json(ApiResponse::ok(profile)))
+    Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
 }
 
 #[api_docs_macros::path(
     patch,
-    path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{profile_key}",
+    path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{target_key}",
     tag = "admin",
     operation_id = "update_remote_node_ingress_profile",
     params(
         ("id" = i64, Path, description = "Remote node ID"),
-        ("profile_key" = String, Path, description = "Remote ingress profile key")
+        ("target_key" = String, Path, description = "Remote storage target key")
     ),
-    request_body = RemoteUpdateIngressProfileRequest,
+    request_body = RemoteUpdateStorageTargetRequest,
     responses(
-        (status = 200, description = "Remote node ingress profile updated", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteIngressProfileInfo>)),
+        (status = 200, description = "Deprecated since 0.4.0; use /storage-targets/{target_key}. Remote node remote storage target updated", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteStorageTargetInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
-        (status = 404, description = "Remote node or ingress profile not found"),
-        (status = 412, description = "Managed ingress profiles require a single primary binding"),
+        (status = 404, description = "Remote node or remote storage target not found"),
+        (status = 412, description = "Managed remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
+)]
+#[deprecated(
+    since = "0.4.0",
+    note = "use update_remote_node_storage_target instead"
 )]
 pub async fn update_remote_node_ingress_profile(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
     path: web::Path<(i64, String)>,
-    body: web::Json<RemoteUpdateIngressProfileRequest>,
+    body: web::Json<RemoteUpdateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
-    let (id, profile_key) = path.into_inner();
-    let profile = managed_ingress_profile_service::update_remote(
+    update_remote_node_storage_target(state, claims, req, path, body).await
+}
+
+#[api_docs_macros::path(
+    patch,
+    path = "/api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}",
+    tag = "admin",
+    operation_id = "update_remote_node_storage_target",
+    params(
+        ("id" = i64, Path, description = "Remote node ID"),
+        ("target_key" = String, Path, description = "Remote storage target key")
+    ),
+    request_body = RemoteUpdateStorageTargetRequest,
+    responses(
+        (status = 200, description = "Remote node storage target updated", body = inline(ApiResponse<crate::storage::remote_protocol::RemoteStorageTargetInfo>)),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node or storage target not found"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn update_remote_node_storage_target(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<(i64, String)>,
+    body: web::Json<RemoteUpdateStorageTargetRequest>,
+) -> Result<HttpResponse> {
+    let (id, target_key) = path.into_inner();
+    let target = remote_storage_target_service::update_remote(
         state.get_ref(),
         id,
-        &profile_key,
+        &target_key,
         body.into_inner(),
     )
     .await?;
@@ -495,36 +606,40 @@ pub async fn update_remote_node_ingress_profile(
         audit_service::AuditAction::AdminUpdateRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(id),
-        Some(&profile.profile_key),
+        Some(&target.target_key),
         || {
             audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
-                profile_key: &profile.profile_key,
-                driver_type: profile.driver_type.as_str(),
-                is_default: profile.is_default,
+                target_key: &target.target_key,
+                driver_type: target.driver_type.as_str(),
+                is_default: target.is_default,
             })
         },
     )
     .await;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))
 }
 
 #[api_docs_macros::path(
     delete,
-    path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{profile_key}",
+    path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{target_key}",
     tag = "admin",
     operation_id = "delete_remote_node_ingress_profile",
     params(
         ("id" = i64, Path, description = "Remote node ID"),
-        ("profile_key" = String, Path, description = "Remote ingress profile key")
+        ("target_key" = String, Path, description = "Remote storage target key")
     ),
     responses(
-        (status = 200, description = "Remote node ingress profile deleted"),
+        (status = 200, description = "Deprecated since 0.4.0; use /storage-targets/{target_key}. Remote node remote storage target deleted"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
-        (status = 404, description = "Remote node or ingress profile not found"),
-        (status = 412, description = "Managed ingress profiles require a single primary binding"),
+        (status = 404, description = "Remote node or remote storage target not found"),
+        (status = 412, description = "Managed remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
+)]
+#[deprecated(
+    since = "0.4.0",
+    note = "use delete_remote_node_storage_target instead"
 )]
 pub async fn delete_remote_node_ingress_profile(
     state: web::Data<PrimaryAppState>,
@@ -532,8 +647,35 @@ pub async fn delete_remote_node_ingress_profile(
     req: HttpRequest,
     path: web::Path<(i64, String)>,
 ) -> Result<HttpResponse> {
-    let (id, profile_key) = path.into_inner();
-    managed_ingress_profile_service::delete_remote(state.get_ref(), id, &profile_key).await?;
+    delete_remote_node_storage_target(state, claims, req, path).await
+}
+
+#[api_docs_macros::path(
+    delete,
+    path = "/api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}",
+    tag = "admin",
+    operation_id = "delete_remote_node_storage_target",
+    params(
+        ("id" = i64, Path, description = "Remote node ID"),
+        ("target_key" = String, Path, description = "Remote storage target key")
+    ),
+    responses(
+        (status = 200, description = "Remote node storage target deleted"),
+        (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
+        (status = 403, description = "Forbidden"),
+        (status = 404, description = "Remote node or storage target not found"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
+    ),
+    security(("bearer" = [])),
+)]
+pub async fn delete_remote_node_storage_target(
+    state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
+    req: HttpRequest,
+    path: web::Path<(i64, String)>,
+) -> Result<HttpResponse> {
+    let (id, target_key) = path.into_inner();
+    remote_storage_target_service::delete_remote(state.get_ref(), id, &target_key).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -541,10 +683,10 @@ pub async fn delete_remote_node_ingress_profile(
         audit_service::AuditAction::AdminDeleteRemoteIngressProfile,
         crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
         Some(id),
-        Some(&profile_key),
+        Some(&target_key),
         || {
             audit_service::details(audit_service::RemoteIngressProfileDeleteAuditDetails {
-                profile_key: &profile_key,
+                target_key: &target_key,
             })
         },
     )

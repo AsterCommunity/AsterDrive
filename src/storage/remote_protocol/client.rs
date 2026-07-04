@@ -15,10 +15,10 @@ use crate::storage::traits::driver::{BlobMetadata, PresignedDownloadOptions};
 
 use super::errors::remote_api_error_kind;
 use super::models::{
-    ApiEnvelope, RemoteBindingSyncRequest, RemoteCreateIngressProfileRequest,
-    RemoteIngressProfileInfo, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
-    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
-    RemoteStorageObjectMetadata, RemoteUpdateIngressProfileRequest,
+    ApiEnvelope, RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest,
+    RemoteStorageCapabilities, RemoteStorageCapacityResponse, RemoteStorageComposeRequest,
+    RemoteStorageComposeResponse, RemoteStorageListResponse, RemoteStorageObjectMetadata,
+    RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 use super::transport::{
     DirectHttpTransport, RemoteRequestBody, RemoteTransport, RemoteTransportRequest,
@@ -41,7 +41,7 @@ const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b']')
     .add(b'{')
     .add(b'}');
-const INGRESS_PROFILE_KEY_ENCODE_SET: &AsciiSet = &STORAGE_KEY_ENCODE_SET.add(b'/');
+const STORAGE_TARGET_KEY_ENCODE_SET: &AsciiSet = &STORAGE_KEY_ENCODE_SET.add(b'/');
 
 #[derive(Clone)]
 pub struct RemoteStorageClient {
@@ -281,42 +281,42 @@ impl RemoteStorageClient {
         ensure_success_without_body(response, "sync remote binding state").await
     }
 
-    pub async fn list_ingress_profiles(&self) -> Result<Vec<RemoteIngressProfileInfo>> {
-        let path = format!("{INTERNAL_STORAGE_BASE_PATH}/ingress-profiles");
+    pub async fn list_storage_targets(&self) -> Result<Vec<RemoteStorageTargetInfo>> {
+        let path = format!("{INTERNAL_STORAGE_BASE_PATH}/targets");
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "list remote ingress profiles").await?;
-        let envelope: ApiEnvelope<Vec<RemoteIngressProfileInfo>> = serde_json::from_slice(&body)
+        let body = ensure_success(response, "list remote storage targets").await?;
+        let envelope: ApiEnvelope<Vec<RemoteStorageTargetInfo>> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
                     StorageErrorKind::Misconfigured,
-                    format!("decode remote ingress profile list response: {e}"),
+                    format!("decode remote storage target list response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
             return Err(storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote ingress profile list failed: {}", envelope.msg),
+                format!("remote storage target list failed: {}", envelope.msg),
             ));
         }
         envelope.data.ok_or_else(|| {
             storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                "list remote ingress profiles response missing data",
+                "list remote storage targets response missing data",
             )
         })
     }
 
-    pub async fn create_ingress_profile(
+    pub async fn create_storage_target(
         &self,
-        profile: &RemoteCreateIngressProfileRequest,
-    ) -> Result<RemoteIngressProfileInfo> {
-        let path = format!("{INTERNAL_STORAGE_BASE_PATH}/ingress-profiles");
-        let body = serde_json::to_vec(profile).map_err(|e| {
+        target: &RemoteCreateStorageTargetRequest,
+    ) -> Result<RemoteStorageTargetInfo> {
+        let path = format!("{INTERNAL_STORAGE_BASE_PATH}/targets");
+        let body = serde_json::to_vec(target).map_err(|e| {
             storage_driver_error(
                 StorageErrorKind::Unknown,
-                format!("encode remote ingress profile create request: {e}"),
+                format!("encode remote storage target create request: {e}"),
             )
         })?;
         let response = self
@@ -327,19 +327,19 @@ impl RemoteStorageClient {
                 RemoteRequestBody::Bytes(Bytes::from(body)),
             )
             .await?;
-        parse_ingress_profile_response(response, "create remote ingress profile").await
+        parse_storage_target_response(response, "create remote storage target").await
     }
 
-    pub async fn update_ingress_profile(
+    pub async fn update_storage_target(
         &self,
-        profile_key: &str,
-        profile: &RemoteUpdateIngressProfileRequest,
-    ) -> Result<RemoteIngressProfileInfo> {
-        let path = self.ingress_profile_path(profile_key);
-        let body = serde_json::to_vec(profile).map_err(|e| {
+        target_key: &str,
+        target: &RemoteUpdateStorageTargetRequest,
+    ) -> Result<RemoteStorageTargetInfo> {
+        let path = self.storage_target_path(target_key);
+        let body = serde_json::to_vec(target).map_err(|e| {
             storage_driver_error(
                 StorageErrorKind::Unknown,
-                format!("encode remote ingress profile update request: {e}"),
+                format!("encode remote storage target update request: {e}"),
             )
         })?;
         let response = self
@@ -350,15 +350,15 @@ impl RemoteStorageClient {
                 RemoteRequestBody::Bytes(Bytes::from(body)),
             )
             .await?;
-        parse_ingress_profile_response(response, "update remote ingress profile").await
+        parse_storage_target_response(response, "update remote storage target").await
     }
 
-    pub async fn delete_ingress_profile(&self, profile_key: &str) -> Result<()> {
-        let path = self.ingress_profile_path(profile_key);
+    pub async fn delete_storage_target(&self, target_key: &str) -> Result<()> {
+        let path = self.storage_target_path(target_key);
         let response = self
             .send_signed(Method::DELETE, path, None, RemoteRequestBody::Empty)
             .await?;
-        ensure_success_without_body(response, "delete remote ingress profile").await
+        ensure_success_without_body(response, "delete remote storage target").await
     }
 
     pub fn presigned_put_url(&self, key: &str, expires: Duration) -> Result<String> {
@@ -467,26 +467,23 @@ impl RemoteStorageClient {
         format!("{INTERNAL_STORAGE_BASE_PATH}/objects/{encoded_key}/metadata")
     }
 
-    pub(super) fn ingress_profile_path(&self, profile_key: &str) -> String {
-        let encoded_key = percent_encode(
-            profile_key.trim().as_bytes(),
-            INGRESS_PROFILE_KEY_ENCODE_SET,
-        )
-        .to_string();
-        format!("{INTERNAL_STORAGE_BASE_PATH}/ingress-profiles/{encoded_key}")
+    pub(super) fn storage_target_path(&self, target_key: &str) -> String {
+        let encoded_key =
+            percent_encode(target_key.trim().as_bytes(), STORAGE_TARGET_KEY_ENCODE_SET).to_string();
+        format!("{INTERNAL_STORAGE_BASE_PATH}/targets/{encoded_key}")
     }
 }
 
-async fn parse_ingress_profile_response(
+async fn parse_storage_target_response(
     response: RemoteTransportResponse,
     context: &str,
-) -> Result<RemoteIngressProfileInfo> {
+) -> Result<RemoteStorageTargetInfo> {
     let body = ensure_success(response, context).await?;
-    let envelope: ApiEnvelope<RemoteIngressProfileInfo> =
+    let envelope: ApiEnvelope<RemoteStorageTargetInfo> =
         serde_json::from_slice(&body).map_err(|e| {
             storage_driver_error(
                 StorageErrorKind::Misconfigured,
-                format!("decode remote ingress profile response: {e}"),
+                format!("decode remote storage target response: {e}"),
             )
         })?;
     if envelope.code != ApiErrorCode::Success {

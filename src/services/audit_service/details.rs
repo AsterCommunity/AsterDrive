@@ -242,7 +242,7 @@ pub struct RemoteNodeEnrollmentTokenAuditDetails {
 
 #[derive(Serialize)]
 pub struct RemoteIngressProfileDeleteAuditDetails<'a> {
-    pub profile_key: &'a str,
+    pub target_key: &'a str,
 }
 
 #[derive(Serialize)]
@@ -402,7 +402,7 @@ pub struct RemoteNodeAuditDetails<'a> {
 
 #[derive(Serialize)]
 pub struct RemoteIngressProfileAuditDetails<'a> {
-    pub profile_key: &'a str,
+    pub target_key: &'a str,
     pub driver_type: &'a str,
     pub is_default: bool,
 }
@@ -432,7 +432,7 @@ pub struct FollowerObjectAuditDetails<'a> {
 #[derive(Serialize)]
 pub struct FollowerIngressProfileAuditDetails<'a> {
     pub binding_id: i64,
-    pub profile_key: &'a str,
+    pub target_key: &'a str,
     pub driver_type: &'a str,
     pub is_default: bool,
 }

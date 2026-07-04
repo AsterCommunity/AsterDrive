@@ -4,33 +4,33 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { ADMIN_ICON_BUTTON_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateTime } from "@/lib/format";
-import type { RemoteIngressProfileInfo } from "@/types/api";
+import type { RemoteStorageTargetInfo } from "@/types/api";
 import {
-	getRemoteNodeManagedIngressDriverBadgeTone,
-	getRemoteNodeManagedIngressProfileStatus,
-} from "./remoteNodeManagedIngressPresentation";
+	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
+	getRemoteNodeRemoteStorageTargetProfileStatus,
+} from "./remoteNodeRemoteStorageTargetPresentation";
 
-interface RemoteNodeManagedIngressProfilesListProps {
+interface RemoteNodeRemoteStorageTargetsListProps {
 	errorMessage: string | null;
 	loading: boolean;
-	pendingDeleteProfileKey: string | null;
+	pendingDeleteTargetKey: string | null;
 	onCancelDelete: () => void;
-	onConfirmDeleteProfile: (profile: RemoteIngressProfileInfo) => void;
-	onRequestDeleteProfile: (profile: RemoteIngressProfileInfo) => void;
-	onEditProfile: (profile: RemoteIngressProfileInfo) => void;
-	profiles: RemoteIngressProfileInfo[];
+	onConfirmDeleteProfile: (profile: RemoteStorageTargetInfo) => void;
+	onRequestDeleteProfile: (profile: RemoteStorageTargetInfo) => void;
+	onEditProfile: (profile: RemoteStorageTargetInfo) => void;
+	profiles: RemoteStorageTargetInfo[];
 }
 
-export function RemoteNodeManagedIngressProfilesList({
+export function RemoteNodeRemoteStorageTargetsList({
 	errorMessage,
 	loading,
-	pendingDeleteProfileKey,
+	pendingDeleteTargetKey,
 	onCancelDelete,
 	onConfirmDeleteProfile,
 	onRequestDeleteProfile,
 	onEditProfile,
 	profiles,
-}: RemoteNodeManagedIngressProfilesListProps) {
+}: RemoteNodeRemoteStorageTargetsListProps) {
 	const { t } = useTranslation("admin");
 
 	return (
@@ -53,9 +53,9 @@ export function RemoteNodeManagedIngressProfilesList({
 				</div>
 			) : (
 				profiles.map((profile) => (
-					<RemoteNodeManagedIngressProfileCard
-						key={profile.profile_key}
-						deleteConfirming={pendingDeleteProfileKey === profile.profile_key}
+					<RemoteNodeRemoteStorageTargetCard
+						key={profile.target_key}
+						deleteConfirming={pendingDeleteTargetKey === profile.target_key}
 						onCancelDelete={onCancelDelete}
 						onConfirmDelete={() => onConfirmDeleteProfile(profile)}
 						onRequestDelete={() => onRequestDeleteProfile(profile)}
@@ -68,25 +68,25 @@ export function RemoteNodeManagedIngressProfilesList({
 	);
 }
 
-interface RemoteNodeManagedIngressProfileCardProps {
+interface RemoteNodeRemoteStorageTargetCardProps {
 	deleteConfirming: boolean;
 	onCancelDelete: () => void;
 	onConfirmDelete: () => void;
 	onRequestDelete: () => void;
 	onEdit: () => void;
-	profile: RemoteIngressProfileInfo;
+	profile: RemoteStorageTargetInfo;
 }
 
-function RemoteNodeManagedIngressProfileCard({
+function RemoteNodeRemoteStorageTargetCard({
 	deleteConfirming,
 	onCancelDelete,
 	onConfirmDelete,
 	onRequestDelete,
 	onEdit,
 	profile,
-}: RemoteNodeManagedIngressProfileCardProps) {
+}: RemoteNodeRemoteStorageTargetCardProps) {
 	const { t } = useTranslation("admin");
-	const status = getRemoteNodeManagedIngressProfileStatus(profile);
+	const status = getRemoteNodeRemoteStorageTargetProfileStatus(profile);
 
 	return (
 		<article className="rounded-2xl border border-border/70 bg-muted/10 p-4">
@@ -98,7 +98,7 @@ function RemoteNodeManagedIngressProfileCard({
 						</h4>
 						<Badge
 							variant="outline"
-							className={getRemoteNodeManagedIngressDriverBadgeTone(
+							className={getRemoteNodeRemoteStorageTargetDriverBadgeTone(
 								profile.driver_type,
 							)}
 						>
@@ -119,7 +119,7 @@ function RemoteNodeManagedIngressProfileCard({
 						</Badge>
 					</div>
 					<p className="mt-1 break-all font-mono text-xs text-muted-foreground">
-						{profile.profile_key}
+						{profile.target_key}
 					</p>
 				</div>
 

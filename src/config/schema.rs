@@ -45,7 +45,7 @@ pub struct ServerConfig {
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerFollowerConfig {
-    /// follower 受 primary 托管的 local ingress profile 根目录。
+    /// follower 受 primary 托管的 local remote storage target 根目录。
     /// primary 下发的本地落点只能在这个根目录下使用相对路径。
     #[serde(default = "ServerFollowerConfig::default_managed_ingress_local_root")]
     pub managed_ingress_local_root: String,

@@ -1,22 +1,23 @@
 use super::{
+    capability::RemoteStorageTargetCapabilityResolver,
     create, delete,
     driver::{
-        build_driver_from_profile, list_registered_managed_ingress_driver_descriptors,
-        registered_managed_ingress_driver_types, validate_driver_from_profile,
+        build_driver_from_target, list_registered_remote_storage_target_driver_descriptors,
+        registered_remote_storage_target_driver_types, validate_driver_from_target,
     },
     list,
     normalization::{normalize_create_input, normalize_update_input},
-    paths::{normalize_relative_local_path, resolve_managed_local_path},
+    paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
     resolve_effective_target, update,
 };
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::{managed_ingress_profile_repo, master_binding_repo};
-use crate::entities::{managed_ingress_profile, master_binding};
+use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
+use crate::entities::{master_binding, remote_storage_target};
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState};
 use crate::storage::remote_protocol::{
-    RemoteCreateIngressProfileRequest, RemoteCreateLocalIngressProfileRequest,
-    RemoteCreateS3IngressProfileRequest, RemoteUpdateIngressProfileRequest,
+    RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
+    RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use crate::types::DriverType;
 use chrono::Utc;
@@ -138,8 +139,8 @@ fn local_create(
     base_path: &str,
     max_file_size: i64,
     is_default: bool,
-) -> RemoteCreateIngressProfileRequest {
-    RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+) -> RemoteCreateStorageTargetRequest {
+    RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
         name: name.to_string(),
         base_path: base_path.to_string(),
         max_file_size,
@@ -153,8 +154,8 @@ fn s3_create(
     bucket: &str,
     base_path: &str,
     is_default: bool,
-) -> RemoteCreateIngressProfileRequest {
-    RemoteCreateIngressProfileRequest::S3(RemoteCreateS3IngressProfileRequest {
+) -> RemoteCreateStorageTargetRequest {
+    RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
         name: name.to_string(),
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
@@ -166,12 +167,12 @@ fn s3_create(
     })
 }
 
-fn model_with_driver(driver_type: DriverType) -> managed_ingress_profile::Model {
+fn model_with_driver(driver_type: DriverType) -> remote_storage_target::Model {
     let now = Utc::now();
-    managed_ingress_profile::Model {
+    remote_storage_target::Model {
         id: 1,
         master_binding_id: 1,
-        profile_key: "igp_test".to_string(),
+        target_key: "igp_test".to_string(),
         name: "test".to_string(),
         driver_type,
         endpoint: String::new(),
@@ -223,14 +224,15 @@ fn normalize_relative_local_path_rejects_backslash_escape_attempts() {
 }
 
 #[test]
-fn resolve_managed_local_path_allows_missing_child_inside_root() {
+fn resolve_remote_storage_target_local_path_allows_missing_child_inside_root() {
     let root = std::env::temp_dir().join(format!(
         "aster-managed-ingress-root-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).unwrap();
 
-    let resolved = resolve_managed_local_path(root.to_str().unwrap(), "profiles/new").unwrap();
+    let resolved =
+        resolve_remote_storage_target_local_path(root.to_str().unwrap(), "profiles/new").unwrap();
     assert_eq!(
         resolved,
         fs::canonicalize(&root)
@@ -244,7 +246,7 @@ fn resolve_managed_local_path_allows_missing_child_inside_root() {
 
 #[cfg(unix)]
 #[test]
-fn resolve_managed_local_path_rejects_symlink_escape() {
+fn resolve_remote_storage_target_local_path_rejects_symlink_escape() {
     let root = std::env::temp_dir().join(format!(
         "aster-managed-ingress-root-{}",
         uuid::Uuid::new_v4()
@@ -257,7 +259,8 @@ fn resolve_managed_local_path_rejects_symlink_escape() {
     fs::create_dir_all(&outside).unwrap();
     std::os::unix::fs::symlink(&outside, root.join("escape")).unwrap();
 
-    let error = resolve_managed_local_path(root.to_str().unwrap(), "escape/profile").unwrap_err();
+    let error = resolve_remote_storage_target_local_path(root.to_str().unwrap(), "escape/profile")
+        .unwrap_err();
     assert!(
         error
             .message()
@@ -284,8 +287,8 @@ fn normalize_relative_local_path_rejects_blank_values() {
 }
 
 #[test]
-fn resolve_managed_local_path_rejects_empty_root() {
-    let error = resolve_managed_local_path("   ", "profile").unwrap_err();
+fn resolve_remote_storage_target_local_path_rejects_empty_root() {
+    let error = resolve_remote_storage_target_local_path("   ", "profile").unwrap_err();
     assert!(
         error
             .message()
@@ -349,7 +352,7 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
     let existing = model_with_driver(DriverType::S3);
     let normalized = normalize_update_input(
         existing.clone(),
-        RemoteUpdateIngressProfileRequest {
+        RemoteUpdateStorageTargetRequest {
             name: Some(" Updated ".to_string()),
             base_path: Some(" /next/ ".to_string()),
             max_file_size: Some(128),
@@ -363,9 +366,63 @@ fn normalize_update_input_keeps_existing_driver_fields_and_trims_replacements() 
     assert_eq!(normalized.driver_type, DriverType::S3);
     assert_eq!(normalized.endpoint, existing.endpoint);
     assert_eq!(normalized.bucket, existing.bucket);
+    assert_eq!(normalized.access_key, existing.access_key);
+    assert_eq!(normalized.secret_key, existing.secret_key);
     assert_eq!(normalized.base_path, "next");
     assert_eq!(normalized.max_file_size, 128);
     assert_eq!(normalized.is_default, Some(true));
+}
+
+#[test]
+fn normalize_update_input_preserves_secret_when_same_driver_omits_credentials() {
+    let existing = model_with_driver(DriverType::S3);
+    let normalized = normalize_update_input(
+        existing.clone(),
+        RemoteUpdateStorageTargetRequest {
+            name: Some("Renamed".to_string()),
+            access_key: None,
+            secret_key: None,
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(normalized.driver_type, DriverType::S3);
+    assert_eq!(normalized.access_key, existing.access_key);
+    assert_eq!(normalized.secret_key, existing.secret_key);
+}
+
+#[test]
+fn normalize_update_input_replaces_secret_when_same_driver_provides_credentials() {
+    let normalized = normalize_update_input(
+        model_with_driver(DriverType::S3),
+        RemoteUpdateStorageTargetRequest {
+            access_key: Some(" new-access ".to_string()),
+            secret_key: Some(" new-secret ".to_string()),
+            ..Default::default()
+        },
+    )
+    .unwrap();
+
+    assert_eq!(normalized.access_key, "new-access");
+    assert_eq!(normalized.secret_key, "new-secret");
+}
+
+#[test]
+fn normalize_update_input_rejects_negative_max_file_size() {
+    let error = expect_aster_err(normalize_update_input(
+        model_with_driver(DriverType::S3),
+        RemoteUpdateStorageTargetRequest {
+            max_file_size: Some(-1),
+            ..Default::default()
+        },
+    ));
+
+    assert!(
+        error
+            .message()
+            .contains("max_file_size must be non-negative")
+    );
 }
 
 #[test]
@@ -373,7 +430,7 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
     let existing = model_with_driver(DriverType::S3);
     let normalized = normalize_update_input(
         existing,
-        RemoteUpdateIngressProfileRequest {
+        RemoteUpdateStorageTargetRequest {
             driver_type: Some(DriverType::Local),
             base_path: Some(" local/profile ".to_string()),
             ..Default::default()
@@ -392,14 +449,14 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
 #[test]
 fn managed_ingress_driver_registry_contains_supported_builtin_drivers() {
     assert_eq!(
-        registered_managed_ingress_driver_types(),
+        registered_remote_storage_target_driver_types(),
         vec![DriverType::Local, DriverType::S3]
     );
 }
 
 #[test]
-fn managed_ingress_driver_descriptors_cover_builtin_profile_fields() {
-    let descriptors = list_registered_managed_ingress_driver_descriptors();
+fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
+    let descriptors = list_registered_remote_storage_target_driver_descriptors();
     assert_eq!(descriptors.len(), 2);
 
     let local = descriptors
@@ -441,12 +498,123 @@ fn managed_ingress_driver_descriptors_cover_builtin_profile_fields() {
     );
 }
 
+#[test]
+fn remote_storage_target_capability_resolver_filters_descriptors_by_cached_capabilities() {
+    let last_capabilities = serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": {
+            "enabled": true,
+            "driver_types": ["local", "plugin.example.archive", "s3"]
+        }
+    })
+    .to_string();
+
+    let descriptors =
+        RemoteStorageTargetCapabilityResolver::from_last_capabilities(42, &last_capabilities)
+            .driver_descriptors();
+
+    assert_eq!(
+        descriptors
+            .iter()
+            .map(|descriptor| descriptor.driver_type)
+            .collect::<Vec<_>>(),
+        vec![DriverType::Local, DriverType::S3]
+    );
+}
+
+#[test]
+fn remote_storage_target_capability_resolver_uses_registered_order_and_deduplicates_descriptors() {
+    let last_capabilities = serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": {
+            "enabled": true,
+            "driver_types": ["s3", "plugin.example.archive", "local", "s3"]
+        }
+    })
+    .to_string();
+
+    let descriptors =
+        RemoteStorageTargetCapabilityResolver::from_last_capabilities(42, &last_capabilities)
+            .driver_descriptors();
+
+    assert_eq!(
+        descriptors
+            .iter()
+            .map(|descriptor| descriptor.driver_type)
+            .collect::<Vec<_>>(),
+        vec![DriverType::Local, DriverType::S3]
+    );
+}
+
+#[test]
+fn remote_storage_target_capability_resolver_keeps_v4_fallback_for_missing_managed_ingress() {
+    let last_capabilities = serde_json::json!({
+        "protocol_version": "v4",
+        "min_supported_protocol_version": "v4"
+    })
+    .to_string();
+
+    let descriptors =
+        RemoteStorageTargetCapabilityResolver::from_last_capabilities(42, &last_capabilities)
+            .driver_descriptors();
+
+    assert_eq!(
+        descriptors
+            .iter()
+            .map(|descriptor| descriptor.driver_type)
+            .collect::<Vec<_>>(),
+        vec![DriverType::Local, DriverType::S3]
+    );
+}
+
+#[test]
+fn remote_storage_target_capability_resolver_rejects_driver_missing_from_cached_capabilities() {
+    let last_capabilities = serde_json::json!({
+        "protocol_version": "v5",
+        "min_supported_protocol_version": "v4",
+        "managed_ingress": {
+            "enabled": true,
+            "driver_types": ["local"]
+        }
+    })
+    .to_string();
+
+    let error =
+        RemoteStorageTargetCapabilityResolver::from_last_capabilities(42, &last_capabilities)
+            .ensure_driver_supported(DriverType::S3)
+            .unwrap_err();
+
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
+    assert!(error.message().contains(
+        "remote node #42 does not declare remote storage target support for the s3 driver"
+    ));
+}
+
+#[test]
+fn remote_storage_target_capability_resolver_treats_unknown_capabilities_conservatively() {
+    let resolver = RemoteStorageTargetCapabilityResolver::from_last_capabilities(42, "{}");
+
+    assert!(resolver.driver_descriptors().is_empty());
+    let error = resolver
+        .ensure_driver_supported(DriverType::Local)
+        .unwrap_err();
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDriverUnsupported)
+    );
+}
+
 #[tokio::test]
-async fn driver_builder_rejects_remote_managed_ingress_profiles() {
+async fn driver_builder_rejects_remote_remote_storage_targets() {
     let state = setup_state().await;
     let profile = model_with_driver(DriverType::Remote);
 
-    let validate_error = validate_driver_from_profile(&state, &profile).unwrap_err();
+    let validate_error = validate_driver_from_target(&state, &profile).unwrap_err();
     assert_eq!(
         validate_error.api_error_code_override(),
         Some(ApiErrorCode::ManagedIngressDriverUnsupported)
@@ -456,7 +624,7 @@ async fn driver_builder_rejects_remote_managed_ingress_profiles() {
             .message()
             .contains("do not support the remote driver")
     );
-    let build_error = expect_aster_err(build_driver_from_profile(&state, &profile));
+    let build_error = expect_aster_err(build_driver_from_target(&state, &profile));
     assert_eq!(
         build_error.api_error_code_override(),
         Some(ApiErrorCode::ManagedIngressDriverUnsupported)
@@ -469,11 +637,11 @@ async fn driver_builder_rejects_remote_managed_ingress_profiles() {
 }
 
 #[tokio::test]
-async fn driver_builder_rejects_tencent_cos_managed_ingress_profiles() {
+async fn driver_builder_rejects_tencent_cos_remote_storage_targets() {
     let state = setup_state().await;
     let profile = model_with_driver(DriverType::TencentCos);
 
-    let validate_error = validate_driver_from_profile(&state, &profile).unwrap_err();
+    let validate_error = validate_driver_from_target(&state, &profile).unwrap_err();
     assert_eq!(
         validate_error.api_error_code_override(),
         Some(ApiErrorCode::ManagedIngressDriverUnsupported)
@@ -483,7 +651,7 @@ async fn driver_builder_rejects_tencent_cos_managed_ingress_profiles() {
             .message()
             .contains("do not support the tencent_cos driver")
     );
-    let build_error = expect_aster_err(build_driver_from_profile(&state, &profile));
+    let build_error = expect_aster_err(build_driver_from_target(&state, &profile));
     assert_eq!(
         build_error.api_error_code_override(),
         Some(ApiErrorCode::ManagedIngressDriverUnsupported)
@@ -508,7 +676,7 @@ async fn create_sets_first_profile_as_default_and_applies_local_driver() {
     .await
     .unwrap();
 
-    assert!(profile.profile_key.starts_with("igp_"));
+    assert!(profile.target_key.starts_with("rst_"));
     assert_eq!(profile.name, "First");
     assert_eq!(profile.base_path, "first/profile");
     assert_eq!(profile.max_file_size, 512);
@@ -538,8 +706,8 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
     let updated = update(
         &state,
         &binding,
-        &second.profile_key,
-        RemoteUpdateIngressProfileRequest {
+        &second.target_key,
+        RemoteUpdateStorageTargetRequest {
             name: Some(" Promoted ".to_string()),
             base_path: Some(" promoted ".to_string()),
             max_file_size: Some(2048),
@@ -559,7 +727,7 @@ async fn update_can_promote_second_profile_to_default_and_increments_revision() 
 
     let profiles = list(&state, &binding).await.unwrap();
     assert_eq!(profiles.len(), 2);
-    assert_eq!(profiles[0].profile_key, updated.profile_key);
+    assert_eq!(profiles[0].target_key, updated.target_key);
     assert!(profiles[0].is_default);
     assert!(!profiles[1].is_default);
 }
@@ -579,8 +747,8 @@ async fn update_rejects_unsetting_current_default_directly() {
     let error = update(
         &state,
         &binding,
-        &profile.profile_key,
-        RemoteUpdateIngressProfileRequest {
+        &profile.target_key,
+        RemoteUpdateStorageTargetRequest {
             is_default: Some(false),
             ..Default::default()
         },
@@ -605,7 +773,7 @@ async fn delete_protects_default_when_other_profiles_exist_then_allows_after_rep
         .await
         .unwrap();
 
-    let error = delete(&state, &binding, &first.profile_key)
+    let error = delete(&state, &binding, &first.target_key)
         .await
         .unwrap_err();
     assert_eq!(
@@ -616,19 +784,19 @@ async fn delete_protects_default_when_other_profiles_exist_then_allows_after_rep
     update(
         &state,
         &binding,
-        &second.profile_key,
-        RemoteUpdateIngressProfileRequest {
+        &second.target_key,
+        RemoteUpdateStorageTargetRequest {
             is_default: Some(true),
             ..Default::default()
         },
     )
     .await
     .unwrap();
-    delete(&state, &binding, &first.profile_key).await.unwrap();
+    delete(&state, &binding, &first.target_key).await.unwrap();
 
     let profiles = list(&state, &binding).await.unwrap();
     assert_eq!(profiles.len(), 1);
-    assert_eq!(profiles[0].profile_key, second.profile_key);
+    assert_eq!(profiles[0].target_key, second.target_key);
     assert!(profiles[0].is_default);
 }
 
@@ -650,17 +818,17 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
     )
     .await
     .unwrap();
-    let mut stored = managed_ingress_profile_repo::find_by_binding_and_profile_key(
+    let mut stored = remote_storage_target_repo::find_by_binding_and_target_key(
         state.writer_db(),
         binding.id,
-        &profile.profile_key,
+        &profile.target_key,
     )
     .await
     .unwrap()
     .unwrap();
-    let mut active: managed_ingress_profile::ActiveModel = stored.clone().into();
+    let mut active: remote_storage_target::ActiveModel = stored.clone().into();
     active.last_error = Set("path failed".to_string());
-    managed_ingress_profile_repo::update(state.writer_db(), active)
+    remote_storage_target_repo::update(state.writer_db(), active)
         .await
         .unwrap();
     let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
@@ -669,19 +837,19 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
         Some(ApiErrorCode::ManagedIngressDefaultError)
     );
 
-    stored = managed_ingress_profile_repo::find_by_binding_and_profile_key(
+    stored = remote_storage_target_repo::find_by_binding_and_target_key(
         state.writer_db(),
         binding.id,
-        &profile.profile_key,
+        &profile.target_key,
     )
     .await
     .unwrap()
     .unwrap();
-    let mut active: managed_ingress_profile::ActiveModel = stored.into();
+    let mut active: remote_storage_target::ActiveModel = stored.into();
     active.last_error = Set(String::new());
     active.applied_revision = Set(0);
     active.desired_revision = Set(1);
-    managed_ingress_profile_repo::update(state.writer_db(), active)
+    remote_storage_target_repo::update(state.writer_db(), active)
         .await
         .unwrap();
     let error = expect_aster_err(resolve_effective_target(&state, &binding).await);

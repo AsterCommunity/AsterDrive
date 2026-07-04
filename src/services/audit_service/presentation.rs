@@ -462,7 +462,7 @@ fn detail_message(
             copy_params(
                 details,
                 &mut params,
-                &["profile_key", "driver_type", "is_default"],
+                &["target_key", "driver_type", "is_default"],
             );
             Some(message("remote_ingress_profile_snapshot", params))
         }
@@ -808,7 +808,7 @@ fn detail_message(
             copy_params(
                 details,
                 &mut params,
-                &["binding_id", "profile_key", "driver_type", "is_default"],
+                &["binding_id", "target_key", "driver_type", "is_default"],
             );
             Some(message("follower_ingress_profile_changed", params))
         }

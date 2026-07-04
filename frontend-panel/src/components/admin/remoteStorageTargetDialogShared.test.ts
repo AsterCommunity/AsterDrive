@@ -1,16 +1,16 @@
 import { describe, expect, it } from "vitest";
 import {
-	buildCreateManagedIngressProfilePayload,
-	buildUpdateManagedIngressProfilePayload,
-	getManagedIngressProfileForm,
-} from "@/components/admin/managedIngressProfileDialogShared";
-import type { RemoteIngressProfileInfo } from "@/types/api";
+	buildCreateRemoteStorageTargetPayload,
+	buildUpdateRemoteStorageTargetPayload,
+	getRemoteStorageTargetForm,
+} from "@/components/admin/remoteStorageTargetDialogShared";
+import type { RemoteStorageTargetInfo } from "@/types/api";
 
-describe("managedIngressProfileDialogShared", () => {
-	it("maps an existing ingress profile into form state", () => {
+describe("remoteStorageTargetDialogShared", () => {
+	it("maps an existing remote storage target into form state", () => {
 		expect(
-			getManagedIngressProfileForm({
-				profile_key: "igp_demo",
+			getRemoteStorageTargetForm({
+				target_key: "igp_demo",
 				name: "Follower Cache",
 				driver_type: "local",
 				endpoint: "",
@@ -23,7 +23,7 @@ describe("managedIngressProfileDialogShared", () => {
 				last_error: "",
 				created_at: "",
 				updated_at: "",
-			} as RemoteIngressProfileInfo),
+			} as RemoteStorageTargetInfo),
 		).toEqual({
 			name: "Follower Cache",
 			driver_type: "local",
@@ -39,7 +39,7 @@ describe("managedIngressProfileDialogShared", () => {
 
 	it("builds create payloads with trimmed s3 fields", () => {
 		expect(
-			buildCreateManagedIngressProfilePayload({
+			buildCreateRemoteStorageTargetPayload({
 				name: "Archive",
 				driver_type: "s3",
 				endpoint: " https://s3.example.test/uploads ",
@@ -65,7 +65,7 @@ describe("managedIngressProfileDialogShared", () => {
 
 	it("omits unchanged s3 credentials from update payloads", () => {
 		expect(
-			buildUpdateManagedIngressProfilePayload(
+			buildUpdateRemoteStorageTargetPayload(
 				{
 					name: "Archive",
 					driver_type: "s3",
@@ -78,7 +78,7 @@ describe("managedIngressProfileDialogShared", () => {
 					is_default: true,
 				},
 				{
-					profile_key: "igp_archive",
+					target_key: "igp_archive",
 					name: "Archive",
 					driver_type: "s3",
 					endpoint: "https://s3.example.test",
@@ -91,7 +91,7 @@ describe("managedIngressProfileDialogShared", () => {
 					last_error: "",
 					created_at: "",
 					updated_at: "",
-				} as RemoteIngressProfileInfo,
+				} as RemoteStorageTargetInfo,
 			),
 		).toEqual({
 			name: "Archive",
@@ -106,7 +106,7 @@ describe("managedIngressProfileDialogShared", () => {
 
 	it("requires explicit credentials when switching from local to s3", () => {
 		expect(
-			buildUpdateManagedIngressProfilePayload(
+			buildUpdateRemoteStorageTargetPayload(
 				{
 					name: "Promoted",
 					driver_type: "s3",
@@ -119,7 +119,7 @@ describe("managedIngressProfileDialogShared", () => {
 					is_default: false,
 				},
 				{
-					profile_key: "igp_local",
+					target_key: "igp_local",
 					name: "Promoted",
 					driver_type: "local",
 					endpoint: "",
@@ -132,7 +132,7 @@ describe("managedIngressProfileDialogShared", () => {
 					last_error: "",
 					created_at: "",
 					updated_at: "",
-				} as RemoteIngressProfileInfo,
+				} as RemoteStorageTargetInfo,
 			),
 		).toEqual({
 			name: "Promoted",

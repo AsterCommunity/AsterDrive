@@ -16,7 +16,7 @@ and are registered only on `follower` nodes.
 
 Remote-node object protocol has two layers:
 
-- `/api/v1/internal/storage/*` exists only on the follower and performs object access, binding sync, and ingress profile management
+- `/api/v1/internal/storage/*` exists only on the follower and performs object access, binding sync, and remote storage target management
 - `/api/v1/internal/remote-tunnel/*` exists only on the primary and is the reverse-tunnel control and transport entry
 
 In `direct` mode, the primary directly calls the follower's `/api/v1/internal/storage/*`. In `reverse_tunnel` mode, the primary registers the same internal storage request in the tunnel registry; the follower polls or opens a WebSocket to the primary, runs the internal storage logic locally, and returns the response.
@@ -54,10 +54,10 @@ Control-plane endpoints require signed headers. Object GET / PUT can support pre
 | `GET` | `/capabilities` | Read follower protocol capabilities |
 | `GET` | `/capacity` | Read capacity status for the current follower receiving target |
 | `PUT` | `/binding` | Sync remote-node binding information maintained by the primary |
-| `GET` | `/ingress-profiles` | List managed ingress profiles available to the current binding |
-| `POST` | `/ingress-profiles` | Create a managed ingress profile |
-| `PATCH` | `/ingress-profiles/{profile_key}` | Update a managed ingress profile |
-| `DELETE` | `/ingress-profiles/{profile_key}` | Delete a managed ingress profile |
+| `GET` | `/targets` | List remote storage targets available to the current binding |
+| `POST` | `/targets` | Create a remote storage target |
+| `PATCH` | `/targets/{target_key}` | Update a remote storage target |
+| `DELETE` | `/targets/{target_key}` | Delete a remote storage target |
 | `POST` | `/compose` | Compose part objects into a target object |
 | `GET` | `/objects` | List object keys by prefix |
 | `GET` | `/objects/{tail}/metadata` | Read object metadata |
@@ -65,6 +65,8 @@ Control-plane endpoints require signed headers. Object GET / PUT can support pre
 | `GET` | `/objects/{tail}` | Read object content |
 | `HEAD` | `/objects/{tail}` | Probe object existence and headers |
 | `DELETE` | `/objects/{tail}` | Delete object |
+
+`/ingress-profiles` and `/ingress-profiles/{target_key}` remain deprecated internal protocol compatibility aliases since 0.4.0. New code should prefer `/targets`, while cross-version primary / follower pairs may continue using the old paths.
 
 ## `GET /capabilities`
 
@@ -124,7 +126,7 @@ This updates binding metadata only; it does not move object data.
 
 ## Ingress profile management
 
-These endpoints let the primary manage follower-side ingress profiles, deciding whether future object writes land in follower-local storage or follower-managed S3.
+These endpoints let the primary manage follower-side remote storage targets, deciding whether future object writes land in follower-local storage or follower-managed S3.
 
 Local profile request:
 

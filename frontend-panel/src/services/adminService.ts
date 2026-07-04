@@ -55,17 +55,17 @@ import type {
 	ExternalAuthProviderTestResult,
 	FolderInfo,
 	LockPage,
-	ManagedIngressDriverDescriptor,
 	MigratePolicyGroupAssignmentsRequest,
 	PolicyGroupAssignmentMigrationResult,
 	PromoteS3CompatiblePolicyDriverRequest,
-	RemoteCreateIngressProfileRequest,
+	RemoteCreateStorageTargetRequest,
 	RemoteEnrollmentCommandInfo,
-	RemoteIngressProfileInfo,
 	RemoteNodeInfo,
 	RemoteNodePage,
 	RemoteStorageCapabilities,
-	RemoteUpdateIngressProfileRequest,
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetInfo,
+	RemoteUpdateStorageTargetRequest,
 	RemovedCountResponse,
 	ResetUserPasswordRequest,
 	ShareInfo,
@@ -428,35 +428,35 @@ export const adminRemoteNodeService = {
 			`/admin/remote-nodes/${id}/enrollment-token`,
 		),
 
-	listIngressProfiles: (id: number) =>
-		api.get<RemoteIngressProfileInfo[]>(
-			`/admin/remote-nodes/${id}/ingress-profiles`,
+	listStorageTargets: (id: number) =>
+		api.get<RemoteStorageTargetInfo[]>(
+			`/admin/remote-nodes/${id}/storage-targets`,
 		),
 
-	listIngressProfileDrivers: (id: number) =>
-		api.get<ManagedIngressDriverDescriptor[]>(
-			`/admin/remote-nodes/${id}/ingress-profile-drivers`,
+	listStorageTargetDrivers: (id: number) =>
+		api.get<RemoteStorageTargetDriverDescriptor[]>(
+			`/admin/remote-nodes/${id}/storage-target-drivers`,
 		),
 
-	createIngressProfile: (id: number, data: RemoteCreateIngressProfileRequest) =>
-		api.post<RemoteIngressProfileInfo>(
-			`/admin/remote-nodes/${id}/ingress-profiles`,
+	createStorageTarget: (id: number, data: RemoteCreateStorageTargetRequest) =>
+		api.post<RemoteStorageTargetInfo>(
+			`/admin/remote-nodes/${id}/storage-targets`,
 			data,
 		),
 
-	updateIngressProfile: (
+	updateStorageTarget: (
 		id: number,
-		profileKey: string,
-		data: RemoteUpdateIngressProfileRequest,
+		targetKey: string,
+		data: RemoteUpdateStorageTargetRequest,
 	) =>
-		api.patch<RemoteIngressProfileInfo>(
-			`/admin/remote-nodes/${id}/ingress-profiles/${encodeURIComponent(profileKey)}`,
+		api.patch<RemoteStorageTargetInfo>(
+			`/admin/remote-nodes/${id}/storage-targets/${encodeURIComponent(targetKey)}`,
 			data,
 		),
 
-	deleteIngressProfile: (id: number, profileKey: string) =>
+	deleteStorageTarget: (id: number, targetKey: string) =>
 		api.delete<void>(
-			`/admin/remote-nodes/${id}/ingress-profiles/${encodeURIComponent(profileKey)}`,
+			`/admin/remote-nodes/${id}/storage-targets/${encodeURIComponent(targetKey)}`,
 		),
 };
 

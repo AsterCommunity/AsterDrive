@@ -604,10 +604,10 @@ describe("adminService", () => {
 		);
 	});
 
-	it("uses the expected managed ingress profile endpoints", () => {
-		adminRemoteNodeService.listIngressProfileDrivers(6);
-		adminRemoteNodeService.listIngressProfiles(6);
-		adminRemoteNodeService.createIngressProfile(6, {
+	it("uses the expected remote storage target endpoints", () => {
+		adminRemoteNodeService.listStorageTargetDrivers(6);
+		adminRemoteNodeService.listStorageTargets(6);
+		adminRemoteNodeService.createStorageTarget(6, {
 			name: "Ingress A",
 			driver_type: "local" as never,
 			endpoint: "",
@@ -618,20 +618,20 @@ describe("adminService", () => {
 			max_file_size: 2048,
 			is_default: true,
 		});
-		adminRemoteNodeService.updateIngressProfile(6, "igp_demo", {
+		adminRemoteNodeService.updateStorageTarget(6, "igp_demo", {
 			name: "Ingress B",
 			is_default: false,
 		});
-		adminRemoteNodeService.deleteIngressProfile(6, "igp_demo");
+		adminRemoteNodeService.deleteStorageTarget(6, "igp_demo");
 
 		expect(mockState.get).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/ingress-profile-drivers",
+			"/admin/remote-nodes/6/storage-target-drivers",
 		);
 		expect(mockState.get).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/ingress-profiles",
+			"/admin/remote-nodes/6/storage-targets",
 		);
 		expect(mockState.post).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/ingress-profiles",
+			"/admin/remote-nodes/6/storage-targets",
 			{
 				name: "Ingress A",
 				driver_type: "local",
@@ -645,14 +645,14 @@ describe("adminService", () => {
 			},
 		);
 		expect(mockState.patch).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/ingress-profiles/igp_demo",
+			"/admin/remote-nodes/6/storage-targets/igp_demo",
 			{
 				name: "Ingress B",
 				is_default: false,
 			},
 		);
 		expect(mockState.delete).toHaveBeenCalledWith(
-			"/admin/remote-nodes/6/ingress-profiles/igp_demo",
+			"/admin/remote-nodes/6/storage-targets/igp_demo",
 		);
 	});
 

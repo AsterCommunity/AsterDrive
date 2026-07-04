@@ -16,7 +16,7 @@
 
 远端节点的对象协议有两层，别混在一起看：
 
-- `/api/v1/internal/storage/*` 只在 follower 注册，是实际对象读写、绑定同步、ingress profile 管理的协议。
+- `/api/v1/internal/storage/*` 只在 follower 注册，是实际对象读写、绑定同步、远程存储目标管理的协议。
 - `/api/v1/internal/remote-tunnel/*` 只在 primary 注册，是 reverse tunnel 的控制面和传输入口。
 
 `direct` 模式下，primary 直接请求 follower 的 `/api/v1/internal/storage/*`。`reverse_tunnel` 模式下，primary 把同样的内部存储请求登记到 tunnel registry，follower 主动向 primary 轮询或建立 WebSocket 连接取走请求，再在本地调用内部存储处理逻辑并回传响应。
@@ -54,10 +54,10 @@ primary 侧 reverse tunnel 当前入口：
 | `GET` | `/capabilities` | 读取 follower 声明的协议能力 |
 | `GET` | `/capacity` | 读取 follower 当前接收落点的容量观测状态 |
 | `PUT` | `/binding` | 同步主节点维护的远端节点绑定信息 |
-| `GET` | `/ingress-profiles` | 列出当前绑定可用的受管 ingress profile |
-| `POST` | `/ingress-profiles` | 创建受管 ingress profile |
-| `PATCH` | `/ingress-profiles/{profile_key}` | 更新受管 ingress profile |
-| `DELETE` | `/ingress-profiles/{profile_key}` | 删除受管 ingress profile |
+| `GET` | `/targets` | 列出当前绑定可用的远程存储目标 |
+| `POST` | `/targets` | 创建远程存储目标 |
+| `PATCH` | `/targets/{target_key}` | 更新远程存储目标 |
+| `DELETE` | `/targets/{target_key}` | 删除远程存储目标 |
 | `POST` | `/compose` | 把多个 part 对象拼成目标对象 |
 | `GET` | `/objects` | 按前缀列举对象 key |
 | `GET` | `/objects/{tail}/metadata` | 读取对象元信息 |
@@ -65,6 +65,8 @@ primary 侧 reverse tunnel 当前入口：
 | `GET` | `/objects/{tail}` | 读取对象内容 |
 | `HEAD` | `/objects/{tail}` | 探测对象是否存在并返回头信息 |
 | `DELETE` | `/objects/{tail}` | 删除对象 |
+
+`/ingress-profiles` 和 `/ingress-profiles/{target_key}` 自 0.4.0 起作为 deprecated 内部协议兼容 alias 保留。新代码应优先使用 `/targets`，但跨版本 primary / follower 仍可以继续调用旧路径。
 
 ## `GET /capabilities`
 
@@ -129,11 +131,11 @@ primary 侧 reverse tunnel 当前入口：
 
 这条接口只更新绑定元信息，不直接搬运对象数据。对象命名空间来自 follower 本地保存的 master binding，不由这条请求体传入。
 
-## Ingress Profile 管理
+## 远程存储目标管理
 
-这组接口用于 primary 管理 follower 侧的受管 ingress profile，控制后续对象写入实际落到 follower 本地还是 follower 管理的 S3。
+这组接口用于 primary 管理 follower 侧的远程存储目标，控制后续对象写入实际落到 follower 本地还是 follower 管理的 S3。当前请求 / 响应 DTO 使用 `target_key` 字段名。
 
-创建本地 profile 的请求体形态：
+创建本地目标的请求体形态：
 
 ```json
 {

@@ -32,12 +32,12 @@ import { adminRemoteNodeService } from "@/services/adminService";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { AdminRemoteNodeSortBy } from "@/types/adminSort";
 import type {
-	ManagedIngressDriverDescriptor,
-	RemoteCreateIngressProfileRequest,
+	RemoteCreateStorageTargetRequest,
 	RemoteEnrollmentCommandInfo,
-	RemoteIngressProfileInfo,
 	RemoteNodeInfo,
-	RemoteUpdateIngressProfileRequest,
+	RemoteStorageTargetDriverDescriptor,
+	RemoteStorageTargetInfo,
+	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
 
 export const REMOTE_NODE_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
@@ -56,7 +56,7 @@ const DEFAULT_REMOTE_NODE_SORT_BY =
 	"created_at" as const satisfies AdminRemoteNodeSortBy;
 const DEFAULT_REMOTE_NODE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
-function requiresDirectIngressProfileBaseUrl(node: RemoteNodeInfo) {
+function requiresDirectStorageTargetBaseUrl(node: RemoteNodeInfo) {
 	return (
 		(node.transport_mode ?? "direct") === "direct" && !node.base_url.trim()
 	);
@@ -124,29 +124,32 @@ export function useAdminRemoteNodesPageController() {
 	const [submitting, setSubmitting] = useState(false);
 	const [createStep, setCreateStep] = useState(0);
 	const [createStepTouched, setCreateStepTouched] = useState(false);
-	const [managedIngressProfiles, setManagedIngressProfiles] = useState<
-		RemoteIngressProfileInfo[]
+	const [remoteStorageTargets, setRemoteStorageTargets] = useState<
+		RemoteStorageTargetInfo[]
 	>([]);
-	const [managedIngressProfilesLoading, setManagedIngressProfilesLoading] =
+	const [remoteStorageTargetsLoading, setRemoteStorageTargetsLoading] =
 		useState(false);
-	const [managedIngressProfilesError, setManagedIngressProfilesError] =
-		useState<string | null>(null);
-	const [managedIngressDriverDescriptors, setManagedIngressDriverDescriptors] =
-		useState<ManagedIngressDriverDescriptor[]>([]);
+	const [remoteStorageTargetsError, setRemoteStorageTargetsError] = useState<
+		string | null
+	>(null);
 	const [
-		managedIngressDriverDescriptorsLoading,
-		setManagedIngressDriverDescriptorsLoading,
+		remoteStorageTargetDriverDescriptors,
+		setRemoteStorageTargetDriverDescriptors,
+	] = useState<RemoteStorageTargetDriverDescriptor[]>([]);
+	const [
+		remoteStorageTargetDriverDescriptorsLoading,
+		setRemoteStorageTargetDriverDescriptorsLoading,
 	] = useState(false);
 	const [
-		managedIngressDriverDescriptorsError,
-		setManagedIngressDriverDescriptorsError,
+		remoteStorageTargetDriverDescriptorsError,
+		setRemoteStorageTargetDriverDescriptorsError,
 	] = useState<string | null>(null);
 	const {
 		pendingId: deletingRemoteNodeId,
 		runWithPending: runWithDeletingRemoteNode,
 	} = usePendingId<number>();
-	const managedIngressRequestIdRef = useRef(0);
-	const managedIngressDriverDescriptorsRequestIdRef = useRef(0);
+	const remoteStorageTargetRequestIdRef = useRef(0);
+	const remoteStorageTargetDriverDescriptorsRequestIdRef = useRef(0);
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));
 	const currentPage = Math.floor(offset / pageSize) + 1;
 	const prevPageDisabled = offset === 0;
@@ -200,79 +203,86 @@ export function useAdminRemoteNodesPageController() {
 		setCreateStepTouched(false);
 	};
 
-	const resetManagedIngressState = () => {
-		managedIngressRequestIdRef.current += 1;
-		managedIngressDriverDescriptorsRequestIdRef.current += 1;
-		setManagedIngressProfiles([]);
-		setManagedIngressProfilesLoading(false);
-		setManagedIngressProfilesError(null);
-		setManagedIngressDriverDescriptors([]);
-		setManagedIngressDriverDescriptorsLoading(false);
-		setManagedIngressDriverDescriptorsError(null);
+	const resetRemoteStorageTargetState = () => {
+		remoteStorageTargetRequestIdRef.current += 1;
+		remoteStorageTargetDriverDescriptorsRequestIdRef.current += 1;
+		setRemoteStorageTargets([]);
+		setRemoteStorageTargetsLoading(false);
+		setRemoteStorageTargetsError(null);
+		setRemoteStorageTargetDriverDescriptors([]);
+		setRemoteStorageTargetDriverDescriptorsLoading(false);
+		setRemoteStorageTargetDriverDescriptorsError(null);
 	};
 
-	const loadManagedIngressDriverDescriptors = async (
+	const loadRemoteStorageTargetDriverDescriptors = async (
 		remoteNodeId: number,
 		{ showErrorToast = true }: { showErrorToast?: boolean } = {},
 	) => {
-		const requestId = managedIngressDriverDescriptorsRequestIdRef.current + 1;
-		managedIngressDriverDescriptorsRequestIdRef.current = requestId;
-		setManagedIngressDriverDescriptorsLoading(true);
-		setManagedIngressDriverDescriptorsError(null);
+		const requestId =
+			remoteStorageTargetDriverDescriptorsRequestIdRef.current + 1;
+		remoteStorageTargetDriverDescriptorsRequestIdRef.current = requestId;
+		setRemoteStorageTargetDriverDescriptorsLoading(true);
+		setRemoteStorageTargetDriverDescriptorsError(null);
 
 		try {
 			const descriptors =
-				await adminRemoteNodeService.listIngressProfileDrivers(remoteNodeId);
-			if (managedIngressDriverDescriptorsRequestIdRef.current !== requestId) {
+				await adminRemoteNodeService.listStorageTargetDrivers(remoteNodeId);
+			if (
+				remoteStorageTargetDriverDescriptorsRequestIdRef.current !== requestId
+			) {
 				return;
 			}
-			setManagedIngressDriverDescriptors(descriptors);
-			setManagedIngressDriverDescriptorsError(null);
+			setRemoteStorageTargetDriverDescriptors(descriptors);
+			setRemoteStorageTargetDriverDescriptorsError(null);
 		} catch (error) {
-			if (managedIngressDriverDescriptorsRequestIdRef.current !== requestId) {
+			if (
+				remoteStorageTargetDriverDescriptorsRequestIdRef.current !== requestId
+			) {
 				return;
 			}
-			setManagedIngressDriverDescriptors([]);
-			setManagedIngressDriverDescriptorsError(getApiErrorMessage(error));
+			setRemoteStorageTargetDriverDescriptors([]);
+			setRemoteStorageTargetDriverDescriptorsError(getApiErrorMessage(error));
 			if (showErrorToast) {
 				handleApiError(error);
 			}
 		} finally {
-			if (managedIngressDriverDescriptorsRequestIdRef.current === requestId) {
-				setManagedIngressDriverDescriptorsLoading(false);
+			if (
+				remoteStorageTargetDriverDescriptorsRequestIdRef.current === requestId
+			) {
+				setRemoteStorageTargetDriverDescriptorsLoading(false);
 			}
 		}
 	};
 
-	const loadManagedIngressProfiles = async (
+	const loadRemoteStorageTargets = async (
 		remoteNodeId: number,
 		{ showErrorToast = true }: { showErrorToast?: boolean } = {},
 	) => {
-		const requestId = managedIngressRequestIdRef.current + 1;
-		managedIngressRequestIdRef.current = requestId;
-		setManagedIngressProfilesLoading(true);
-		setManagedIngressProfilesError(null);
+		const requestId = remoteStorageTargetRequestIdRef.current + 1;
+		remoteStorageTargetRequestIdRef.current = requestId;
+		setRemoteStorageTargetsLoading(true);
+		setRemoteStorageTargetsError(null);
 
 		try {
 			const profiles =
-				await adminRemoteNodeService.listIngressProfiles(remoteNodeId);
-			if (managedIngressRequestIdRef.current !== requestId) {
+				await adminRemoteNodeService.listStorageTargets(remoteNodeId);
+			if (remoteStorageTargetRequestIdRef.current !== requestId) {
 				return;
 			}
-			setManagedIngressProfiles(profiles);
-			setManagedIngressProfilesError(null);
+			setRemoteStorageTargets(profiles);
+			setRemoteStorageTargetsError(null);
 		} catch (error) {
-			if (managedIngressRequestIdRef.current !== requestId) {
+			if (remoteStorageTargetRequestIdRef.current !== requestId) {
 				return;
 			}
-			setManagedIngressProfiles([]);
-			setManagedIngressProfilesError(getApiErrorMessage(error));
+			setRemoteStorageTargets([]);
+			setRemoteStorageTargetsError(getApiErrorMessage(error));
 			if (showErrorToast) {
 				handleApiError(error);
 			}
 		} finally {
-			if (managedIngressRequestIdRef.current === requestId) {
-				setManagedIngressProfilesLoading(false);
+			if (remoteStorageTargetRequestIdRef.current === requestId) {
+				setRemoteStorageTargetsLoading(false);
 			}
 		}
 	};
@@ -288,7 +298,7 @@ export function useAdminRemoteNodesPageController() {
 		setForm({ ...emptyRemoteNodeForm });
 		setEnrollmentCommandCanTest(false);
 		resetDialogState();
-		resetManagedIngressState();
+		resetRemoteStorageTargetState();
 		setDialogOpen(true);
 	};
 
@@ -297,17 +307,17 @@ export function useAdminRemoteNodesPageController() {
 		setEditingNode(node);
 		setForm(getRemoteNodeForm(node));
 		resetDialogState();
-		resetManagedIngressState();
-		if (requiresDirectIngressProfileBaseUrl(node)) {
-			setManagedIngressProfilesError(
+		resetRemoteStorageTargetState();
+		if (requiresDirectStorageTargetBaseUrl(node)) {
+			setRemoteStorageTargetsError(
 				t("remote_node_ingress_profiles_base_url_required"),
 			);
 		} else if (hasCompletedRemoteNodeEnrollment(node)) {
-			void loadManagedIngressProfiles(node.id);
-			void loadManagedIngressDriverDescriptors(node.id);
+			void loadRemoteStorageTargets(node.id);
+			void loadRemoteStorageTargetDriverDescriptors(node.id);
 		} else {
-			setManagedIngressProfilesError(null);
-			setManagedIngressDriverDescriptorsError(null);
+			setRemoteStorageTargetsError(null);
+			setRemoteStorageTargetDriverDescriptorsError(null);
 		}
 		setDialogOpen(true);
 	};
@@ -316,7 +326,7 @@ export function useAdminRemoteNodesPageController() {
 		setDialogOpen(open);
 		if (!open) {
 			resetDialogState();
-			resetManagedIngressState();
+			resetRemoteStorageTargetState();
 		}
 	};
 
@@ -573,59 +583,59 @@ export function useAdminRemoteNodesPageController() {
 		}
 	};
 
-	const createManagedIngressProfile = async (
-		payload: RemoteCreateIngressProfileRequest,
+	const createRemoteStorageTarget = async (
+		payload: RemoteCreateStorageTargetRequest,
 	) => {
 		if (editingId == null) {
 			return;
 		}
 
 		try {
-			await adminRemoteNodeService.createIngressProfile(editingId, payload);
+			await adminRemoteNodeService.createStorageTarget(editingId, payload);
 			toast.success(t("remote_node_ingress_profile_created"));
-			await loadManagedIngressProfiles(editingId, { showErrorToast: false });
+			await loadRemoteStorageTargets(editingId, { showErrorToast: false });
 		} catch (error) {
 			handleApiError(error);
 			throw error;
 		}
 	};
 
-	const updateManagedIngressProfile = async (
+	const updateRemoteStorageTarget = async (
 		profileKey: string,
-		payload: RemoteUpdateIngressProfileRequest,
+		payload: RemoteUpdateStorageTargetRequest,
 	) => {
 		if (editingId == null) {
 			return;
 		}
 
 		try {
-			await adminRemoteNodeService.updateIngressProfile(
+			await adminRemoteNodeService.updateStorageTarget(
 				editingId,
 				profileKey,
 				payload,
 			);
 			toast.success(t("remote_node_ingress_profile_updated"));
-			await loadManagedIngressProfiles(editingId, { showErrorToast: false });
+			await loadRemoteStorageTargets(editingId, { showErrorToast: false });
 		} catch (error) {
 			handleApiError(error);
 			throw error;
 		}
 	};
 
-	const deleteManagedIngressProfile = async (
-		profile: RemoteIngressProfileInfo,
+	const deleteRemoteStorageTarget = async (
+		profile: RemoteStorageTargetInfo,
 	) => {
 		if (editingId == null) {
 			return;
 		}
 
 		try {
-			await adminRemoteNodeService.deleteIngressProfile(
+			await adminRemoteNodeService.deleteStorageTarget(
 				editingId,
-				profile.profile_key,
+				profile.target_key,
 			);
 			toast.success(t("remote_node_ingress_profile_deleted"));
-			await loadManagedIngressProfiles(editingId, { showErrorToast: false });
+			await loadRemoteStorageTargets(editingId, { showErrorToast: false });
 		} catch (error) {
 			handleApiError(error);
 			throw error;
@@ -635,12 +645,12 @@ export function useAdminRemoteNodesPageController() {
 	return {
 		copyToClipboard,
 		createButtonTitle,
-		createManagedIngressProfile,
+		createRemoteStorageTarget,
 		createStep,
 		createStepTouched,
 		currentPage,
 		deleteDialogProps,
-		deleteManagedIngressProfile,
+		deleteRemoteStorageTarget,
 		deleteNodeName,
 		deletingRemoteNodeId,
 		dialogOpen,
@@ -663,12 +673,12 @@ export function useAdminRemoteNodesPageController() {
 		handleSubmit,
 		handleVerifyEnrollmentConnection,
 		loading,
-		managedIngressProfiles,
-		managedIngressDriverDescriptors,
-		managedIngressDriverDescriptorsError,
-		managedIngressDriverDescriptorsLoading,
-		managedIngressProfilesError,
-		managedIngressProfilesLoading,
+		remoteStorageTargets,
+		remoteStorageTargetDriverDescriptors,
+		remoteStorageTargetDriverDescriptorsError,
+		remoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetsError,
+		remoteStorageTargetsLoading,
 		nextPageDisabled,
 		openCreate,
 		openEdit,
@@ -686,6 +696,6 @@ export function useAdminRemoteNodesPageController() {
 		t,
 		total,
 		totalPages,
-		updateManagedIngressProfile,
+		updateRemoteStorageTarget,
 	};
 }

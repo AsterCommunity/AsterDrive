@@ -1,7 +1,7 @@
-import type { RemoteIngressProfileInfo } from "@/types/api";
+import type { RemoteStorageTargetInfo } from "@/types/api";
 
-export function getRemoteNodeManagedIngressProfileStatus(
-	profile: RemoteIngressProfileInfo,
+export function getRemoteNodeRemoteStorageTargetProfileStatus(
+	profile: RemoteStorageTargetInfo,
 ) {
 	if (profile.last_error.trim()) {
 		return {
@@ -26,8 +26,8 @@ export function getRemoteNodeManagedIngressProfileStatus(
 	};
 }
 
-export function getRemoteNodeManagedIngressDriverBadgeTone(
-	driverType: RemoteIngressProfileInfo["driver_type"],
+export function getRemoteNodeRemoteStorageTargetDriverBadgeTone(
+	driverType: RemoteStorageTargetInfo["driver_type"],
 ) {
 	return driverType === "s3"
 		? "border-blue-500/60 bg-blue-500/10 text-blue-700 dark:text-blue-300"

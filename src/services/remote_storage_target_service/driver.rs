@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::{managed_ingress_profile, storage_policy};
+use crate::entities::{remote_storage_target, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::StorageDriver;
@@ -13,9 +13,9 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use super::paths::{normalize_relative_local_path, resolve_managed_local_path};
+use super::paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path};
 
-pub(in crate::services::managed_ingress_profile_service) struct ManagedIngressDriverFields {
+pub(in crate::services::remote_storage_target_service) struct RemoteStorageTargetDriverFields {
     pub driver_type: DriverType,
     pub endpoint: String,
     pub bucket: String,
@@ -24,7 +24,7 @@ pub(in crate::services::managed_ingress_profile_service) struct ManagedIngressDr
     pub base_path: String,
 }
 
-pub(in crate::services::managed_ingress_profile_service) struct NormalizedManagedIngressDriverFields
+pub(in crate::services::remote_storage_target_service) struct NormalizedRemoteStorageTargetDriverFields
 {
     pub driver_type: DriverType,
     pub endpoint: String,
@@ -37,7 +37,7 @@ pub(in crate::services::managed_ingress_profile_service) struct NormalizedManage
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum ManagedIngressDriverFieldKind {
+pub enum RemoteStorageTargetDriverFieldKind {
     Text,
     Secret,
     Boolean,
@@ -46,9 +46,9 @@ pub enum ManagedIngressDriverFieldKind {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ManagedIngressDriverFieldDescriptor {
+pub struct RemoteStorageTargetDriverFieldDescriptor {
     pub name: String,
-    pub kind: ManagedIngressDriverFieldKind,
+    pub kind: RemoteStorageTargetDriverFieldKind,
     pub required: bool,
     pub secret: bool,
     pub label_key: String,
@@ -60,27 +60,27 @@ pub struct ManagedIngressDriverFieldDescriptor {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct ManagedIngressDriverDescriptor {
+pub struct RemoteStorageTargetDriverDescriptor {
     pub driver_type: DriverType,
     pub label_key: String,
     pub description_key: String,
-    pub fields: Vec<ManagedIngressDriverFieldDescriptor>,
+    pub fields: Vec<RemoteStorageTargetDriverFieldDescriptor>,
 }
 
-fn managed_ingress_text_field(
+fn remote_storage_target_text_field(
     name: &str,
     label_key: &str,
     placeholder: Option<&str>,
     help_key: Option<&str>,
     required: bool,
     secret: bool,
-) -> ManagedIngressDriverFieldDescriptor {
-    ManagedIngressDriverFieldDescriptor {
+) -> RemoteStorageTargetDriverFieldDescriptor {
+    RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
         kind: if secret {
-            ManagedIngressDriverFieldKind::Secret
+            RemoteStorageTargetDriverFieldKind::Secret
         } else {
-            ManagedIngressDriverFieldKind::Text
+            RemoteStorageTargetDriverFieldKind::Text
         },
         required,
         secret,
@@ -90,16 +90,16 @@ fn managed_ingress_text_field(
     }
 }
 
-fn managed_ingress_number_field(
+fn remote_storage_target_number_field(
     name: &str,
     label_key: &str,
     placeholder: Option<&str>,
     help_key: Option<&str>,
     required: bool,
-) -> ManagedIngressDriverFieldDescriptor {
-    ManagedIngressDriverFieldDescriptor {
+) -> RemoteStorageTargetDriverFieldDescriptor {
+    RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: ManagedIngressDriverFieldKind::Number,
+        kind: RemoteStorageTargetDriverFieldKind::Number,
         required,
         secret: false,
         label_key: label_key.to_string(),
@@ -108,15 +108,15 @@ fn managed_ingress_number_field(
     }
 }
 
-fn managed_ingress_boolean_field(
+fn remote_storage_target_boolean_field(
     name: &str,
     label_key: &str,
     help_key: Option<&str>,
     required: bool,
-) -> ManagedIngressDriverFieldDescriptor {
-    ManagedIngressDriverFieldDescriptor {
+) -> RemoteStorageTargetDriverFieldDescriptor {
+    RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: ManagedIngressDriverFieldKind::Boolean,
+        kind: RemoteStorageTargetDriverFieldKind::Boolean,
         required,
         secret: false,
         label_key: label_key.to_string(),
@@ -125,18 +125,18 @@ fn managed_ingress_boolean_field(
     }
 }
 
-trait ManagedIngressDriverConnector {
+trait RemoteStorageTargetDriverConnector {
     fn driver_type() -> DriverType;
 
-    fn descriptor() -> ManagedIngressDriverDescriptor;
+    fn descriptor() -> RemoteStorageTargetDriverDescriptor;
 
     fn normalize_fields(
-        fields: ManagedIngressDriverFields,
-    ) -> Result<NormalizedManagedIngressDriverFields>;
+        fields: RemoteStorageTargetDriverFields,
+    ) -> Result<NormalizedRemoteStorageTargetDriverFields>;
 
     fn policy_base_path<S: FollowerRuntimeState>(
         state: &S,
-        profile: &managed_ingress_profile::Model,
+        target: &remote_storage_target::Model,
     ) -> Result<String>;
 
     fn validate_policy(policy: &storage_policy::Model) -> Result<()>;
@@ -144,20 +144,20 @@ trait ManagedIngressDriverConnector {
     fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>>;
 }
 
-struct LocalManagedIngressDriverConnector;
+struct LocalRemoteStorageTargetDriverConnector;
 
-impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
+impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnector {
     fn driver_type() -> DriverType {
         DriverType::Local
     }
 
-    fn descriptor() -> ManagedIngressDriverDescriptor {
-        ManagedIngressDriverDescriptor {
+    fn descriptor() -> RemoteStorageTargetDriverDescriptor {
+        RemoteStorageTargetDriverDescriptor {
             driver_type: Self::driver_type(),
             label_key: "remote_node_ingress_profile_driver_local".to_string(),
             description_key: "remote_node_ingress_profile_local_scope_hint".to_string(),
             fields: vec![
-                managed_ingress_text_field(
+                remote_storage_target_text_field(
                     "base_path",
                     "base_path",
                     Some("tenant-a/incoming"),
@@ -165,14 +165,14 @@ impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
                     true,
                     false,
                 ),
-                managed_ingress_number_field(
+                remote_storage_target_number_field(
                     "max_file_size",
                     "max_file_size",
                     Some("0"),
                     Some("remote_node_ingress_profile_max_file_size_hint"),
                     false,
                 ),
-                managed_ingress_boolean_field(
+                remote_storage_target_boolean_field(
                     "is_default",
                     "remote_node_ingress_profile_default_toggle",
                     Some("remote_node_ingress_profile_default_hint"),
@@ -183,9 +183,9 @@ impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
     }
 
     fn normalize_fields(
-        fields: ManagedIngressDriverFields,
-    ) -> Result<NormalizedManagedIngressDriverFields> {
-        Ok(NormalizedManagedIngressDriverFields {
+        fields: RemoteStorageTargetDriverFields,
+    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
+        Ok(NormalizedRemoteStorageTargetDriverFields {
             driver_type: Self::driver_type(),
             endpoint: String::new(),
             bucket: String::new(),
@@ -197,11 +197,11 @@ impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
 
     fn policy_base_path<S: FollowerRuntimeState>(
         state: &S,
-        profile: &managed_ingress_profile::Model,
+        target: &remote_storage_target::Model,
     ) -> Result<String> {
-        Ok(resolve_managed_local_path(
+        Ok(resolve_remote_storage_target_local_path(
             &state.config().server.follower.managed_ingress_local_root,
-            &profile.base_path,
+            &target.base_path,
         )?
         .to_string_lossy()
         .into_owned())
@@ -211,7 +211,7 @@ impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
         let base_path = Path::new(&policy.base_path);
         std::fs::create_dir_all(base_path).map_aster_err_ctx(
             &format!(
-                "create managed ingress local path '{}'",
+                "create remote storage target local path '{}'",
                 base_path.display()
             ),
             AsterError::storage_driver_error,
@@ -224,20 +224,20 @@ impl ManagedIngressDriverConnector for LocalManagedIngressDriverConnector {
     }
 }
 
-struct S3ManagedIngressDriverConnector;
+struct S3RemoteStorageTargetDriverConnector;
 
-impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
+impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector {
     fn driver_type() -> DriverType {
         DriverType::S3
     }
 
-    fn descriptor() -> ManagedIngressDriverDescriptor {
-        ManagedIngressDriverDescriptor {
+    fn descriptor() -> RemoteStorageTargetDriverDescriptor {
+        RemoteStorageTargetDriverDescriptor {
             driver_type: Self::driver_type(),
             label_key: "remote_node_ingress_profile_driver_s3".to_string(),
             description_key: "remote_node_ingress_profile_s3_path_hint".to_string(),
             fields: vec![
-                managed_ingress_text_field(
+                remote_storage_target_text_field(
                     "endpoint",
                     "endpoint",
                     Some("https://s3.example.com"),
@@ -245,10 +245,24 @@ impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
                     true,
                     false,
                 ),
-                managed_ingress_text_field("bucket", "bucket", None, None, true, false),
-                managed_ingress_text_field("access_key", "access_key", None, None, true, false),
-                managed_ingress_text_field("secret_key", "secret_key", None, None, true, true),
-                managed_ingress_text_field(
+                remote_storage_target_text_field("bucket", "bucket", None, None, true, false),
+                remote_storage_target_text_field(
+                    "access_key",
+                    "access_key",
+                    None,
+                    None,
+                    true,
+                    false,
+                ),
+                remote_storage_target_text_field(
+                    "secret_key",
+                    "secret_key",
+                    None,
+                    None,
+                    true,
+                    true,
+                ),
+                remote_storage_target_text_field(
                     "base_path",
                     "base_path",
                     Some("prefix"),
@@ -256,14 +270,14 @@ impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
                     false,
                     false,
                 ),
-                managed_ingress_number_field(
+                remote_storage_target_number_field(
                     "max_file_size",
                     "max_file_size",
                     Some("0"),
                     Some("remote_node_ingress_profile_max_file_size_hint"),
                     false,
                 ),
-                managed_ingress_boolean_field(
+                remote_storage_target_boolean_field(
                     "is_default",
                     "remote_node_ingress_profile_default_toggle",
                     Some("remote_node_ingress_profile_default_hint"),
@@ -274,11 +288,11 @@ impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
     }
 
     fn normalize_fields(
-        fields: ManagedIngressDriverFields,
-    ) -> Result<NormalizedManagedIngressDriverFields> {
+        fields: RemoteStorageTargetDriverFields,
+    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
         let normalized = normalize_s3_endpoint_and_bucket(&fields.endpoint, &fields.bucket)
             .map_err(|error| error.into_aster_error())?;
-        Ok(NormalizedManagedIngressDriverFields {
+        Ok(NormalizedRemoteStorageTargetDriverFields {
             driver_type: Self::driver_type(),
             endpoint: normalized.endpoint,
             bucket: normalized.bucket,
@@ -290,9 +304,9 @@ impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
 
     fn policy_base_path<S: FollowerRuntimeState>(
         _state: &S,
-        profile: &managed_ingress_profile::Model,
+        target: &remote_storage_target::Model,
     ) -> Result<String> {
-        Ok(profile.base_path.clone())
+        Ok(target.base_path.clone())
     }
 
     fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
@@ -304,136 +318,138 @@ impl ManagedIngressDriverConnector for S3ManagedIngressDriverConnector {
     }
 }
 
-struct ManagedIngressDriverRegistration {
+struct RemoteStorageTargetDriverRegistration {
     driver_type: DriverType,
-    connector: BuiltinManagedIngressDriverConnector,
+    connector: BuiltinRemoteStorageTargetDriverConnector,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum BuiltinManagedIngressDriverConnector {
+enum BuiltinRemoteStorageTargetDriverConnector {
     Local,
     S3,
 }
 
-impl BuiltinManagedIngressDriverConnector {
-    fn descriptor(self) -> ManagedIngressDriverDescriptor {
+impl BuiltinRemoteStorageTargetDriverConnector {
+    fn descriptor(self) -> RemoteStorageTargetDriverDescriptor {
         match self {
-            Self::Local => LocalManagedIngressDriverConnector::descriptor(),
-            Self::S3 => S3ManagedIngressDriverConnector::descriptor(),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::descriptor(),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::descriptor(),
         }
     }
 
     fn normalize_fields(
         self,
-        fields: ManagedIngressDriverFields,
-    ) -> Result<NormalizedManagedIngressDriverFields> {
+        fields: RemoteStorageTargetDriverFields,
+    ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
         match self {
-            Self::Local => LocalManagedIngressDriverConnector::normalize_fields(fields),
-            Self::S3 => S3ManagedIngressDriverConnector::normalize_fields(fields),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::normalize_fields(fields),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::normalize_fields(fields),
         }
     }
 
     fn policy_base_path<S: FollowerRuntimeState>(
         self,
         state: &S,
-        profile: &managed_ingress_profile::Model,
+        target: &remote_storage_target::Model,
     ) -> Result<String> {
         match self {
-            Self::Local => LocalManagedIngressDriverConnector::policy_base_path(state, profile),
-            Self::S3 => S3ManagedIngressDriverConnector::policy_base_path(state, profile),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::policy_base_path(state, target),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::policy_base_path(state, target),
         }
     }
 
     fn validate_policy(self, policy: &storage_policy::Model) -> Result<()> {
         match self {
-            Self::Local => LocalManagedIngressDriverConnector::validate_policy(policy),
-            Self::S3 => S3ManagedIngressDriverConnector::validate_policy(policy),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::validate_policy(policy),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::validate_policy(policy),
         }
     }
 
     fn build_driver(self, policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
         match self {
-            Self::Local => LocalManagedIngressDriverConnector::build_driver(policy),
-            Self::S3 => S3ManagedIngressDriverConnector::build_driver(policy),
+            Self::Local => LocalRemoteStorageTargetDriverConnector::build_driver(policy),
+            Self::S3 => S3RemoteStorageTargetDriverConnector::build_driver(policy),
         }
     }
 }
 
-static MANAGED_INGRESS_DRIVER_REGISTRATIONS: &[ManagedIngressDriverRegistration] = &[
-    ManagedIngressDriverRegistration {
+static REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS: &[RemoteStorageTargetDriverRegistration] = &[
+    RemoteStorageTargetDriverRegistration {
         driver_type: DriverType::Local,
-        connector: BuiltinManagedIngressDriverConnector::Local,
+        connector: BuiltinRemoteStorageTargetDriverConnector::Local,
     },
-    ManagedIngressDriverRegistration {
+    RemoteStorageTargetDriverRegistration {
         driver_type: DriverType::S3,
-        connector: BuiltinManagedIngressDriverConnector::S3,
+        connector: BuiltinRemoteStorageTargetDriverConnector::S3,
     },
 ];
 
-fn registration_for(driver_type: DriverType) -> Result<&'static ManagedIngressDriverRegistration> {
-    MANAGED_INGRESS_DRIVER_REGISTRATIONS
+fn registration_for(
+    driver_type: DriverType,
+) -> Result<&'static RemoteStorageTargetDriverRegistration> {
+    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
         .find(|registration| registration.driver_type == driver_type)
-        .ok_or_else(|| managed_ingress_unsupported_driver_error(driver_type))
+        .ok_or_else(|| remote_storage_target_unsupported_driver_error(driver_type))
 }
 
-pub(crate) fn registered_managed_ingress_driver_types() -> Vec<DriverType> {
-    MANAGED_INGRESS_DRIVER_REGISTRATIONS
+pub(crate) fn registered_remote_storage_target_driver_types() -> Vec<DriverType> {
+    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
         .map(|registration| registration.driver_type)
         .collect()
 }
 
 #[cfg(test)]
-pub(crate) fn list_registered_managed_ingress_driver_descriptors()
--> Vec<ManagedIngressDriverDescriptor> {
-    MANAGED_INGRESS_DRIVER_REGISTRATIONS
+pub(crate) fn list_registered_remote_storage_target_driver_descriptors()
+-> Vec<RemoteStorageTargetDriverDescriptor> {
+    REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
         .map(|registration| registration.connector.descriptor())
         .collect()
 }
 
-pub fn managed_ingress_driver_descriptor(
+pub fn remote_storage_target_driver_descriptor(
     driver_type: DriverType,
-) -> Result<ManagedIngressDriverDescriptor> {
+) -> Result<RemoteStorageTargetDriverDescriptor> {
     Ok(registration_for(driver_type)?.connector.descriptor())
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn normalize_driver_fields(
-    fields: ManagedIngressDriverFields,
-) -> Result<NormalizedManagedIngressDriverFields> {
+pub(in crate::services::remote_storage_target_service) fn normalize_driver_fields(
+    fields: RemoteStorageTargetDriverFields,
+) -> Result<NormalizedRemoteStorageTargetDriverFields> {
     registration_for(fields.driver_type)?
         .connector
         .normalize_fields(fields)
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn validate_driver_from_profile<
+pub(in crate::services::remote_storage_target_service) fn validate_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,
-    profile: &managed_ingress_profile::Model,
+    target: &remote_storage_target::Model,
 ) -> Result<()> {
-    let registration = registration_for(profile.driver_type)?;
-    let policy = build_policy_model(state, profile, registration)?;
+    let registration = registration_for(target.driver_type)?;
+    let policy = build_policy_model(state, target, registration)?;
     registration.connector.validate_policy(&policy)
 }
 
-pub(in crate::services::managed_ingress_profile_service) fn build_driver_from_profile<
+pub(in crate::services::remote_storage_target_service) fn build_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,
-    profile: &managed_ingress_profile::Model,
+    target: &remote_storage_target::Model,
 ) -> Result<Arc<dyn StorageDriver>> {
-    let registration = registration_for(profile.driver_type)?;
-    let policy = build_policy_model(state, profile, registration)?;
+    let registration = registration_for(target.driver_type)?;
+    let policy = build_policy_model(state, target, registration)?;
     registration.connector.build_driver(&policy)
 }
 
-fn managed_ingress_unsupported_driver_error(driver_type: DriverType) -> AsterError {
+fn remote_storage_target_unsupported_driver_error(driver_type: DriverType) -> AsterError {
     validation_error_with_code(
         ApiErrorCode::ManagedIngressDriverUnsupported,
         format!(
-            "managed ingress profiles do not support the {} driver",
+            "managed remote storage targets do not support the {} driver",
             driver_type.as_str()
         ),
     )
@@ -441,28 +457,28 @@ fn managed_ingress_unsupported_driver_error(driver_type: DriverType) -> AsterErr
 
 fn build_policy_model<S: FollowerRuntimeState>(
     state: &S,
-    profile: &managed_ingress_profile::Model,
-    registration: &ManagedIngressDriverRegistration,
+    target: &remote_storage_target::Model,
+    registration: &RemoteStorageTargetDriverRegistration,
 ) -> Result<storage_policy::Model> {
-    let base_path = registration.connector.policy_base_path(state, profile)?;
+    let base_path = registration.connector.policy_base_path(state, target)?;
 
     Ok(storage_policy::Model {
-        id: profile.id,
-        name: profile.name.clone(),
-        driver_type: profile.driver_type,
-        endpoint: profile.endpoint.clone(),
-        bucket: profile.bucket.clone(),
-        access_key: profile.access_key.clone(),
-        secret_key: profile.secret_key.clone(),
+        id: target.id,
+        name: target.name.clone(),
+        driver_type: target.driver_type,
+        endpoint: target.endpoint.clone(),
+        bucket: target.bucket.clone(),
+        access_key: target.access_key.clone(),
+        secret_key: target.secret_key.clone(),
         base_path,
         remote_node_id: None,
-        max_file_size: profile.max_file_size,
+        max_file_size: target.max_file_size,
         allowed_types: StoredStoragePolicyAllowedTypes::empty(),
         options: StoredStoragePolicyOptions::empty(),
-        is_default: profile.is_default,
+        is_default: target.is_default,
         chunk_size: 0,
-        created_at: profile.created_at,
-        updated_at: profile.updated_at,
+        created_at: target.created_at,
+        updated_at: target.updated_at,
     })
 }
 

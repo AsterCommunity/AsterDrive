@@ -19,8 +19,8 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth_service, file_service, folder_service, managed_follower_service,
-    managed_ingress_profile_service, master_binding_service, policy_service, upload_service,
+    auth_service, file_service, folder_service, managed_follower_service, master_binding_service,
+    policy_service, remote_storage_target_service, upload_service,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_BODY_LIMIT, REMOTE_TUNNEL_COMPLETE_PATH, REMOTE_TUNNEL_JSON_LIMIT,
@@ -30,10 +30,10 @@ use aster_drive::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH,
     INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL, INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL,
-    RemoteBindingSyncRequest, RemoteCreateIngressProfileRequest,
-    RemoteCreateLocalIngressProfileRequest, RemoteCreateS3IngressProfileRequest,
+    RemoteBindingSyncRequest, RemoteCreateLocalStorageTargetRequest,
+    RemoteCreateS3StorageTargetRequest, RemoteCreateStorageTargetRequest,
     RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
-    RemoteUpdateIngressProfileRequest, sign_internal_request, sign_presigned_request,
+    RemoteUpdateStorageTargetRequest, sign_internal_request, sign_presigned_request,
 };
 use aster_drive::types::{
     DriverType, RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
@@ -723,10 +723,10 @@ async fn create_managed_local_ingress_for_binding(
         .system_default_policy()
         .map(|policy| policy.max_file_size)
         .unwrap_or(0);
-    managed_ingress_profile_service::create(
+    remote_storage_target_service::create(
         &provider_state.follower_view(),
         &binding,
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: format!("Managed {base_path}"),
             base_path: base_path.to_string(),
             max_file_size,
@@ -734,7 +734,7 @@ async fn create_managed_local_ingress_for_binding(
         }),
     )
     .await
-    .expect("provider managed ingress profile should be created");
+    .expect("provider managed remote storage target should be created");
 }
 
 async fn setup_reverse_tunnel_ingress_profile_target(
@@ -794,9 +794,9 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     )
     .await;
 
-    let listed = managed_ingress_profile_service::list_remote(&consumer_state, consumer_node.id)
+    let listed = remote_storage_target_service::list_remote(&consumer_state, consumer_node.id)
         .await
-        .expect("reverse tunnel ingress profile list should use tunnel transport");
+        .expect("reverse tunnel remote storage target list should use tunnel transport");
     assert!(
         listed.is_empty(),
         "fresh reverse tunnel managed ingress target should start without profiles"
@@ -827,10 +827,10 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         tunnel_handle,
     ) = setup_reverse_tunnel_ingress_profile_target(RemoteNodeTransportMode::ReverseTunnel).await;
 
-    let created = managed_ingress_profile_service::create_remote(
+    let created = remote_storage_target_service::create_remote(
         &consumer_state,
         consumer_node_model.id,
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Reverse Landing".to_string(),
             base_path: "reverse-landing".to_string(),
             max_file_size: 0,
@@ -838,29 +838,29 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         }),
     )
     .await
-    .expect("reverse tunnel ingress profile create should not require base_url");
+    .expect("reverse tunnel remote storage target create should not require base_url");
     assert_eq!(created.name, "Reverse Landing");
     assert!(created.is_default);
 
     let listed =
-        managed_ingress_profile_service::list_remote(&consumer_state, consumer_node_model.id)
+        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
             .await
-            .expect("reverse tunnel ingress profile list should not require base_url");
+            .expect("reverse tunnel remote storage target list should not require base_url");
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].profile_key, created.profile_key);
+    assert_eq!(listed[0].target_key, created.target_key);
 
-    let updated = managed_ingress_profile_service::update_remote(
+    let updated = remote_storage_target_service::update_remote(
         &consumer_state,
         consumer_node_model.id,
-        &created.profile_key,
-        RemoteUpdateIngressProfileRequest {
+        &created.target_key,
+        RemoteUpdateStorageTargetRequest {
             name: Some("Reverse Landing Updated".to_string()),
             base_path: Some("reverse-landing-updated".to_string()),
             ..Default::default()
         },
     )
     .await
-    .expect("reverse tunnel ingress profile update should not require base_url");
+    .expect("reverse tunnel remote storage target update should not require base_url");
     assert_eq!(updated.name, "Reverse Landing Updated");
     assert_eq!(updated.base_path, "reverse-landing-updated");
 
@@ -873,7 +873,7 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
     client
         .put_bytes("reverse-managed-ingress.bin", b"reverse managed ingress")
         .await
-        .expect("updated reverse tunnel ingress profile should accept remote writes");
+        .expect("updated reverse tunnel remote storage target should accept remote writes");
     let stored_path = Path::new(
         &provider_state
             .config
@@ -891,17 +891,17 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         b"reverse managed ingress"
     );
 
-    managed_ingress_profile_service::delete_remote(
+    remote_storage_target_service::delete_remote(
         &consumer_state,
         consumer_node_model.id,
-        &created.profile_key,
+        &created.target_key,
     )
     .await
-    .expect("reverse tunnel ingress profile delete should not require base_url");
+    .expect("reverse tunnel remote storage target delete should not require base_url");
     let listed_after_delete =
-        managed_ingress_profile_service::list_remote(&consumer_state, consumer_node_model.id)
+        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
             .await
-            .expect("reverse tunnel ingress profile list after delete should succeed");
+            .expect("reverse tunnel remote storage target list after delete should succeed");
     assert!(listed_after_delete.is_empty());
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
@@ -920,10 +920,10 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
         tunnel_handle,
     ) = setup_reverse_tunnel_ingress_profile_target(RemoteNodeTransportMode::Auto).await;
 
-    let profile = managed_ingress_profile_service::create_remote(
+    let profile = remote_storage_target_service::create_remote(
         &consumer_state,
         consumer_node_model.id,
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Auto Tunnel Landing".to_string(),
             base_path: "auto-tunnel-landing".to_string(),
             max_file_size: 0,
@@ -931,14 +931,16 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
         }),
     )
     .await
-    .expect("auto ingress profile create should use reverse tunnel when base_url is empty");
+    .expect("auto remote storage target create should use reverse tunnel when base_url is empty");
 
     let listed =
-        managed_ingress_profile_service::list_remote(&consumer_state, consumer_node_model.id)
+        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
             .await
-            .expect("auto ingress profile list should use reverse tunnel when base_url is empty");
+            .expect(
+                "auto remote storage target list should use reverse tunnel when base_url is empty",
+            );
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].profile_key, profile.profile_key);
+    assert_eq!(listed[0].target_key, profile.target_key);
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
     provider_server.stop().await;
@@ -963,14 +965,14 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
     )
     .await;
 
-    let error = managed_ingress_profile_service::create_remote(
+    let error = remote_storage_target_service::create_remote(
         &consumer_state,
         consumer_node.id,
-        RemoteCreateIngressProfileRequest::S3(RemoteCreateS3IngressProfileRequest {
+        RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
             name: "Unsupported S3".to_string(),
             endpoint: "https://s3.example.com".to_string(),
             bucket: "bucket".to_string(),
@@ -1016,15 +1018,15 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
     )
     .await;
 
-    let error = managed_ingress_profile_service::update_remote(
+    let error = remote_storage_target_service::update_remote(
         &consumer_state,
         consumer_node.id,
         "profile-a",
-        RemoteUpdateIngressProfileRequest {
+        RemoteUpdateStorageTargetRequest {
             driver_type: Some(DriverType::S3),
             endpoint: Some("https://s3.example.com".to_string()),
             bucket: Some("bucket".to_string()),
@@ -1070,15 +1072,15 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
     seed_remote_capabilities(
         &consumer_state,
         consumer_node.id,
-        RemoteStorageCapabilities::current().with_managed_ingress_driver_types(vec![]),
+        RemoteStorageCapabilities::current().with_remote_storage_target_driver_types(vec![]),
     )
     .await;
 
-    let error = managed_ingress_profile_service::update_remote(
+    let error = remote_storage_target_service::update_remote(
         &consumer_state,
         consumer_node.id,
         "profile-a",
-        RemoteUpdateIngressProfileRequest {
+        RemoteUpdateStorageTargetRequest {
             name: Some("Rename Only".to_string()),
             ..Default::default()
         },
@@ -1091,7 +1093,9 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
     assert!(
-        error.message().contains("update remote ingress profile"),
+        error
+            .message()
+            .contains("update remote remote storage target"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1116,37 +1120,45 @@ async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabiliti
         &consumer_state,
         consumer_node.id,
         RemoteStorageCapabilities::current()
-            .with_managed_ingress_driver_types(vec![DriverType::Local]),
+            .with_remote_storage_target_driver_types(vec![DriverType::Local]),
     )
     .await;
 
     let app = create_test_app!(consumer_state.clone());
     let (token, _) = register_and_login!(app);
-    let req = test::TestRequest::get()
-        .uri(&format!(
+    for path in [
+        format!(
+            "/api/v1/admin/remote-nodes/{}/storage-target-drivers",
+            consumer_node.id
+        ),
+        format!(
             "/api/v1/admin/remote-nodes/{}/ingress-profile-drivers",
             consumer_node.id
-        ))
-        .insert_header(("Cookie", common::access_cookie_header(&token)))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
+        ),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(&path)
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
 
-    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
-    let body: serde_json::Value = test::read_body_json(resp).await;
-    let descriptors = body["data"]
-        .as_array()
-        .expect("driver descriptors response should contain data array");
-    assert_eq!(descriptors.len(), 1);
-    assert_eq!(descriptors[0]["driver_type"], "local");
-    assert_eq!(
-        descriptors[0]["fields"]
+        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+        let body: serde_json::Value = test::read_body_json(resp).await;
+        let descriptors = body["data"]
             .as_array()
-            .expect("local descriptor fields should be an array")
-            .iter()
-            .map(|field| field["name"].as_str().unwrap_or_default())
-            .collect::<Vec<_>>(),
-        vec!["base_path", "max_file_size", "is_default"]
-    );
+            .expect("driver descriptors response should contain data array");
+        assert_eq!(descriptors.len(), 1);
+        assert_eq!(descriptors[0]["driver_type"], "local");
+        assert_eq!(
+            descriptors[0]["fields"]
+                .as_array()
+                .expect("local descriptor fields should be an array")
+                .iter()
+                .map(|field| field["name"].as_str().unwrap_or_default())
+                .collect::<Vec<_>>(),
+            vec!["base_path", "max_file_size", "is_default"]
+        );
+    }
 }
 
 async fn write_temp_upload_file(
@@ -1535,7 +1547,7 @@ async fn setup_browser_presigned_cors_fixture(
 }
 
 #[tokio::test]
-async fn test_managed_ingress_profile_handles_remote_writes_without_legacy_binding_policy() {
+async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding_policy() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
@@ -1588,10 +1600,10 @@ async fn test_managed_ingress_profile_handles_remote_writes_without_legacy_bindi
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
 
-    let profile = managed_ingress_profile_service::create_remote(
+    let profile = remote_storage_target_service::create_remote(
         &consumer_state,
         consumer_node.id,
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Managed Local".to_string(),
             base_path: "managed-a".to_string(),
             max_file_size: 0,
@@ -1599,7 +1611,7 @@ async fn test_managed_ingress_profile_handles_remote_writes_without_legacy_bindi
         }),
     )
     .await
-    .expect("managed ingress profile should be created through primary");
+    .expect("managed remote storage target should be created through primary");
     assert!(profile.is_default);
     assert_eq!(profile.applied_revision, profile.desired_revision);
 
@@ -1828,8 +1840,8 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("binding should be re-enabled for profile operations");
 
     let profile = client
-        .create_ingress_profile(&RemoteCreateIngressProfileRequest::Local(
-            RemoteCreateLocalIngressProfileRequest {
+        .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
+            RemoteCreateLocalStorageTargetRequest {
                 name: "Profile Audit Local".to_string(),
                 base_path: "profile-audit-a".to_string(),
                 max_file_size: 0,
@@ -1837,7 +1849,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             },
         ))
         .await
-        .expect("ingress profile create should succeed");
+        .expect("remote storage target create should succeed");
     let create_entry = latest_audit_log(
         provider_state.writer_db(),
         aster_drive::types::AuditAction::FollowerIngressProfileCreate,
@@ -1845,25 +1857,25 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     .await;
     assert_eq!(
         create_entry.entity_name.as_deref(),
-        Some(profile.profile_key.as_str())
+        Some(profile.target_key.as_str())
     );
     let create_details = audit_details(&create_entry);
     assert_eq!(create_details["binding_id"], binding.id);
-    assert_eq!(create_details["profile_key"], profile.profile_key);
+    assert_eq!(create_details["target_key"], profile.target_key);
     assert_eq!(create_details["driver_type"], "local");
     assert_eq!(create_details["is_default"], true);
 
     let updated = client
-        .update_ingress_profile(
-            &profile.profile_key,
-            &RemoteUpdateIngressProfileRequest {
+        .update_storage_target(
+            &profile.target_key,
+            &RemoteUpdateStorageTargetRequest {
                 name: Some("Profile Audit Updated".to_string()),
                 base_path: Some("profile-audit-b".to_string()),
                 ..Default::default()
             },
         )
         .await
-        .expect("ingress profile update should succeed");
+        .expect("remote storage target update should succeed");
     let update_entry = latest_audit_log(
         provider_state.writer_db(),
         aster_drive::types::AuditAction::FollowerIngressProfileUpdate,
@@ -1871,18 +1883,18 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     .await;
     assert_eq!(
         update_entry.entity_name.as_deref(),
-        Some(updated.profile_key.as_str())
+        Some(updated.target_key.as_str())
     );
     let update_details = audit_details(&update_entry);
     assert_eq!(update_details["binding_id"], binding.id);
-    assert_eq!(update_details["profile_key"], updated.profile_key);
+    assert_eq!(update_details["target_key"], updated.target_key);
     assert_eq!(update_details["driver_type"], "local");
     assert_eq!(update_details["is_default"], true);
 
     client
-        .delete_ingress_profile(&profile.profile_key)
+        .delete_storage_target(&profile.target_key)
         .await
-        .expect("ingress profile delete should succeed");
+        .expect("remote storage target delete should succeed");
     let delete_entry = latest_audit_log(
         provider_state.writer_db(),
         aster_drive::types::AuditAction::FollowerIngressProfileDelete,
@@ -1890,11 +1902,11 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
     .await;
     assert_eq!(
         delete_entry.entity_name.as_deref(),
-        Some(profile.profile_key.as_str())
+        Some(profile.target_key.as_str())
     );
     let delete_details = audit_details(&delete_entry);
     assert_eq!(delete_details["binding_id"], binding.id);
-    assert_eq!(delete_details["profile_key"], profile.profile_key);
+    assert_eq!(delete_details["target_key"], profile.target_key);
     assert_eq!(delete_details["driver_type"], "local");
     assert_eq!(delete_details["is_default"], true);
 
@@ -1902,7 +1914,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
 }
 
 #[tokio::test]
-async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
+async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
     let provider_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
@@ -1947,8 +1959,8 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
 
     for (client, name) in [(&client_a, "Managed A"), (&client_b, "Managed B")] {
         let profile = client
-            .create_ingress_profile(&RemoteCreateIngressProfileRequest::Local(
-                RemoteCreateLocalIngressProfileRequest {
+            .create_storage_target(&RemoteCreateStorageTargetRequest::Local(
+                RemoteCreateLocalStorageTargetRequest {
                     name: name.to_string(),
                     base_path: "shared-profile".to_string(),
                     max_file_size: 0,
@@ -1956,7 +1968,7 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
                 },
             ))
             .await
-            .expect("managed ingress profile should be created for its binding");
+            .expect("managed remote storage target should be created for its binding");
         assert!(profile.is_default);
         assert_eq!(profile.base_path, "shared-profile");
     }
@@ -2032,10 +2044,10 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
         vec!["same.bin".to_string()]
     );
 
-    let profile_a = managed_ingress_profile_service::create(
+    let profile_a = remote_storage_target_service::create(
         &provider_state.follower_view(),
         &binding_a,
-        RemoteCreateIngressProfileRequest::Local(RemoteCreateLocalIngressProfileRequest {
+        RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Second A".to_string(),
             base_path: "secondary-a".to_string(),
             max_file_size: 0,
@@ -2045,7 +2057,7 @@ async fn test_managed_ingress_profile_api_isolates_multiple_primary_bindings() {
     .await
     .expect("binding a should allow additional scoped profiles");
     let profiles_b = client_b
-        .list_ingress_profiles()
+        .list_storage_targets()
         .await
         .expect("binding b profiles should list");
     assert_eq!(profile_a.base_path, "secondary-a");
@@ -4960,9 +4972,9 @@ async fn test_remote_ingress_profiles_require_completed_enrollment_before_networ
     .await
     .expect("pending remote node should be created");
 
-    let error = managed_ingress_profile_service::list_remote(&consumer_state, remote_node.id)
+    let error = remote_storage_target_service::list_remote(&consumer_state, remote_node.id)
         .await
-        .expect_err("pending remote node should reject remote ingress profile reads");
+        .expect_err("pending remote node should reject remote remote storage target reads");
 
     assert_eq!(
         error.message(),
@@ -4975,7 +4987,7 @@ async fn test_remote_ingress_profiles_require_completed_enrollment_before_networ
     assert_eq!(
         request_count.load(Ordering::Relaxed),
         0,
-        "pending remote ingress profile reads should not send network traffic",
+        "pending remote remote storage target reads should not send network traffic",
     );
 
     provider_server.stop().await;

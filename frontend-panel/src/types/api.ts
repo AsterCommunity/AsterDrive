@@ -321,16 +321,16 @@ export type DriverType = components["schemas"]["DriverType"];
 export type MicrosoftGraphCloud = components["schemas"]["MicrosoftGraphCloud"];
 export type MediaProcessorKind = components["schemas"]["MediaProcessorKind"];
 export type LockPage = components["schemas"]["OffsetPage_ResourceLock"];
-export type RemoteCreateIngressProfileRequest =
-	components["schemas"]["RemoteCreateIngressProfileRequest"];
+export type RemoteCreateStorageTargetRequest =
+	components["schemas"]["RemoteCreateStorageTargetRequest"];
 export type RemoteEnrollmentCommandInfo =
 	components["schemas"]["RemoteEnrollmentCommandInfo"];
-export type RemoteIngressProfileInfo =
-	components["schemas"]["RemoteIngressProfileInfo"];
-export type ManagedIngressDriverFieldDescriptor =
-	components["schemas"]["ManagedIngressDriverFieldDescriptor"];
-export type ManagedIngressDriverDescriptor =
-	OperationData<"list_remote_node_ingress_profile_drivers">[number];
+export type RemoteStorageTargetInfo =
+	components["schemas"]["RemoteStorageTargetInfo"];
+export type RemoteStorageTargetDriverFieldDescriptor =
+	components["schemas"]["RemoteStorageTargetDriverFieldDescriptor"];
+export type RemoteStorageTargetDriverDescriptor =
+	OperationData<"list_remote_node_storage_target_drivers">[number];
 export type RemoteNodeEnrollmentStatus =
 	components["schemas"]["RemoteNodeEnrollmentStatus"];
 export type RemoteNodeInfo = components["schemas"]["RemoteNodeInfo"];
@@ -340,8 +340,8 @@ export type RemoteNodeTransportMode =
 export type RemoteStorageCapabilities =
 	components["schemas"]["RemoteStorageCapabilities"];
 export type RemoteTunnelInfo = components["schemas"]["RemoteTunnelInfo"];
-export type RemoteUpdateIngressProfileRequest =
-	components["schemas"]["RemoteUpdateIngressProfileRequest"];
+export type RemoteUpdateStorageTargetRequest =
+	components["schemas"]["RemoteUpdateStorageTargetRequest"];
 export type RemoteDownloadStrategy =
 	components["schemas"]["RemoteDownloadStrategy"];
 export type RemoteUploadStrategy =

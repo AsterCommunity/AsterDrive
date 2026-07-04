@@ -8,7 +8,11 @@
 
 - [架构概览](./architecture.md)
 - [关键模块设计说明](./module-designs.md)
+- [后端服务所有权边界](./backend-service-ownership.md)
 - [外部认证模块](./external-auth.md)
+- [远端存储目标与策略归属](./remote-storage-target-policy-ownership.md)
+- [存储 descriptor 与字段规范化契约](./storage-descriptor-normalization-contract.md)
+- [上传完成契约矩阵](./upload-finalization-contracts.md)
 - [API 概览](./api/index.md)
 - [标签 API](./api/tags.md)
 - [测试与数据库后端](./testing.md)

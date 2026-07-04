@@ -35,7 +35,7 @@ pub struct RemoteStorageCapabilities {
     #[serde(default)]
     pub limits: RemoteStorageProtocolLimits,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub managed_ingress: Option<RemoteManagedIngressCapabilities>,
+    pub managed_ingress: Option<RemoteStorageTargetCapabilities>,
     #[serde(default)]
     pub supports_list: bool,
     #[serde(default)]
@@ -62,7 +62,7 @@ impl RemoteStorageCapabilities {
             features: RemoteStorageFeatureFlags::current(),
             browser_cors: RemoteStorageBrowserCorsContract::current(),
             limits: RemoteStorageProtocolLimits::default(),
-            managed_ingress: Some(RemoteManagedIngressCapabilities::default()),
+            managed_ingress: Some(RemoteStorageTargetCapabilities::default()),
             supports_list: true,
             supports_range_read: true,
             supports_stream_upload: true,
@@ -86,14 +86,17 @@ impl RemoteStorageCapabilities {
         }
     }
 
-    pub fn with_managed_ingress_driver_types(mut self, driver_types: Vec<DriverType>) -> Self {
-        self.managed_ingress = Some(RemoteManagedIngressCapabilities::from_known_driver_types(
+    pub fn with_remote_storage_target_driver_types(
+        mut self,
+        driver_types: Vec<DriverType>,
+    ) -> Self {
+        self.managed_ingress = Some(RemoteStorageTargetCapabilities::from_known_driver_types(
             driver_types,
         ));
         self
     }
 
-    pub fn effective_managed_ingress(&self) -> RemoteManagedIngressCapabilities {
+    pub fn effective_remote_storage_targets(&self) -> RemoteStorageTargetCapabilities {
         if let Some(capabilities) = &self.managed_ingress {
             return capabilities.clone();
         }
@@ -101,10 +104,10 @@ impl RemoteStorageCapabilities {
         if parse_protocol_version(&self.protocol_version)
             == Some(LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION)
         {
-            return RemoteManagedIngressCapabilities::legacy_v4_default();
+            return RemoteStorageTargetCapabilities::legacy_v4_default();
         }
 
-        RemoteManagedIngressCapabilities::default()
+        RemoteStorageTargetCapabilities::default()
     }
 
     pub fn from_stored_json(raw: &str) -> Self {
@@ -322,19 +325,19 @@ impl RemoteStorageCapabilities {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteManagedIngressCapabilities {
+pub struct RemoteStorageTargetCapabilities {
     pub enabled: bool,
     #[serde(default)]
-    pub driver_types: Vec<RemoteManagedIngressDriverType>,
+    pub driver_types: Vec<RemoteStorageTargetDriverType>,
 }
 
-impl RemoteManagedIngressCapabilities {
+impl RemoteStorageTargetCapabilities {
     pub fn from_known_driver_types(driver_types: Vec<DriverType>) -> Self {
         Self {
             enabled: !driver_types.is_empty(),
             driver_types: driver_types
                 .into_iter()
-                .map(RemoteManagedIngressDriverType::from_known_driver_type)
+                .map(RemoteStorageTargetDriverType::from_known_driver_type)
                 .collect(),
         }
     }
@@ -355,9 +358,9 @@ impl RemoteManagedIngressCapabilities {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 #[serde(transparent)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteManagedIngressDriverType(String);
+pub struct RemoteStorageTargetDriverType(String);
 
-impl RemoteManagedIngressDriverType {
+impl RemoteStorageTargetDriverType {
     pub fn from_known_driver_type(driver_type: DriverType) -> Self {
         Self(driver_type.as_str().to_string())
     }
@@ -525,8 +528,8 @@ pub struct RemoteBindingSyncRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteIngressProfileInfo {
-    pub profile_key: String,
+pub struct RemoteStorageTargetInfo {
+    pub target_key: String,
     pub name: String,
     pub driver_type: DriverType,
     pub endpoint: String,
@@ -546,12 +549,12 @@ pub struct RemoteIngressProfileInfo {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "driver_type", rename_all = "lowercase")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum RemoteCreateIngressProfileRequest {
-    Local(RemoteCreateLocalIngressProfileRequest),
-    S3(RemoteCreateS3IngressProfileRequest),
+pub enum RemoteCreateStorageTargetRequest {
+    Local(RemoteCreateLocalStorageTargetRequest),
+    S3(RemoteCreateS3StorageTargetRequest),
 }
 
-impl RemoteCreateIngressProfileRequest {
+impl RemoteCreateStorageTargetRequest {
     pub fn driver_type(&self) -> DriverType {
         match self {
             Self::Local(_) => DriverType::Local,
@@ -562,7 +565,7 @@ impl RemoteCreateIngressProfileRequest {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteCreateLocalIngressProfileRequest {
+pub struct RemoteCreateLocalStorageTargetRequest {
     pub name: String,
     pub base_path: String,
     pub max_file_size: i64,
@@ -572,7 +575,7 @@ pub struct RemoteCreateLocalIngressProfileRequest {
 
 #[derive(Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteCreateS3IngressProfileRequest {
+pub struct RemoteCreateS3StorageTargetRequest {
     pub name: String,
     pub endpoint: String,
     pub bucket: String,
@@ -584,9 +587,9 @@ pub struct RemoteCreateS3IngressProfileRequest {
     pub is_default: bool,
 }
 
-impl fmt::Debug for RemoteCreateS3IngressProfileRequest {
+impl fmt::Debug for RemoteCreateS3StorageTargetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RemoteCreateS3IngressProfileRequest")
+        f.debug_struct("RemoteCreateS3StorageTargetRequest")
             .field("name", &self.name)
             .field("endpoint", &self.endpoint)
             .field("bucket", &self.bucket)
@@ -601,7 +604,7 @@ impl fmt::Debug for RemoteCreateS3IngressProfileRequest {
 
 #[derive(Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct RemoteUpdateIngressProfileRequest {
+pub struct RemoteUpdateStorageTargetRequest {
     pub name: Option<String>,
     pub driver_type: Option<DriverType>,
     pub endpoint: Option<String>,
@@ -613,9 +616,9 @@ pub struct RemoteUpdateIngressProfileRequest {
     pub is_default: Option<bool>,
 }
 
-impl fmt::Debug for RemoteUpdateIngressProfileRequest {
+impl fmt::Debug for RemoteUpdateStorageTargetRequest {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("RemoteUpdateIngressProfileRequest")
+        f.debug_struct("RemoteUpdateStorageTargetRequest")
             .field("name", &self.name)
             .field("driver_type", &self.driver_type)
             .field("endpoint", &self.endpoint)

@@ -94,7 +94,7 @@
 	"settings_enum_group_folder": "Folder",
 	"settings_enum_group_property": "Property",
 	"settings_enum_group_remote": "Remote node",
-	"settings_enum_group_remote_ingress": "Remote ingress",
+	"settings_enum_group_remote_ingress": "Remote storage target",
 	"settings_enum_group_share": "Share",
 	"settings_enum_group_system": "System",
 	"settings_enum_group_task": "Task",

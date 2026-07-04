@@ -17,12 +17,12 @@ export default function AdminRemoteNodesPage() {
 	const {
 		copyToClipboard,
 		createButtonTitle,
-		createManagedIngressProfile,
+		createRemoteStorageTarget,
 		createStep,
 		createStepTouched,
 		currentPage,
 		deleteDialogProps,
-		deleteManagedIngressProfile,
+		deleteRemoteStorageTarget,
 		deleteNodeName,
 		deletingRemoteNodeId,
 		dialogOpen,
@@ -45,12 +45,12 @@ export default function AdminRemoteNodesPage() {
 		handleSubmit,
 		handleVerifyEnrollmentConnection,
 		loading,
-		managedIngressProfiles,
-		managedIngressDriverDescriptors,
-		managedIngressDriverDescriptorsError,
-		managedIngressDriverDescriptorsLoading,
-		managedIngressProfilesError,
-		managedIngressProfilesLoading,
+		remoteStorageTargets,
+		remoteStorageTargetDriverDescriptors,
+		remoteStorageTargetDriverDescriptorsError,
+		remoteStorageTargetDriverDescriptorsLoading,
+		remoteStorageTargetsError,
+		remoteStorageTargetsLoading,
 		nextPageDisabled,
 		openCreate,
 		openEdit,
@@ -68,7 +68,7 @@ export default function AdminRemoteNodesPage() {
 		t,
 		total,
 		totalPages,
-		updateManagedIngressProfile,
+		updateRemoteStorageTarget,
 	} = controller;
 
 	return (
@@ -150,21 +150,23 @@ export default function AdminRemoteNodesPage() {
 					submitting={submitting}
 					createStep={createStep}
 					createStepTouched={createStepTouched}
-					managedIngressProfilesEnabled={
+					remoteStorageTargetsEnabled={
 						editingId !== null &&
 						editingNode !== null &&
 						hasCompletedRemoteNodeEnrollment(editingNode)
 					}
-					managedIngressProfiles={managedIngressProfiles}
-					managedIngressDriverDescriptors={managedIngressDriverDescriptors}
-					managedIngressDriverDescriptorsError={
-						managedIngressDriverDescriptorsError
+					remoteStorageTargets={remoteStorageTargets}
+					remoteStorageTargetDriverDescriptors={
+						remoteStorageTargetDriverDescriptors
 					}
-					managedIngressDriverDescriptorsLoading={
-						managedIngressDriverDescriptorsLoading
+					remoteStorageTargetDriverDescriptorsError={
+						remoteStorageTargetDriverDescriptorsError
 					}
-					managedIngressProfilesLoading={managedIngressProfilesLoading}
-					managedIngressProfilesError={managedIngressProfilesError}
+					remoteStorageTargetDriverDescriptorsLoading={
+						remoteStorageTargetDriverDescriptorsLoading
+					}
+					remoteStorageTargetsLoading={remoteStorageTargetsLoading}
+					remoteStorageTargetsError={remoteStorageTargetsError}
 					onFieldChange={setField}
 					onOpenChange={handleDialogOpenChange}
 					onRunConnectionTest={() => runConnectionTest()}
@@ -172,9 +174,9 @@ export default function AdminRemoteNodesPage() {
 					onCreateBack={handleCreateBack}
 					onCreateNext={handleCreateNext}
 					onCreateStepChange={handleCreateStepChange}
-					onCreateManagedIngressProfile={createManagedIngressProfile}
-					onUpdateManagedIngressProfile={updateManagedIngressProfile}
-					onDeleteManagedIngressProfile={deleteManagedIngressProfile}
+					onCreateRemoteStorageTarget={createRemoteStorageTarget}
+					onUpdateRemoteStorageTarget={updateRemoteStorageTarget}
+					onDeleteRemoteStorageTarget={deleteRemoteStorageTarget}
 				/>
 				<RemoteNodeEnrollmentDialog
 					open={enrollmentDialogOpen}

@@ -641,7 +641,7 @@ Migration is not alphabetical dump order. `COPY_TABLE_ORDER` fixes the sequence 
 - `external_auth_login_flows`
 - `external_auth_email_verification_flows`
 - `master_bindings`
-- `managed_ingress_profiles`
+- `remote_storage_targets`
 - `system_config`
 - `audit_logs`
 - `mail_outbox`

@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-	getRemoteNodeManagedIngressDriverBadgeTone,
-	getRemoteNodeManagedIngressProfileStatus,
-} from "@/components/admin/admin-remote-nodes-page/remoteNodeManagedIngressPresentation";
-import type { RemoteIngressProfileInfo } from "@/types/api";
+	getRemoteNodeRemoteStorageTargetDriverBadgeTone,
+	getRemoteNodeRemoteStorageTargetProfileStatus,
+} from "@/components/admin/admin-remote-nodes-page/remoteNodeRemoteStorageTargetPresentation";
+import type { RemoteStorageTargetInfo } from "@/types/api";
 
 const profile = (
-	overrides: Partial<RemoteIngressProfileInfo> = {},
-): RemoteIngressProfileInfo => ({
+	overrides: Partial<RemoteStorageTargetInfo> = {},
+): RemoteStorageTargetInfo => ({
 	applied_revision: 3,
 	base_path: "incoming",
 	bucket: "",
@@ -19,15 +19,15 @@ const profile = (
 	last_error: "",
 	max_file_size: 0,
 	name: "Default",
-	profile_key: "default",
+	target_key: "default",
 	updated_at: "2026-05-02T00:00:00Z",
 	...overrides,
 });
 
-describe("remoteNodeManagedIngressPresentation", () => {
+describe("remoteNodeRemoteStorageTargetPresentation", () => {
 	it("prioritizes error status over revision drift", () => {
 		expect(
-			getRemoteNodeManagedIngressProfileStatus(
+			getRemoteNodeRemoteStorageTargetProfileStatus(
 				profile({
 					applied_revision: 1,
 					desired_revision: 3,
@@ -42,22 +42,26 @@ describe("remoteNodeManagedIngressPresentation", () => {
 
 	it("detects pending and ready profile statuses", () => {
 		expect(
-			getRemoteNodeManagedIngressProfileStatus(
+			getRemoteNodeRemoteStorageTargetProfileStatus(
 				profile({ applied_revision: 1, desired_revision: 2 }),
 			),
 		).toMatchObject({
 			labelKey: "remote_node_ingress_profile_status_pending",
 			toneClass: expect.stringContaining("amber"),
 		});
-		expect(getRemoteNodeManagedIngressProfileStatus(profile())).toMatchObject({
+		expect(
+			getRemoteNodeRemoteStorageTargetProfileStatus(profile()),
+		).toMatchObject({
 			labelKey: "remote_node_ingress_profile_status_ready",
 			toneClass: expect.stringContaining("emerald"),
 		});
 	});
 
 	it("maps driver types to badge tones", () => {
-		expect(getRemoteNodeManagedIngressDriverBadgeTone("s3")).toContain("blue");
-		expect(getRemoteNodeManagedIngressDriverBadgeTone("local")).toContain(
+		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("s3")).toContain(
+			"blue",
+		);
+		expect(getRemoteNodeRemoteStorageTargetDriverBadgeTone("local")).toContain(
 			"slate",
 		);
 	});

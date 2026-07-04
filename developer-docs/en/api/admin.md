@@ -313,10 +313,13 @@ Remote nodes are follower storage nodes managed by the primary, mainly for `driv
 | `POST` | `/admin/remote-nodes/{id}/test` | Test saved remote-node connection |
 | `POST` | `/admin/remote-nodes/test` | Test draft remote-node connection |
 | `POST` | `/admin/remote-nodes/{id}/enrollment-token` | Generate follower enrollment command |
-| `GET` | `/admin/remote-nodes/{id}/ingress-profiles` | List follower managed ingress profiles |
-| `POST` | `/admin/remote-nodes/{id}/ingress-profiles` | Create follower ingress profile |
-| `PATCH` | `/admin/remote-nodes/{id}/ingress-profiles/{profile_key}` | Update follower ingress profile |
-| `DELETE` | `/admin/remote-nodes/{id}/ingress-profiles/{profile_key}` | Delete follower ingress profile |
+| `GET` | `/admin/remote-nodes/{id}/storage-target-drivers` | List follower remote storage target driver descriptors |
+| `GET` | `/admin/remote-nodes/{id}/storage-targets` | List follower remote storage targets |
+| `POST` | `/admin/remote-nodes/{id}/storage-targets` | Create follower remote storage target |
+| `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower remote storage target |
+| `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete follower remote storage target |
+
+`/ingress-profile-drivers` and `/ingress-profiles` remain deprecated compatibility aliases since 0.4.0. New code should prefer `/storage-target-drivers` and `/storage-targets`; DTO field names use `target_key`.
 
 Create example:
 
@@ -338,7 +341,7 @@ Notes:
 - empty `base_url` usually means the enrollment flow will complete binding later
 - remote-node details include `transport_mode`, `enrollment_status`, `last_error`, `capabilities`, `last_checked_at`, and `tunnel`
 - reverse tunnel cannot be combined with remote browser presigned upload / download strategies
-- ingress profile request bodies match the follower internal storage protocol; see [Internal storage protocol](./internal-storage.md)
+- remote storage target request bodies match the follower internal storage protocol; see [Internal storage protocol](./internal-storage.md)
 
 ## External authentication providers
 
