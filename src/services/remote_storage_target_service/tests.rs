@@ -85,7 +85,7 @@ async fn setup_state() -> TestFollowerState {
     migration::Migrator::up(&db, None).await.unwrap();
 
     let root = std::env::temp_dir().join(format!(
-        "aster-managed-ingress-service-root-{}",
+        "aster-remote-storage-target-service-root-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).unwrap();
@@ -172,7 +172,7 @@ fn model_with_driver(driver_type: DriverType) -> remote_storage_target::Model {
     remote_storage_target::Model {
         id: 1,
         master_binding_id: 1,
-        target_key: "igp_test".to_string(),
+        target_key: "rst_test".to_string(),
         name: "test".to_string(),
         driver_type,
         endpoint: String::new(),
@@ -226,7 +226,7 @@ fn normalize_relative_local_path_rejects_backslash_escape_attempts() {
 #[test]
 fn resolve_remote_storage_target_local_path_allows_missing_child_inside_root() {
     let root = std::env::temp_dir().join(format!(
-        "aster-managed-ingress-root-{}",
+        "aster-remote-storage-target-root-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).unwrap();
@@ -248,11 +248,11 @@ fn resolve_remote_storage_target_local_path_allows_missing_child_inside_root() {
 #[test]
 fn resolve_remote_storage_target_local_path_rejects_symlink_escape() {
     let root = std::env::temp_dir().join(format!(
-        "aster-managed-ingress-root-{}",
+        "aster-remote-storage-target-root-{}",
         uuid::Uuid::new_v4()
     ));
     let outside = std::env::temp_dir().join(format!(
-        "aster-managed-ingress-outside-{}",
+        "aster-remote-storage-target-outside-{}",
         uuid::Uuid::new_v4()
     ));
     fs::create_dir_all(&root).unwrap();

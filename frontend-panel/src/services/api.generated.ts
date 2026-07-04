@@ -11822,7 +11822,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed remote storage targets require a single primary binding */
+            /** @description Remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -11899,7 +11899,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed remote storage targets require a single primary binding */
+            /** @description Remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -11950,7 +11950,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed remote storage targets require a single primary binding */
+            /** @description Remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;
@@ -12029,7 +12029,7 @@ export interface operations {
                 };
                 content?: never;
             };
-            /** @description Managed remote storage targets require a single primary binding */
+            /** @description Remote storage targets require a single primary binding */
             412: {
                 headers: {
                     [name: string]: unknown;

@@ -126,7 +126,7 @@ Environment=ASTER__AUTH__JWT_SECRET=replace-with-your-own-secret
 
 ```ini
 Environment=ASTER__SERVER__START_MODE=follower
-Environment=ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/srv/asterdrive/managed-ingress
+Environment=ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/srv/asterdrive/remote-storage-targets
 ```
 
 如果还想让从节点启动时自动完成一次性 enroll，可以临时加上：

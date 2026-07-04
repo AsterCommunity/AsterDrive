@@ -47,7 +47,7 @@ interface RemoteNodeEditFormProps {
 	) => Promise<void>;
 	onFieldChange: RemoteNodeFieldChangeHandler;
 	onUpdateRemoteStorageTarget?: (
-		profileKey: string,
+		target_key: string,
 		payload: RemoteUpdateStorageTargetRequest,
 	) => Promise<void>;
 	summaryItems: RemoteNodeSummaryItem[];
@@ -150,7 +150,7 @@ export function RemoteNodeEditForm({
 				onUpdateRemoteStorageTarget &&
 				onDeleteRemoteStorageTarget ? (
 					<RemoteNodeRemoteStorageTargetSection
-						profiles={remoteStorageTargets}
+						targets={remoteStorageTargets}
 						driverDescriptors={remoteStorageTargetDriverDescriptors}
 						loading={
 							remoteStorageTargetsLoading ||
@@ -160,9 +160,9 @@ export function RemoteNodeEditForm({
 							remoteStorageTargetsError ??
 							remoteStorageTargetDriverDescriptorsError
 						}
-						onCreateProfile={onCreateRemoteStorageTarget}
-						onUpdateProfile={onUpdateRemoteStorageTarget}
-						onDeleteProfile={onDeleteRemoteStorageTarget}
+						onCreateTarget={onCreateRemoteStorageTarget}
+						onUpdateTarget={onUpdateRemoteStorageTarget}
+						onDeleteTarget={onDeleteRemoteStorageTarget}
 					/>
 				) : null}
 

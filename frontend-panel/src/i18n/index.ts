@@ -115,7 +115,7 @@ const SPLIT_NAMESPACE_PARTS: Partial<
 		"tasks",
 		"thumbnails",
 		"avatar",
-		"remote-storage-targets",
+		"managed-ingress",
 		"remote-nodes",
 		"workspace",
 		"external-auth",

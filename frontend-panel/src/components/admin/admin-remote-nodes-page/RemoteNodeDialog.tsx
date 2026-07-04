@@ -67,7 +67,7 @@ interface RemoteNodeDialogProps {
 	onRunConnectionTest: () => Promise<boolean>;
 	onSubmit: () => void;
 	onUpdateRemoteStorageTarget?: (
-		profileKey: string,
+		target_key: string,
 		payload: RemoteUpdateStorageTargetRequest,
 	) => Promise<void>;
 	open: boolean;

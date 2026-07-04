@@ -5,7 +5,7 @@ use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::RemoteStorageTargetInfo;
 
 #[derive(Clone)]
-pub struct ResolvedIngressTarget {
+pub struct ResolvedRemoteStorageTarget {
     pub driver: Arc<dyn StorageDriver>,
     pub max_file_size: i64,
 }

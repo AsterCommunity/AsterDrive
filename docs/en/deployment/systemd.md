@@ -126,7 +126,7 @@ Environment=ASTER__AUTH__JWT_SECRET=replace-with-your-own-secret
 
 ```ini
 Environment=ASTER__SERVER__START_MODE=follower
-Environment=ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/srv/asterdrive/managed-ingress
+Environment=ASTER__SERVER__FOLLOWER__REMOTE_STORAGE_TARGET_LOCAL_ROOT=/srv/asterdrive/remote-storage-targets
 ```
 
 If you also want the follower node to complete one-time enrollment during startup, temporarily add:

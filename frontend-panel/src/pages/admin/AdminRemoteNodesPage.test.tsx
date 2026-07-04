@@ -106,7 +106,7 @@ vi.mock("@/components/admin/admin-remote-nodes-page/RemoteNodeDialog", () => ({
 		onRunConnectionTest: () => Promise<boolean>;
 		onSubmit: () => void;
 		onUpdateRemoteStorageTarget: (
-			profileKey: string,
+			target_key: string,
 			payload: unknown,
 		) => Promise<void>;
 		open: boolean;

@@ -140,7 +140,7 @@ default
 start_mode = "follower"
 
 [server.follower]
-remote_storage_target_local_root = "data/remote-storage-targets"
+remote_storage_target_local_root = "remote-storage-targets"
 ```
 
 如果你是 Docker 部署，也可以用环境变量覆盖：
@@ -261,7 +261,7 @@ enroll 前 `/health/ready` 返回 `503` 不代表服务故障。
 
 ```toml
 [server.follower]
-remote_storage_target_local_root = "data/remote-storage-targets"
+remote_storage_target_local_root = "remote-storage-targets"
 ```
 
 也就是说，`base_path = "default"` 最终会落到 follower 的 `data/remote-storage-targets/default` 这一类目录下面。

@@ -5,12 +5,12 @@ use crate::errors::{Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
 
 use super::driver::build_driver_from_target;
-use super::models::ResolvedIngressTarget;
+use super::models::ResolvedRemoteStorageTarget;
 
 pub async fn resolve_effective_target<S: FollowerRuntimeState>(
     state: &S,
     binding: &master_binding::Model,
-) -> Result<ResolvedIngressTarget> {
+) -> Result<ResolvedRemoteStorageTarget> {
     let targets =
         remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id).await?;
     if targets.is_empty() {
@@ -32,7 +32,7 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
         return Err(precondition_failed_with_code(
             ApiErrorCode::ManagedIngressDefaultError,
             format!(
-                "managed remote storage target '{}' is not ready: {}",
+                "remote storage target '{}' is not ready: {}",
                 target.target_key, target.last_error
             ),
         ));
@@ -41,14 +41,14 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
         return Err(precondition_failed_with_code(
             ApiErrorCode::ManagedIngressDefaultNotApplied,
             format!(
-                "managed remote storage target '{}' is pending apply",
+                "remote storage target '{}' is pending apply",
                 target.target_key
             ),
         ));
     }
 
     let driver = build_driver_from_target(state, &target)?;
-    Ok(ResolvedIngressTarget {
+    Ok(ResolvedRemoteStorageTarget {
         driver,
         max_file_size: target.max_file_size,
     })

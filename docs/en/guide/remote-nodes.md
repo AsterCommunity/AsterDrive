@@ -140,7 +140,7 @@ The most direct approach is editing `config.toml`:
 start_mode = "follower"
 
 [server.follower]
-remote_storage_target_local_root = "data/remote-storage-targets"
+remote_storage_target_local_root = "remote-storage-targets"
 ```
 
 If you deploy with Docker, you can also override with environment variables:
@@ -261,7 +261,7 @@ The local path here **can only be relative** and is always restricted under the 
 
 ```toml
 [server.follower]
-remote_storage_target_local_root = "data/remote-storage-targets"
+remote_storage_target_local_root = "remote-storage-targets"
 ```
 
 That means `base_path = "default"` ultimately lands under a directory such as `data/remote-storage-targets/default` on the follower.

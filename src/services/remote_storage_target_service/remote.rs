@@ -63,7 +63,7 @@ pub async fn delete_remote<S: RemoteProtocolRuntimeState>(
     tracing::debug!(
         remote_node_id,
         target_key,
-        "deleting remote managed remote storage target"
+        "deleting remote storage target on remote node"
     );
     remote_client_for_node(state, remote_node_id)
         .await?
@@ -72,7 +72,7 @@ pub async fn delete_remote<S: RemoteProtocolRuntimeState>(
     tracing::info!(
         remote_node_id,
         target_key,
-        "deleted remote managed remote storage target"
+        "deleted remote storage target on remote node"
     );
     Ok(())
 }

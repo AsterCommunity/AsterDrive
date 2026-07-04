@@ -279,26 +279,26 @@ function renderSection({
 	driverDescriptors = defaultDriverDescriptors,
 	errorMessage = null,
 	loading = false,
-	onCreateProfile = vi.fn().mockResolvedValue(undefined),
-	onDeleteProfile = vi.fn().mockResolvedValue(undefined),
-	onUpdateProfile = vi.fn().mockResolvedValue(undefined),
-	profiles = [] as RemoteStorageTargetInfo[],
+	onCreateTarget = vi.fn().mockResolvedValue(undefined),
+	onDeleteTarget = vi.fn().mockResolvedValue(undefined),
+	onUpdateTarget = vi.fn().mockResolvedValue(undefined),
+	targets = [] as RemoteStorageTargetInfo[],
 } = {}) {
 	render(
 		<RemoteNodeRemoteStorageTargetSection
 			driverDescriptors={driverDescriptors}
 			errorMessage={errorMessage}
 			loading={loading}
-			onCreateProfile={onCreateProfile}
-			onDeleteProfile={onDeleteProfile}
-			onUpdateProfile={onUpdateProfile}
-			profiles={profiles}
+			onCreateTarget={onCreateTarget}
+			onDeleteTarget={onDeleteTarget}
+			onUpdateTarget={onUpdateTarget}
+			targets={targets}
 		/>,
 	);
 	return {
-		onCreateProfile,
-		onDeleteProfile,
-		onUpdateProfile,
+		onCreateTarget,
+		onDeleteTarget,
+		onUpdateTarget,
 	};
 }
 
@@ -313,10 +313,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={vi.fn()}
-				onUpdateProfile={vi.fn()}
-				profiles={[]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
 			/>,
 		);
 
@@ -327,10 +327,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={vi.fn()}
-				onUpdateProfile={vi.fn()}
-				profiles={[]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
 			/>,
 		);
 
@@ -343,10 +343,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage="cannot reach node"
 				loading={false}
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={vi.fn()}
-				onUpdateProfile={vi.fn()}
-				profiles={[]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
 			/>,
 		);
 
@@ -359,7 +359,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	});
 
 	it("creates the first local profile as the default", async () => {
-		const { onCreateProfile } = renderSection();
+		const { onCreateTarget } = renderSection();
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -381,7 +381,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
-			expect(onCreateProfile).toHaveBeenCalledWith({
+			expect(onCreateTarget).toHaveBeenCalledWith({
 				access_key: "",
 				base_path: "teams/incoming",
 				bucket: "",
@@ -398,7 +398,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		).not.toBeInTheDocument();
 	});
 
-	it("does not create profiles when no supported driver descriptor is returned", () => {
+	it("does not create targets when no supported driver descriptor is returned", () => {
 		renderSection({ driverDescriptors: [] });
 
 		expect(
@@ -409,7 +409,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	});
 
 	it("validates S3 credentials on create and submits normalized fields", async () => {
-		const { onCreateProfile } = renderSection({ profiles: [profile()] });
+		const { onCreateTarget } = renderSection({ targets: [profile()] });
 
 		fireEvent.click(
 			screen.getByRole("button", {
@@ -449,7 +449,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
 
 		await waitFor(() => {
-			expect(onCreateProfile).toHaveBeenCalledWith(
+			expect(onCreateTarget).toHaveBeenCalledWith(
 				expect.objectContaining({
 					access_key: "access",
 					bucket: "raw-bucket",
@@ -462,7 +462,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		});
 	});
 
-	it("edits existing S3 profiles without requiring unchanged credentials", async () => {
+	it("edits existing S3 targets without requiring unchanged credentials", async () => {
 		const existing = profile({
 			base_path: "prefix",
 			bucket: "bucket-a",
@@ -472,7 +472,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 			name: "S3 ingress",
 			target_key: "s3-default",
 		});
-		const { onUpdateProfile } = renderSection({ profiles: [existing] });
+		const { onUpdateTarget } = renderSection({ targets: [existing] });
 
 		fireEvent.click(screen.getByRole("button", { name: "core:edit" }));
 		expect(
@@ -487,7 +487,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		fireEvent.click(screen.getByRole("button", { name: /save_changes/ }));
 
 		await waitFor(() => {
-			expect(onUpdateProfile).toHaveBeenCalledWith("s3-default", {
+			expect(onUpdateTarget).toHaveBeenCalledWith("s3-default", {
 				base_path: "next-prefix",
 				bucket: "bucket-a",
 				driver_type: "s3",
@@ -501,16 +501,16 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 
 	it("confirms deletion and resets an edited draft when the profile disappears", async () => {
 		const existing = profile();
-		const onDeleteProfile = vi.fn().mockResolvedValue(undefined);
+		const onDeleteTarget = vi.fn().mockResolvedValue(undefined);
 		const { rerender } = render(
 			<RemoteNodeRemoteStorageTargetSection
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={onDeleteProfile}
-				onUpdateProfile={vi.fn()}
-				profiles={[existing]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={onDeleteTarget}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
 			/>,
 		);
 
@@ -524,10 +524,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={onDeleteProfile}
-				onUpdateProfile={vi.fn()}
-				profiles={[]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={onDeleteTarget}
+				onUpdateTarget={vi.fn()}
+				targets={[]}
 			/>,
 		);
 
@@ -540,10 +540,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				driverDescriptors={defaultDriverDescriptors}
 				errorMessage={null}
 				loading={false}
-				onCreateProfile={vi.fn()}
-				onDeleteProfile={onDeleteProfile}
-				onUpdateProfile={vi.fn()}
-				profiles={[existing]}
+				onCreateTarget={vi.fn()}
+				onDeleteTarget={onDeleteTarget}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
 			/>,
 		);
 		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
@@ -559,13 +559,13 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				name: "core:cancel",
 			}),
 		);
-		expect(onDeleteProfile).not.toHaveBeenCalled();
+		expect(onDeleteTarget).not.toHaveBeenCalled();
 
 		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
 		fireEvent.click(screen.getAllByRole("button", { name: "core:delete" })[0]);
 
 		await waitFor(() => {
-			expect(onDeleteProfile).toHaveBeenCalledWith(existing);
+			expect(onDeleteTarget).toHaveBeenCalledWith(existing);
 		});
 	});
 });

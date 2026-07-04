@@ -1,6 +1,7 @@
 import { normalizeObjectStorageConnectionFields } from "@/lib/objectStorageConnectionFields";
 import type {
 	RemoteCreateStorageTargetRequest,
+	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
 	RemoteUpdateStorageTargetRequest,
 } from "@/types/api";
@@ -25,6 +26,26 @@ export interface RemoteStorageTargetFormData {
 	is_default: boolean;
 }
 
+export type RemoteStorageTargetSupportedFields =
+	| ReadonlySet<string>
+	| Pick<RemoteStorageTargetDriverDescriptor, "fields">;
+
+function toRemoteStorageTargetFieldSet(
+	supportedFields: RemoteStorageTargetSupportedFields,
+): ReadonlySet<string> {
+	return "fields" in supportedFields
+		? new Set(supportedFields.fields.map((field) => field.name))
+		: supportedFields;
+}
+
+function supportedFieldValue(
+	form: RemoteStorageTargetFormData,
+	fieldNames: ReadonlySet<string>,
+	fieldName: "access_key" | "bucket" | "endpoint" | "secret_key",
+): string {
+	return fieldNames.has(fieldName) ? form[fieldName].trim() : "";
+}
+
 export function getRemoteStorageTargetForm(
 	profile: RemoteStorageTargetInfo,
 ): RemoteStorageTargetFormData {
@@ -43,26 +64,24 @@ export function getRemoteStorageTargetForm(
 
 function normalizeRemoteStorageTargetForm(
 	form: RemoteStorageTargetFormData,
+	supportedFields: RemoteStorageTargetSupportedFields,
 ): RemoteStorageTargetFormData {
-	if (form.driver_type !== "s3") {
-		return {
-			...form,
-			name: form.name.trim(),
-			base_path: form.base_path.trim(),
-			endpoint: "",
-			bucket: "",
-		};
-	}
+	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
+	const endpoint = supportedFieldValue(form, fieldNames, "endpoint");
+	const bucket = supportedFieldValue(form, fieldNames, "bucket");
+	const shouldNormalizeObjectStorageFields =
+		fieldNames.has("endpoint") && fieldNames.has("bucket");
 
-	const normalized = normalizeObjectStorageConnectionFields(
-		form.endpoint,
-		form.bucket,
-	);
+	const normalized = shouldNormalizeObjectStorageFields
+		? normalizeObjectStorageConnectionFields(endpoint, bucket)
+		: { endpoint, bucket };
 	return {
 		...form,
 		name: form.name.trim(),
 		endpoint: normalized.endpoint,
 		bucket: normalized.bucket,
+		access_key: supportedFieldValue(form, fieldNames, "access_key"),
+		secret_key: supportedFieldValue(form, fieldNames, "secret_key"),
 		base_path: form.base_path.trim(),
 	};
 }
@@ -74,17 +93,17 @@ function parseMaxFileSize(value: string): number {
 
 export function buildCreateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
+	supportedFields: RemoteStorageTargetSupportedFields,
 ): RemoteCreateStorageTargetRequest {
-	const normalized = normalizeRemoteStorageTargetForm(form);
-	const isS3 = normalized.driver_type === "s3";
+	const normalized = normalizeRemoteStorageTargetForm(form, supportedFields);
 
 	return {
 		name: normalized.name,
 		driver_type: normalized.driver_type,
-		endpoint: isS3 ? normalized.endpoint.trim() : "",
-		bucket: isS3 ? normalized.bucket.trim() : "",
-		access_key: isS3 ? normalized.access_key.trim() : "",
-		secret_key: isS3 ? normalized.secret_key.trim() : "",
+		endpoint: normalized.endpoint,
+		bucket: normalized.bucket,
+		access_key: normalized.access_key,
+		secret_key: normalized.secret_key,
 		base_path: normalized.base_path,
 		max_file_size: parseMaxFileSize(normalized.max_file_size),
 		is_default: normalized.is_default,
@@ -93,11 +112,14 @@ export function buildCreateRemoteStorageTargetPayload(
 
 export function buildUpdateRemoteStorageTargetPayload(
 	form: RemoteStorageTargetFormData,
-	editingProfile: RemoteStorageTargetInfo,
+	supportedFields: RemoteStorageTargetSupportedFields,
+	editingTarget: RemoteStorageTargetInfo,
 ): RemoteUpdateStorageTargetRequest {
-	const normalized = normalizeRemoteStorageTargetForm(form);
-	const isS3 = normalized.driver_type === "s3";
-	const sameDriverType = editingProfile.driver_type === normalized.driver_type;
+	const fieldNames = toRemoteStorageTargetFieldSet(supportedFields);
+	const normalized = normalizeRemoteStorageTargetForm(form, fieldNames);
+	const supportsAccessKey = fieldNames.has("access_key");
+	const supportsSecretKey = fieldNames.has("secret_key");
+	const sameDriverType = editingTarget.driver_type === normalized.driver_type;
 	const payload: RemoteUpdateStorageTargetRequest = {
 		name: normalized.name,
 		driver_type: normalized.driver_type,
@@ -106,23 +128,25 @@ export function buildUpdateRemoteStorageTargetPayload(
 		is_default: normalized.is_default,
 	};
 
-	if (!isS3) {
-		payload.endpoint = "";
-		payload.bucket = "";
+	payload.endpoint = normalized.endpoint;
+	payload.bucket = normalized.bucket;
+
+	if (!supportsAccessKey) {
 		payload.access_key = "";
+	}
+	if (!supportsSecretKey) {
 		payload.secret_key = "";
+	}
+	if (!supportsAccessKey && !supportsSecretKey) {
 		return payload;
 	}
 
-	payload.endpoint = normalized.endpoint.trim();
-	payload.bucket = normalized.bucket.trim();
-
-	const accessKey = normalized.access_key.trim();
-	const secretKey = normalized.secret_key.trim();
-	if (!sameDriverType || accessKey) {
+	const accessKey = normalized.access_key;
+	const secretKey = normalized.secret_key;
+	if (supportsAccessKey && (!sameDriverType || accessKey)) {
 		payload.access_key = accessKey;
 	}
-	if (!sameDriverType || secretKey) {
+	if (supportsSecretKey && (!sameDriverType || secretKey)) {
 		payload.secret_key = secretKey;
 	}
 

@@ -30,23 +30,23 @@ interface RemoteNodeRemoteStorageTargetSectionProps {
 	driverDescriptors: RemoteStorageTargetDriverDescriptor[];
 	errorMessage: string | null;
 	loading: boolean;
-	onCreateProfile: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
-	onDeleteProfile: (profile: RemoteStorageTargetInfo) => Promise<void>;
-	onUpdateProfile: (
-		profileKey: string,
+	onCreateTarget: (payload: RemoteCreateStorageTargetRequest) => Promise<void>;
+	onDeleteTarget: (target: RemoteStorageTargetInfo) => Promise<void>;
+	onUpdateTarget: (
+		targetKey: string,
 		payload: RemoteUpdateStorageTargetRequest,
 	) => Promise<void>;
-	profiles: RemoteStorageTargetInfo[];
+	targets: RemoteStorageTargetInfo[];
 }
 
 export function RemoteNodeRemoteStorageTargetSection({
 	driverDescriptors,
 	errorMessage,
 	loading,
-	onCreateProfile,
-	onDeleteProfile,
-	onUpdateProfile,
-	profiles,
+	onCreateTarget,
+	onDeleteTarget,
+	onUpdateTarget,
+	targets,
 }: RemoteNodeRemoteStorageTargetSectionProps) {
 	const { t } = useTranslation("admin");
 	const [draftMode, setDraftMode] = useState<"create" | "edit" | null>(null);
@@ -58,13 +58,13 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const [pendingDeleteTargetKey, setPendingDeleteTargetKey] = useState<
 		string | null
 	>(null);
-	const editingProfile =
+	const editingTarget =
 		draftMode === "edit"
-			? (profiles.find((profile) => profile.target_key === editingTargetKey) ??
+			? (targets.find((target) => target.target_key === editingTargetKey) ??
 				null)
 			: null;
 	const activeDraftMode =
-		draftMode === "edit" && editingProfile == null ? null : draftMode;
+		draftMode === "edit" && editingTarget == null ? null : draftMode;
 	const supportedDriverDescriptors = driverDescriptors.flatMap(
 		(descriptor): SupportedRemoteStorageTargetDriverDescriptor[] =>
 			isRemoteStorageTargetDriverType(descriptor.driver_type)
@@ -87,8 +87,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const activeFieldNames = new Set(
 		activeDriverDescriptor?.fields.map((field) => field.name) ?? [],
 	);
-	const activePendingDeleteTargetKey = profiles.some(
-		(profile) => profile.target_key === pendingDeleteTargetKey,
+	const activePendingDeleteTargetKey = targets.some(
+		(target) => target.target_key === pendingDeleteTargetKey,
 	)
 		? pendingDeleteTargetKey
 		: null;
@@ -102,14 +102,14 @@ export function RemoteNodeRemoteStorageTargetSection({
 		setForm({
 			...emptyRemoteStorageTargetForm,
 			driver_type: firstSupportedDriverType,
-			is_default: profiles.length === 0,
+			is_default: targets.length === 0,
 		});
 	};
 
-	const startEdit = (profile: RemoteStorageTargetInfo) => {
+	const startEdit = (target: RemoteStorageTargetInfo) => {
 		setDraftMode("edit");
-		setEditingTargetKey(profile.target_key);
-		setForm(getRemoteStorageTargetForm(profile));
+		setEditingTargetKey(target.target_key);
+		setForm(getRemoteStorageTargetForm(target));
 	};
 
 	const resetDraft = () => {
@@ -154,7 +154,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			: null;
 	const requiresS3Credentials =
 		activeFieldNames.has("access_key") &&
-		(activeDraftMode === "create" || editingProfile?.driver_type !== "s3");
+		(activeDraftMode === "create" || editingTarget?.driver_type !== "s3");
 	const accessKeyError =
 		requiresS3Credentials && !form.access_key.trim()
 			? t("remote_node_ingress_profile_access_key_required")
@@ -164,7 +164,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 			? t("remote_node_ingress_profile_secret_key_required")
 			: null;
 	const defaultToggleLocked =
-		activeDraftMode === "edit" && editingProfile?.is_default;
+		activeDraftMode === "edit" && editingTarget?.is_default;
 	const submitDisabled =
 		submitting ||
 		Boolean(errorMessage) ||
@@ -187,11 +187,17 @@ export function RemoteNodeRemoteStorageTargetSection({
 		setSubmitting(true);
 		try {
 			if (activeDraftMode === "create") {
-				await onCreateProfile(buildCreateRemoteStorageTargetPayload(form));
-			} else if (editingProfile != null) {
-				await onUpdateProfile(
-					editingProfile.target_key,
-					buildUpdateRemoteStorageTargetPayload(form, editingProfile),
+				await onCreateTarget(
+					buildCreateRemoteStorageTargetPayload(form, activeFieldNames),
+				);
+			} else if (editingTarget != null) {
+				await onUpdateTarget(
+					editingTarget.target_key,
+					buildUpdateRemoteStorageTargetPayload(
+						form,
+						activeFieldNames,
+						editingTarget,
+					),
 				);
 			}
 			resetDraft();
@@ -200,10 +206,10 @@ export function RemoteNodeRemoteStorageTargetSection({
 		}
 	};
 
-	const handleDeleteProfile = async (profile: RemoteStorageTargetInfo) => {
+	const handleDeleteTarget = async (target: RemoteStorageTargetInfo) => {
 		setPendingDeleteTargetKey(null);
-		await onDeleteProfile(profile);
-		if (editingTargetKey === profile.target_key) {
+		await onDeleteTarget(target);
+		if (editingTargetKey === target.target_key) {
 			resetDraft();
 		}
 	};
@@ -251,7 +257,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 					driverDescriptors={supportedDriverDescriptors}
 					driverTypeError={driverTypeError}
 					draftMode={activeDraftMode}
-					editingProfile={editingProfile}
+					editingProfile={editingTarget}
 					endpointError={endpointError}
 					form={form}
 					localPathError={localPathError}
@@ -271,12 +277,12 @@ export function RemoteNodeRemoteStorageTargetSection({
 				loading={loading}
 				pendingDeleteTargetKey={activePendingDeleteTargetKey}
 				onCancelDelete={() => setPendingDeleteTargetKey(null)}
-				onConfirmDeleteProfile={(profile) => void handleDeleteProfile(profile)}
-				onRequestDeleteProfile={(profile) =>
-					setPendingDeleteTargetKey(profile.target_key)
+				onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
+				onRequestDeleteTarget={(target) =>
+					setPendingDeleteTargetKey(target.target_key)
 				}
-				onEditProfile={startEdit}
-				profiles={profiles}
+				onEditTarget={startEdit}
+				targets={targets}
 			/>
 		</section>
 	);

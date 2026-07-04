@@ -6,6 +6,17 @@ import {
 } from "@/components/admin/remoteStorageTargetDialogShared";
 import type { RemoteStorageTargetInfo } from "@/types/api";
 
+const localFields = new Set(["base_path", "max_file_size", "is_default"]);
+const s3Fields = new Set([
+	"endpoint",
+	"bucket",
+	"access_key",
+	"secret_key",
+	"base_path",
+	"max_file_size",
+	"is_default",
+]);
+
 describe("remoteStorageTargetDialogShared", () => {
 	it("maps an existing remote storage target into form state", () => {
 		expect(
@@ -39,17 +50,20 @@ describe("remoteStorageTargetDialogShared", () => {
 
 	it("builds create payloads with trimmed s3 fields", () => {
 		expect(
-			buildCreateRemoteStorageTargetPayload({
-				name: "Archive",
-				driver_type: "s3",
-				endpoint: " https://s3.example.test/uploads ",
-				bucket: " uploads ",
-				access_key: "ACCESS",
-				secret_key: "SECRET",
-				base_path: "tenant-a/incoming",
-				max_file_size: "8192",
-				is_default: false,
-			}),
+			buildCreateRemoteStorageTargetPayload(
+				{
+					name: "Archive",
+					driver_type: "s3",
+					endpoint: " https://s3.example.test/uploads ",
+					bucket: " uploads ",
+					access_key: "ACCESS",
+					secret_key: "SECRET",
+					base_path: "tenant-a/incoming",
+					max_file_size: "8192",
+					is_default: false,
+				},
+				s3Fields,
+			),
 		).toEqual({
 			name: "Archive",
 			driver_type: "s3",
@@ -77,6 +91,7 @@ describe("remoteStorageTargetDialogShared", () => {
 					max_file_size: "",
 					is_default: true,
 				},
+				s3Fields,
 				{
 					target_key: "igp_archive",
 					name: "Archive",
@@ -118,6 +133,7 @@ describe("remoteStorageTargetDialogShared", () => {
 					max_file_size: "4096",
 					is_default: false,
 				},
+				s3Fields,
 				{
 					target_key: "igp_local",
 					name: "Promoted",
@@ -144,6 +160,35 @@ describe("remoteStorageTargetDialogShared", () => {
 			base_path: "tenant-a/incoming",
 			max_file_size: 4096,
 			is_default: false,
+		});
+	});
+
+	it("clears unsupported connection fields from local payloads", () => {
+		expect(
+			buildCreateRemoteStorageTargetPayload(
+				{
+					name: "Local",
+					driver_type: "local",
+					endpoint: "https://unused.example.com",
+					bucket: "unused",
+					access_key: "unused-access",
+					secret_key: "unused-secret",
+					base_path: "tenant-a/local",
+					max_file_size: "0",
+					is_default: true,
+				},
+				localFields,
+			),
+		).toEqual({
+			name: "Local",
+			driver_type: "local",
+			endpoint: "",
+			bucket: "",
+			access_key: "",
+			secret_key: "",
+			base_path: "tenant-a/local",
+			max_file_size: 0,
+			is_default: true,
 		});
 	});
 });

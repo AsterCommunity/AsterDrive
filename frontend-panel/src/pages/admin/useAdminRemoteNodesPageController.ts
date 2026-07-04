@@ -601,7 +601,7 @@ export function useAdminRemoteNodesPageController() {
 	};
 
 	const updateRemoteStorageTarget = async (
-		profileKey: string,
+		target_key: string,
 		payload: RemoteUpdateStorageTargetRequest,
 	) => {
 		if (editingId == null) {
@@ -611,7 +611,7 @@ export function useAdminRemoteNodesPageController() {
 		try {
 			await adminRemoteNodeService.updateStorageTarget(
 				editingId,
-				profileKey,
+				target_key,
 				payload,
 			);
 			toast.success(t("remote_node_ingress_profile_updated"));

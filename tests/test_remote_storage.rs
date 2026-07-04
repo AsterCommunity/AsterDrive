@@ -786,6 +786,13 @@ async fn setup_reverse_tunnel_ingress_profile_target(
         .await
         .expect("provider binding registry should reload");
     mark_remote_node_enrollment_completed(&consumer_state, consumer_node.id).await;
+    seed_remote_capabilities(
+        &consumer_state,
+        consumer_node.id,
+        RemoteStorageCapabilities::current()
+            .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]),
+    )
+    .await;
 
     let (tunnel_shutdown, tunnel_handle) = start_test_reverse_tunnel_worker(
         consumer_state.clone(),
@@ -879,7 +886,7 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
             .config
             .server
             .follower
-            .managed_ingress_local_root,
+            .remote_storage_target_local_root,
     )
     .join("reverse-landing-updated")
     .join(storage_namespace)
@@ -1359,7 +1366,7 @@ fn managed_ingress_object_path(
             .config
             .server
             .follower
-            .managed_ingress_local_root,
+            .remote_storage_target_local_root,
     )
     .join(profile_base_path);
     provider_object_path(
@@ -1556,7 +1563,7 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
             .config
             .server
             .follower
-            .managed_ingress_local_root,
+            .remote_storage_target_local_root,
     );
     let consumer_node = managed_follower_service::create(
         &consumer_state,
@@ -1631,7 +1638,7 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
             .config
             .server
             .follower
-            .managed_ingress_local_root,
+            .remote_storage_target_local_root,
     )
     .join("managed-a")
     .join(provider_binding.storage_namespace)

@@ -5,12 +5,19 @@ use crate::entities::remote_storage_target::{self, Entity as RemoteStorageTarget
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
-    EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, Set,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, Set,
 };
 
-pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<remote_storage_target::Model> {
-    find_by_id_in_connection(db, id).await
+pub async fn find_by_id<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<remote_storage_target::Model> {
+    RemoteStorageTarget::find_by_id(id)
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target #{id}")))
 }
 
 pub async fn find_by_binding_and_target_key<C: ConnectionTrait>(
@@ -26,8 +33,8 @@ pub async fn find_by_binding_and_target_key<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
-pub async fn find_all_by_binding(
-    db: &DatabaseConnection,
+pub async fn find_all_by_binding<C: ConnectionTrait>(
+    db: &C,
     master_binding_id: i64,
 ) -> Result<Vec<remote_storage_target::Model>> {
     RemoteStorageTarget::find()
@@ -40,8 +47,8 @@ pub async fn find_all_by_binding(
         .map_err(AsterError::from)
 }
 
-pub async fn find_default_by_binding(
-    db: &DatabaseConnection,
+pub async fn find_default_by_binding<C: ConnectionTrait>(
+    db: &C,
     master_binding_id: i64,
 ) -> Result<Option<remote_storage_target::Model>> {
     RemoteStorageTarget::find()
@@ -102,14 +109,14 @@ pub async fn delete_by_binding_and_target_key<C: ConnectionTrait>(
 pub async fn set_only_default_for_binding(
     db: &DatabaseTransaction,
     master_binding_id: i64,
-    profile_id: i64,
+    target_id: i64,
 ) -> Result<()> {
-    let existing = find_by_id_in_connection(db, profile_id).await?;
+    let existing = find_by_id(db, target_id).await?;
     if existing.master_binding_id != master_binding_id {
         return Err(validation_error_with_code(
             ApiErrorCode::ManagedIngressBindingMismatch,
             format!(
-                "managed remote storage target #{profile_id} does not belong to master_binding #{master_binding_id}"
+                "remote storage target #{target_id} does not belong to master_binding #{master_binding_id}"
             ),
         ));
     }
@@ -126,15 +133,4 @@ pub async fn set_only_default_for_binding(
     active.updated_at = Set(chrono::Utc::now());
     update(db, active).await?;
     Ok(())
-}
-
-async fn find_by_id_in_connection<C: ConnectionTrait>(
-    db: &C,
-    id: i64,
-) -> Result<remote_storage_target::Model> {
-    RemoteStorageTarget::find_by_id(id)
-        .one(db)
-        .await
-        .map_err(AsterError::from)?
-        .ok_or_else(|| AsterError::record_not_found(format!("remote_storage_target #{id}")))
 }

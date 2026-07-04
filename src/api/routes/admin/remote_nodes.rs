@@ -384,7 +384,7 @@ pub async fn create_remote_node_enrollment_token(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
-        (status = 412, description = "Managed remote storage targets require a single primary binding"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
@@ -480,7 +480,7 @@ pub async fn list_remote_node_storage_target_drivers(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
-        (status = 412, description = "Managed remote storage targets require a single primary binding"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
@@ -553,7 +553,7 @@ pub async fn create_remote_node_storage_target(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node or remote storage target not found"),
-        (status = 412, description = "Managed remote storage targets require a single primary binding"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
@@ -633,7 +633,7 @@ pub async fn update_remote_node_storage_target(
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node or remote storage target not found"),
-        (status = 412, description = "Managed remote storage targets require a single primary binding"),
+        (status = 412, description = "Remote storage targets require a single primary binding"),
     ),
     security(("bearer" = [])),
 )]
