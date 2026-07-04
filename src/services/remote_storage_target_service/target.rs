@@ -20,6 +20,10 @@ pub async fn resolve_effective_target<S: FollowerRuntimeState>(
     let targets =
         remote_storage_target_repo::find_all_by_binding(state.writer_db(), binding.id).await?;
     if targets.is_empty() {
+        // Keep the legacy managed_ingress.* wire code here: this branch is the
+        // follower-side compatibility fallback for old policies without an
+        // explicit remote_storage_target_key, not the storage policy editor
+        // validation path.
         return Err(precondition_failed_with_code(
             ApiErrorCode::ManagedIngressRequired,
             "remote storage target is required before follower can accept remote writes",
@@ -50,7 +54,7 @@ pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
     .await?
     .ok_or_else(|| {
         precondition_failed_with_code(
-            ApiErrorCode::ManagedIngressRequired,
+            ApiErrorCode::RemoteStorageTargetNotFound,
             format!("remote storage target '{target_key}' is not configured"),
         )
     })?;

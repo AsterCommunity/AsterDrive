@@ -127,6 +127,7 @@ export const ApiErrorCode = {
 	RemoteStorageTargetDriverUnsupported: "managed_ingress.driver_unsupported",
 	RemoteStorageTargetLocalPathInvalid: "managed_ingress.local_path_invalid",
 	RemoteStorageTargetRequired: "managed_ingress.required",
+	RemoteStorageTargetNotFound: "remote_storage_target.not_found",
 	RemoteStorageTargetSinglePrimaryRequired:
 		"managed_ingress.single_primary_required",
 	MasterBindingDisabled: "master_binding.disabled",
@@ -143,6 +144,7 @@ export const ApiErrorCode = {
 	PolicyStorageEndpointInvalid: "policy.storage_endpoint_invalid",
 	PolicyRemoteNodeRequired: "policy.remote_node_required",
 	PolicyRemoteNodeUnexpected: "policy.remote_node_unexpected",
+	PolicyRemoteStorageTargetRequired: "policy.remote_storage_target_required",
 	PolicyRemoteNodeDisabled: "policy.remote_node_disabled",
 	PolicyRemoteNodeBaseUrlRequired: "policy.remote_node_base_url_required",
 	PolicyRemoteNodeTransferStrategyUnsupported:

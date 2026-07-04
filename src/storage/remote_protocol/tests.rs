@@ -355,6 +355,10 @@ fn remote_api_error_kind_maps_storage_and_http_error_codes() {
         Some(StorageErrorKind::NotFound)
     );
     assert_eq!(
+        remote_api_error_kind(ApiErrorCode::RemoteStorageTargetNotFound),
+        Some(StorageErrorKind::NotFound)
+    );
+    assert_eq!(
         remote_api_error_kind(ApiErrorCode::StorageRateLimited),
         Some(StorageErrorKind::RateLimited)
     );
@@ -565,7 +569,12 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
                 .map(String::as_str),
             Some("rst-primary")
         );
-        assert!(!query.contains_key(REMOTE_POLICY_MAX_FILE_SIZE_QUERY));
+        assert_eq!(
+            query
+                .get(REMOTE_POLICY_MAX_FILE_SIZE_QUERY)
+                .map(String::as_str),
+            Some("0")
+        );
         assert!(query.contains_key(PRESIGNED_AUTH_SIGNATURE_QUERY));
     }
 
@@ -846,7 +855,7 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     }));
     assert!(requests.iter().any(|request| {
         request.method == "POST"
-            && request.path_and_query.ends_with("/compose")
+            && request.path_and_query.contains("/compose")
             && serde_json::from_slice::<serde_json::Value>(&request.body)
                 .expect("compose request body should be JSON")["expected_size"]
                 == 6

@@ -2,6 +2,8 @@
 
 use sea_orm_migration::prelude::*;
 
+use crate::index_helpers::drop_index_if_exists;
+
 #[derive(DeriveMigrationName)]
 pub struct Migration;
 
@@ -43,24 +45,31 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .drop_index(
-                Index::drop()
-                    .name("idx_storage_policies_remote_target")
-                    .table(StoragePolicies::Table)
-                    .if_exists()
-                    .to_owned(),
-            )
-            .await?;
+        drop_index_if_exists(
+            manager,
+            "storage_policies",
+            "idx_storage_policies_remote_target",
+        )
+        .await?;
 
-        manager
-            .alter_table(
-                Table::alter()
-                    .table(StoragePolicies::Table)
-                    .drop_column(StoragePolicies::RemoteStorageTargetKey)
-                    .to_owned(),
+        if manager
+            .has_column(
+                StoragePolicies::Table.to_string(),
+                StoragePolicies::RemoteStorageTargetKey.to_string(),
             )
-            .await
+            .await?
+        {
+            manager
+                .alter_table(
+                    Table::alter()
+                        .table(StoragePolicies::Table)
+                        .drop_column(StoragePolicies::RemoteStorageTargetKey)
+                        .to_owned(),
+                )
+                .await?;
+        }
+
+        Ok(())
     }
 }
 

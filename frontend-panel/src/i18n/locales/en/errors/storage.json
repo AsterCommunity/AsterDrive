@@ -14,6 +14,7 @@
 	"policy_storage_endpoint_invalid": "The storage endpoint or bucket format is invalid",
 	"policy_remote_node_required": "Select a remote node before saving this remote storage policy",
 	"policy_remote_node_unexpected": "Remote node can only be used by remote storage policies",
+	"policy_remote_storage_target_required": "Select a remote storage target before saving this remote storage policy",
 	"policy_remote_node_disabled": "The selected remote node is disabled",
 	"policy_remote_node_base_url_required": "The selected direct remote node needs a base URL before it can be used by a storage policy",
 	"policy_remote_node_transfer_strategy_unsupported": "This remote node does not support presigned browser transfer strategies. Use relay streaming instead",

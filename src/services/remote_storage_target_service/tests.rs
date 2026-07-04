@@ -8,7 +8,7 @@ use super::{
     list,
     normalization::{normalize_create_input, normalize_update_input},
     paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path},
-    resolve_effective_target, update,
+    resolve_effective_target, resolve_target_by_key, update,
 };
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
@@ -801,6 +801,64 @@ async fn resolve_effective_target_reports_required_default_and_pending_states() 
         .await
         .unwrap();
     let error = expect_aster_err(resolve_effective_target(&state, &binding).await);
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDefaultNotApplied)
+    );
+}
+
+#[tokio::test]
+async fn resolve_target_by_key_reports_missing_error_and_unready_states() {
+    let state = setup_state().await;
+    let binding = create_binding(&state, "ak-resolve-key").await;
+
+    let missing_error =
+        expect_aster_err(resolve_target_by_key(&state, &binding, "rst_missing").await);
+    assert_eq!(
+        missing_error.api_error_code_override(),
+        Some(ApiErrorCode::RemoteStorageTargetNotFound)
+    );
+
+    let profile = create(&state, &binding, local_create("Keyed", "keyed", true))
+        .await
+        .unwrap();
+    let stored = remote_storage_target_repo::find_by_binding_and_target_key(
+        state.writer_db(),
+        binding.id,
+        &profile.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut active: remote_storage_target::ActiveModel = stored.into();
+    active.last_error = Set("apply failed".to_string());
+    remote_storage_target_repo::update(state.writer_db(), active)
+        .await
+        .unwrap();
+    let error =
+        expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
+    assert_eq!(
+        error.api_error_code_override(),
+        Some(ApiErrorCode::ManagedIngressDefaultError)
+    );
+
+    let stored = remote_storage_target_repo::find_by_binding_and_target_key(
+        state.writer_db(),
+        binding.id,
+        &profile.target_key,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    let mut active: remote_storage_target::ActiveModel = stored.into();
+    active.last_error = Set(String::new());
+    active.applied_revision = Set(0);
+    active.desired_revision = Set(1);
+    remote_storage_target_repo::update(state.writer_db(), active)
+        .await
+        .unwrap();
+    let error =
+        expect_aster_err(resolve_target_by_key(&state, &binding, &profile.target_key).await);
     assert_eq!(
         error.api_error_code_override(),
         Some(ApiErrorCode::ManagedIngressDefaultNotApplied)

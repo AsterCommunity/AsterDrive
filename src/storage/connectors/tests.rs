@@ -129,6 +129,22 @@ async fn assert_saved_credentials_driver_mismatch_for_driver(driver_type: Driver
 }
 
 #[tokio::test]
+async fn non_remote_draft_connection_rejects_remote_storage_target_key() {
+    let db = setup_connector_test_db().await;
+    let mut input = draft_connection(DriverType::Local);
+    input.remote_storage_target_key = Some("rst_unexpected".to_string());
+
+    let error = normalize_policy_connection(&db, input)
+        .await
+        .expect_err("local policy drafts must not accept remote target keys");
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicyRemoteNodeUnexpected
+    );
+}
+
+#[tokio::test]
 async fn s3_draft_connection_can_merge_saved_credentials() {
     assert!(S3Connector::supports_saved_draft_credentials());
     assert_saved_credentials_merge_for_driver(DriverType::S3).await;

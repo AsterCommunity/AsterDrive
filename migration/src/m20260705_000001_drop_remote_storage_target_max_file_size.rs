@@ -15,6 +15,9 @@ impl MigrationTrait for Migration {
             )
             .await?
         {
+            // Rollback restores only the schema shape. The original per-row
+            // values were removed by up(), so operators need backups if those
+            // values must be recovered.
             manager
                 .alter_table(
                     Table::alter()

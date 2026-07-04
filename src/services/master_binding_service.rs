@@ -124,11 +124,19 @@ pub async fn authorize_internal_request<S: FollowerRuntimeState>(
     req: &actix_web::HttpRequest,
 ) -> Result<AuthorizedMasterBinding> {
     let binding = authorize_binding_request(state, req, false).await?;
+    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?, 0).await
+}
+
+pub async fn authorize_internal_write_request<S: FollowerRuntimeState>(
+    state: &S,
+    req: &actix_web::HttpRequest,
+) -> Result<AuthorizedMasterBinding> {
+    let binding = authorize_binding_request(state, req, false).await?;
     resolve_authorized_ingress(
         state,
         binding,
         remote_storage_target_key(req)?,
-        policy_max_file_size(req)?,
+        required_policy_max_file_size(req)?,
     )
     .await
 }
@@ -162,7 +170,7 @@ pub async fn authorize_presigned_put_request<S: FollowerRuntimeState>(
         state,
         binding,
         remote_storage_target_key(req)?,
-        policy_max_file_size(req)?,
+        required_policy_max_file_size(req)?,
     )
     .await
 }
@@ -178,13 +186,7 @@ pub async fn authorize_presigned_get_request<S: FollowerRuntimeState>(
     }
 
     let binding = authorize_presigned_binding_request(state, req).await?;
-    resolve_authorized_ingress(
-        state,
-        binding,
-        remote_storage_target_key(req)?,
-        policy_max_file_size(req)?,
-    )
-    .await
+    resolve_authorized_ingress(state, binding, remote_storage_target_key(req)?, 0).await
 }
 
 pub async fn sync_from_primary<S: FollowerRuntimeState>(
@@ -523,9 +525,11 @@ fn remote_storage_target_key(req: &actix_web::HttpRequest) -> Result<Option<Stri
     optional_query_value(req, REMOTE_STORAGE_TARGET_KEY_QUERY)
 }
 
-fn policy_max_file_size(req: &actix_web::HttpRequest) -> Result<i64> {
+fn required_policy_max_file_size(req: &actix_web::HttpRequest) -> Result<i64> {
     let Some(value) = optional_query_value(req, REMOTE_POLICY_MAX_FILE_SIZE_QUERY)? else {
-        return Ok(0);
+        return Err(AsterError::auth_token_invalid(
+            "missing max_file_size query value",
+        ));
     };
     let parsed = value
         .parse::<i64>()
@@ -606,36 +610,36 @@ mod tests {
 
     #[test]
     fn policy_max_file_size_parses_signed_query_boundary_values() {
-        let missing =
-            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin").to_http_request();
-        assert_eq!(policy_max_file_size(&missing).unwrap(), 0);
-
-        let empty =
-            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=%20")
-                .to_http_request();
-        assert_eq!(policy_max_file_size(&empty).unwrap(), 0);
-
         let positive =
             TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=4096")
                 .to_http_request();
-        assert_eq!(policy_max_file_size(&positive).unwrap(), 4096);
+        assert_eq!(required_policy_max_file_size(&positive).unwrap(), 4096);
 
         let zero =
             TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=0")
                 .to_http_request();
-        assert_eq!(policy_max_file_size(&zero).unwrap(), 0);
+        assert_eq!(required_policy_max_file_size(&zero).unwrap(), 0);
     }
 
     #[test]
     fn policy_max_file_size_rejects_invalid_signed_query_values() {
+        let missing =
+            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin").to_http_request();
+        assert!(required_policy_max_file_size(&missing).is_err());
+
+        let empty =
+            TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=%20")
+                .to_http_request();
+        assert!(required_policy_max_file_size(&empty).is_err());
+
         let invalid =
             TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=abc")
                 .to_http_request();
-        assert!(policy_max_file_size(&invalid).is_err());
+        assert!(required_policy_max_file_size(&invalid).is_err());
 
         let negative =
             TestRequest::with_uri("/api/v1/internal/storage/objects/file.bin?max_file_size=-1")
                 .to_http_request();
-        assert!(policy_max_file_size(&negative).is_err());
+        assert!(required_policy_max_file_size(&negative).is_err());
     }
 }

@@ -8,5 +8,6 @@
 	"managed_ingress_default_update_requires_replacement": "默认远程存储目标不能直接取消，请先把其他目标设为默认",
 	"managed_ingress_driver_unsupported": "这些远程存储目标只支持 local 和 s3 驱动",
 	"managed_ingress_local_path_invalid": "本地目标路径必须是 follower 本地目标根目录下的相对路径",
+	"remote_storage_target_not_found": "选中的远程存储目标在远程节点上已不存在",
 	"managed_ingress_single_primary_required": "这些远程存储目标要求 follower 只绑定一个 primary，多主绑定会被直接拒绝"
 }

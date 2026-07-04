@@ -515,15 +515,13 @@ impl RemoteStorageClient {
     }
 
     fn append_policy_max_file_size(&self, path: &mut String) {
-        if self.policy_max_file_size > 0 {
-            append_query_pairs(
-                path,
-                [(
-                    REMOTE_POLICY_MAX_FILE_SIZE_QUERY,
-                    self.policy_max_file_size.to_string(),
-                )],
-            );
-        }
+        append_query_pairs(
+            path,
+            [(
+                REMOTE_POLICY_MAX_FILE_SIZE_QUERY,
+                self.policy_max_file_size.to_string(),
+            )],
+        );
     }
 }
 

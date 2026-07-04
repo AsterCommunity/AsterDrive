@@ -293,21 +293,22 @@ function useStoragePolicyDialogContent({
 					: null
 				: t("policy_wizard_endpoint_required")
 			: endpointValidationMessage;
-	const createRemoteNodeError =
-		isCreateMode &&
-		createStep === 1 &&
-		createStepTouched &&
+	const showRemoteBindingValidation =
 		canUseRemoteNodeBinding &&
-		!form.remote_node_id
+		createStepTouched &&
+		(!isCreateMode || createStep === 1);
+	const createRemoteNodeError =
+		showRemoteBindingValidation && !form.remote_node_id
 			? t("policy_wizard_remote_node_required")
 			: null;
 	const createRemoteTargetError =
-		canUseRemoteNodeBinding &&
+		showRemoteBindingValidation &&
 		form.remote_node_id &&
-		!form.remote_storage_target_key &&
-		(!isCreateMode || (createStep === 1 && createStepTouched))
+		!form.remote_storage_target_key
 			? t("policy_wizard_remote_storage_target_required")
-			: createRemoteNodeError;
+			: null;
+	const createRemoteBindingError =
+		createRemoteNodeError ?? createRemoteTargetError;
 	const selectedRemoteNode =
 		remoteNodes.find((node) => String(node.id) === form.remote_node_id) ?? null;
 	const s3UploadStrategyLabel =
@@ -540,7 +541,7 @@ function useStoragePolicyDialogContent({
 								createOneDriveClientSecretError={
 									createOneDriveClientSecretError
 								}
-								createRemoteTargetError={createRemoteTargetError}
+								createRemoteTargetError={createRemoteBindingError}
 								createStep={createStep}
 								createStepDirection={createStepDirection}
 								createSteps={createSteps}
@@ -586,7 +587,7 @@ function useStoragePolicyDialogContent({
 							<StoragePolicyEditForm
 								createBucketError={createBucketError}
 								createNameError={createNameError}
-								createRemoteTargetError={createRemoteTargetError}
+								createRemoteTargetError={createRemoteBindingError}
 								currentDriverBadgeClass={currentDriverBadgeClass}
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={endpointValidationMessage}

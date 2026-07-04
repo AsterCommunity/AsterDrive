@@ -38,6 +38,7 @@ fn azure_policy(
         secret_key: AZURITE_ACCOUNT_KEY.to_string(),
         base_path: base_path.to_string(),
         remote_node_id: None,
+        remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
         options: aster_drive::types::StoredStoragePolicyOptions::empty(),

@@ -413,6 +413,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
                 secret_key: String::new(),
                 base_path: alternate_base_path.clone(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -420,6 +421,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -627,6 +629,7 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
                 secret_key: "sk".to_string(),
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -639,6 +642,7 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
                 s3_path_style: Some(false),
                 ..Default::default()
             }),
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -713,6 +717,7 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
                 secret_key: "sk".to_string(),
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -720,6 +725,7 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -778,6 +784,7 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
                 secret_key: String::new(),
                 base_path,
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -785,6 +792,7 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -839,6 +847,7 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
                 secret_key: "sk".to_string(),
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -846,6 +855,7 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -905,6 +915,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
                 secret_key: "sk".to_string(),
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -912,6 +923,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -985,6 +997,7 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
                 secret_key: "sk".to_string(),
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -992,6 +1005,7 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1297,6 +1311,7 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
                 secret_key: String::new(),
                 base_path,
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -1304,6 +1319,7 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -2602,6 +2618,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
                 secret_key: String::new(),
                 base_path: overflow_path.clone(),
                 remote_node_id: None,
+                remote_storage_target_key: None,
                 options: Default::default(),
             },
             max_file_size: 0,
@@ -2609,6 +2626,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
             is_default: false,
             allowed_types: None,
             options: None,
+            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )

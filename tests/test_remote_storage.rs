@@ -721,18 +721,12 @@ async fn create_managed_local_ingress_for_binding(
         .await
         .expect("provider master binding lookup should succeed")
         .expect("provider master binding should exist");
-    let max_file_size = provider_state
-        .policy_snapshot
-        .system_default_policy()
-        .map(|policy| policy.max_file_size)
-        .unwrap_or(0);
     remote_storage_target_service::create(
         &provider_state.follower_view(),
         &binding,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: format!("Managed {base_path}"),
             base_path: base_path.to_string(),
-            max_file_size,
             is_default: true,
         }),
     )
@@ -843,7 +837,6 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Reverse Landing".to_string(),
             base_path: "reverse-landing".to_string(),
-            max_file_size: 0,
             is_default: true,
         }),
     )
@@ -936,7 +929,6 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Auto Tunnel Landing".to_string(),
             base_path: "auto-tunnel-landing".to_string(),
-            max_file_size: 0,
             is_default: true,
         }),
     )
@@ -989,7 +981,6 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
             access_key: "access".to_string(),
             secret_key: "secret".to_string(),
             base_path: "unsupported-s3".to_string(),
-            max_file_size: 0,
             is_default: true,
         }),
     )
@@ -1003,7 +994,7 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
     assert!(
         error
             .message()
-            .contains("does not declare managed ingress support for the s3 driver"),
+            .contains("does not declare remote storage target support for the s3 driver"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1058,7 +1049,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
     assert!(
         error
             .message()
-            .contains("does not declare managed ingress support for the s3 driver"),
+            .contains("does not declare remote storage target support for the s3 driver"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1103,9 +1094,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
     assert!(
-        error
-            .message()
-            .contains("update remote remote storage target"),
+        error.message().contains("update remote storage target"),
         "unexpected error message: {}",
         error.message()
     );
@@ -1166,7 +1155,7 @@ async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabiliti
                 .iter()
                 .map(|field| field["name"].as_str().unwrap_or_default())
                 .collect::<Vec<_>>(),
-            vec!["base_path", "max_file_size", "is_default"]
+            vec!["base_path", "is_default"]
         );
     }
 }
@@ -1616,7 +1605,6 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Managed Local".to_string(),
             base_path: "managed-a".to_string(),
-            max_file_size: 0,
             is_default: true,
         }),
     )
@@ -1715,7 +1703,6 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Selected Target".to_string(),
             base_path: "selected-target".to_string(),
-            max_file_size: 0,
             is_default: false,
         }),
     )
@@ -1976,7 +1963,6 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
             RemoteCreateLocalStorageTargetRequest {
                 name: "Profile Audit Local".to_string(),
                 base_path: "profile-audit-a".to_string(),
-                max_file_size: 0,
                 is_default: true,
             },
         ))
@@ -2095,7 +2081,6 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
                 RemoteCreateLocalStorageTargetRequest {
                     name: name.to_string(),
                     base_path: "shared-profile".to_string(),
-                    max_file_size: 0,
                     is_default: true,
                 },
             ))
@@ -2182,7 +2167,6 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
             name: "Second A".to_string(),
             base_path: "secondary-a".to_string(),
-            max_file_size: 0,
             is_default: false,
         }),
     )
@@ -2239,11 +2223,13 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
     .await;
 
     let path = "/api/v1/internal/storage/objects/too-large.bin";
+    let request_target = format!("{path}?max_file_size=8");
     let expires_at = Utc::now().timestamp() + 300;
-    let signature = sign_presigned_request(secret_key, "PUT", path, access_key, expires_at);
+    let signature =
+        sign_presigned_request(secret_key, "PUT", &request_target, access_key, expires_at);
     let req = test::TestRequest::put()
         .uri(&format!(
-            "{path}?aster_access_key={access_key}&aster_expires={expires_at}&aster_signature={signature}"
+            "{request_target}&aster_access_key={access_key}&aster_expires={expires_at}&aster_signature={signature}"
         ))
         .insert_header((
             actix_web::http::header::CONTENT_TYPE,
@@ -2300,10 +2286,11 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
         .expect("provider base_url should contain port");
     let object_key = "declared-length-only.bin";
     let path = format!("/api/v1/internal/storage/objects/{object_key}");
+    let signed_path = format!("{path}?max_file_size=0");
     let expires_at = Utc::now().timestamp() + 300;
-    let signature = sign_presigned_request(secret_key, "PUT", &path, access_key, expires_at);
+    let signature = sign_presigned_request(secret_key, "PUT", &signed_path, access_key, expires_at);
     let request_target = format!(
-        "{path}?aster_access_key={access_key}&aster_expires={expires_at}&aster_signature={signature}"
+        "{signed_path}&aster_access_key={access_key}&aster_expires={expires_at}&aster_signature={signature}"
     );
     let mut request = format!(
         "PUT {request_target} HTTP/1.1\r\nHost: {host}:{port}\r\nContent-Type: application/octet-stream\r\nContent-Length: 4\r\nConnection: close\r\n\r\n"
@@ -2387,7 +2374,7 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
         expected_size: 16,
     })
     .expect("compose request body should serialize");
-    let path = "/api/v1/internal/storage/compose";
+    let path = "/api/v1/internal/storage/compose?max_file_size=8";
     let timestamp = Utc::now().timestamp();
     let nonce = "compose-limit-test";
     let signature = sign_internal_request(

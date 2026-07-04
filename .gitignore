@@ -7,6 +7,7 @@
 /coverage/
 /tests/performance/results/
 /managed-ingress
+/remote-storage-targets
 
 # 运行时生成
 /config.toml

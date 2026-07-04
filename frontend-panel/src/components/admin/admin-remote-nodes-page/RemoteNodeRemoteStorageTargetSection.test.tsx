@@ -432,11 +432,10 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 	it("creates the first local profile as the default", async () => {
 		const { onCreateTarget } = renderSection();
 
-		fireEvent.click(
-			screen.getByRole("button", {
-				name: /remote_node_ingress_profiles_create/,
-			}),
-		);
+		const createButton = screen.getByRole("button", {
+			name: /remote_node_ingress_profiles_create/,
+		});
+		fireEvent.click(createButton);
 		expect(
 			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
 		).toBeChecked();
@@ -473,6 +472,27 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 				name: /remote_node_ingress_profiles_create/,
 			}),
 		).toBeDisabled();
+	});
+
+	it("keeps the create draft closed when no create handler is available", () => {
+		render(
+			<RemoteNodeRemoteStorageTargetSection
+				driverDescriptors={defaultDriverDescriptors}
+				errorMessage={null}
+				loading={false}
+				targets={[]}
+			/>,
+		);
+
+		const createButton = screen.getByRole("button", {
+			name: /remote_node_ingress_profiles_create/,
+		});
+		expect(createButton).toBeDisabled();
+		fireEvent.click(createButton);
+
+		expect(
+			screen.queryByText("remote_node_ingress_profile_form_create_title"),
+		).not.toBeInTheDocument();
 	});
 
 	it("validates S3 credentials on create and submits normalized fields", async () => {
@@ -633,5 +653,28 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onDeleteTarget).toHaveBeenCalledWith(existing);
 		});
+	});
+
+	it("ignores delete confirmation when no delete handler is available", () => {
+		const existing = profile();
+		render(
+			<RemoteNodeRemoteStorageTargetSection
+				driverDescriptors={defaultDriverDescriptors}
+				errorMessage={null}
+				loading={false}
+				onCreateTarget={vi.fn()}
+				onUpdateTarget={vi.fn()}
+				targets={[existing]}
+			/>,
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "core:delete" }));
+		fireEvent.click(screen.getAllByRole("button", { name: "core:delete" })[0]);
+
+		expect(
+			screen.getByText(
+				"remote_node_ingress_profile_delete_title:Local ingress",
+			),
+		).toBeInTheDocument();
 	});
 });

@@ -58,6 +58,7 @@ pub fn build_remote_status_error_from_parts(
                 ApiErrorCode::NotFound
                     | ApiErrorCode::FileNotFound
                     | ApiErrorCode::UploadSessionNotFound
+                    | ApiErrorCode::RemoteStorageTargetNotFound
                     | ApiErrorCode::StorageObjectNotFound
                     | ApiErrorCode::StorageNotFound
             )
@@ -95,6 +96,7 @@ pub fn remote_api_error_kind(code: ApiErrorCode) -> Option<StorageErrorKind> {
         ApiErrorCode::NotFound
         | ApiErrorCode::FileNotFound
         | ApiErrorCode::UploadSessionNotFound
+        | ApiErrorCode::RemoteStorageTargetNotFound
         | ApiErrorCode::StorageObjectNotFound
         | ApiErrorCode::StorageNotFound => Some(StorageErrorKind::NotFound),
         ApiErrorCode::RateLimited | ApiErrorCode::StorageRateLimited => {

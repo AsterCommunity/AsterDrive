@@ -236,6 +236,18 @@ export function RemoteNodeRemoteStorageTargetSection({
 		surface === "card"
 			? "rounded-2xl border border-border/70 bg-background/70 p-5"
 			: "space-y-4 border-t border-border/70 pt-4";
+	const listProps = {
+		errorMessage,
+		loading,
+		pendingDeleteTargetKey: activePendingDeleteTargetKey,
+		onCancelDelete: () => setPendingDeleteTargetKey(null),
+		onConfirmDeleteTarget: (target: RemoteStorageTargetInfo) =>
+			void handleDeleteTarget(target),
+		onRequestDeleteTarget: (target: RemoteStorageTargetInfo) =>
+			setPendingDeleteTargetKey(target.target_key),
+		onEditTarget: startEdit,
+		targets,
+	};
 
 	return (
 		<Root className={rootClassName}>
@@ -298,7 +310,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 						disabled={
 							loading ||
 							Boolean(errorMessage) ||
-							firstSupportedDriverType == null
+							firstSupportedDriverType == null ||
+							!canCreateTargets
 						}
 					>
 						<Icon name="Plus" aria-hidden className="mr-1 size-4" />
@@ -340,34 +353,11 @@ export function RemoteNodeRemoteStorageTargetSection({
 					open={readOnlyOpen}
 					contentClassName="max-h-[min(52vh,28rem)] overflow-y-auto pr-1"
 				>
-					<RemoteNodeRemoteStorageTargetsList
-						errorMessage={errorMessage}
-						loading={loading}
-						pendingDeleteTargetKey={activePendingDeleteTargetKey}
-						readOnly
-						onCancelDelete={() => setPendingDeleteTargetKey(null)}
-						onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
-						onRequestDeleteTarget={(target) =>
-							setPendingDeleteTargetKey(target.target_key)
-						}
-						onEditTarget={startEdit}
-						targets={targets}
-					/>
+					<RemoteNodeRemoteStorageTargetsList {...listProps} readOnly />
 				</AnimatedCollapsible>
 			) : (
 				<div className={listViewportClassName}>
-					<RemoteNodeRemoteStorageTargetsList
-						errorMessage={errorMessage}
-						loading={loading}
-						pendingDeleteTargetKey={activePendingDeleteTargetKey}
-						onCancelDelete={() => setPendingDeleteTargetKey(null)}
-						onConfirmDeleteTarget={(target) => void handleDeleteTarget(target)}
-						onRequestDeleteTarget={(target) =>
-							setPendingDeleteTargetKey(target.target_key)
-						}
-						onEditTarget={startEdit}
-						targets={targets}
-					/>
+					<RemoteNodeRemoteStorageTargetsList {...listProps} />
 				</div>
 			)}
 		</Root>

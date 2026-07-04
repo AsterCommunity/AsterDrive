@@ -422,7 +422,7 @@ async fn put_object(
     const RELAY_UPLOAD_BUFFER_SIZE: usize = 64 * 1024;
 
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-        master_binding_service::authorize_internal_request(state.get_ref(), &req).await?
+        master_binding_service::authorize_internal_write_request(state.get_ref(), &req).await?
     } else {
         master_binding_service::authorize_presigned_put_request(state.get_ref(), &req).await?
     };
@@ -526,7 +526,8 @@ async fn compose_objects(
 ) -> Result<HttpResponse> {
     const COMPOSE_BUFFER_SIZE: usize = 64 * 1024;
 
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx =
+        master_binding_service::authorize_internal_write_request(state.get_ref(), &req).await?;
     if body.part_keys.is_empty() {
         return Err(internal_storage_validation_error(
             ApiErrorCode::InternalStorageComposePartsRequired,

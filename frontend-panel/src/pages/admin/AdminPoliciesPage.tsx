@@ -709,8 +709,9 @@ function useAdminPoliciesPageContent() {
 		async (payload: RemoteCreateStorageTargetRequest) => {
 			const remoteNodeId = Number(form.remote_node_id);
 			if (!Number.isSafeInteger(remoteNodeId) || remoteNodeId <= 0) {
-				toast.error(t("policy_wizard_remote_node_required"));
-				return;
+				const error = new Error(t("policy_wizard_remote_node_required"));
+				toast.error(error.message);
+				throw error;
 			}
 
 			try {

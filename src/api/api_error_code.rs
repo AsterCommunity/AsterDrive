@@ -182,6 +182,7 @@ define_api_error_codes! {
     ManagedIngressLocalPathInvalid => "managed_ingress.local_path_invalid",
     ManagedIngressRequired => "managed_ingress.required",
     ManagedIngressSinglePrimaryRequired => "managed_ingress.single_primary_required",
+    RemoteStorageTargetNotFound => "remote_storage_target.not_found",
 
     // master binding service: master/follower binding state.
     MasterBindingDisabled => "master_binding.disabled",
@@ -204,6 +205,7 @@ define_api_error_codes! {
     PolicyStorageEndpointInvalid => "policy.storage_endpoint_invalid",
     PolicyRemoteNodeRequired => "policy.remote_node_required",
     PolicyRemoteNodeUnexpected => "policy.remote_node_unexpected",
+    PolicyRemoteStorageTargetRequired => "policy.remote_storage_target_required",
     PolicyRemoteNodeDisabled => "policy.remote_node_disabled",
     PolicyRemoteNodeBaseUrlRequired => "policy.remote_node_base_url_required",
     PolicyRemoteNodeTransferStrategyUnsupported => "policy.remote_node_transfer_strategy_unsupported",

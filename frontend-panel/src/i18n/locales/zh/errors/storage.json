@@ -14,6 +14,7 @@
 	"policy_storage_endpoint_invalid": "存储 Endpoint 或 Bucket 格式无效",
 	"policy_remote_node_required": "保存远程存储策略前需要先选择远程节点",
 	"policy_remote_node_unexpected": "只有远程存储策略可以绑定远程节点",
+	"policy_remote_storage_target_required": "保存远程存储策略前需要先选择远程存储目标",
 	"policy_remote_node_disabled": "选中的远程节点已被禁用",
 	"policy_remote_node_base_url_required": "选中的直连远程节点需要先配置 Base URL 才能用于存储策略",
 	"policy_remote_node_transfer_strategy_unsupported": "该远程节点不支持浏览器预签名传输策略，请改用中继流式传输",

@@ -161,6 +161,8 @@ describe("i18n", () => {
 			ApiErrorCode.PolicyStorageEndpointInvalid,
 			ApiErrorCode.PolicyRemoteNodeRequired,
 			ApiErrorCode.PolicyRemoteNodeUnexpected,
+			ApiErrorCode.PolicyRemoteStorageTargetRequired,
+			ApiErrorCode.RemoteStorageTargetNotFound,
 			ApiErrorCode.PolicyRemoteNodeDisabled,
 			ApiErrorCode.PolicyRemoteNodeBaseUrlRequired,
 			ApiErrorCode.PolicyRemoteNodeTransferStrategyUnsupported,

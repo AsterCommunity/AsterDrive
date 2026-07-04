@@ -9,6 +9,8 @@ const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
 const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
     "m20260619_000001_add_storage_connector_application_configs";
 const ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION: &str = "m20260620_000001_enforce_json_text_not_null";
+const ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION: &str =
+    "m20260704_000002_add_remote_storage_target_key_to_storage_policies";
 const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
     "m20260705_000001_drop_remote_storage_target_max_file_size";
 
@@ -46,6 +48,10 @@ fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
 
 fn steps_to_roll_back_remote_storage_target_max_file_size() -> u32 {
     steps_to_roll_back_migration(DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION)
+}
+
+fn steps_to_roll_back_storage_policy_remote_storage_target_key() -> u32 {
+    steps_to_roll_back_migration(ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION)
 }
 
 async fn roll_back_allow_shared_webdav_locks(
@@ -257,6 +263,47 @@ async fn upload_session_object_field_migration_renames_legacy_columns() {
     assert!(has_column(&reapplied_columns, "object_multipart_id"));
     assert!(!has_column(&reapplied_columns, "s3_temp_key"));
     assert!(!has_column(&reapplied_columns, "s3_multipart_id"));
+}
+
+#[tokio::test]
+async fn storage_policy_remote_storage_target_key_migration_round_trips_column() {
+    assert!(
+        CurrentMigrator::migrations().iter().any(|migration| {
+            migration.name() == ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION
+        }),
+        "storage policy remote target key migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "storage_policies").await;
+    assert!(
+        has_column(&current_columns, "remote_storage_target_key"),
+        "current schema should include storage_policies.remote_storage_target_key"
+    );
+
+    CurrentMigrator::down(
+        &db,
+        Some(steps_to_roll_back_storage_policy_remote_storage_target_key()),
+    )
+    .await
+    .expect("remote target key migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "storage_policies").await;
+    assert!(
+        !has_column(&rolled_back_columns, "remote_storage_target_key"),
+        "rollback should remove storage_policies.remote_storage_target_key"
+    );
+
+    CurrentMigrator::up(
+        &db,
+        Some(steps_to_roll_back_storage_policy_remote_storage_target_key()),
+    )
+    .await
+    .expect("remote target key migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "storage_policies").await;
+    assert!(
+        has_column(&reapplied_columns, "remote_storage_target_key"),
+        "reapply should restore storage_policies.remote_storage_target_key"
+    );
 }
 
 #[tokio::test]

@@ -1,6 +1,9 @@
 //! Rename managed ingress profile storage tables to remote storage target terms.
 
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::DbBackend;
+
+use crate::index_helpers::{drop_index_if_exists, rename_mysql_index_if_exists};
 
 #[derive(DeriveMigrationName)]
 pub struct Migration;
@@ -8,18 +11,20 @@ pub struct Migration;
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        drop_index(
-            manager,
-            ManagedIngressProfiles::Table,
-            "idx_managed_ingress_profiles_binding_profile_key",
-        )
-        .await?;
-        drop_index(
-            manager,
-            ManagedIngressProfiles::Table,
-            "idx_managed_ingress_profiles_binding_default",
-        )
-        .await?;
+        if manager.get_database_backend() != DbBackend::MySql {
+            drop_index_if_exists(
+                manager,
+                "managed_ingress_profiles",
+                "idx_managed_ingress_profiles_binding_profile_key",
+            )
+            .await?;
+            drop_index_if_exists(
+                manager,
+                "managed_ingress_profiles",
+                "idx_managed_ingress_profiles_binding_default",
+            )
+            .await?;
+        }
 
         manager
             .rename_table(
@@ -41,22 +46,41 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        create_target_indexes(manager).await
+        if manager.get_database_backend() == DbBackend::MySql {
+            rename_mysql_index_if_exists(
+                manager,
+                "remote_storage_targets",
+                "idx_managed_ingress_profiles_binding_profile_key",
+                "idx_remote_storage_targets_binding_target_key",
+            )
+            .await?;
+            rename_mysql_index_if_exists(
+                manager,
+                "remote_storage_targets",
+                "idx_managed_ingress_profiles_binding_default",
+                "idx_remote_storage_targets_binding_default",
+            )
+            .await
+        } else {
+            create_target_indexes(manager).await
+        }
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        drop_index(
-            manager,
-            RemoteStorageTargets::Table,
-            "idx_remote_storage_targets_binding_target_key",
-        )
-        .await?;
-        drop_index(
-            manager,
-            RemoteStorageTargets::Table,
-            "idx_remote_storage_targets_binding_default",
-        )
-        .await?;
+        if manager.get_database_backend() != DbBackend::MySql {
+            drop_index_if_exists(
+                manager,
+                "remote_storage_targets",
+                "idx_remote_storage_targets_binding_target_key",
+            )
+            .await?;
+            drop_index_if_exists(
+                manager,
+                "remote_storage_targets",
+                "idx_remote_storage_targets_binding_default",
+            )
+            .await?;
+        }
 
         manager
             .alter_table(
@@ -78,23 +102,25 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        create_profile_indexes(manager).await
+        if manager.get_database_backend() == DbBackend::MySql {
+            rename_mysql_index_if_exists(
+                manager,
+                "managed_ingress_profiles",
+                "idx_remote_storage_targets_binding_target_key",
+                "idx_managed_ingress_profiles_binding_profile_key",
+            )
+            .await?;
+            rename_mysql_index_if_exists(
+                manager,
+                "managed_ingress_profiles",
+                "idx_remote_storage_targets_binding_default",
+                "idx_managed_ingress_profiles_binding_default",
+            )
+            .await
+        } else {
+            create_profile_indexes(manager).await
+        }
     }
-}
-
-async fn drop_index<T>(manager: &SchemaManager<'_>, table: T, index_name: &str) -> Result<(), DbErr>
-where
-    T: IntoIden,
-{
-    manager
-        .drop_index(
-            Index::drop()
-                .name(index_name)
-                .table(table)
-                .if_exists()
-                .to_owned(),
-        )
-        .await
 }
 
 async fn create_target_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {

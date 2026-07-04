@@ -8,5 +8,6 @@
 	"managed_ingress_default_update_requires_replacement": "You cannot unset the default remote storage target directly. Set another target as default first",
 	"managed_ingress_driver_unsupported": "Remote storage targets only support local and S3 drivers",
 	"managed_ingress_local_path_invalid": "The local target path must stay relative to the follower local target root",
+	"remote_storage_target_not_found": "The selected remote storage target no longer exists on the remote node",
 	"managed_ingress_single_primary_required": "Remote storage targets require the follower to be bound to exactly one primary. Multi-primary followers are rejected directly"
 }
