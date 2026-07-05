@@ -185,6 +185,9 @@ pub trait DavMetaData: Send + Sync {
     fn is_dir(&self) -> bool;
     fn etag(&self) -> Option<String>;
     fn created(&self) -> FsResult<SystemTime>;
+    fn property_entity(&self) -> Option<(crate::types::EntityType, i64)> {
+        None
+    }
 
     fn is_empty(&self) -> bool {
         self.len() == 0
@@ -265,6 +268,20 @@ pub trait DavFileSystem: Send + Sync {
                 result.insert(path.clone(), self.get_props(path, do_content).await?);
             }
             Ok(result)
+        })
+    }
+
+    fn get_props_many_for_entities<'a>(
+        &'a self,
+        targets: &'a [(DavPath, crate::types::EntityType, i64)],
+        do_content: bool,
+    ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
+        Box::pin(async move {
+            let paths = targets
+                .iter()
+                .map(|(path, _, _)| path.clone())
+                .collect::<Vec<_>>();
+            self.get_props_many(&paths, do_content).await
         })
     }
 

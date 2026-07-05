@@ -3,6 +3,7 @@
 use std::time::SystemTime;
 
 use crate::entities::{file, file_blob, folder};
+use crate::types::EntityType;
 use crate::webdav::dav::{DavMetaData, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime
@@ -21,6 +22,7 @@ pub struct AsterDavMeta {
     modified: SystemTime,
     created: SystemTime,
     etag: Option<String>,
+    property_entity: Option<(EntityType, i64)>,
 }
 
 impl AsterDavMeta {
@@ -31,6 +33,7 @@ impl AsterDavMeta {
             modified: SystemTime::UNIX_EPOCH,
             created: SystemTime::UNIX_EPOCH,
             etag: None,
+            property_entity: None,
         }
     }
 
@@ -41,6 +44,7 @@ impl AsterDavMeta {
             modified: to_system_time(folder.updated_at),
             created: to_system_time(folder.created_at),
             etag: Some(format!("dir-{}", folder.updated_at.timestamp())),
+            property_entity: Some((EntityType::Folder, folder.id)),
         }
     }
 
@@ -51,6 +55,7 @@ impl AsterDavMeta {
             modified: to_system_time(file.updated_at),
             created: to_system_time(file.created_at),
             etag: Some(blob.hash.clone()),
+            property_entity: Some((EntityType::File, file.id)),
         }
     }
 }
@@ -74,5 +79,9 @@ impl DavMetaData for AsterDavMeta {
 
     fn created(&self) -> FsResult<SystemTime> {
         Ok(self.created)
+    }
+
+    fn property_entity(&self) -> Option<(EntityType, i64)> {
+        self.property_entity
     }
 }

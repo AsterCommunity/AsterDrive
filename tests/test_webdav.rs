@@ -7,7 +7,9 @@ use actix_web::test;
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::{RateLimitConfig, WebDavConfig};
 use aster_drive::db::repository::{file_repo, property_repo};
-use aster_drive::entities::{audit_log, system_config, team, team_member, user, webdav_account};
+use aster_drive::entities::{
+    audit_log, folder, system_config, team, team_member, user, webdav_account,
+};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::audit_service;
 use aster_drive::types::{
@@ -1035,6 +1037,96 @@ async fn test_webdav_range_download_audit_is_coalesced_by_default() {
         after_disabled_coalescing - after_full_reads,
         2,
         "setting the WebDAV download audit coalescing window to 0 should record every read"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories() {
+    let state = common::setup().await;
+    let db1 = state.writer_db().clone();
+    let db2 = state.writer_db().clone();
+    let webdav_config = WebDavConfig::default();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
+            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::Data::new(state.clone()))
+            .configure(move |cfg| {
+                aster_drive::webdav::configure(cfg, &webdav_config, &db2);
+                aster_drive::api::configure_primary(cfg, &db1);
+            }),
+    )
+    .await;
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let owner = user::Entity::find()
+        .filter(user::Column::Username.eq("testuser"))
+        .one(state.writer_db())
+        .await
+        .expect("test user query should succeed")
+        .expect("test user should exist");
+    let now = Utc::now();
+    let parent = folder::ActiveModel {
+        name: Set("large-lockdiscovery".to_string()),
+        parent_id: Set(None),
+        team_id: Set(None),
+        owner_user_id: Set(Some(owner.id)),
+        created_by_user_id: Set(Some(owner.id)),
+        created_by_username: Set(owner.username.clone()),
+        policy_id: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        deleted_at: Set(None),
+        is_locked: Set(false),
+        ..Default::default()
+    }
+    .insert(state.writer_db())
+    .await
+    .expect("large lockdiscovery parent folder should insert");
+
+    let children = (0..520)
+        .map(|index| folder::ActiveModel {
+            name: Set(format!("child-{index:04}")),
+            parent_id: Set(Some(parent.id)),
+            team_id: Set(None),
+            owner_user_id: Set(Some(owner.id)),
+            created_by_user_id: Set(Some(owner.id)),
+            created_by_username: Set(owner.username.clone()),
+            policy_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            deleted_at: Set(None),
+            is_locked: Set(false),
+            ..Default::default()
+        })
+        .collect::<Vec<_>>();
+    folder::Entity::insert_many(children)
+        .exec(state.writer_db())
+        .await
+        .expect("large lockdiscovery child folders should insert");
+
+    let body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:lockdiscovery />
+  </D:prop>
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/large-lockdiscovery/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Depth", "1"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::MULTI_STATUS);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("/webdav/large-lockdiscovery/child-0519/"),
+        "Depth:1 PROPFIND should include the last seeded child: {xml}"
     );
 }
 

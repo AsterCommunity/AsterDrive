@@ -741,6 +741,45 @@ impl DavFileSystem for AsterDavFs {
         })
     }
 
+    fn get_props_many_for_entities<'a>(
+        &'a self,
+        targets: &'a [(DavPath, EntityType, i64)],
+        do_content: bool,
+    ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
+        Box::pin(async move {
+            let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
+            let mut entity_targets = Vec::with_capacity(targets.len());
+            for (path, entity_type, entity_id) in targets {
+                let target = (*entity_type, *entity_id);
+                target_paths.entry(target).or_default().push(path.clone());
+                entity_targets.push(target);
+            }
+
+            let props = property_repo::find_by_entities(self.state.reader_db(), &entity_targets)
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+            let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
+            for prop in props {
+                if property_service::is_protected_namespace(&prop.namespace) {
+                    continue;
+                }
+                props_by_target
+                    .entry((prop.entity_type, prop.entity_id))
+                    .or_default()
+                    .push(entity_prop_to_dav_prop(prop, do_content));
+            }
+
+            let mut result = HashMap::with_capacity(targets.len());
+            for (target, paths) in target_paths {
+                let props = props_by_target.remove(&target).unwrap_or_default();
+                for path in paths {
+                    result.insert(path, props.clone());
+                }
+            }
+            Ok(result)
+        })
+    }
+
     fn patch_props<'a>(
         &'a self,
         path: &'a DavPath,

@@ -103,13 +103,19 @@ impl PropfindPreload {
         let mut preload = Self::default();
 
         if propfind_kind_needs_dead_props(request_kind) {
-            let paths = resources
+            let targets = resources
                 .iter()
                 .filter(|resource| !is_root_resource(resource))
-                .map(|resource| resource.path.clone())
+                .filter_map(|resource| {
+                    let (entity_type, entity_id) = resource.meta.property_entity()?;
+                    Some((resource.path.clone(), entity_type, entity_id))
+                })
                 .collect::<Vec<_>>();
             preload.dead_props = dav_fs
-                .get_props_many(&paths, propfind_kind_needs_dead_prop_content(request_kind))
+                .get_props_many_for_entities(
+                    &targets,
+                    propfind_kind_needs_dead_prop_content(request_kind),
+                )
                 .await
                 .map_err(fs_error_response)?;
         }

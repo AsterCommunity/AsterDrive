@@ -20,6 +20,8 @@ use crate::webdav::dav::{
 };
 use crate::webdav::path_resolver::{self, ResolvedNode};
 
+const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
+
 /// 数据库支持的 WebDAV 锁系统
 ///
 /// Per-request 创建（需要 user_id 做 path → entity_id 解析）
@@ -535,9 +537,14 @@ impl DavLockSystem for DbLockSystem {
             all_ancestors.sort();
             all_ancestors.dedup();
 
-            let mut locks = lock_repo::find_ancestors(&self.db, &all_ancestors)
-                .await
-                .unwrap_or_default();
+            let mut locks = Vec::new();
+            for chunk in all_ancestors.chunks(DISCOVER_MANY_ANCESTOR_CHUNK_SIZE) {
+                locks.extend(
+                    lock_repo::find_ancestors(&self.db, chunk)
+                        .await
+                        .unwrap_or_default(),
+                );
+            }
             locks.retain(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now));
             locks.sort_by_key(|lock| lock.id);
 

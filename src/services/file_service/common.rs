@@ -32,6 +32,12 @@ pub(crate) fn ensure_personal_file_scope(file: &file::Model) -> Result<()> {
 pub(crate) fn if_none_match_matches_value(if_none_match: &str, etag_value: &str) -> bool {
     http_validators::if_none_match_header_matches(if_none_match, true, Some(etag_value))
         .unwrap_or(false)
+        || if_none_match.split(',').any(|candidate| {
+            candidate
+                .trim()
+                .trim_matches('"')
+                .eq_ignore_ascii_case(etag_value)
+        })
 }
 
 pub(crate) fn if_none_match_matches(if_none_match: &str, blob_hash: &str) -> bool {
@@ -40,7 +46,7 @@ pub(crate) fn if_none_match_matches(if_none_match: &str, blob_hash: &str) -> boo
 
 #[cfg(test)]
 mod tests {
-    use super::requires_inline_sandbox;
+    use super::{if_none_match_matches_value, requires_inline_sandbox};
 
     #[test]
     fn dangerous_same_origin_inline_mime_types_require_sandbox() {
@@ -50,5 +56,21 @@ mod tests {
         assert!(requires_inline_sandbox("text/html; charset=utf-8"));
         assert!(!requires_inline_sandbox("text/plain"));
         assert!(!requires_inline_sandbox("application/pdf"));
+    }
+
+    #[test]
+    fn if_none_match_matches_value_preserves_case_insensitive_blob_hash_matching() {
+        assert!(if_none_match_matches_value(
+            r#""ABCDEF123456""#,
+            "abcdef123456"
+        ));
+        assert!(if_none_match_matches_value(
+            r#""other", "ABCDEF123456""#,
+            "abcdef123456"
+        ));
+        assert!(!if_none_match_matches_value(
+            r#"W/"ABCDEF123456""#,
+            "abcdef123456"
+        ));
     }
 }
