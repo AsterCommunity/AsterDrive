@@ -90,6 +90,10 @@ export function RemoteNodeRemoteStorageTargetForm({
 	const accessKeyField = field("access_key");
 	const secretKeyField = field("secret_key");
 	const isDefaultField = field("is_default");
+	const canPreserveSecretOnEdit =
+		draftMode === "edit" &&
+		editingProfile?.driver_type === form.driver_type &&
+		secretKeyField?.secret === true;
 
 	return (
 		<div className="mt-4 rounded-2xl border border-border/70 bg-muted/10 p-4">
@@ -260,14 +264,10 @@ export function RemoteNodeRemoteStorageTargetForm({
 									}
 									className={ADMIN_CONTROL_HEIGHT_CLASS}
 									aria-invalid={secretKeyError ? true : undefined}
-									placeholder={
-										draftMode === "edit" && editingProfile?.driver_type === "s3"
-											? "••••••••"
-											: undefined
-									}
+									placeholder={canPreserveSecretOnEdit ? "••••••••" : undefined}
 								/>
 								<p className="text-xs text-muted-foreground">
-									{draftMode === "edit" && editingProfile?.driver_type === "s3"
+									{canPreserveSecretOnEdit
 										? t("remote_node_ingress_profile_credentials_optional_hint")
 										: t("remote_node_ingress_profile_credentials_hint")}
 								</p>

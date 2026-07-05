@@ -1,5 +1,8 @@
 use crate::entities::remote_storage_target;
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
+use crate::storage::field_contract::{
+    normalize_required_storage_field, preserve_secret_when_omitted,
+};
 use crate::storage::remote_protocol::{
     RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
@@ -39,7 +42,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
             base_path,
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
-            name: normalize_non_blank("name", &name)?,
+            name: normalize_required_storage_field("name", &name)?,
             driver_type: DriverType::Local,
             endpoint: String::new(),
             bucket: String::new(),
@@ -57,7 +60,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
             base_path,
             is_default,
         }) => normalize_target_fields(StorageTargetFields {
-            name: normalize_non_blank("name", &name)?,
+            name: normalize_required_storage_field("name", &name)?,
             driver_type: DriverType::S3,
             endpoint,
             bucket,
@@ -75,11 +78,21 @@ pub(in crate::services::remote_storage_target_service) fn normalize_update_input
 ) -> Result<NormalizedStorageTargetInput> {
     let driver_type = input.driver_type.unwrap_or(existing.driver_type);
     let same_driver_type = driver_type == existing.driver_type;
+    let access_key = if same_driver_type {
+        preserve_secret_when_omitted("access_key", &existing.access_key, input.access_key)?
+    } else {
+        input.access_key.unwrap_or_default()
+    };
+    let secret_key = if same_driver_type {
+        preserve_secret_when_omitted("secret_key", &existing.secret_key, input.secret_key)?
+    } else {
+        input.secret_key.unwrap_or_default()
+    };
     normalize_target_fields(StorageTargetFields {
         name: input
             .name
             .as_deref()
-            .map(|value| normalize_non_blank("name", value))
+            .map(|value| normalize_required_storage_field("name", value))
             .transpose()?
             .unwrap_or(existing.name),
         driver_type,
@@ -97,20 +110,8 @@ pub(in crate::services::remote_storage_target_service) fn normalize_update_input
                 String::new()
             }
         }),
-        access_key: input.access_key.unwrap_or_else(|| {
-            if same_driver_type {
-                existing.access_key.clone()
-            } else {
-                String::new()
-            }
-        }),
-        secret_key: input.secret_key.unwrap_or_else(|| {
-            if same_driver_type {
-                existing.secret_key.clone()
-            } else {
-                String::new()
-            }
-        }),
+        access_key,
+        secret_key,
         base_path: input.base_path.unwrap_or_else(|| {
             if same_driver_type {
                 existing.base_path.clone()
@@ -157,14 +158,4 @@ fn normalize_target_fields(fields: StorageTargetFields) -> Result<NormalizedStor
         base_path: normalized.base_path,
         is_default,
     })
-}
-
-fn normalize_non_blank(field: &str, value: &str) -> Result<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(AsterError::validation_error(format!(
-            "{field} cannot be blank"
-        )));
-    }
-    Ok(trimmed.to_string())
 }

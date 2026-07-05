@@ -6994,9 +6994,13 @@ export interface components {
             placeholder?: string | null;
             required: boolean;
             secret: boolean;
+            validation?: null | components["schemas"]["RemoteStorageTargetDriverFieldValidation"];
         };
         /** @enum {string} */
         RemoteStorageTargetDriverFieldKind: "text" | "secret" | "boolean" | "number";
+        RemoteStorageTargetDriverFieldValidation: {
+            relative_local_path: boolean;
+        };
         RemoteStorageTargetDriverType: string;
         RemoteStorageTargetInfo: {
             /** Format: int64 */

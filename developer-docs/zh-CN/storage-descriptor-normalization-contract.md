@@ -11,6 +11,8 @@
 
 这两类 descriptor 可以共享命名和字段语义，但不要强行合成一个万能 descriptor。storage policy 描述的是主控侧策略和上传/下载工作流；remote storage target 描述的是 follower 接收远端写入时的落点配置。
 
+共享字段语义和纯规范化 helper 放在 `src/storage/field_contract.rs`。产品侧 descriptor DTO 继续保持独立。
+
 ## Descriptor 规则
 
 - 管理端字段、动作、能力和 UI 辅助元数据必须优先来自后端 descriptor。前端不能用本地 `driver_type` 白名单或矩阵推断连接测试、授权、上传策略、原生处理、远端绑定、字段可见性等能力。
