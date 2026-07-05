@@ -16,6 +16,7 @@ import {
 } from "@/components/files/FileBrowserContext";
 import { FileGrid } from "@/components/files/FileGrid";
 import { FileTable } from "@/components/files/FileTable";
+import { FILE_BROWSER_BATCH_ACTION_POLICIES } from "@/components/files/fileActionPolicy";
 import {
 	Breadcrumb,
 	BreadcrumbItem,
@@ -190,9 +191,7 @@ export function ShareFolderView({
 	);
 	const { dialogs: batchActionDialogs, selectionToolbar } =
 		useFileBrowserBatchActions({
-			allowCopyMove: false,
-			allowDelete: false,
-			allowTagManagement: false,
+			...FILE_BROWSER_BATCH_ACTION_POLICIES.publicShare,
 			displayFiles: folderContents?.files ?? [],
 			displayFolders: folderContents?.folders ?? [],
 			onArchiveDownload: handleArchiveDownload,

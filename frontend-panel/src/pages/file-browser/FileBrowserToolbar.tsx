@@ -4,6 +4,12 @@ import { SortMenu } from "@/components/common/SortMenu";
 import { ToolbarBar } from "@/components/common/ToolbarBar";
 import { ViewToggle } from "@/components/common/ViewToggle";
 import {
+	BUILTIN_FILE_SELECTION_ACTION_DESCRIPTORS,
+	type FileActionId,
+	type ResolvedFileAction,
+	resolveFileActions,
+} from "@/components/files/fileActionRegistry";
+import {
 	Breadcrumb,
 	BreadcrumbEllipsis,
 	BreadcrumbItem,
@@ -262,13 +268,19 @@ function FileBrowserSelectionToolbar({
 	};
 }) {
 	const { t } = useTranslation(["files", "tasks"]);
+	const selectionActions = resolveSelectionToolbarActions(
+		renderedSelectionToolbar,
+	);
+	const selectionActionById = new Map(
+		selectionActions.map((action) => [action.id, action] as const),
+	);
+	const downloadAction = selectionActionById.get("download");
+	const manageTagsAction = selectionActionById.get("manage_tags");
+	const moveAction = selectionActionById.get("move");
+	const copyAction = selectionActionById.get("copy");
 	const selectDisplayedLabel = renderedSelectionToolbar.allDisplayedSelected
 		? t("selection_clear")
 		: t("selection_select_all_visible");
-	const selectionDownloadLabel =
-		renderedSelectionToolbar.downloadAction?.kind === "file"
-			? t("download")
-			: t("tasks:archive_download_action");
 
 	return (
 		<>
@@ -321,59 +333,59 @@ function FileBrowserSelectionToolbar({
 							{...selectionToolbarHiddenProps}
 							className={cn("flex items-center gap-1 sm:gap-2")}
 						>
-							{renderedSelectionToolbar.downloadAction ? (
+							{downloadAction ? (
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
 									className="hidden md:inline-flex"
-									onClick={renderedSelectionToolbar.downloadAction.onClick}
+									onClick={downloadAction.onClick}
 								>
-									<Icon name="Download" className="size-3.5" />
-									<span>{selectionDownloadLabel}</span>
+									<Icon name={downloadAction.icon} className="size-3.5" />
+									<span>{t(downloadAction.labelKey)}</span>
 								</Button>
 							) : null}
-							{renderedSelectionToolbar.onManageTags ? (
+							{manageTagsAction ? (
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
-									onClick={renderedSelectionToolbar.onManageTags}
+									onClick={manageTagsAction.onClick}
 								>
-									<Icon name="Tag" className="size-3.5" />
-									<span>{t("tag_manage")}</span>
+									<Icon name={manageTagsAction.icon} className="size-3.5" />
+									<span>{t(manageTagsAction.labelKey)}</span>
 								</Button>
 							) : null}
-							{renderedSelectionToolbar.onMove ? (
+							{moveAction ? (
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
-									onClick={renderedSelectionToolbar.onMove}
-									aria-label={t("move_to")}
-									title={t("move_to")}
+									onClick={moveAction.onClick}
+									aria-label={t(moveAction.labelKey)}
+									title={t(moveAction.labelKey)}
 								>
-									<Icon name="ArrowsOutCardinal" className="size-3.5" />
+									<Icon name={moveAction.icon} className="size-3.5" />
 									<span className="hidden min-[420px]:inline">
-										{t("move_to")}
+										{t(moveAction.labelKey)}
 									</span>
 								</Button>
 							) : null}
-							{renderedSelectionToolbar.onCopy ? (
+							{copyAction ? (
 								<Button
 									type="button"
 									size="sm"
 									variant="outline"
-									onClick={renderedSelectionToolbar.onCopy}
+									onClick={copyAction.onClick}
 								>
-									<Icon name="Copy" className="size-3.5" />
-									<span>{t("copy_to")}</span>
+									<Icon name={copyAction.icon} className="size-3.5" />
+									<span>{t(copyAction.labelKey)}</span>
 								</Button>
 							) : null}
 							<SelectionActionsMenu
+								actions={selectionActions}
 								renderedSelectionToolbar={renderedSelectionToolbar}
 								selectDisplayedLabel={selectDisplayedLabel}
-								selectionDownloadLabel={selectionDownloadLabel}
 							/>
 						</div>
 					}
@@ -414,34 +426,34 @@ function FileBrowserSelectionToolbar({
 					</button>
 				</div>
 				<div className="flex shrink-0 items-center gap-1">
-					{renderedSelectionToolbar.downloadAction ? (
+					{downloadAction ? (
 						<Button
 							type="button"
 							size="icon-sm"
 							variant="outline"
-							onClick={renderedSelectionToolbar.downloadAction.onClick}
-							aria-label={selectionDownloadLabel}
-							title={selectionDownloadLabel}
+							onClick={downloadAction.onClick}
+							aria-label={t(downloadAction.labelKey)}
+							title={t(downloadAction.labelKey)}
 						>
-							<Icon name="Download" className="size-3.5" />
+							<Icon name={downloadAction.icon} className="size-3.5" />
 						</Button>
 					) : null}
-					{renderedSelectionToolbar.onMove ? (
+					{moveAction ? (
 						<Button
 							type="button"
 							size="icon-sm"
 							variant="outline"
-							onClick={renderedSelectionToolbar.onMove}
-							aria-label={t("move_to")}
-							title={t("move_to")}
+							onClick={moveAction.onClick}
+							aria-label={t(moveAction.labelKey)}
+							title={t(moveAction.labelKey)}
 						>
-							<Icon name="ArrowsOutCardinal" className="size-3.5" />
+							<Icon name={moveAction.icon} className="size-3.5" />
 						</Button>
 					) : null}
 					<SelectionActionsMenu
+						actions={selectionActions}
 						renderedSelectionToolbar={renderedSelectionToolbar}
 						selectDisplayedLabel={selectDisplayedLabel}
-						selectionDownloadLabel={selectionDownloadLabel}
 					/>
 				</div>
 			</div>
@@ -449,16 +461,40 @@ function FileBrowserSelectionToolbar({
 	);
 }
 
+function resolveSelectionToolbarActions(
+	renderedSelectionToolbar: FileBrowserSelectionToolbarState,
+) {
+	return resolveFileActions(BUILTIN_FILE_SELECTION_ACTION_DESCRIPTORS, {
+		downloadAction: renderedSelectionToolbar.downloadAction,
+		handlers: {
+			archive_compress: renderedSelectionToolbar.onArchiveCompress,
+			copy: renderedSelectionToolbar.onCopy,
+			delete: renderedSelectionToolbar.onDelete,
+			manage_tags: renderedSelectionToolbar.onManageTags,
+			move: renderedSelectionToolbar.onMove,
+		} satisfies Partial<Record<FileActionId, () => void>>,
+		isFolder: false,
+		isLocked: false,
+		selectionCount: renderedSelectionToolbar.count,
+	});
+}
+
 function SelectionActionsMenu({
+	actions,
 	renderedSelectionToolbar,
 	selectDisplayedLabel,
-	selectionDownloadLabel,
 }: {
+	actions: ResolvedFileAction[];
 	renderedSelectionToolbar: FileBrowserSelectionToolbarState;
 	selectDisplayedLabel: string;
-	selectionDownloadLabel: string;
 }) {
 	const { t } = useTranslation(["files", "tasks"]);
+	const primaryActions = actions.filter(
+		(action) => action.presentation.group !== "danger",
+	);
+	const dangerActions = actions.filter(
+		(action) => action.presentation.group === "danger",
+	);
 
 	return (
 		<DropdownMenu>
@@ -483,44 +519,25 @@ function SelectionActionsMenu({
 					<Icon name="Check" className="size-4 text-muted-foreground" />
 					{selectDisplayedLabel}
 				</DropdownMenuItem>
-				{renderedSelectionToolbar.downloadAction ? (
-					<DropdownMenuItem
-						onClick={renderedSelectionToolbar.downloadAction.onClick}
-					>
-						<Icon name="Download" className="size-4 text-muted-foreground" />
-						{selectionDownloadLabel}
+				{primaryActions.map((action) => (
+					<DropdownMenuItem key={action.id} onClick={action.onClick}>
+						<Icon name={action.icon} className="size-4 text-muted-foreground" />
+						{t(action.labelKey)}
 					</DropdownMenuItem>
-				) : null}
-				{renderedSelectionToolbar.onCopy ? (
-					<DropdownMenuItem onClick={renderedSelectionToolbar.onCopy}>
-						<Icon name="Copy" className="size-4 text-muted-foreground" />
-						{t("copy_to")}
-					</DropdownMenuItem>
-				) : null}
-				{renderedSelectionToolbar.onManageTags ? (
-					<DropdownMenuItem onClick={renderedSelectionToolbar.onManageTags}>
-						<Icon name="Tag" className="size-4 text-muted-foreground" />
-						{t("tag_manage")}
-					</DropdownMenuItem>
-				) : null}
-				{renderedSelectionToolbar.onArchiveCompress ? (
-					<DropdownMenuItem
-						onClick={renderedSelectionToolbar.onArchiveCompress}
-					>
-						<Icon name="FileZip" className="size-4 text-muted-foreground" />
-						{t("tasks:archive_compress_action")}
-					</DropdownMenuItem>
-				) : null}
-				{renderedSelectionToolbar.onDelete ? (
+				))}
+				{dangerActions.length > 0 ? (
 					<>
 						<DropdownMenuSeparator />
-						<DropdownMenuItem
-							variant="destructive"
-							onClick={renderedSelectionToolbar.onDelete}
-						>
-							<Icon name="Trash" className="size-4" />
-							{t("core:delete")}
-						</DropdownMenuItem>
+						{dangerActions.map((action) => (
+							<DropdownMenuItem
+								key={action.id}
+								variant="destructive"
+								onClick={action.onClick}
+							>
+								<Icon name={action.icon} className="size-4" />
+								{t(action.labelKey)}
+							</DropdownMenuItem>
+						))}
 					</>
 				) : null}
 			</DropdownMenuContent>
