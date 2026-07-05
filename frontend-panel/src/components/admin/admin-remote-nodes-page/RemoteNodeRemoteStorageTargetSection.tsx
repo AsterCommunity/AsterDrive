@@ -180,18 +180,17 @@ export function RemoteNodeRemoteStorageTargetSection({
 		bucketField?.required && !form.bucket.trim()
 			? t("remote_node_ingress_profile_bucket_required")
 			: null;
-	const preservesExistingCredentialValues =
+	const preservesExistingSecretValue =
 		activeDraftMode === "edit" &&
-		editingTarget?.driver_type === form.driver_type;
+		editingTarget?.driver_type === form.driver_type &&
+		secretKeyField?.secret === true;
 	const accessKeyError =
-		accessKeyField?.required &&
-		!preservesExistingCredentialValues &&
-		!form.access_key.trim()
+		accessKeyField?.required && !form.access_key.trim()
 			? t("remote_node_ingress_profile_access_key_required")
 			: null;
 	const secretKeyError =
 		secretKeyField?.required &&
-		!preservesExistingCredentialValues &&
+		!preservesExistingSecretValue &&
 		!form.secret_key.trim()
 			? t("remote_node_ingress_profile_secret_key_required")
 			: null;

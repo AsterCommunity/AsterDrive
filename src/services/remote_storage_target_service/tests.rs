@@ -417,7 +417,8 @@ fn managed_ingress_driver_registry_contains_supported_builtin_drivers() {
 
 #[test]
 fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
-    let descriptors = list_registered_remote_storage_target_driver_descriptors();
+    let descriptors = list_registered_remote_storage_target_driver_descriptors()
+        .expect("registered remote storage target descriptors should build");
     assert_eq!(descriptors.len(), 2);
 
     let local = descriptors

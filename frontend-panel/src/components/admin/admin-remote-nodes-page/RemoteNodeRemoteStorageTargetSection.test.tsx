@@ -549,7 +549,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		});
 	});
 
-	it("edits existing S3 targets without requiring unchanged credentials", async () => {
+	it("edits existing S3 targets while requiring access key but preserving secret", async () => {
 		const existing = profile({
 			base_path: "prefix",
 			bucket: "bucket-a",
@@ -565,8 +565,15 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		expect(
 			screen.getByLabelText("remote_node_ingress_profile_default_toggle"),
 		).toBeDisabled();
+		expect(screen.getByRole("button", { name: /save_changes/ })).toBeDisabled();
+		expect(
+			screen.getByText("remote_node_ingress_profile_access_key_required"),
+		).toBeInTheDocument();
 		fireEvent.change(screen.getByLabelText("core:name"), {
 			target: { value: "S3 renamed" },
+		});
+		fireEvent.change(screen.getByLabelText("access_key"), {
+			target: { value: "rotated-access" },
 		});
 		fireEvent.change(screen.getByLabelText("base_path"), {
 			target: { value: "next-prefix" },
@@ -576,6 +583,7 @@ describe("RemoteNodeRemoteStorageTargetSection", () => {
 		await waitFor(() => {
 			expect(onUpdateTarget).toHaveBeenCalledWith("s3-default", {
 				base_path: "next-prefix",
+				access_key: "rotated-access",
 				bucket: "bucket-a",
 				driver_type: "s3",
 				endpoint: "https://s3.example.com",

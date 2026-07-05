@@ -64,6 +64,14 @@ impl TryFrom<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind 
     }
 }
 
+fn remote_storage_target_field_kind(
+    kind: StorageDescriptorFieldKind,
+) -> Result<RemoteStorageTargetDriverFieldKind> {
+    RemoteStorageTargetDriverFieldKind::try_from(kind).map_err(|message| {
+        AsterError::internal_error(format!("build managed ingress descriptor field: {message}"))
+    })
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteStorageTargetDriverFieldValidation {
@@ -102,7 +110,7 @@ fn remote_storage_target_text_field(
     help_key: Option<&str>,
     required: bool,
     secret: bool,
-) -> RemoteStorageTargetDriverFieldDescriptor {
+) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
     remote_storage_target_text_field_with_validation(
         name,
         label_key,
@@ -122,25 +130,22 @@ fn remote_storage_target_text_field_with_validation(
     required: bool,
     secret: bool,
     validation: Option<RemoteStorageTargetDriverFieldValidation>,
-) -> RemoteStorageTargetDriverFieldDescriptor {
+) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
     let semantics = if secret {
         StorageDescriptorFieldSemantics::secret(required)
     } else {
         StorageDescriptorFieldSemantics::text(required)
     };
-    RemoteStorageTargetDriverFieldDescriptor {
+    Ok(RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: semantics
-            .kind
-            .try_into()
-            .expect("text/secret storage target fields must map to managed ingress field kinds"),
+        kind: remote_storage_target_field_kind(semantics.kind)?,
         required: semantics.required,
         secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: placeholder.map(str::to_string),
         help_key: help_key.map(str::to_string),
         validation,
-    }
+    })
 }
 
 fn remote_storage_target_boolean_field(
@@ -148,27 +153,24 @@ fn remote_storage_target_boolean_field(
     label_key: &str,
     help_key: Option<&str>,
     required: bool,
-) -> RemoteStorageTargetDriverFieldDescriptor {
+) -> Result<RemoteStorageTargetDriverFieldDescriptor> {
     let semantics = StorageDescriptorFieldSemantics::boolean(required);
-    RemoteStorageTargetDriverFieldDescriptor {
+    Ok(RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: semantics
-            .kind
-            .try_into()
-            .expect("boolean storage target fields must map to managed ingress field kinds"),
+        kind: remote_storage_target_field_kind(semantics.kind)?,
         required: semantics.required,
         secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: None,
         help_key: help_key.map(str::to_string),
         validation: None,
-    }
+    })
 }
 
 trait RemoteStorageTargetDriverConnector {
     fn driver_type() -> DriverType;
 
-    fn descriptor() -> RemoteStorageTargetDriverDescriptor;
+    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor>;
 
     fn normalize_fields(
         fields: RemoteStorageTargetDriverFields,
@@ -191,8 +193,8 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
         DriverType::Local
     }
 
-    fn descriptor() -> RemoteStorageTargetDriverDescriptor {
-        RemoteStorageTargetDriverDescriptor {
+    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
+        Ok(RemoteStorageTargetDriverDescriptor {
             driver_type: Self::driver_type(),
             label_key: "remote_node_ingress_profile_driver_local".to_string(),
             description_key: "remote_node_ingress_profile_local_scope_hint".to_string(),
@@ -207,15 +209,15 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
                     Some(RemoteStorageTargetDriverFieldValidation {
                         relative_local_path: true,
                     }),
-                ),
+                )?,
                 remote_storage_target_boolean_field(
                     "is_default",
                     "remote_node_ingress_profile_default_toggle",
                     Some("remote_node_ingress_profile_default_hint"),
                     false,
-                ),
+                )?,
             ],
-        }
+        })
     }
 
     fn normalize_fields(
@@ -271,8 +273,8 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
         DriverType::S3
     }
 
-    fn descriptor() -> RemoteStorageTargetDriverDescriptor {
-        RemoteStorageTargetDriverDescriptor {
+    fn descriptor() -> Result<RemoteStorageTargetDriverDescriptor> {
+        Ok(RemoteStorageTargetDriverDescriptor {
             driver_type: Self::driver_type(),
             label_key: "remote_node_ingress_profile_driver_s3".to_string(),
             description_key: "remote_node_ingress_profile_s3_path_hint".to_string(),
@@ -284,8 +286,8 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
                     None,
                     true,
                     false,
-                ),
-                remote_storage_target_text_field("bucket", "bucket", None, None, true, false),
+                )?,
+                remote_storage_target_text_field("bucket", "bucket", None, None, true, false)?,
                 remote_storage_target_text_field(
                     "access_key",
                     "access_key",
@@ -293,7 +295,7 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
                     None,
                     true,
                     false,
-                ),
+                )?,
                 remote_storage_target_text_field(
                     "secret_key",
                     "secret_key",
@@ -301,7 +303,7 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
                     None,
                     true,
                     true,
-                ),
+                )?,
                 remote_storage_target_text_field(
                     "base_path",
                     "base_path",
@@ -309,15 +311,15 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
                     Some("remote_node_ingress_profile_s3_path_hint"),
                     false,
                     false,
-                ),
+                )?,
                 remote_storage_target_boolean_field(
                     "is_default",
                     "remote_node_ingress_profile_default_toggle",
                     Some("remote_node_ingress_profile_default_hint"),
                     false,
-                ),
+                )?,
             ],
-        }
+        })
     }
 
     fn normalize_fields(
@@ -363,7 +365,7 @@ enum BuiltinRemoteStorageTargetDriverConnector {
 }
 
 impl BuiltinRemoteStorageTargetDriverConnector {
-    fn descriptor(self) -> RemoteStorageTargetDriverDescriptor {
+    fn descriptor(self) -> Result<RemoteStorageTargetDriverDescriptor> {
         match self {
             Self::Local => LocalRemoteStorageTargetDriverConnector::descriptor(),
             Self::S3 => S3RemoteStorageTargetDriverConnector::descriptor(),
@@ -435,17 +437,17 @@ pub(crate) fn registered_remote_storage_target_driver_types() -> Vec<DriverType>
 
 #[cfg(test)]
 pub(crate) fn list_registered_remote_storage_target_driver_descriptors()
--> Vec<RemoteStorageTargetDriverDescriptor> {
+-> Result<Vec<RemoteStorageTargetDriverDescriptor>> {
     REMOTE_STORAGE_TARGET_DRIVER_REGISTRATIONS
         .iter()
         .map(|registration| registration.connector.descriptor())
-        .collect()
+        .collect::<Result<Vec<_>>>()
 }
 
 pub fn remote_storage_target_driver_descriptor(
     driver_type: DriverType,
 ) -> Result<RemoteStorageTargetDriverDescriptor> {
-    Ok(registration_for(driver_type)?.connector.descriptor())
+    registration_for(driver_type)?.connector.descriptor()
 }
 
 pub(in crate::services::remote_storage_target_service) fn normalize_driver_fields(
