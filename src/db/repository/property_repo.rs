@@ -2,7 +2,7 @@
 
 use sea_orm::{
     ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, FromQueryResult, PaginatorTrait,
-    QueryFilter, QuerySelect, Set, TryInsertResult, sea_query::Expr,
+    QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult, sea_query::Expr,
 };
 
 use crate::entities::entity_property::{self, Entity as EntityProperty};
@@ -23,6 +23,49 @@ pub async fn find_by_entity(
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+/// 查询多个实体的所有属性。
+pub async fn find_by_entities<C: ConnectionTrait>(
+    db: &C,
+    targets: &[(EntityType, i64)],
+) -> Result<Vec<entity_property::Model>> {
+    if targets.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let mut files = Vec::new();
+    let mut folders = Vec::new();
+    for (entity_type, entity_id) in targets {
+        match entity_type {
+            EntityType::File => files.push(*entity_id),
+            EntityType::Folder => folders.push(*entity_id),
+        }
+    }
+    files.sort_unstable();
+    files.dedup();
+    folders.sort_unstable();
+    folders.dedup();
+
+    let mut props = Vec::new();
+    for (entity_type, ids) in [(EntityType::File, files), (EntityType::Folder, folders)] {
+        for chunk in ids.chunks(ENTITY_PROPERTY_BATCH_CHUNK_SIZE) {
+            props.extend(
+                EntityProperty::find()
+                    .filter(entity_property::Column::EntityType.eq(entity_type))
+                    .filter(entity_property::Column::EntityId.is_in(chunk.iter().copied()))
+                    .order_by_asc(entity_property::Column::EntityType)
+                    .order_by_asc(entity_property::Column::EntityId)
+                    .order_by_asc(entity_property::Column::Namespace)
+                    .order_by_asc(entity_property::Column::Name)
+                    .all(db)
+                    .await
+                    .map_err(AsterError::from)?,
+            );
+        }
+    }
+
+    Ok(props)
 }
 
 /// 查询实体的单个属性

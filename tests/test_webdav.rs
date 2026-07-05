@@ -3500,6 +3500,74 @@ async fn test_webdav_propfind_collection_does_not_report_getcontentlength() {
 }
 
 #[actix_web::test]
+async fn test_webdav_propfind_depth_one_large_directory_live_props() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/live-large/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    for index in 0..24 {
+        let req = test::TestRequest::put()
+            .uri(&format!("/webdav/live-large/file-{index}.txt"))
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(format!("live prop fixture {index}"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(
+            resp.status() == 201 || resp.status() == 204,
+            "PUT fixture file {index} should succeed, got {}",
+            resp.status()
+        );
+    }
+
+    let propfind_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:displayname />
+    <D:resourcetype />
+    <D:getcontentlength />
+    <D:getlastmodified />
+    <D:creationdate />
+    <D:getetag />
+  </D:prop>
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/live-large/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Depth", "1"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propfind_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+
+    assert_eq!(
+        xml.matches("<D:response>").count(),
+        25,
+        "Depth: 1 should include the directory plus all children: {xml}"
+    );
+    for index in 0..24 {
+        assert!(
+            xml.contains(&format!("file-{index}.txt")),
+            "Depth: 1 live prop response should include file-{index}.txt: {xml}"
+        );
+    }
+    assert!(
+        xml.contains("getlastmodified") && xml.contains("getetag"),
+        "live prop response should include requested live metadata: {xml}"
+    );
+    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+}
+
+#[actix_web::test]
 async fn test_webdav_propfind_rejects_invalid_request_grammar() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);

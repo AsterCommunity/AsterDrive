@@ -681,24 +681,50 @@ impl DavFileSystem for AsterDavFs {
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
 
-            Ok(props
-                .into_iter()
-                .filter(|p| !property_service::is_protected_namespace(&p.namespace))
-                .map(|p| DavProp {
-                    name: p.name,
-                    prefix: None,
-                    namespace: if p.namespace.is_empty() {
-                        None
-                    } else {
-                        Some(p.namespace)
-                    },
-                    xml: if do_content {
-                        p.value.map(|v| v.into_bytes())
-                    } else {
-                        None
-                    },
-                })
-                .collect())
+            Ok(entity_props_to_dav_props(props, do_content))
+        })
+    }
+
+    fn get_props_many<'a>(
+        &'a self,
+        paths: &'a [DavPath],
+        do_content: bool,
+    ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
+        Box::pin(async move {
+            let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
+            let mut targets = Vec::new();
+            for path in paths {
+                let Some(target) =
+                    resolve_entity(&self.state, self.scope, path, self.root_folder_id).await
+                else {
+                    continue;
+                };
+                target_paths.entry(target).or_default().push(path.clone());
+                targets.push(target);
+            }
+
+            let props = property_repo::find_by_entities(self.state.writer_db(), &targets)
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
+            let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
+            for prop in props {
+                if property_service::is_protected_namespace(&prop.namespace) {
+                    continue;
+                }
+                props_by_target
+                    .entry((prop.entity_type, prop.entity_id))
+                    .or_default()
+                    .push(entity_prop_to_dav_prop(prop, do_content));
+            }
+
+            let mut result = HashMap::with_capacity(paths.len());
+            for (target, paths) in target_paths {
+                let props = props_by_target.remove(&target).unwrap_or_default();
+                for path in paths {
+                    result.insert(path, props.clone());
+                }
+            }
+            Ok(result)
         })
     }
 
@@ -796,6 +822,37 @@ impl DavFileSystem for AsterDavFs {
                 .map(|(_, prop)| (http::StatusCode::OK, prop))
                 .collect())
         })
+    }
+}
+
+fn entity_props_to_dav_props(
+    props: Vec<crate::entities::entity_property::Model>,
+    do_content: bool,
+) -> Vec<DavProp> {
+    props
+        .into_iter()
+        .filter(|p| !property_service::is_protected_namespace(&p.namespace))
+        .map(|p| entity_prop_to_dav_prop(p, do_content))
+        .collect()
+}
+
+fn entity_prop_to_dav_prop(
+    prop: crate::entities::entity_property::Model,
+    do_content: bool,
+) -> DavProp {
+    DavProp {
+        name: prop.name,
+        prefix: None,
+        namespace: if prop.namespace.is_empty() {
+            None
+        } else {
+            Some(prop.namespace)
+        },
+        xml: if do_content {
+            prop.value.map(|value| value.into_bytes())
+        } else {
+            None
+        },
     }
 }
 

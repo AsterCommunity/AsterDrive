@@ -1,5 +1,6 @@
 //! WebDAV 子模块：`dav`。
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::io::SeekFrom;
 use std::pin::Pin;
@@ -253,6 +254,20 @@ pub trait DavFileSystem: Send + Sync {
         Box::pin(async { Ok(Vec::new()) })
     }
 
+    fn get_props_many<'a>(
+        &'a self,
+        paths: &'a [DavPath],
+        do_content: bool,
+    ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
+        Box::pin(async move {
+            let mut result = HashMap::with_capacity(paths.len());
+            for path in paths {
+                result.insert(path.clone(), self.get_props(path, do_content).await?);
+            }
+            Ok(result)
+        })
+    }
+
     fn patch_props<'a>(
         &'a self,
         _path: &'a DavPath,
@@ -323,6 +338,19 @@ pub trait DavLockSystem: Send + Sync {
     ) -> LsFuture<'_, Result<(), DavLock>>;
 
     fn discover(&self, path: &DavPath) -> LsFuture<'_, Vec<DavLock>>;
+
+    fn discover_many<'a>(
+        &'a self,
+        paths: &'a [DavPath],
+    ) -> LsFuture<'a, HashMap<DavPath, Vec<DavLock>>> {
+        Box::pin(async move {
+            let mut result = HashMap::with_capacity(paths.len());
+            for path in paths {
+                result.insert(path.clone(), self.discover(path).await);
+            }
+            result
+        })
+    }
 
     fn conflicting_locks(&self, path: &DavPath, deep: bool) -> LsFuture<'_, Vec<DavLock>>;
 
