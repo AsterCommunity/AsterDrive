@@ -1,5 +1,7 @@
 //! 集成测试：`migration`。
 
+mod common;
+
 use migration::{CurrentMigrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement};
 
@@ -9,6 +11,8 @@ const RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION: &str =
 const ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION: &str =
     "m20260619_000001_add_storage_connector_application_configs";
 const ENFORCE_JSON_TEXT_NOT_NULL_MIGRATION: &str = "m20260620_000001_enforce_json_text_not_null";
+const RENAME_MANAGED_INGRESS_PROFILES_MIGRATION: &str =
+    "m20260704_000001_rename_managed_ingress_profiles_to_remote_storage_targets";
 const ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION: &str =
     "m20260704_000002_add_remote_storage_target_key_to_storage_policies";
 const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
@@ -44,6 +48,10 @@ fn steps_to_roll_back_upload_session_object_fields() -> u32 {
 
 fn steps_to_roll_back_storage_connector_application_configs() -> u32 {
     steps_to_roll_back_migration(ADD_STORAGE_CONNECTOR_APPLICATION_CONFIGS_MIGRATION)
+}
+
+fn steps_to_roll_back_rename_managed_ingress_profiles() -> u32 {
+    steps_to_roll_back_migration(RENAME_MANAGED_INGRESS_PROFILES_MIGRATION)
 }
 
 fn steps_to_roll_back_remote_storage_target_max_file_size() -> u32 {
@@ -87,14 +95,38 @@ async fn insert_resource_lock(
 }
 
 async fn sqlite_index_exists(db: &DatabaseConnection, index_name: &str) -> bool {
+    sqlite_table_index_exists(db, "resource_locks", index_name).await
+}
+
+async fn sqlite_table_index_exists(
+    db: &DatabaseConnection,
+    table_name: &str,
+    index_name: &str,
+) -> bool {
     db.query_all_raw(Statement::from_string(
         DbBackend::Sqlite,
-        "PRAGMA index_list('resource_locks')",
+        format!("PRAGMA index_list('{table_name}')"),
     ))
     .await
     .expect("sqlite index list should load")
     .into_iter()
     .any(|row| row.try_get_by_index::<String>(1).as_deref() == Ok(index_name))
+}
+
+async fn mysql_table_index_exists(
+    db: &DatabaseConnection,
+    table_name: &str,
+    index_name: &str,
+) -> bool {
+    db.query_one_raw(Statement::from_sql_and_values(
+        DbBackend::MySql,
+        "SELECT 1 FROM information_schema.statistics \
+         WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? LIMIT 1",
+        [table_name.into(), index_name.into()],
+    ))
+    .await
+    .expect("mysql index lookup should load")
+    .is_some()
 }
 
 async fn sqlite_table_columns(db: &DatabaseConnection, table_name: &str) -> Vec<String> {
@@ -280,6 +312,15 @@ async fn storage_policy_remote_storage_target_key_migration_round_trips_column()
         has_column(&current_columns, "remote_storage_target_key"),
         "current schema should include storage_policies.remote_storage_target_key"
     );
+    assert!(
+        sqlite_table_index_exists(
+            &db,
+            "storage_policies",
+            "idx_storage_policies_remote_target"
+        )
+        .await,
+        "current schema should include idx_storage_policies_remote_target"
+    );
 
     CurrentMigrator::down(
         &db,
@@ -292,6 +333,15 @@ async fn storage_policy_remote_storage_target_key_migration_round_trips_column()
         !has_column(&rolled_back_columns, "remote_storage_target_key"),
         "rollback should remove storage_policies.remote_storage_target_key"
     );
+    assert!(
+        !sqlite_table_index_exists(
+            &db,
+            "storage_policies",
+            "idx_storage_policies_remote_target"
+        )
+        .await,
+        "rollback should remove idx_storage_policies_remote_target"
+    );
 
     CurrentMigrator::up(
         &db,
@@ -303,6 +353,122 @@ async fn storage_policy_remote_storage_target_key_migration_round_trips_column()
     assert!(
         has_column(&reapplied_columns, "remote_storage_target_key"),
         "reapply should restore storage_policies.remote_storage_target_key"
+    );
+    assert!(
+        sqlite_table_index_exists(
+            &db,
+            "storage_policies",
+            "idx_storage_policies_remote_target"
+        )
+        .await,
+        "reapply should restore idx_storage_policies_remote_target"
+    );
+}
+
+#[tokio::test]
+async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
+    let should_run_mysql = std::env::var("ASTER_TEST_DATABASE_BACKEND")
+        .ok()
+        .map(|value| value.trim().eq_ignore_ascii_case("mysql"))
+        .unwrap_or(false);
+    if !should_run_mysql {
+        eprintln!(
+            "skipping MySQL migration index rename coverage; set ASTER_TEST_DATABASE_BACKEND=mysql"
+        );
+        return;
+    }
+
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == RENAME_MANAGED_INGRESS_PROFILES_MIGRATION),
+        "remote storage target rename migration should be registered"
+    );
+
+    let database_url = common::mysql_test_database_url().await;
+    let db = Database::connect(&database_url)
+        .await
+        .expect("mysql migration test database should connect");
+
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("current migrations should apply on MySQL");
+    assert!(
+        mysql_table_index_exists(
+            &db,
+            "remote_storage_targets",
+            "idx_remote_storage_targets_binding_target_key"
+        )
+        .await,
+        "MySQL up should rename the target key index"
+    );
+    assert!(
+        mysql_table_index_exists(
+            &db,
+            "remote_storage_targets",
+            "idx_remote_storage_targets_binding_default"
+        )
+        .await,
+        "MySQL up should rename the default index"
+    );
+    assert!(
+        !mysql_table_index_exists(
+            &db,
+            "remote_storage_targets",
+            "idx_managed_ingress_profiles_binding_profile_key"
+        )
+        .await,
+        "MySQL up should remove the old profile key index name"
+    );
+
+    CurrentMigrator::down(
+        &db,
+        Some(steps_to_roll_back_rename_managed_ingress_profiles()),
+    )
+    .await
+    .expect("remote storage target rename migration should roll back on MySQL");
+    assert!(
+        mysql_table_index_exists(
+            &db,
+            "managed_ingress_profiles",
+            "idx_managed_ingress_profiles_binding_profile_key"
+        )
+        .await,
+        "MySQL down should restore the legacy profile key index"
+    );
+    assert!(
+        mysql_table_index_exists(
+            &db,
+            "managed_ingress_profiles",
+            "idx_managed_ingress_profiles_binding_default"
+        )
+        .await,
+        "MySQL down should restore the legacy default index"
+    );
+    assert!(
+        !mysql_table_index_exists(
+            &db,
+            "managed_ingress_profiles",
+            "idx_remote_storage_targets_binding_target_key"
+        )
+        .await,
+        "MySQL down should remove the remote storage target key index name"
+    );
+
+    CurrentMigrator::up(
+        &db,
+        Some(steps_to_roll_back_rename_managed_ingress_profiles()),
+    )
+    .await
+    .expect("remote storage target rename migration should reapply on MySQL");
+    assert!(
+        mysql_table_index_exists(
+            &db,
+            "remote_storage_targets",
+            "idx_remote_storage_targets_binding_target_key"
+        )
+        .await,
+        "MySQL reapply should restore the target key index name"
     );
 }
 

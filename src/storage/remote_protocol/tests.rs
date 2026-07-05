@@ -854,8 +854,12 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
         request.method == "PATCH" && request.path_and_query.contains("/targets/profile%2Fa")
     }));
     assert!(requests.iter().any(|request| {
+        let path = request
+            .path_and_query
+            .split_once('?')
+            .map_or(request.path_and_query.as_str(), |(path, _)| path);
         request.method == "POST"
-            && request.path_and_query.contains("/compose")
+            && path.ends_with("/compose")
             && serde_json::from_slice::<serde_json::Value>(&request.body)
                 .expect("compose request body should be JSON")["expected_size"]
                 == 6

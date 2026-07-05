@@ -3407,6 +3407,76 @@ describe("AdminPoliciesPage", () => {
 		});
 	});
 
+	it("keeps the quick-create target draft open when remote target creation fails", async () => {
+		const createError = new Error("target create failed");
+		mockState.remoteNodes = [
+			{
+				id: 14,
+				name: "Edge Quick Failure",
+				base_url: "https://remote-quick-failure.example.com",
+			},
+		];
+		mockState.createStorageTarget.mockRejectedValueOnce(createError);
+
+		render(<AdminPoliciesPage />);
+
+		openCreateWizard("remote");
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Remote Quick Failure Archive" },
+		});
+		await waitFor(() => {
+			expect(
+				screen.getByRole("button", { name: "select-item:14" }),
+			).toBeInTheDocument();
+		});
+		fireEvent.click(screen.getByRole("button", { name: "select-item:14" }));
+		await waitForDefaultRemoteStorageTargetSelection();
+
+		fireEvent.click(
+			screen.getByRole("button", {
+				name: "policy_remote_storage_targets_quick_create",
+			}),
+		);
+		const nameInputs = screen.getAllByLabelText("core:name");
+		const basePathInputs = screen.getAllByLabelText("base_path");
+		expect(nameInputs.length).toBeGreaterThan(0);
+		expect(basePathInputs.length).toBeGreaterThan(0);
+		fireEvent.change(nameInputs[nameInputs.length - 1], {
+			target: { value: "Failed policy target" },
+		});
+		fireEvent.change(basePathInputs[basePathInputs.length - 1], {
+			target: { value: "policy/failed-target" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: /core:create/ }));
+
+		await waitFor(() => {
+			expect(mockState.createStorageTarget).toHaveBeenCalledWith(14, {
+				access_key: "",
+				base_path: "policy/failed-target",
+				bucket: "",
+				driver_type: "local",
+				endpoint: "",
+				is_default: false,
+				name: "Failed policy target",
+				secret_key: "",
+			});
+		});
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(createError);
+		});
+
+		expect(
+			screen.getByText("remote_node_ingress_profile_form_create_title"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByDisplayValue("Failed policy target"),
+		).toBeInTheDocument();
+		expect(
+			screen.getByDisplayValue("policy/failed-target"),
+		).toBeInTheDocument();
+		expect(mockState.create).not.toHaveBeenCalled();
+	});
+
 	it("creates a remote policy with presigned upload strategy", async () => {
 		mockState.remoteNodes = [
 			{

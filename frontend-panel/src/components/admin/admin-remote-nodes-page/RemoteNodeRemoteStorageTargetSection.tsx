@@ -215,6 +215,8 @@ export function RemoteNodeRemoteStorageTargetSection({
 				);
 			}
 			resetDraft();
+		} catch {
+			// Parent handlers surface API errors; keep the draft open on failure.
 		} finally {
 			setSubmitting(false);
 		}
