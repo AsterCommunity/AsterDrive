@@ -79,16 +79,45 @@ vi.mock("@/components/common/AdminTableList", () => ({
 	AdminTableList: ({
 		headerRow,
 		items,
+		pagination,
 		renderRow,
 	}: {
 		headerRow: ReactNode;
 		items: typeof TEAMS;
+		pagination?: ReactNode;
 		renderRow: (item: (typeof TEAMS)[number]) => ReactNode;
 	}) => (
-		<table>
-			{headerRow}
-			<tbody>{items.map(renderRow)}</tbody>
-		</table>
+		<>
+			<table>
+				{headerRow}
+				<tbody>{items.map(renderRow)}</tbody>
+			</table>
+			{pagination}
+		</>
+	),
+}));
+
+vi.mock("@/components/admin/AdminOffsetPagination", () => ({
+	AdminOffsetPagination: ({
+		onNext,
+		onPageSizeChange,
+		onPrevious,
+	}: {
+		onNext: () => void;
+		onPageSizeChange: (value: string | null) => void;
+		onPrevious: () => void;
+	}) => (
+		<div>
+			<button type="button" onClick={onPrevious}>
+				prev_page
+			</button>
+			<button type="button" onClick={onNext}>
+				next_page
+			</button>
+			<button type="button" onClick={() => onPageSizeChange("50")}>
+				page_size_50
+			</button>
+		</div>
 	),
 }));
 
@@ -300,6 +329,32 @@ describe("AdminTeamsPage", () => {
 				viewTransition: false,
 			},
 		);
+	});
+
+	it("wires refresh and pagination changes through managed query state", () => {
+		mockState.searchParams = "offset=20&pageSize=20";
+
+		render(<AdminTeamsPage />);
+
+		fireEvent.click(screen.getByText("core:refresh"));
+		expect(mockState.reload).toHaveBeenCalledTimes(1);
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("prev_page"));
+		let nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect(nextParams).toBeInstanceOf(URLSearchParams);
+		expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("next_page"));
+		nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect((nextParams as URLSearchParams).get("offset")).toBe("40");
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("page_size_50"));
+		nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+		expect((nextParams as URLSearchParams).get("pageSize")).toBe("50");
 	});
 
 	it("converts the create dialog team quota from MB to bytes", async () => {

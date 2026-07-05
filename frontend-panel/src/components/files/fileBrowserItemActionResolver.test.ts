@@ -55,6 +55,8 @@ describe("fileBrowserItemActionResolver", () => {
 		props.onPageShare?.();
 		props.onDirectShare?.();
 		props.onCopy?.();
+		props.onGoToLocation?.();
+		props.onManageTags?.();
 		props.onMove?.();
 		props.onRename?.();
 		props.onToggleLock?.();
@@ -82,6 +84,8 @@ describe("fileBrowserItemActionResolver", () => {
 			name: "bundle.zip",
 		});
 		expect(handlers.onCopy).toHaveBeenCalledWith("file", 7);
+		expect(handlers.onGoToLocation).toHaveBeenCalledWith(file);
+		expect(handlers.onManageTags).toHaveBeenCalledWith("file", 7);
 		expect(handlers.onMove).toHaveBeenCalledWith("file", 7);
 		expect(handlers.onRename).toHaveBeenCalledWith("file", 7, "bundle.zip");
 		expect(handlers.onToggleLock).toHaveBeenCalledWith("file", 7, true);
@@ -92,13 +96,18 @@ describe("fileBrowserItemActionResolver", () => {
 
 	it("limits read-only file actions to open and download", () => {
 		const handlers = createHandlers();
+		handlers.onFileOpen = undefined;
+		const file = { id: 7, name: "bundle.zip", is_locked: true } as FileListItem;
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
 			isFolder: false,
-			item: { id: 7, name: "bundle.zip", is_locked: true } as FileListItem,
+			item: file,
 			readOnly: true,
 			selection: emptySelection(),
 		});
+
+		props.onOpen?.();
+		props.onDownload?.();
 
 		expect(props.onOpen).toBeTypeOf("function");
 		expect(props.onDownload).toBeTypeOf("function");
@@ -106,6 +115,8 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(props.onDelete).toBeUndefined();
 		expect(props.onVersions).toBeUndefined();
 		expect(props.isLocked).toBe(false);
+		expect(handlers.onFileClick).toHaveBeenCalledWith(file);
+		expect(handlers.onDownload).toHaveBeenCalledWith(7, "bundle.zip");
 	});
 
 	it("maps writable folder actions and folder-only policy", () => {
@@ -119,9 +130,17 @@ describe("fileBrowserItemActionResolver", () => {
 		});
 
 		props.onOpen?.();
+		props.onPageShare?.();
 		props.onArchiveDownload?.();
+		props.onArchiveCompress?.();
+		props.onCopy?.();
+		props.onManageTags?.();
+		props.onMove?.();
 		props.onFolderPolicy?.();
+		props.onRename?.();
 		props.onToggleLock?.();
+		props.onDelete?.();
+		props.onInfo?.();
 
 		expect(props).toMatchObject({
 			isFolder: true,
@@ -129,9 +148,84 @@ describe("fileBrowserItemActionResolver", () => {
 		});
 		expect(props.onDirectShare).toBeUndefined();
 		expect(handlers.onFolderOpen).toHaveBeenCalledWith(3, "Docs");
+		expect(handlers.onShare).toHaveBeenCalledWith({
+			folderId: 3,
+			initialMode: "page",
+			name: "Docs",
+		});
 		expect(handlers.onArchiveDownload).toHaveBeenCalledWith(3);
+		expect(handlers.onArchiveCompress).toHaveBeenCalledWith("folder", 3);
+		expect(handlers.onCopy).toHaveBeenCalledWith("folder", 3);
+		expect(handlers.onManageTags).toHaveBeenCalledWith("folder", 3);
+		expect(handlers.onMove).toHaveBeenCalledWith("folder", 3);
 		expect(handlers.onFolderPolicy).toHaveBeenCalledWith(folder);
+		expect(handlers.onRename).toHaveBeenCalledWith("folder", 3, "Docs");
 		expect(handlers.onToggleLock).toHaveBeenCalledWith("folder", 3, false);
+		expect(handlers.onDelete).toHaveBeenCalledWith("folder", 3);
+		expect(handlers.onInfo).toHaveBeenCalledWith("folder", 3);
+	});
+
+	it("limits read-only folder actions to folder open", () => {
+		const handlers = createHandlers();
+		const props = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: true,
+			item: { id: 3, name: "Docs", is_locked: true } as FolderListItem,
+			readOnly: true,
+			selection: emptySelection(),
+		});
+
+		props.onOpen?.();
+
+		expect(props.isLocked).toBe(false);
+		expect(props.onDelete).toBeUndefined();
+		expect(handlers.onFolderOpen).toHaveBeenCalledWith(3, "Docs");
+		expect(handlers.onDelete).not.toHaveBeenCalled();
+	});
+
+	it("omits optional writable actions when handlers are unavailable", () => {
+		const handlers = createHandlers();
+		handlers.onArchiveCompress = undefined;
+		handlers.onArchiveDownload = undefined;
+		handlers.onArchiveExtract = undefined;
+		handlers.onCopy = undefined;
+		handlers.onFileChooseOpenMethod = undefined;
+		handlers.onFileOpen = undefined;
+		handlers.onFolderPolicy = undefined;
+		handlers.onGoToLocation = undefined;
+		handlers.onManageTags = undefined;
+		handlers.onMove = undefined;
+		handlers.onRename = undefined;
+		handlers.onDelete = undefined;
+		handlers.onVersions = undefined;
+
+		const fileProps = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: false,
+			item: { id: 7, name: "note.txt", is_locked: false } as FileListItem,
+			selection: emptySelection(),
+		});
+		const folderProps = resolveFileBrowserItemMenuProps({
+			handlers,
+			isFolder: true,
+			item: { id: 3, name: "Docs", is_locked: false } as FolderListItem,
+			selection: emptySelection(),
+		});
+
+		expect(fileProps.onChooseOpenMethod).toBeUndefined();
+		expect(fileProps.onArchiveExtract).toBeUndefined();
+		expect(fileProps.onArchiveCompress).toBeUndefined();
+		expect(fileProps.onCopy).toBeUndefined();
+		expect(fileProps.onGoToLocation).toBeUndefined();
+		expect(fileProps.onManageTags).toBeUndefined();
+		expect(fileProps.onMove).toBeUndefined();
+		expect(fileProps.onRename).toBeUndefined();
+		expect(fileProps.onDelete).toBeUndefined();
+		expect(fileProps.onVersions).toBeUndefined();
+		expect(folderProps.onArchiveDownload).toBeUndefined();
+		expect(folderProps.onArchiveCompress).toBeUndefined();
+		expect(folderProps.onCopy).toBeUndefined();
+		expect(folderProps.onFolderPolicy).toBeUndefined();
 	});
 
 	it("uses batch menu only for selected multi-selection items", () => {
