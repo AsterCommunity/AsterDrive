@@ -7,6 +7,14 @@ const DOWNLOAD_FILE = process.env.ASTER_BENCH_DOWNLOAD_FILE || "payload-5mb.bin"
 const BATCH_TARGET_FOLDER =
 	process.env.ASTER_BENCH_BATCH_TARGET_FOLDER || "bench-batch-target";
 const WEBDAV_ROOT_FOLDER = process.env.ASTER_BENCH_WEBDAV_ROOT_FOLDER || "bench-webdav";
+const WEBDAV_LIST_FOLDER =
+	process.env.ASTER_BENCH_WEBDAV_LIST_FOLDER || "bench-webdav-list";
+const WEBDAV_RANGE_FILE =
+	process.env.ASTER_BENCH_WEBDAV_RANGE_FILE || "webdav-range-5mb.bin";
+const THUMBNAIL_FOLDER =
+	process.env.ASTER_BENCH_THUMBNAIL_FOLDER || "bench-thumbnail";
+const THUMBNAIL_IMAGE_PREFIX =
+	process.env.ASTER_BENCH_THUMBNAIL_IMAGE_PREFIX || "thumb";
 
 const config = {
 	baseUrl: stripTrailingSlash(
@@ -25,6 +33,18 @@ const config = {
 	downloadBytes: parseIntEnv(
 		process.env.ASTER_BENCH_DOWNLOAD_BYTES,
 		DEFAULT_DOWNLOAD_BYTES,
+	),
+	webdavListSize: parseIntEnv(
+		process.env.ASTER_BENCH_WEBDAV_LIST_SIZE,
+		1000,
+	),
+	webdavRangeFileBytes: parseIntEnv(
+		process.env.ASTER_BENCH_WEBDAV_RANGE_FILE_BYTES,
+		DEFAULT_DOWNLOAD_BYTES,
+	),
+	thumbnailImageCount: parseIntEnv(
+		process.env.ASTER_BENCH_THUMBNAIL_IMAGE_COUNT,
+		128,
 	),
 	uploadConcurrency: parseIntEnv(
 		process.env.ASTER_BENCH_SEED_UPLOAD_CONCURRENCY,
@@ -297,6 +317,43 @@ async function ensureRootFolder(token, name) {
 	return created.data.id;
 }
 
+async function findChildFolder(token, parentId, name) {
+	let cursorValue = null;
+	let cursorId = null;
+
+	for (;;) {
+		const body = await listFolder(token, parentId, {
+			folder_limit: 1000,
+			file_limit: 0,
+			sort_by: "name",
+			sort_order: "asc",
+			folder_after_value: cursorValue,
+			folder_after_id: cursorId,
+		});
+		const existing = body.data.folders.find((folder) => folder.name === name);
+		if (existing) {
+			return existing.id;
+		}
+
+		if (!body.data.next_folder_cursor) {
+			return null;
+		}
+
+		cursorValue = body.data.next_folder_cursor.value;
+		cursorId = body.data.next_folder_cursor.id;
+	}
+}
+
+async function ensureChildFolder(token, parentId, name) {
+	const existingId = await findChildFolder(token, parentId, name);
+	if (existingId) {
+		return existingId;
+	}
+
+	const created = await createFolder(token, name, parentId);
+	return created.data.id;
+}
+
 async function findFileInFolder(token, folderId, filename) {
 	let cursorValue = null;
 	let cursorId = null;
@@ -383,16 +440,56 @@ function listFileBody(size, index) {
 	return `payload size=${size} index=${index + 1}`;
 }
 
+function thumbnailFileName(index) {
+	const ordinal = String(index + 1).padStart(5, "0");
+	return `${THUMBNAIL_IMAGE_PREFIX}-${ordinal}.bmp`;
+}
+
+function benchmarkBmp(width, height, seed) {
+	const rowBytes = Math.ceil((width * 3) / 4) * 4;
+	const pixelBytes = rowBytes * height;
+	const fileBytes = 54 + pixelBytes;
+	const bytes = new Uint8Array(fileBytes);
+	const view = new DataView(bytes.buffer);
+
+	bytes[0] = 0x42;
+	bytes[1] = 0x4d;
+	view.setUint32(2, fileBytes, true);
+	view.setUint32(10, 54, true);
+	view.setUint32(14, 40, true);
+	view.setInt32(18, width, true);
+	view.setInt32(22, height, true);
+	view.setUint16(26, 1, true);
+	view.setUint16(28, 24, true);
+	view.setUint32(34, pixelBytes, true);
+
+	for (let y = 0; y < height; y += 1) {
+		for (let x = 0; x < width; x += 1) {
+			const offset = 54 + y * rowBytes + x * 3;
+			bytes[offset] = (x * 7 + seed * 13) % 256;
+			bytes[offset + 1] = (y * 11 + seed * 17) % 256;
+			bytes[offset + 2] = ((x + y) * 5 + seed * 19) % 256;
+		}
+	}
+
+	return bytes;
+}
+
 async function seedListFolder(token, size) {
 	const folderName = `${LIST_FOLDER_PREFIX}-${size}`;
 	const folderId = await ensureRootFolder(token, folderName);
+	await seedTextFiles(token, folderId, folderName, size);
+	return folderId;
+}
+
+async function seedTextFiles(token, folderId, folderName, size) {
 	const existingCount = await listFolderCount(token, folderId);
 
 	if (existingCount >= size) {
 		console.log(
 			`[seed] ${folderName}: already has ${existingCount} files, skipping`,
 		);
-		return folderId;
+		return;
 	}
 
 	console.log(
@@ -424,6 +521,55 @@ async function seedListFolder(token, size) {
 		cursor += batchIndices.length;
 		if (cursor % 500 === 0 || cursor === size) {
 			console.log(`[seed] ${folderName}: ${cursor}/${size}`);
+		}
+	}
+}
+
+async function seedThumbnailFolder(token) {
+	const folderId = await ensureRootFolder(token, THUMBNAIL_FOLDER);
+	const existingCount = await listFolderCount(token, folderId);
+
+	if (existingCount >= config.thumbnailImageCount) {
+		console.log(
+			`[seed] ${THUMBNAIL_FOLDER}: already has ${existingCount} images, skipping`,
+		);
+		return folderId;
+	}
+
+	console.log(
+		`[seed] ${THUMBNAIL_FOLDER}: creating ${
+			config.thumbnailImageCount - existingCount
+		} images (${existingCount}/${config.thumbnailImageCount})`,
+	);
+
+	let cursor = existingCount;
+	while (cursor < config.thumbnailImageCount) {
+		const batchIndices = [];
+		for (
+			let i = 0;
+			i < config.uploadConcurrency && cursor + i < config.thumbnailImageCount;
+			i += 1
+		) {
+			batchIndices.push(cursor + i);
+		}
+
+		await Promise.all(
+			batchIndices.map((index) =>
+				uploadBinaryFile(
+					token,
+					folderId,
+					thumbnailFileName(index),
+					benchmarkBmp(96, 96, index + 1),
+					"image/bmp",
+				),
+			),
+		);
+
+		cursor += batchIndices.length;
+		if (cursor % 50 === 0 || cursor === config.thumbnailImageCount) {
+			console.log(
+				`[seed] ${THUMBNAIL_FOLDER}: ${cursor}/${config.thumbnailImageCount}`,
+			);
 		}
 	}
 
@@ -474,6 +620,19 @@ async function createWebdavAccount(token, rootFolderId) {
 
 async function ensureWebdavFixture(token) {
 	const rootFolderId = await ensureRootFolder(token, WEBDAV_ROOT_FOLDER);
+	const listFolderId = await ensureChildFolder(
+		token,
+		rootFolderId,
+		WEBDAV_LIST_FOLDER,
+	);
+	await seedTextFiles(
+		token,
+		listFolderId,
+		`${WEBDAV_ROOT_FOLDER}/${WEBDAV_LIST_FOLDER}`,
+		config.webdavListSize,
+	);
+	await ensureWebdavRangeFixture(token, rootFolderId);
+
 	const accounts = await listWebdavAccounts(token);
 	const existing = accounts.data.items.find(
 		(item) => item.username === config.webdavUsername,
@@ -481,12 +640,33 @@ async function ensureWebdavFixture(token) {
 
 	if (existing) {
 		console.log(`[seed] webdav account ${config.webdavUsername}: already exists`);
-		return { rootFolderId, accountId: existing.id };
+		return { rootFolderId, listFolderId, accountId: existing.id };
 	}
 
 	const created = await createWebdavAccount(token, rootFolderId);
 	console.log(`[seed] webdav account ${config.webdavUsername}: created`);
-	return { rootFolderId, accountId: created.data.id };
+	return { rootFolderId, listFolderId, accountId: created.data.id };
+}
+
+async function ensureWebdavRangeFixture(token, rootFolderId) {
+	const existingId = await findFileInFolder(token, rootFolderId, WEBDAV_RANGE_FILE);
+	if (existingId) {
+		console.log(`[seed] ${WEBDAV_ROOT_FOLDER}: range fixture already exists`);
+		return { fileId: existingId };
+	}
+
+	const payload = "R".repeat(config.webdavRangeFileBytes);
+	const created = await uploadBinaryFile(
+		token,
+		rootFolderId,
+		WEBDAV_RANGE_FILE,
+		payload,
+		"application/octet-stream",
+	);
+	console.log(
+		`[seed] ${WEBDAV_ROOT_FOLDER}: created ${WEBDAV_RANGE_FILE} (${config.webdavRangeFileBytes} bytes)`,
+	);
+	return { fileId: created.data.id };
 }
 
 async function main() {
@@ -505,6 +685,7 @@ async function main() {
 	const download = await ensureDownloadFixture(rootToken);
 	const batchTargetId = await ensureRootFolder(rootToken, BATCH_TARGET_FOLDER);
 	const webdav = await ensureWebdavFixture(rootToken);
+	const thumbnailFolderId = await seedThumbnailFolder(rootToken);
 
 	console.log("[seed] completed");
 	console.log(
@@ -515,6 +696,7 @@ async function main() {
 				download,
 				batch_target_id: batchTargetId,
 				webdav,
+				thumbnail_folder_id: thumbnailFolderId,
 			},
 			null,
 			2,

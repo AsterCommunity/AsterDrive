@@ -6,6 +6,7 @@ function snapshotMetric(data, name) {
 
 	const values = metric.values;
 	return {
+		value: values.value ?? null,
 		count: values.count ?? null,
 		rate: values.rate ?? null,
 		avg: values.avg ?? null,

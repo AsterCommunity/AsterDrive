@@ -18,11 +18,19 @@ AsterDrive 的性能基准脚本放在仓库里的 `tests/performance/`。
 - 文件列表查询（`100` / `1000` / `10000` 文件目录）
 - 搜索查询
 - 并发文件下载
+- 重复 Range 文件下载
 - 并发 direct 上传
 - 并发 chunked 上传
 - 批量移动并发
 - WebDAV 读写并发
+- WebDAV 并发 GET
+- WebDAV 重复 Range GET
+- WebDAV 大目录 `PROPFIND Depth: 1`
 - staged mixed workload ramp（看延迟/失败率随并发抬升）
+- 后台归档压缩 + 前台 REST 下载混合负载
+- 后台缩略图任务 + 前台 WebDAV 读取混合负载
+- 后台存储迁移 + 前台 direct 上传混合负载
+- 后台任务派发期间的 REST 下载 / 上传 + WebDAV 读取混合负载
 - 长稳 mixed workload soak 测试
 
 ## 工具选择
@@ -49,6 +57,9 @@ export ASTER_BENCH_EMAIL="bench_user@example.com"
 export ASTER_BENCH_SEARCH_TERM="needle"
 export ASTER_BENCH_WEBDAV_USERNAME="bench_webdav"
 export ASTER_BENCH_WEBDAV_PASSWORD="bench_webdav_pass123"
+export ASTER_BENCH_WEBDAV_LIST_SIZE=1000
+export ASTER_BENCH_WEBDAV_RANGE_FILE_BYTES=5242880
+export ASTER_BENCH_THUMBNAIL_IMAGE_COUNT=128
 
 bun tests/performance/seed.mjs
 ```
@@ -69,12 +80,24 @@ ASTER_BENCH_LIST_SIZE=10000 k6 run tests/performance/k6/folder-list.js
 
 k6 run tests/performance/k6/search.js
 k6 run tests/performance/k6/download.js
+ASTER_BENCH_RANGE_BYTES=262144 k6 run tests/performance/k6/download-range.js
 k6 run tests/performance/k6/upload-direct.js
 k6 run tests/performance/k6/upload-chunked.js
 k6 run tests/performance/k6/batch-move.js
 k6 run tests/performance/k6/webdav-rw.js
+k6 run tests/performance/k6/webdav-concurrent-read.js
+ASTER_BENCH_RANGE_BYTES=262144 k6 run tests/performance/k6/webdav-range-read.js
+ASTER_BENCH_WEBDAV_LIST_SIZE=10000 k6 run tests/performance/k6/webdav-propfind-large.js
 ASTER_BENCH_MIXED_RAMP_STAGES=1:20s,8:30s,32:30s,64:45s,0:15s \
 k6 run tests/performance/k6/mixed-ramp.js
+
+k6 run tests/performance/k6/mixed-background-archive-download.js
+k6 run tests/performance/k6/mixed-background-thumbnail-webdav.js
+k6 run tests/performance/k6/mixed-background-rest-webdav.js
+
+ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID=1 \
+ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID=2 \
+k6 run tests/performance/k6/mixed-background-storage-migration-upload.js
 ```
 
 `ASTER_BENCH_MIXED_RAMP_STAGES` 的格式是 `target_vus:duration`，比如 `32:30s`。
@@ -87,7 +110,61 @@ ASTER_BENCH_SUMMARY_DIR=tests/performance/results/local \
 k6 run tests/performance/k6/download.js
 ```
 
-现在下载、上传、WebDAV 和 `mixed-ramp.js` 的 summary 里都会带字节计数器，可以直接拿 `count` / `rate` 看有效吞吐，不用只看 `http_req_duration` 这类不能完整代表有效吞吐的单请求延迟。
+现在下载、Range 下载、上传、WebDAV 和 `mixed-ramp.js` 的 summary 里都会带字节计数器，可以直接拿 `count` / `rate` 看有效吞吐，不用只看 `http_req_duration` 这类不能完整代表有效吞吐的单请求延迟。
+
+## 后台任务混合负载
+
+后台任务已经按 lane 派发，但 lane 并发不等于不会影响前台请求。压测时至少跑这四类混合场景：
+
+- `mixed-background-archive-download.js`：前台 REST 下载，后台持续创建归档压缩任务。
+- `mixed-background-thumbnail-webdav.js`：前台 WebDAV GET，后台持续请求图片缩略图并触发 thumbnail task。
+- `mixed-background-storage-migration-upload.js`：前台 direct upload，后台启动 storage policy migration。这个脚本必须显式设置 `ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID` 和 `ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID`。
+- `mixed-background-rest-webdav.js`：前台 REST 下载、REST 上传、WebDAV GET 混跑，后台同时派发归档和缩略图任务。
+
+这些脚本会采样 `/api/v1/admin/tasks` 的 `pending` / `processing` / `retry` 总数，所以 benchmark 用户必须有管理员权限。建议把 summary 保存到单独目录：
+
+```bash
+mkdir -p tests/performance/results/background-local
+ASTER_BENCH_SUMMARY_DIR=tests/performance/results/background-local \
+k6 run tests/performance/k6/mixed-background-rest-webdav.js
+```
+
+判断后台任务是否干扰前台路径时，不要只看任务完成得快不快，至少同时记录：
+
+- 前台路径 p95 / p99：REST download、REST upload、WebDAV GET。
+- 后台任务创建延迟：`aster_mixed_*_task_create_duration` 或 thumbnail request duration。
+- 队列积压：`aster_mixed_*_task_backlog`，按 `pending` / `processing` / `retry` 标签看。
+- 服务端指标：`background_tasks_pending`、`background_task_retries_total`、HTTP route p95/p99、DB query p95/p99、storage driver p95/p99。
+- 进程 RSS、CPU、网络吞吐、`data/.tmp` 和 `data/.uploads` 增长。
+
+如果前台 p95/p99 随任务 lane 并发上调明显抬升，或者 `retry` 持续增长，就先降低对应运行时并发，再定位 CPU、临时目录、数据库连接池或存储后端吞吐瓶颈。不要在没有混合负载回归结果的情况下改高后台 lane 并发。
+
+性能 PR 建议把 before/after summary 都放到 `tests/performance/results/<run-name>/`，并在 PR 描述里贴出关键脚本的 p95/p99、错误率和字节速率。比如：
+
+```bash
+mkdir -p tests/performance/results/webdav-before
+ASTER_BENCH_SUMMARY_DIR=tests/performance/results/webdav-before \
+k6 run tests/performance/k6/webdav-range-read.js
+```
+
+## 对象存储和远端节点
+
+这些 k6 脚本不在脚本层硬编码 local、S3、Azure、OneDrive 或 remote follower。要测哪个后端，就用对应存储策略启动服务，把它作为 benchmark 用户上传 fixture 时使用的默认策略，然后重新跑 seed 和同一组脚本。
+
+建议最小对照：
+
+- local baseline：`download.js`、`download-range.js`、`webdav-concurrent-read.js`、`webdav-range-read.js`
+- S3-compatible / Azure / OneDrive：同一组脚本，重点看 range p95/p99、吞吐和错误率
+- remote follower：同一组脚本，再结合 tunnel 日志和 follower/primary 两端的网络指标
+- WebDAV 大目录：`webdav-propfind-large.js`，用于隔离 `Depth: 1` 元数据枚举延迟
+
+对象存储和远端节点常见瓶颈不一定在 WebDAV handler 本身，更多会在 SDK HTTP client、连接池、对象存储限流、keepalive、远端 tunnel framing、primary/follower 网络拓扑和数据库元数据查询上。跑压测时建议同时打开 `metrics` feature，并抓取：
+
+- HTTP route p95/p99 和 5xx 比例
+- storage driver operation p95/p99、失败量、not_found 与硬失败的区别
+- DB query p95/p99、错误量和连接池耗尽日志
+- 进程 RSS、CPU、网络吞吐
+- remote follower 场景下 primary 与 follower 两端的延迟和错误日志
 
 ## SQLite 搜索验证
 

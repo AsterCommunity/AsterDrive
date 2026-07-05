@@ -58,6 +58,9 @@ jobs:
           ASTER_BENCH_BASE_URL: http://127.0.0.1:3000
           ASTER_BENCH_LIST_SIZES: 100,1000
           ASTER_BENCH_DOWNLOAD_BYTES: 1048576
+          ASTER_BENCH_WEBDAV_LIST_SIZE: 100
+          ASTER_BENCH_WEBDAV_RANGE_FILE_BYTES: 1048576
+          ASTER_BENCH_THUMBNAIL_IMAGE_COUNT: 16
           ASTER_BENCH_SEED_UPLOAD_CONCURRENCY: 8
         run: bun tests/performance/seed.mjs
 
@@ -76,6 +79,9 @@ jobs:
           ASTER_BENCH_SEARCH_DATASET_SIZE: 1000
           ASTER_BENCH_DOWNLOAD_VUS: 4
           ASTER_BENCH_DOWNLOAD_DURATION: 10s
+          ASTER_BENCH_WEBDAV_PROPFIND_VUS: 2
+          ASTER_BENCH_WEBDAV_PROPFIND_DURATION: 10s
+          ASTER_BENCH_WEBDAV_PROPFIND_P95_MS: 3000
         run: |
           mkdir -p tests/performance/results/ci-smoke
           k6 run tests/performance/k6/auth-login.js
@@ -84,6 +90,7 @@ jobs:
           ASTER_BENCH_LIST_SIZE=1000 k6 run tests/performance/k6/folder-list.js
           k6 run tests/performance/k6/search.js
           k6 run tests/performance/k6/download.js
+          k6 run tests/performance/k6/webdav-propfind-large.js
 
       - name: Upload smoke summaries
         if: always()

@@ -119,6 +119,27 @@ AsterDrive 的常规请求路径以流式处理为主，内存不会按文件总
 
 不要只因为 CPU 还有空闲就盲目调高这些值。归档和媒体任务会吃临时目录，存储迁移会吃源/目标存储吞吐，离线下载会吃网络和磁盘。
 
+调高后台任务并发前，先用混合负载验证前台路径是否被拖慢：
+
+```bash
+k6 run tests/performance/k6/mixed-background-archive-download.js
+k6 run tests/performance/k6/mixed-background-thumbnail-webdav.js
+k6 run tests/performance/k6/mixed-background-rest-webdav.js
+
+ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID=1 \
+ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID=2 \
+k6 run tests/performance/k6/mixed-background-storage-migration-upload.js
+```
+
+调参时建议一次只改一个 lane，并保留 before/after summary。重点看：
+
+- 前台 REST download / upload / WebDAV GET 的 p95、p99 和错误率。
+- `aster_mixed_*_task_backlog` 是否持续堆积，尤其是 `retry`。
+- `background_tasks_pending`、`background_task_retries_total`、DB query latency、storage operation latency。
+- `data/.tmp`、`data/.uploads`、RSS 和 CPU 是否持续增长。
+
+如果后台任务完成变快，但前台 WebDAV 或上传 p99 明显抬升，这个配置就不适合生产。小团队场景宁可让后台任务排队，也不要让文件读写路径抖到用户能感知，猫猫，这种“看起来吞吐更高”的配置最后会回来咬你。
+
 ## 临时磁盘容量
 
 临时目录通常包括：

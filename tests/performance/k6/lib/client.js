@@ -159,12 +159,37 @@ export function listFolder(session, folderId = null, query = {}) {
 }
 
 export function resolveRootFolderId(session, name) {
-	const { body } = listFolder(session, null, {
-		folder_limit: 1000,
-		file_limit: 0,
-	});
-	const match = body.data.folders.find((folder) => folder.name === name);
-	return match ? match.id : null;
+	let cursorValue = null;
+	let cursorId = null;
+
+	for (;;) {
+		const { body } = listFolder(session, null, {
+			folder_limit: 1000,
+			file_limit: 0,
+			sort_by: "name",
+			sort_order: "asc",
+			folder_after_value: cursorValue,
+			folder_after_id: cursorId,
+		});
+		const match = body.data.folders.find((folder) => folder.name === name);
+		if (match) {
+			return match.id;
+		}
+
+		if (!body.data.next_folder_cursor) {
+			const { body: searchBody } = search(session, {
+				q: name,
+				limit: 20,
+			});
+			const searchedMatch = searchBody.data.folders.find(
+				(folder) => folder.name === name,
+			);
+			return searchedMatch ? searchedMatch.id : null;
+		}
+
+		cursorValue = body.data.next_folder_cursor.value;
+		cursorId = body.data.next_folder_cursor.id;
+	}
 }
 
 export function createFolder(session, name, parentId = null) {
@@ -311,14 +336,45 @@ export function search(session, query = {}) {
 	return { response, body };
 }
 
-export function downloadFile(session, fileId) {
+export function downloadFile(session, fileId, headers = {}) {
 	const response = http.get(url(`/api/v1/files/${fileId}/download`), {
-		headers: authHeaders(session),
+		headers: authHeaders(session, headers),
 		responseType: "none",
 	});
 	check(response, {
 		"files.download: status 200": (resp) => resp.status === 200,
 	}) || fail(`files.download failed: ${response.status}`);
+	return response;
+}
+
+export function downloadFileRange(session, fileId, start, end) {
+	const response = http.get(url(`/api/v1/files/${fileId}/download`), {
+		headers: authHeaders(session, {
+			Range: `bytes=${start}-${end}`,
+		}),
+		responseType: "none",
+	});
+	check(response, {
+		"files.download range: status 206": (resp) => resp.status === 206,
+		"files.download range: content-range": (resp) =>
+			resp.headers["Content-Range"] === `bytes ${start}-${end}/*` ||
+			resp.headers["Content-Range"]?.startsWith(`bytes ${start}-${end}/`),
+	}) ||
+		fail(
+			`files.download range failed: ${response.status} ${response.headers["Content-Range"]}`,
+		);
+	return response;
+}
+
+export function getThumbnail(session, fileId) {
+	const response = http.get(url(`/api/v1/files/${fileId}/thumbnail`), {
+		headers: authHeaders(session),
+		responseType: "none",
+	});
+	check(response, {
+		"files.thumbnail: status 200 or 202": (resp) =>
+			resp.status === 200 || resp.status === 202 || resp.status === 304,
+	}) || fail(`files.thumbnail failed: ${response.status}`);
 	return response;
 }
 
@@ -340,6 +396,57 @@ export function batchMove(session, fileIds, folderIds, targetFolderId) {
 	return { response, body };
 }
 
+export function createArchiveCompressTask(
+	session,
+	{ fileIds = [], folderIds = [], archiveName, targetFolderId = null },
+) {
+	const response = http.post(
+		url("/api/v1/batch/archive-compress"),
+		JSON.stringify({
+			file_ids: fileIds,
+			folder_ids: folderIds,
+			archive_name: archiveName,
+			target_folder_id: targetFolderId,
+		}),
+		{
+			headers: authHeaders(session, {
+				"Content-Type": "application/json",
+			}),
+		},
+	);
+	const body = assertApi(response, "batch.archive_compress", 200);
+	return { response, body };
+}
+
+export function createStoragePolicyMigrationTask(
+	session,
+	{ sourcePolicyId, targetPolicyId, deleteSourceAfterSuccess = false },
+) {
+	const response = http.post(
+		url("/api/v1/admin/storage-migrations"),
+		JSON.stringify({
+			source_policy_id: sourcePolicyId,
+			target_policy_id: targetPolicyId,
+			delete_source_after_success: deleteSourceAfterSuccess,
+		}),
+		{
+			headers: authHeaders(session, {
+				"Content-Type": "application/json",
+			}),
+		},
+	);
+	const body = assertApi(response, "admin.storage_migrations.create", 200);
+	return { response, body };
+}
+
+export function listAdminTasks(session, query = {}) {
+	const response = http.get(url(`/api/v1/admin/tasks${buildQuery(query)}`), {
+		headers: authHeaders(session),
+	});
+	const body = assertApi(response, "admin.tasks.list", 200);
+	return { response, body };
+}
+
 export function listWebdavAccounts(session) {
 	const response = http.get(url("/api/v1/webdav-accounts?limit=100&offset=0"), {
 		headers: authHeaders(session),
@@ -356,6 +463,7 @@ export function webdavRequest(
 		username = benchConfig.webdavUsername,
 		password = benchConfig.webdavPassword,
 		headers = {},
+		responseType,
 	} = {},
 ) {
 	const encodedPath = path
@@ -367,12 +475,17 @@ export function webdavRequest(
 	const target = encodedPath ? `${prefix}/${encodedPath}` : `${prefix}/`;
 	const auth = encoding.b64encode(`${username}:${password}`);
 
-	return http.request(method, url(target), body, {
+	const params = {
 		headers: {
 			Authorization: `Basic ${auth}`,
 			...headers,
 		},
-	});
+	};
+	if (responseType !== undefined) {
+		params.responseType = responseType;
+	}
+
+	return http.request(method, url(target), body, params);
 }
 
 export function uniqueName(prefix, extension = "txt") {

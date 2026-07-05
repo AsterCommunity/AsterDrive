@@ -9,11 +9,19 @@ Issue `#120` uses `k6` as the primary benchmark runner.
 - `folder-list.js`: folder listing latency for `100` / `1000` / `10000` file directories
 - `search.js`: search latency against the seeded corpus
 - `download.js`: authenticated file download throughput
+- `download-range.js`: authenticated repeated ranged download throughput
 - `upload-direct.js`: direct multipart upload throughput
 - `upload-chunked.js`: chunked upload throughput
 - `batch-move.js`: concurrent batch move operations
 - `webdav-rw.js`: WebDAV concurrent read/write flow
+- `webdav-concurrent-read.js`: concurrent full-file WebDAV GET throughput
+- `webdav-range-read.js`: repeated WebDAV ranged GET throughput
+- `webdav-propfind-large.js`: WebDAV `PROPFIND Depth: 1` over a seeded directory
 - `mixed-ramp.js`: staged mixed workload ramp for latency / error curve observation
+- `mixed-background-archive-download.js`: foreground REST downloads while archive compression tasks are dispatched
+- `mixed-background-thumbnail-webdav.js`: foreground WebDAV reads while thumbnail tasks are dispatched
+- `mixed-background-storage-migration-upload.js`: foreground direct uploads while a storage policy migration runs
+- `mixed-background-rest-webdav.js`: mixed REST download/upload and WebDAV reads while archive and thumbnail tasks are dispatched
 - `soak-mixed.js`: long-running mixed workload for memory / pool observation
 
 ## Prerequisites
@@ -35,6 +43,11 @@ export ASTER_BENCH_EMAIL="bench_user@example.com"
 export ASTER_BENCH_SEARCH_TERM="needle"
 export ASTER_BENCH_WEBDAV_USERNAME="bench_webdav"
 export ASTER_BENCH_WEBDAV_PASSWORD="bench_webdav_pass123"
+export ASTER_BENCH_WEBDAV_LIST_FOLDER="bench-webdav-list"
+export ASTER_BENCH_WEBDAV_RANGE_FILE="webdav-range-5mb.bin"
+export ASTER_BENCH_ARCHIVE_SOURCE_FOLDER="bench-list-10000"
+export ASTER_BENCH_ARCHIVE_TARGET_FOLDER="bench-archive-output"
+export ASTER_BENCH_THUMBNAIL_FOLDER="bench-thumbnail"
 ```
 
 ## Seed Data
@@ -51,6 +64,9 @@ Useful seed knobs:
 ASTER_BENCH_LIST_SIZES=100,1000,10000
 ASTER_BENCH_SEED_UPLOAD_CONCURRENCY=16
 ASTER_BENCH_DOWNLOAD_BYTES=5242880
+ASTER_BENCH_WEBDAV_LIST_SIZE=1000
+ASTER_BENCH_WEBDAV_RANGE_FILE_BYTES=5242880
+ASTER_BENCH_THUMBNAIL_IMAGE_COUNT=128
 ```
 
 The seed step creates:
@@ -61,7 +77,10 @@ The seed step creates:
 - `bench-download`
 - `bench-batch-target`
 - `bench-webdav`
+- `bench-webdav/bench-webdav-list`
+- `bench-webdav/webdav-range-5mb.bin`
 - a reusable WebDAV account
+- `bench-thumbnail` with distinct BMP fixtures for thumbnail task dispatch
 
 ## Local Benchmark Commands
 
@@ -95,6 +114,8 @@ Download:
 
 ```bash
 k6 run tests/performance/k6/download.js
+ASTER_BENCH_RANGE_BYTES=262144 \
+k6 run tests/performance/k6/download-range.js
 ```
 
 Direct upload:
@@ -119,6 +140,11 @@ WebDAV read/write:
 
 ```bash
 k6 run tests/performance/k6/webdav-rw.js
+k6 run tests/performance/k6/webdav-concurrent-read.js
+ASTER_BENCH_RANGE_BYTES=262144 \
+k6 run tests/performance/k6/webdav-range-read.js
+ASTER_BENCH_WEBDAV_LIST_SIZE=10000 \
+k6 run tests/performance/k6/webdav-propfind-large.js
 ```
 
 Mixed ramp:
@@ -129,6 +155,25 @@ k6 run tests/performance/k6/mixed-ramp.js
 ```
 
 Stage format is `target_vus:duration`, for example `32:30s`.
+
+Mixed foreground/background:
+
+```bash
+k6 run tests/performance/k6/mixed-background-archive-download.js
+k6 run tests/performance/k6/mixed-background-thumbnail-webdav.js
+k6 run tests/performance/k6/mixed-background-rest-webdav.js
+```
+
+Storage migration mixed load needs explicit source and target policy IDs:
+
+```bash
+ASTER_BENCH_STORAGE_MIGRATION_SOURCE_POLICY_ID=1 \
+ASTER_BENCH_STORAGE_MIGRATION_TARGET_POLICY_ID=2 \
+k6 run tests/performance/k6/mixed-background-storage-migration-upload.js
+```
+
+The benchmark user must be an admin for mixed background scripts because they
+sample `/api/v1/admin/tasks` backlog totals.
 
 Long soak:
 
@@ -164,10 +209,42 @@ k6 run tests/performance/k6/download.js
 Data-plane scripts now emit byte counters in the compact summary, so you can derive effective throughput instead of staring at request latency alone:
 
 - `download.js` → `aster_download_bytes`
+- `download-range.js` → `aster_download_range_bytes`
 - `upload-direct.js` → `aster_upload_direct_bytes`
 - `upload-chunked.js` → `aster_upload_chunked_bytes`
 - `webdav-rw.js` → `aster_webdav_put_bytes`, `aster_webdav_get_bytes`
+- `webdav-concurrent-read.js` → `aster_webdav_read_bytes`
+- `webdav-range-read.js` → `aster_webdav_range_bytes`
+- `webdav-propfind-large.js` → `aster_webdav_propfind_response_bytes`
 - `mixed-ramp.js` → `aster_mixed_ramp_bytes`
+- `mixed-background-archive-download.js` → `aster_mixed_archive_download_bytes`, `aster_mixed_archive_task_backlog`
+- `mixed-background-thumbnail-webdav.js` → `aster_mixed_thumbnail_webdav_read_bytes`, `aster_mixed_thumbnail_task_backlog`
+- `mixed-background-storage-migration-upload.js` → `aster_mixed_storage_migration_upload_bytes`, `aster_mixed_storage_migration_task_backlog`
+- `mixed-background-rest-webdav.js` → `aster_mixed_bg_foreground_bytes`, `aster_mixed_bg_task_backlog`
+
+## Object Storage and Remote Follower Runs
+
+The k6 scripts are storage-backend agnostic. To compare local, S3-compatible,
+Azure, OneDrive, or remote follower reads, start AsterDrive with the target
+storage policy as the default upload policy, run `bun tests/performance/seed.mjs`,
+then run the same scripts against that environment.
+
+For object-storage and remote-node regressions, capture at least:
+
+- `download.js` and `download-range.js` for REST full and ranged reads.
+- `webdav-concurrent-read.js` and `webdav-range-read.js` for WebDAV read paths.
+- `webdav-propfind-large.js` when directory metadata latency is part of the risk.
+- `http_req_duration`, script-specific p95/p99 metrics, byte counters, and error rate.
+- `/health/metrics` storage-driver and DB metrics when the server is built with
+  the `metrics` feature.
+
+Store comparable before/after summaries under `tests/performance/results/<run-name>`:
+
+```bash
+mkdir -p tests/performance/results/s3-before
+ASTER_BENCH_SUMMARY_DIR=tests/performance/results/s3-before \
+k6 run tests/performance/k6/download-range.js
+```
 
 ## Soak-Test Observation
 
