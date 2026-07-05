@@ -21,6 +21,13 @@ pub(crate) async fn invalidate_folder_path_cache(state: &impl SharedRuntimeState
     cache::invalidate_all_folder_path_chains(state).await;
 }
 
+pub(crate) async fn invalidate_folder_path_cache_for_ids(
+    state: &impl SharedRuntimeState,
+    folder_ids: &[i64],
+) {
+    cache::invalidate_folder_path_chains(state, folder_ids).await;
+}
+
 pub(super) async fn load_folder_chain_map<C: ConnectionTrait>(
     db: &C,
     folder_ids: &[i64],

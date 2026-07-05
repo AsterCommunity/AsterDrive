@@ -374,7 +374,11 @@ async fn cleanup_created_extract_root(
                     "failed to delete partially imported archive shares: {error}"
                 );
             }
-            crate::services::folder_service::invalidate_folder_path_cache(state).await;
+            crate::services::folder_service::invalidate_folder_path_cache_for_ids(
+                state,
+                &folder_ids,
+            )
+            .await;
             if let Err(error) =
                 crate::db::repository::folder_repo::delete_many(state.writer_db(), &folder_ids)
                     .await

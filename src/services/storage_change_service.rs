@@ -24,6 +24,12 @@ const CACHE_INVALIDATION_RESERVATION_TTL_SECS: u64 = 1;
 const CACHE_INVALIDATION_RESERVATION_PREFIX: &str = "storage_change_cache_invalidation:";
 const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 
+#[derive(Debug, Default, PartialEq, Eq)]
+struct CacheInvalidationTargets {
+    prefixes: Vec<String>,
+    keys: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageChangeAudience {
     User(i64),
@@ -250,7 +256,7 @@ impl StorageChangeEvent {
 }
 
 pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
-    invalidate_storage_change_caches(state.cache().clone(), event.kind);
+    invalidate_storage_change_caches(state.cache().clone(), &event);
     if let Err(e) = state.storage_change_tx().send(event) {
         tracing::debug!("skip storage change broadcast without listeners: {e}");
     }
@@ -295,9 +301,9 @@ pub(crate) async fn affected_parent_ids_for_entities(
     Ok(parent_ids)
 }
 
-fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageChangeKind) {
-    let prefixes = cache_invalidation_prefixes(kind);
-    if prefixes.is_empty() {
+fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, event: &StorageChangeEvent) {
+    let targets = cache_invalidation_targets(event);
+    if targets.prefixes.is_empty() && targets.keys.is_empty() {
         return;
     }
 
@@ -306,32 +312,63 @@ fn invalidate_storage_change_caches(cache: Arc<dyn CacheBackend>, kind: StorageC
         return;
     };
     drop(handle.spawn(async move {
-        join_all(
-            prefixes
-                .into_iter()
-                .map(|prefix| schedule_cache_prefix_invalidation(cache.clone(), prefix)),
-        )
-        .await;
+        let CacheInvalidationTargets { prefixes, keys } = targets;
+        let prefix_invalidations = prefixes
+            .into_iter()
+            .map(|prefix| schedule_cache_prefix_invalidation(cache.clone(), prefix));
+        join_all(prefix_invalidations).await;
+        if !keys.is_empty() {
+            cache.delete_many(&keys).await;
+        }
     }));
 }
 
-fn cache_invalidation_prefixes(kind: StorageChangeKind) -> Vec<&'static str> {
-    if !kind.invalidates_webdav_path_cache() {
-        return Vec::new();
+fn cache_invalidation_targets(event: &StorageChangeEvent) -> CacheInvalidationTargets {
+    if !event.kind.invalidates_webdav_path_cache() {
+        return CacheInvalidationTargets::default();
     }
 
-    let mut prefixes = vec![
-        crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
-        crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
-    ];
-    if kind.invalidates_folder_path_cache() {
-        prefixes.push(crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX);
+    let mut targets = CacheInvalidationTargets {
+        prefixes: webdav_path_cache_invalidation_prefixes(event.audience),
+        keys: Vec::new(),
+    };
+    if event.kind.invalidates_folder_path_cache() {
+        if event.kind == StorageChangeKind::SyncRequired {
+            targets
+                .prefixes
+                .push(crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX.to_string());
+        } else {
+            targets.keys.extend(
+                event
+                    .folder_ids
+                    .iter()
+                    .copied()
+                    .map(crate::services::folder_service::folder_path_cache_key),
+            );
+        }
     }
-    prefixes
+    targets
 }
 
-async fn schedule_cache_prefix_invalidation(cache: Arc<dyn CacheBackend>, prefix: &'static str) {
-    let reservation_key = cache_invalidation_reservation_key(prefix);
+fn webdav_path_cache_invalidation_prefixes(audience: StorageChangeAudience) -> Vec<String> {
+    match audience {
+        StorageChangeAudience::User(user_id) => vec![
+            crate::webdav::path_resolver::path_cache_personal_prefix(user_id),
+            crate::webdav::path_resolver::parent_cache_personal_prefix(user_id),
+        ],
+        StorageChangeAudience::Team(team_id) => vec![
+            crate::webdav::path_resolver::path_cache_team_prefix(team_id),
+            crate::webdav::path_resolver::parent_cache_team_prefix(team_id),
+        ],
+        StorageChangeAudience::Any => vec![
+            crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
+            crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
+        ],
+    }
+}
+
+async fn schedule_cache_prefix_invalidation(cache: Arc<dyn CacheBackend>, prefix: String) {
+    let reservation_key = cache_invalidation_reservation_key(&prefix);
     if !cache
         .set_bytes_if_absent(
             &reservation_key,
@@ -344,7 +381,7 @@ async fn schedule_cache_prefix_invalidation(cache: Arc<dyn CacheBackend>, prefix
     }
 
     tokio::time::sleep(CACHE_INVALIDATION_COALESCE_DELAY).await;
-    cache.invalidate_prefix(prefix).await;
+    cache.invalidate_prefix(&prefix).await;
     cache.delete(&reservation_key).await;
 }
 
@@ -428,51 +465,106 @@ mod tests {
     }
 
     #[test]
-    fn file_changes_only_invalidate_webdav_path_prefixes() {
-        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::FileCreated);
+    fn personal_file_changes_only_invalidate_personal_webdav_path_prefixes() {
+        let event = StorageChangeEvent::new(
+            StorageChangeKind::FileCreated,
+            WorkspaceStorageScope::Personal { user_id: 11 },
+            vec![1],
+            vec![],
+            vec![None],
+        );
+        let targets = super::cache_invalidation_targets(&event);
 
         assert_eq!(
-            prefixes,
+            targets.prefixes,
             vec![
-                crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
-                crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
+                crate::webdav::path_resolver::path_cache_personal_prefix(11),
+                crate::webdav::path_resolver::parent_cache_personal_prefix(11),
             ]
         );
+        assert!(targets.keys.is_empty());
     }
 
     #[test]
-    fn folder_changes_also_invalidate_folder_path_prefix() {
-        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::FolderUpdated);
+    fn team_file_changes_invalidate_team_webdav_path_prefixes() {
+        let event = StorageChangeEvent::new(
+            StorageChangeKind::FileUpdated,
+            WorkspaceStorageScope::Team {
+                team_id: 42,
+                actor_user_id: 11,
+            },
+            vec![1],
+            vec![],
+            vec![Some(3)],
+        );
+        let targets = super::cache_invalidation_targets(&event);
 
         assert_eq!(
-            prefixes,
+            targets.prefixes,
             vec![
-                crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
-                crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
-                crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX,
+                crate::webdav::path_resolver::path_cache_team_prefix(42),
+                crate::webdav::path_resolver::parent_cache_team_prefix(42),
+            ]
+        );
+        assert!(targets.keys.is_empty());
+    }
+
+    #[test]
+    fn folder_changes_invalidate_changed_folder_path_keys() {
+        let event = StorageChangeEvent::new(
+            StorageChangeKind::FolderUpdated,
+            WorkspaceStorageScope::Personal { user_id: 11 },
+            vec![],
+            vec![7, 9],
+            vec![Some(3)],
+        );
+        let targets = super::cache_invalidation_targets(&event);
+
+        assert_eq!(
+            targets.prefixes,
+            vec![
+                crate::webdav::path_resolver::path_cache_personal_prefix(11),
+                crate::webdav::path_resolver::parent_cache_personal_prefix(11),
+            ]
+        );
+        assert_eq!(
+            targets.keys,
+            vec![
+                crate::services::folder_service::folder_path_cache_key(7),
+                crate::services::folder_service::folder_path_cache_key(9),
             ]
         );
     }
 
     #[test]
     fn sync_required_includes_folder_path_prefix() {
-        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::SyncRequired);
+        let event = StorageChangeEvent::sync_required();
+        let targets = super::cache_invalidation_targets(&event);
 
         assert_eq!(
-            prefixes,
+            targets.prefixes,
             vec![
-                crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX,
-                crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX,
-                crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX,
+                crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
+                crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
+                crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX.to_string(),
             ]
         );
+        assert!(targets.keys.is_empty());
     }
 
     #[test]
     fn tag_changes_do_not_invalidate_webdav_path_caches() {
-        let prefixes = super::cache_invalidation_prefixes(StorageChangeKind::TagAssignmentChanged);
+        let event = StorageChangeEvent::new(
+            StorageChangeKind::TagAssignmentChanged,
+            WorkspaceStorageScope::Personal { user_id: 11 },
+            vec![1],
+            vec![],
+            vec![None],
+        );
+        let targets = super::cache_invalidation_targets(&event);
 
-        assert!(prefixes.is_empty());
+        assert!(targets.prefixes.is_empty());
+        assert!(targets.keys.is_empty());
     }
 
     #[test]
@@ -481,9 +573,20 @@ mod tests {
             StorageChangeKind::LockCreated,
             StorageChangeKind::LockDeleted,
         ] {
-            let prefixes = super::cache_invalidation_prefixes(kind);
+            let event = StorageChangeEvent::new(
+                kind,
+                WorkspaceStorageScope::Team {
+                    team_id: 42,
+                    actor_user_id: 11,
+                },
+                vec![1],
+                vec![],
+                vec![Some(3)],
+            );
+            let targets = super::cache_invalidation_targets(&event);
 
-            assert!(prefixes.is_empty());
+            assert!(targets.prefixes.is_empty());
+            assert!(targets.keys.is_empty());
         }
     }
 }

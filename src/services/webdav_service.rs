@@ -145,7 +145,8 @@ pub async fn purge_folder_tree(
         .await;
         crate::services::share_service::invalidate_all_share_token_record_cache(state).await;
     }
-    crate::services::folder_service::invalidate_folder_path_cache(state).await;
+    crate::services::folder_service::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
+        .await;
     folder_repo::delete_many(state.writer_db(), &all_folder_ids).await?;
     tracing::debug!(
         user_id,

@@ -41,9 +41,11 @@ pub use mutation::{create, delete, move_folder, set_lock, update};
 pub(crate) use access::{
     ensure_folder_model_in_scope, ensure_personal_folder_scope, verify_folder_in_scope,
 };
-pub(crate) use cache::FOLDER_PATH_CACHE_PREFIX;
+pub(crate) use cache::{FOLDER_PATH_CACHE_PREFIX, folder_path_cache_key};
 pub(crate) use copy::{copy_folder_in_scope, copy_folder_tree_in_scope};
-pub(crate) use hierarchy::{get_ancestors_in_scope, invalidate_folder_path_cache};
+pub(crate) use hierarchy::{
+    get_ancestors_in_scope, invalidate_folder_path_cache, invalidate_folder_path_cache_for_ids,
+};
 pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
     admin_set_policy, create_in_scope, delete_in_scope, get_info_in_scope,

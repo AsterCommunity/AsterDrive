@@ -104,6 +104,22 @@ pub(super) fn resolve_parent_cache_key(
     )
 }
 
+pub(crate) fn path_cache_personal_prefix(user_id: i64) -> String {
+    format!("{WEBDAV_PATH_CACHE_PREFIX}personal:{user_id}:")
+}
+
+pub(crate) fn parent_cache_personal_prefix(user_id: i64) -> String {
+    format!("{WEBDAV_PARENT_CACHE_PREFIX}personal:{user_id}:")
+}
+
+pub(crate) fn path_cache_team_prefix(team_id: i64) -> String {
+    format!("{WEBDAV_PATH_CACHE_PREFIX}team:{team_id}:")
+}
+
+pub(crate) fn parent_cache_team_prefix(team_id: i64) -> String {
+    format!("{WEBDAV_PARENT_CACHE_PREFIX}team:{team_id}:")
+}
+
 fn cacheable_node(node: &ResolvedNode) -> CachedResolvedNode {
     match node {
         ResolvedNode::Root => CachedResolvedNode::Root,

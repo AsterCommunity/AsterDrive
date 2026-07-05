@@ -226,7 +226,6 @@ pub(crate) async fn create_in_scope(
             vec![created.parent_id],
         ),
     );
-    super::invalidate_folder_path_cache(state).await;
     tracing::debug!(
         scope = ?scope,
         folder_id = created.id,
@@ -291,7 +290,7 @@ pub(crate) async fn delete_in_scope(
             vec![folder.parent_id],
         ),
     );
-    super::invalidate_folder_path_cache(state).await;
+    super::invalidate_folder_path_cache_for_ids(state, &[folder.id]).await;
     tracing::debug!(
         scope = ?scope,
         folder_id = folder.id,
@@ -444,7 +443,7 @@ pub(crate) async fn update_in_scope(
         ),
     );
     if name.is_some() || parent_id.is_present() {
-        super::invalidate_folder_path_cache(state).await;
+        super::invalidate_folder_path_cache_for_ids(state, &[updated.id]).await;
     }
     tracing::debug!(
         scope = ?scope,
