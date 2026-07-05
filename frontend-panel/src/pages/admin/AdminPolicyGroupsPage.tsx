@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type SetStateAction, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -24,8 +24,16 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import {
@@ -37,15 +45,7 @@ import {
 	readAdminPolicyLookup,
 } from "@/lib/adminPolicyLookup";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { adminPolicyGroupService } from "@/services/adminService";
 import type { AdminPolicyGroupSortBy } from "@/types/adminSort";
 import type {
@@ -68,6 +68,33 @@ const POLICY_GROUP_SORT_BY_OPTIONS = [
 const DEFAULT_POLICY_GROUP_SORT_BY =
 	"created_at" as const satisfies AdminPolicyGroupSortBy;
 const DEFAULT_POLICY_GROUP_SORT_ORDER = "desc" as const satisfies SortOrder;
+
+type ManagedPolicyGroupQuery = {
+	offset: number;
+	pageSize: (typeof POLICY_GROUP_PAGE_SIZE_OPTIONS)[number];
+	sortBy: AdminPolicyGroupSortBy;
+	sortOrder: SortOrder;
+};
+
+const MANAGED_POLICY_GROUP_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_POLICY_GROUP_PAGE_SIZE,
+	sortBy: DEFAULT_POLICY_GROUP_SORT_BY,
+	sortOrder: DEFAULT_POLICY_GROUP_SORT_ORDER,
+} satisfies ManagedPolicyGroupQuery;
+
+const MANAGED_POLICY_GROUP_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		POLICY_GROUP_PAGE_SIZE_OPTIONS,
+		DEFAULT_POLICY_GROUP_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(
+		POLICY_GROUP_SORT_BY_OPTIONS,
+		DEFAULT_POLICY_GROUP_SORT_BY,
+	),
+	sortOrder: managedSortOrderQueryField(DEFAULT_POLICY_GROUP_SORT_ORDER),
+} satisfies ManagedListQuerySchema<ManagedPolicyGroupQuery>;
 
 function getMigrationSuccessMessage(
 	t: ReturnType<typeof useTranslation>["t"],
@@ -103,46 +130,42 @@ export default function AdminPolicyGroupsPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("policy_groups"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffset] = useState(
-		parseOffsetSearchParam(searchParams.get("offset")),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof POLICY_GROUP_PAGE_SIZE_OPTIONS)[number]
-	>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			POLICY_GROUP_PAGE_SIZE_OPTIONS,
-			DEFAULT_POLICY_GROUP_PAGE_SIZE,
-		),
-	);
-	const [sortBy, setSortBy] = useState<AdminPolicyGroupSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			POLICY_GROUP_SORT_BY_OPTIONS,
-			DEFAULT_POLICY_GROUP_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_POLICY_GROUP_SORT_ORDER,
-		),
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_POLICY_GROUP_QUERY_DEFAULTS,
+		schema: MANAGED_POLICY_GROUP_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { offset, pageSize, sortBy, sortOrder } = query;
+	const setOffset = useCallback(
+		(value: SetStateAction<number>) => {
+			setQuery((current) => ({
+				offset: typeof value === "function" ? value(current.offset) : value,
+			}));
+		},
+		[setQuery],
 	);
 	const {
+		currentPage,
 		items: groups,
 		total,
+		totalPages,
 		loading,
 		reload,
-	} = useApiList(
-		() =>
+		nextPageDisabled,
+		prevPageDisabled,
+	} = useManagedAdminList<StoragePolicyGroup, ManagedPolicyGroupQuery>({
+		deps: [offset, pageSize, sortBy, sortOrder],
+		loadPage: (query) =>
 			adminPolicyGroupService.list({
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				limit: query.pageSize,
+				offset: query.offset,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[offset, pageSize, sortBy, sortOrder],
-	);
+		query,
+		setOffset,
+	});
 	const initialPolicies = readAdminPolicyLookup();
 	const [policies, setPolicies] = useState<PolicyLookup[]>(
 		initialPolicies ?? [],
@@ -179,10 +202,6 @@ export default function AdminPolicyGroupsPage() {
 	const [submitting, setSubmitting] = useState(false);
 	const { pendingId: deletingGroupId, runWithPending: runWithDeletingGroup } =
 		usePendingId<number>();
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 	const hasMorePolicies = loadedPoliciesCount < policiesTotal;
 	const refreshing = loading || policiesLoading || policiesLoadingMore;
 	const pageSizeOptions = POLICY_GROUP_PAGE_SIZE_OPTIONS.map((size) => ({
@@ -214,38 +233,17 @@ export default function AdminPolicyGroupsPage() {
 			(group) => String(group.id) === migrationTargetId,
 		) ?? null;
 
-	useEffect(() => {
-		setSearchParams(
-			buildOffsetPaginationSearchParams({
-				offset,
-				pageSize,
-				defaultPageSize: DEFAULT_POLICY_GROUP_PAGE_SIZE,
-				extraParams: {
-					sortBy: sortBy !== DEFAULT_POLICY_GROUP_SORT_BY ? sortBy : undefined,
-					sortOrder:
-						sortOrder !== DEFAULT_POLICY_GROUP_SORT_ORDER
-							? sortOrder
-							: undefined,
-				},
-			}),
-			{ replace: true },
-		);
-	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
-
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, POLICY_GROUP_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminPolicyGroupSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
 	const loadPolicies = useCallback(

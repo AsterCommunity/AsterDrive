@@ -48,12 +48,18 @@ import {
 	SelectValue,
 } from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
+import {
+	useManagedAdminList,
+	useManagedAdminListDetailDialog,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatBytes, formatDateAbsoluteWithOffset } from "@/lib/format";
 import {
-	buildOffsetPaginationSearchParams,
 	parseOffsetSearchParam,
 	parsePageSizeOption,
 	parsePageSizeSearchParam,
@@ -120,24 +126,6 @@ const DEFAULT_FILE_SORT_BY = "created_at" as const satisfies AdminFileSortBy;
 const DEFAULT_BLOB_SORT_BY =
 	"created_at" as const satisfies AdminFileBlobSortBy;
 const DEFAULT_SORT_ORDER = "desc" as const satisfies SortOrder;
-const MANAGED_QUERY_KEYS = [
-	"blobId",
-	"deleted",
-	"hash",
-	"name",
-	"offset",
-	"ownerUserId",
-	"pageSize",
-	"policyId",
-	"refCountMax",
-	"refCountMin",
-	"sizeMax",
-	"sizeMin",
-	"sortBy",
-	"sortOrder",
-	"storagePath",
-	"teamId",
-] as const;
 
 function normalizeOffset(offset: number) {
 	return Math.max(0, Math.floor(offset));
@@ -190,104 +178,144 @@ function fileBlobSummary(file: AdminFileInfo | null) {
 	return file?.blob;
 }
 
-function buildManagedSearchParams({
-	kind,
-	deleted,
-	offset,
-	ownerUserId,
-	pageSize,
-	policyId,
-	refCountMax,
-	refCountMin,
-	secondaryId,
-	sizeMax,
-	sizeMin,
-	sortBy,
-	sortOrder,
-	storagePath,
-	teamId,
-	text,
-}: ManagedFileQuery & { kind: AdminFilesPageKind }) {
-	const isFiles = kind === "files";
-	return buildOffsetPaginationSearchParams({
-		offset,
-		pageSize,
-		defaultPageSize: DEFAULT_PAGE_SIZE,
-		extraParams: {
-			[isFiles ? "name" : "hash"]: text.trim() || undefined,
-			blobId: isFiles ? secondaryId : undefined,
-			storagePath: !isFiles ? storagePath.trim() || undefined : undefined,
-			ownerUserId: isFiles ? ownerUserId : undefined,
-			teamId: isFiles ? teamId : undefined,
-			policyId,
-			deleted:
-				isFiles && deleted && deleted !== "__all__" ? deleted : undefined,
-			refCountMin: !isFiles ? refCountMin : undefined,
-			refCountMax: !isFiles ? refCountMax : undefined,
-			sizeMin: !isFiles ? sizeMin : undefined,
-			sizeMax: !isFiles ? sizeMax : undefined,
-			sortBy:
-				sortBy !== (isFiles ? DEFAULT_FILE_SORT_BY : DEFAULT_BLOB_SORT_BY)
-					? sortBy
-					: undefined,
-			sortOrder: sortOrder !== DEFAULT_SORT_ORDER ? sortOrder : undefined,
-		},
-	});
-}
-
-function readManagedFileQuery(
+function createManagedFileQueryDefaults(
 	kind: AdminFilesPageKind,
-	searchParams: URLSearchParams,
 ): ManagedFileQuery {
 	const isFiles = kind === "files";
 	return {
-		deleted: parseDeletedFilter(searchParams.get("deleted")),
-		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-		ownerUserId: parseOptionalNumber(searchParams.get("ownerUserId")),
-		pageSize: parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			PAGE_SIZE_OPTIONS,
-			DEFAULT_PAGE_SIZE,
-		),
-		policyId: parseOptionalNumber(searchParams.get("policyId")),
-		refCountMax: parseOptionalNumber(searchParams.get("refCountMax")),
-		refCountMin: parseOptionalNumber(searchParams.get("refCountMin")),
-		secondaryId: parseOptionalNumber(searchParams.get("blobId")),
-		sizeMax: parseOptionalNumber(searchParams.get("sizeMax")),
-		sizeMin: parseOptionalNumber(searchParams.get("sizeMin")),
-		sortBy: isFiles
-			? parseSortSearchParam(
-					searchParams.get("sortBy"),
-					FILE_SORT_OPTIONS,
-					DEFAULT_FILE_SORT_BY,
-				)
-			: parseSortSearchParam(
-					searchParams.get("sortBy"),
-					BLOB_SORT_OPTIONS,
-					DEFAULT_BLOB_SORT_BY,
-				),
-		sortOrder: parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_SORT_ORDER,
-		),
-		storagePath: searchParams.get("storagePath") ?? "",
-		teamId: parseOptionalNumber(searchParams.get("teamId")),
-		text: searchParams.get(isFiles ? "name" : "hash") ?? "",
+		deleted: "__all__",
+		offset: 0,
+		ownerUserId: undefined,
+		pageSize: DEFAULT_PAGE_SIZE,
+		policyId: undefined,
+		refCountMax: undefined,
+		refCountMin: undefined,
+		secondaryId: undefined,
+		sizeMax: undefined,
+		sizeMin: undefined,
+		sortBy: isFiles ? DEFAULT_FILE_SORT_BY : DEFAULT_BLOB_SORT_BY,
+		sortOrder: DEFAULT_SORT_ORDER,
+		storagePath: "",
+		teamId: undefined,
+		text: "",
 	};
 }
 
-function mergeManagedSearchParams(
-	searchParams: URLSearchParams,
-	managedSearchParams: URLSearchParams,
-) {
-	const merged = new URLSearchParams(searchParams);
-	for (const key of MANAGED_QUERY_KEYS) {
-		merged.delete(key);
-	}
-	for (const [key, value] of managedSearchParams.entries()) {
-		merged.set(key, value);
-	}
-	return merged;
+function createManagedFileQuerySchema(
+	kind: AdminFilesPageKind,
+): ManagedListQuerySchema<ManagedFileQuery> {
+	const isFiles = kind === "files";
+	const defaultSortBy = isFiles ? DEFAULT_FILE_SORT_BY : DEFAULT_BLOB_SORT_BY;
+
+	return {
+		deleted: {
+			keys: ["deleted"],
+			parse: (searchParams) => parseDeletedFilter(searchParams.get("deleted")),
+			serialize: (value) =>
+				isFiles && value !== "__all__" ? { deleted: value } : undefined,
+		},
+		offset: {
+			keys: ["offset"],
+			parse: (searchParams) =>
+				normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
+			serialize: (value) => (value > 0 ? value : undefined),
+		},
+		ownerUserId: {
+			keys: ["ownerUserId"],
+			parse: (searchParams) =>
+				parseOptionalNumber(searchParams.get("ownerUserId")),
+			serialize: (value) => (isFiles ? value : undefined),
+		},
+		pageSize: {
+			keys: ["pageSize"],
+			parse: (searchParams) =>
+				parsePageSizeSearchParam(
+					searchParams.get("pageSize"),
+					PAGE_SIZE_OPTIONS,
+					DEFAULT_PAGE_SIZE,
+				),
+			serialize: (value) =>
+				value !== DEFAULT_PAGE_SIZE ? { pageSize: value } : undefined,
+		},
+		policyId: {
+			keys: ["policyId"],
+			parse: (searchParams) =>
+				parseOptionalNumber(searchParams.get("policyId")),
+		},
+		refCountMax: {
+			keys: ["refCountMax"],
+			parse: (searchParams) =>
+				parseOptionalNumber(searchParams.get("refCountMax")),
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
+		refCountMin: {
+			keys: ["refCountMin"],
+			parse: (searchParams) =>
+				parseOptionalNumber(searchParams.get("refCountMin")),
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
+		secondaryId: {
+			keys: ["blobId"],
+			parse: (searchParams) => parseOptionalNumber(searchParams.get("blobId")),
+			serialize: (value) => (isFiles ? { blobId: value } : undefined),
+		},
+		sizeMax: {
+			keys: ["sizeMax"],
+			parse: (searchParams) => parseOptionalNumber(searchParams.get("sizeMax")),
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
+		sizeMin: {
+			keys: ["sizeMin"],
+			parse: (searchParams) => parseOptionalNumber(searchParams.get("sizeMin")),
+			serialize: (value) => (!isFiles ? value : undefined),
+		},
+		sortBy: {
+			keys: ["sortBy"],
+			parse: (searchParams) =>
+				isFiles
+					? parseSortSearchParam(
+							searchParams.get("sortBy"),
+							FILE_SORT_OPTIONS,
+							DEFAULT_FILE_SORT_BY,
+						)
+					: parseSortSearchParam(
+							searchParams.get("sortBy"),
+							BLOB_SORT_OPTIONS,
+							DEFAULT_BLOB_SORT_BY,
+						),
+			serialize: (value) =>
+				value !== defaultSortBy ? { sortBy: value } : undefined,
+		},
+		sortOrder: {
+			keys: ["sortOrder"],
+			parse: (searchParams) =>
+				parseSortOrderSearchParam(
+					searchParams.get("sortOrder"),
+					DEFAULT_SORT_ORDER,
+				),
+			serialize: (value) =>
+				value !== DEFAULT_SORT_ORDER ? { sortOrder: value } : undefined,
+		},
+		storagePath: {
+			keys: ["storagePath"],
+			parse: (searchParams) => searchParams.get("storagePath") ?? "",
+			serialize: (value) =>
+				!isFiles ? { storagePath: value.trim() || undefined } : undefined,
+		},
+		teamId: {
+			keys: ["teamId"],
+			parse: (searchParams) => parseOptionalNumber(searchParams.get("teamId")),
+			serialize: (value) => (isFiles ? value : undefined),
+		},
+		text: {
+			keys: ["name", "hash"],
+			parse: (searchParams) =>
+				searchParams.get(isFiles ? "name" : "hash") ?? "",
+			serialize: (value) => ({
+				[isFiles ? "name" : "hash"]: value.trim() || undefined,
+			}),
+		},
+	};
 }
 
 function DetailRow({
@@ -577,7 +605,22 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const isFiles = kind === "files";
 	usePageTitle(isFiles ? t("admin_files") : t("admin_file_blobs"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const fileQuery = readManagedFileQuery(kind, searchParams);
+	const managedFileQueryDefaults = useMemo(
+		() => createManagedFileQueryDefaults(kind),
+		[kind],
+	);
+	const managedFileQuerySchema = useMemo(
+		() => createManagedFileQuerySchema(kind),
+		[kind],
+	);
+	const { query: fileQuery, setQuery: setFileQuery } = useManagedListQueryState(
+		{
+			defaults: managedFileQueryDefaults,
+			schema: managedFileQuerySchema,
+			searchParams,
+			setSearchParams,
+		},
+	);
 	const {
 		deleted,
 		offset,
@@ -595,38 +638,24 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		teamId,
 		text,
 	} = fileQuery;
-	const [fileDetail, setFileDetail] = useState<AdminFileDetail | null>(null);
-	const [blobDetail, setBlobDetail] = useState<AdminFileBlobDetail | null>(
-		null,
-	);
+	const fileDetailDialog = useManagedAdminListDetailDialog<AdminFileDetail>();
+	const blobDetailDialog =
+		useManagedAdminListDetailDialog<AdminFileBlobDetail>();
 	const [maintenanceAction, setMaintenanceAction] =
 		useState<BlobMaintenanceAction | null>(null);
 	const [fullMaintenanceAction, setFullMaintenanceAction] =
 		useState<BlobMaintenanceAction | null>(null);
 	const maintenanceLockRef = useRef(false);
-	const setFileQuery = useCallback(
-		(updates: Partial<ManagedFileQuery>) => {
-			const nextManagedSearchParams = buildManagedSearchParams({
-				kind,
-				...fileQuery,
-				...updates,
-			});
-			setSearchParams(
-				mergeManagedSearchParams(searchParams, nextManagedSearchParams),
-				{
-					replace: true,
-				},
-			);
+	const setOffset = useCallback(
+		(value: SetStateAction<number>) => {
+			setFileQuery((current) => ({
+				offset: normalizeOffset(
+					typeof value === "function" ? value(current.offset) : value,
+				),
+			}));
 		},
-		[fileQuery, kind, searchParams, setSearchParams],
+		[setFileQuery],
 	);
-	const setOffset = (value: SetStateAction<number>) => {
-		setFileQuery({
-			offset: normalizeOffset(
-				typeof value === "function" ? value(offset) : value,
-			),
-		});
-	};
 	const activeFilterCount =
 		(text.trim() ? 1 : 0) +
 		(policyId != null ? 1 : 0) +
@@ -640,37 +669,16 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		(!isFiles && sizeMin != null ? 1 : 0) +
 		(!isFiles && sizeMax != null ? 1 : 0);
 
-	const { items, loading, reload, total } = useApiList<
-		AdminFileInfo | AdminFileBlobInfo
-	>(
-		() =>
-			isFiles
-				? adminFileService.listFiles({
-						limit: pageSize,
-						offset,
-						name: text.trim() || undefined,
-						blob_id: secondaryId,
-						owner_user_id: ownerUserId,
-						policy_id: policyId,
-						team_id: teamId,
-						deleted: deletedToQuery(deleted),
-						sort_by: sortBy as AdminFileSortBy,
-						sort_order: sortOrder,
-					})
-				: adminFileService.listBlobs({
-						limit: pageSize,
-						offset,
-						hash: text.trim() || undefined,
-						policy_id: policyId,
-						storage_path: storagePath.trim() || undefined,
-						ref_count_min: refCountMin,
-						ref_count_max: refCountMax,
-						size_min: sizeMin,
-						size_max: sizeMax,
-						sort_by: sortBy as AdminFileBlobSortBy,
-						sort_order: sortOrder,
-					}),
-		[
+	const {
+		currentPage,
+		items,
+		loading,
+		nextPageDisabled,
+		reload,
+		total,
+		totalPages,
+	} = useManagedAdminList<AdminFileInfo | AdminFileBlobInfo, ManagedFileQuery>({
+		deps: [
 			deleted,
 			isFiles,
 			offset,
@@ -688,9 +696,36 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			teamId,
 			text,
 		],
-	);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
+		loadPage: (query) =>
+			isFiles
+				? adminFileService.listFiles({
+						limit: query.pageSize,
+						offset: query.offset,
+						name: query.text.trim() || undefined,
+						blob_id: query.secondaryId,
+						owner_user_id: query.ownerUserId,
+						policy_id: query.policyId,
+						team_id: query.teamId,
+						deleted: deletedToQuery(query.deleted),
+						sort_by: query.sortBy as AdminFileSortBy,
+						sort_order: query.sortOrder,
+					})
+				: adminFileService.listBlobs({
+						limit: query.pageSize,
+						offset: query.offset,
+						hash: query.text.trim() || undefined,
+						policy_id: query.policyId,
+						storage_path: query.storagePath.trim() || undefined,
+						ref_count_min: query.refCountMin,
+						ref_count_max: query.refCountMax,
+						size_min: query.sizeMin,
+						size_max: query.sizeMax,
+						sort_by: query.sortBy as AdminFileBlobSortBy,
+						sort_order: query.sortOrder,
+					}),
+		query: fileQuery,
+		setOffset,
+	});
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, PAGE_SIZE_OPTIONS);
@@ -724,14 +759,14 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	};
 	const openFileDetail = async (id: number) => {
 		try {
-			setFileDetail(await adminFileService.getFile(id));
+			fileDetailDialog.setDetail(await adminFileService.getFile(id));
 		} catch (error) {
 			handleApiError(error);
 		}
 	};
 	const openBlobDetail = async (id: number) => {
 		try {
-			setBlobDetail(await adminFileService.getBlob(id));
+			blobDetailDialog.setDetail(await adminFileService.getBlob(id));
 		} catch (error) {
 			handleApiError(error);
 		}
@@ -750,8 +785,8 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 			});
 			toast.success(t("admin_blob_maintenance_task_created", { id: task.id }));
 			await reload();
-			if (blobDetail) {
-				await openBlobDetail(blobDetail.id);
+			if (blobDetailDialog.detail) {
+				await openBlobDetail(blobDetailDialog.detail.id);
 			}
 		} catch (error) {
 			handleApiError(error);
@@ -1122,7 +1157,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				/>
 				<AdminOffsetPagination
 					currentPage={currentPage}
-					nextDisabled={offset + pageSize >= total}
+					nextDisabled={nextPageDisabled}
 					onNext={() => setOffset((current) => current + pageSize)}
 					onPageSizeChange={handlePageSizeChange}
 					onPrevious={() => setOffset(Math.max(0, offset - pageSize))}
@@ -1134,21 +1169,17 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				/>
 			</AdminPageShell>
 			<FileDetailDialog
-				file={fileDetail}
-				open={fileDetail !== null}
-				onOpenChange={(open) => {
-					if (!open) setFileDetail(null);
-				}}
+				file={fileDetailDialog.detail}
+				open={fileDetailDialog.open}
+				onOpenChange={fileDetailDialog.onOpenChange}
 			/>
 			<BlobDetailDialog
-				blob={blobDetail}
-				open={blobDetail !== null}
+				blob={blobDetailDialog.detail}
+				open={blobDetailDialog.open}
 				maintenanceAction={
 					isMaintenanceBusy ? (maintenanceAction ?? "integrity_check") : null
 				}
-				onOpenChange={(open) => {
-					if (!open) setBlobDetail(null);
-				}}
+				onOpenChange={blobDetailDialog.onOpenChange}
 				onCreateMaintenanceTask={createMaintenanceTask}
 			/>
 			<ConfirmDialog

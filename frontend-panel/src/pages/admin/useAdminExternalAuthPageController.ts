@@ -1,17 +1,9 @@
 import type { SetStateAction } from "react";
-import {
-	useCallback,
-	useEffect,
-	useMemo,
-	useReducer,
-	useRef,
-	useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import {
-	buildManagedExternalAuthSearchParams,
 	connectionRequirementsMissing,
 	createPayload,
 	DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
@@ -23,14 +15,11 @@ import {
 	formatTestResultSummary,
 	formConnectionChanged,
 	formFromProvider,
-	getManagedExternalAuthSearchString,
 	isGitHubProviderKind,
 	isGoogleProviderKind,
 	isMicrosoftProviderKind,
 	isQqProviderKind,
 	MICROSOFT_DEFAULT_TENANT,
-	mergeManagedExternalAuthSearchParams,
-	normalizeOffset,
 	requiredFieldsMissing,
 	sortExternalAuthProviderKinds,
 	testParamsPayload,
@@ -38,13 +27,15 @@ import {
 } from "@/components/admin/admin-external-auth-page/shared";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { writeTextToClipboard } from "@/lib/clipboard";
-import {
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-} from "@/lib/pagination";
+import { parsePageSizeOption } from "@/lib/pagination";
 import { adminExternalAuthService } from "@/services/adminService";
 import type {
 	AdminExternalAuthProviderInfo,
@@ -69,6 +60,24 @@ type AdminExternalAuthUiState = {
 	testingId: number | null;
 	total: number;
 };
+
+type ManagedExternalAuthQuery = {
+	offset: number;
+	pageSize: (typeof EXTERNAL_AUTH_PAGE_SIZE_OPTIONS)[number];
+};
+
+const MANAGED_EXTERNAL_AUTH_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+} satisfies ManagedExternalAuthQuery;
+
+const MANAGED_EXTERNAL_AUTH_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
+		DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
+	),
+} satisfies ManagedListQuerySchema<ManagedExternalAuthQuery>;
 
 type SetExternalAuthFormFieldAction<
 	K extends
@@ -334,18 +343,13 @@ export function useAdminExternalAuthPageController() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("external_auth"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffsetState] = useState(() =>
-		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof EXTERNAL_AUTH_PAGE_SIZE_OPTIONS)[number]
-	>(() =>
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
-			DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
-		),
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_EXTERNAL_AUTH_QUERY_DEFAULTS,
+		schema: MANAGED_EXTERNAL_AUTH_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { offset, pageSize } = query;
 	const [uiState, dispatchUi] = useReducer(
 		adminExternalAuthUiReducer,
 		undefined,
@@ -367,13 +371,18 @@ export function useAdminExternalAuthPageController() {
 		testingId,
 		total,
 	} = uiState;
-	const lastWrittenSearchRef = useRef<string | null>(null);
 	const createDialogRequestRef = useRef(0);
-	const setOffset = useCallback((value: SetStateAction<number>) => {
-		setOffsetState((current) =>
-			normalizeOffset(typeof value === "function" ? value(current) : value),
-		);
-	}, []);
+	const setOffset = useCallback(
+		(value: SetStateAction<number>) => {
+			setQuery((current) => ({
+				offset: Math.max(
+					0,
+					typeof value === "function" ? value(current.offset) : value,
+				),
+			}));
+		},
+		[setQuery],
+	);
 	const selectedKind = useMemo(
 		() =>
 			providerKinds.find((kind) => kind.kind === form.providerKind) ??
@@ -422,53 +431,6 @@ export function useAdminExternalAuthPageController() {
 		};
 	}
 	const createStepDirection = stepAnimationRef.current.direction;
-
-	useEffect(() => {
-		const managedSearch = getManagedExternalAuthSearchString(searchParams);
-		if (managedSearch === lastWrittenSearchRef.current) {
-			return;
-		}
-
-		const nextOffset = normalizeOffset(
-			parseOffsetSearchParam(searchParams.get("offset")),
-		);
-		const nextPageSize = parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
-			DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
-		);
-
-		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
-		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
-	}, [searchParams]);
-
-	useEffect(() => {
-		const nextManagedSearchParams = buildManagedExternalAuthSearchParams({
-			offset,
-			pageSize,
-		});
-		const nextSearch = nextManagedSearchParams.toString();
-		const currentSearch = getManagedExternalAuthSearchString(searchParams);
-		if (
-			currentSearch !== lastWrittenSearchRef.current &&
-			currentSearch !== nextSearch
-		) {
-			return;
-		}
-
-		lastWrittenSearchRef.current = nextSearch;
-		if (nextSearch === currentSearch) {
-			return;
-		}
-
-		setSearchParams(
-			mergeManagedExternalAuthSearchParams(
-				searchParams,
-				nextManagedSearchParams,
-			),
-			{ replace: true },
-		);
-	}, [offset, pageSize, searchParams, setSearchParams]);
 
 	const loadProviders = useCallback(async () => {
 		try {
@@ -521,8 +483,7 @@ export function useAdminExternalAuthPageController() {
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, EXTERNAL_AUTH_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const setField = <K extends keyof ExternalAuthProviderFormData>(

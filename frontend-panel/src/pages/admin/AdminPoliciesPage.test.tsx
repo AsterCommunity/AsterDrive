@@ -5066,10 +5066,9 @@ describe("AdminPoliciesPage", () => {
 			expect(mockState.deletePolicy).toHaveBeenCalledWith(18);
 		});
 		await waitFor(() => {
-			expect(mockState.setSearchParams).toHaveBeenLastCalledWith(
-				new URLSearchParams(""),
-				{ replace: true },
-			);
+			const lastCall = mockState.setSearchParams.mock.lastCall;
+			expect(lastCall?.[0].toString()).toBe("");
+			expect(lastCall?.[1]).toEqual({ replace: true });
 		});
 		expect(mockState.reload).not.toHaveBeenCalled();
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_deleted");

@@ -1,5 +1,5 @@
 import type { SetStateAction } from "react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
@@ -29,7 +29,16 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useApiList } from "@/hooks/useApiList";
+import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	managedStringQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import {
 	AUDIT_ENTITY_TYPE_FILTER_VALUES,
@@ -43,29 +52,13 @@ import {
 } from "@/lib/audit";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { formatDateAbsolute, formatDateAbsoluteWithOffset } from "@/lib/format";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { auditService } from "@/services/auditService";
 import type { AdminAuditLogSortBy } from "@/types/adminSort";
-import type { AuditEntityType } from "@/types/api";
+import type { AuditEntityType, AuditLogEntry } from "@/types/api";
 
 const AUDIT_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_AUDIT_PAGE_SIZE = 20 as const;
-const AUDIT_MANAGED_QUERY_KEYS = [
-	"action",
-	"entityType",
-	"offset",
-	"pageSize",
-	"sortBy",
-	"sortOrder",
-] as const;
 const AUDIT_SORT_BY_OPTIONS = [
 	"id",
 	"created_at",
@@ -80,10 +73,14 @@ const DEFAULT_AUDIT_SORT_BY =
 const DEFAULT_AUDIT_SORT_ORDER = "desc" as const satisfies SortOrder;
 
 type AuditEntityTypeFilter = "__all__" | AuditEntityType;
-
-function normalizeOffset(offset: number) {
-	return Math.max(0, Math.floor(offset));
-}
+type ManagedAuditQuery = {
+	action: string;
+	entityType: AuditEntityTypeFilter;
+	offset: number;
+	pageSize: (typeof AUDIT_PAGE_SIZE_OPTIONS)[number];
+	sortBy: AdminAuditLogSortBy;
+	sortOrder: SortOrder;
+};
 
 function parseEntityTypeSearchParam(
 	value: string | null,
@@ -92,210 +89,91 @@ function parseEntityTypeSearchParam(
 	return normalized && isAuditEntityType(normalized) ? normalized : "__all__";
 }
 
-function buildManagedAuditSearchParams({
-	offset,
-	pageSize,
-	action,
-	entityType,
-	sortBy,
-	sortOrder,
-}: {
-	offset: number;
-	pageSize: (typeof AUDIT_PAGE_SIZE_OPTIONS)[number];
-	action: string;
-	entityType: AuditEntityTypeFilter;
-	sortBy: AdminAuditLogSortBy;
-	sortOrder: SortOrder;
-}) {
-	return buildOffsetPaginationSearchParams({
-		offset,
-		pageSize,
-		defaultPageSize: DEFAULT_AUDIT_PAGE_SIZE,
-		extraParams: {
-			action: action.trim() || undefined,
-			entityType: entityType !== "__all__" ? entityType : undefined,
-			sortBy: sortBy !== DEFAULT_AUDIT_SORT_BY ? sortBy : undefined,
-			sortOrder: sortOrder !== DEFAULT_AUDIT_SORT_ORDER ? sortOrder : undefined,
-		},
-	});
-}
+const MANAGED_AUDIT_QUERY_DEFAULTS = {
+	action: "",
+	entityType: "__all__",
+	offset: 0,
+	pageSize: DEFAULT_AUDIT_PAGE_SIZE,
+	sortBy: DEFAULT_AUDIT_SORT_BY,
+	sortOrder: DEFAULT_AUDIT_SORT_ORDER,
+} satisfies ManagedAuditQuery;
 
-function getManagedAuditSearchString(searchParams: URLSearchParams) {
-	return buildManagedAuditSearchParams({
-		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-		pageSize: parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			AUDIT_PAGE_SIZE_OPTIONS,
-			DEFAULT_AUDIT_PAGE_SIZE,
-		),
-		action: searchParams.get("action") ?? "",
-		entityType: parseEntityTypeSearchParam(searchParams.get("entityType")),
-		sortBy: parseSortSearchParam(
-			searchParams.get("sortBy"),
-			AUDIT_SORT_BY_OPTIONS,
-			DEFAULT_AUDIT_SORT_BY,
-		),
-		sortOrder: parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_AUDIT_SORT_ORDER,
-		),
-	}).toString();
-}
-
-function mergeManagedAuditSearchParams(
-	searchParams: URLSearchParams,
-	managedSearchParams: URLSearchParams,
-) {
-	const merged = new URLSearchParams(searchParams);
-	for (const key of AUDIT_MANAGED_QUERY_KEYS) {
-		merged.delete(key);
-	}
-	for (const [key, value] of managedSearchParams.entries()) {
-		merged.set(key, value);
-	}
-	return merged;
-}
+const MANAGED_AUDIT_QUERY_SCHEMA = {
+	action: managedStringQueryField({ key: "action" }),
+	entityType: {
+		keys: ["entityType"],
+		parse: (searchParams) =>
+			parseEntityTypeSearchParam(searchParams.get("entityType")),
+		serialize: (value) => (value !== "__all__" ? value : undefined),
+	},
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		AUDIT_PAGE_SIZE_OPTIONS,
+		DEFAULT_AUDIT_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(AUDIT_SORT_BY_OPTIONS, DEFAULT_AUDIT_SORT_BY),
+	sortOrder: managedSortOrderQueryField(DEFAULT_AUDIT_SORT_ORDER),
+} satisfies ManagedListQuerySchema<ManagedAuditQuery>;
 
 export default function AdminAuditPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("audit_log"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const initialAction = searchParams.get("action") ?? "";
-	const [offset, setOffsetState] = useState(
-		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof AUDIT_PAGE_SIZE_OPTIONS)[number]
-	>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			AUDIT_PAGE_SIZE_OPTIONS,
-			DEFAULT_AUDIT_PAGE_SIZE,
-		),
-	);
-	const [actionFilter, setActionFilter] = useState(initialAction);
-	const [entityTypeFilter, setEntityTypeFilter] =
-		useState<AuditEntityTypeFilter>(
-			parseEntityTypeSearchParam(searchParams.get("entityType")),
-		);
-	const [sortBy, setSortBy] = useState<AdminAuditLogSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			AUDIT_SORT_BY_OPTIONS,
-			DEFAULT_AUDIT_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_AUDIT_SORT_ORDER,
-		),
-	);
-	const lastWrittenSearchRef = useRef<string | null>(null);
-	const setOffset = (value: SetStateAction<number>) => {
-		setOffsetState((current) =>
-			normalizeOffset(typeof value === "function" ? value(current) : value),
-		);
-	};
-
-	useEffect(() => {
-		const managedSearch = getManagedAuditSearchString(searchParams);
-		if (managedSearch === lastWrittenSearchRef.current) {
-			return;
-		}
-
-		const nextOffset = normalizeOffset(
-			parseOffsetSearchParam(searchParams.get("offset")),
-		);
-		const nextPageSize = parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			AUDIT_PAGE_SIZE_OPTIONS,
-			DEFAULT_AUDIT_PAGE_SIZE,
-		);
-		const nextAction = searchParams.get("action") ?? "";
-		const nextEntityType = parseEntityTypeSearchParam(
-			searchParams.get("entityType"),
-		);
-		const nextSortBy = parseSortSearchParam(
-			searchParams.get("sortBy"),
-			AUDIT_SORT_BY_OPTIONS,
-			DEFAULT_AUDIT_SORT_BY,
-		);
-		const nextSortOrder = parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_AUDIT_SORT_ORDER,
-		);
-
-		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
-		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
-		setActionFilter((prev) => (prev === nextAction ? prev : nextAction));
-		setEntityTypeFilter((prev) =>
-			prev === nextEntityType ? prev : nextEntityType,
-		);
-		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
-		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
-	}, [searchParams]);
-
-	useEffect(() => {
-		const nextManagedSearchParams = buildManagedAuditSearchParams({
-			offset,
-			pageSize,
-			action: actionFilter,
-			entityType: entityTypeFilter,
-			sortBy,
-			sortOrder,
-		});
-		const nextSearch = nextManagedSearchParams.toString();
-		const currentSearch = getManagedAuditSearchString(searchParams);
-		if (
-			currentSearch !== lastWrittenSearchRef.current &&
-			currentSearch !== nextSearch
-		) {
-			return;
-		}
-
-		lastWrittenSearchRef.current = nextSearch;
-		if (nextSearch === currentSearch) {
-			return;
-		}
-
-		setSearchParams(
-			mergeManagedAuditSearchParams(searchParams, nextManagedSearchParams),
-			{ replace: true },
-		);
-	}, [
-		actionFilter,
-		entityTypeFilter,
-		offset,
-		pageSize,
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_AUDIT_QUERY_DEFAULTS,
+		schema: MANAGED_AUDIT_QUERY_SCHEMA,
 		searchParams,
 		setSearchParams,
+	});
+	const {
+		action: actionFilter,
+		entityType: entityTypeFilter,
+		offset,
+		pageSize,
 		sortBy,
 		sortOrder,
-	]);
-
-	const { items, loading, reload, total } = useApiList(
-		() =>
-			auditService.list({
-				action: actionFilter.trim() || undefined,
-				entity_type:
-					entityTypeFilter === "__all__" ? undefined : entityTypeFilter,
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
-			}),
-		[actionFilter, entityTypeFilter, offset, pageSize, sortBy, sortOrder],
+	} = query;
+	const setOffset = useCallback(
+		(value: SetStateAction<number>) => {
+			setQuery((current) => ({
+				offset: Math.max(
+					0,
+					typeof value === "function" ? value(current.offset) : value,
+				),
+			}));
+		},
+		[setQuery],
 	);
+
+	const {
+		currentPage,
+		items,
+		loading,
+		nextPageDisabled,
+		prevPageDisabled,
+		reload,
+		total,
+		totalPages,
+	} = useManagedAdminList<AuditLogEntry, ManagedAuditQuery>({
+		deps: [actionFilter, entityTypeFilter, offset, pageSize, sortBy, sortOrder],
+		loadPage: (query) =>
+			auditService.list({
+				action: query.action.trim() || undefined,
+				entity_type:
+					query.entityType === "__all__" ? undefined : query.entityType,
+				limit: query.pageSize,
+				offset: query.offset,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
+			}),
+		query,
+		setOffset,
+	});
 
 	const activeFilterCount =
 		(actionFilter.trim().length > 0 ? 1 : 0) +
 		(entityTypeFilter !== "__all__" ? 1 : 0);
 	const hasServerFilters = activeFilterCount > 0;
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 	const entityTypeOptions = [
 		{ label: t("audit_all_types"), value: "__all__" },
 		...AUDIT_ENTITY_TYPE_FILTER_VALUES.map((value) => ({
@@ -309,36 +187,32 @@ export default function AdminAuditPage() {
 	}));
 
 	const resetFilters = () => {
-		setActionFilter("");
-		setEntityTypeFilter("__all__");
-		setOffset(0);
+		setQuery({ action: "", entityType: "__all__", offset: 0 });
 	};
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, AUDIT_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleActionFilterChange = (value: string) => {
-		setActionFilter(value);
-		setOffset(0);
+		setQuery({ action: value, offset: 0 });
 	};
 
 	const handleEntityTypeFilterChange = (value: string | null) => {
 		if (!value) return;
-		setEntityTypeFilter(isAuditEntityType(value) ? value : "__all__");
-		setOffset(0);
+		setQuery({
+			entityType: isAuditEntityType(value) ? value : "__all__",
+			offset: 0,
+		});
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminAuditLogSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 	const auditEmptyIcon = <Icon name="Scroll" className="size-10" />;
 	const filteredEmptyAction = (
