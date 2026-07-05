@@ -8,6 +8,10 @@ use crate::runtime::FollowerRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
 use crate::storage::drivers::{local::LocalDriver, s3::S3Driver};
+use crate::storage::field_contract::{
+    StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
+    normalize_required_storage_field,
+};
 use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -44,6 +48,20 @@ pub enum RemoteStorageTargetDriverFieldKind {
     Number,
 }
 
+impl From<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind {
+    fn from(value: StorageDescriptorFieldKind) -> Self {
+        match value {
+            StorageDescriptorFieldKind::Text => Self::Text,
+            StorageDescriptorFieldKind::Secret => Self::Secret,
+            StorageDescriptorFieldKind::Boolean => Self::Boolean,
+            StorageDescriptorFieldKind::Number => Self::Number,
+            StorageDescriptorFieldKind::Select => {
+                panic!("managed ingress target descriptors do not support select fields")
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RemoteStorageTargetDriverFieldDescriptor {
@@ -75,15 +93,16 @@ fn remote_storage_target_text_field(
     required: bool,
     secret: bool,
 ) -> RemoteStorageTargetDriverFieldDescriptor {
+    let semantics = if secret {
+        StorageDescriptorFieldSemantics::secret(required)
+    } else {
+        StorageDescriptorFieldSemantics::text(required)
+    };
     RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: if secret {
-            RemoteStorageTargetDriverFieldKind::Secret
-        } else {
-            RemoteStorageTargetDriverFieldKind::Text
-        },
-        required,
-        secret,
+        kind: semantics.kind.into(),
+        required: semantics.required,
+        secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: placeholder.map(str::to_string),
         help_key: help_key.map(str::to_string),
@@ -96,11 +115,12 @@ fn remote_storage_target_boolean_field(
     help_key: Option<&str>,
     required: bool,
 ) -> RemoteStorageTargetDriverFieldDescriptor {
+    let semantics = StorageDescriptorFieldSemantics::boolean(required);
     RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: RemoteStorageTargetDriverFieldKind::Boolean,
-        required,
-        secret: false,
+        kind: semantics.kind.into(),
+        required: semantics.required,
+        secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: None,
         help_key: help_key.map(str::to_string),
@@ -268,9 +288,9 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
             driver_type: Self::driver_type(),
             endpoint: normalized.endpoint,
             bucket: normalized.bucket,
-            access_key: normalize_non_blank("access_key", &fields.access_key)?,
-            secret_key: normalize_non_blank("secret_key", &fields.secret_key)?,
-            base_path: fields.base_path.trim().trim_matches('/').to_string(),
+            access_key: normalize_required_storage_field("access_key", &fields.access_key)?,
+            secret_key: normalize_required_storage_field("secret_key", &fields.secret_key)?,
+            base_path: normalize_object_storage_prefix(&fields.base_path),
         })
     }
 
@@ -453,14 +473,4 @@ fn build_policy_model<S: FollowerRuntimeState>(
         created_at: target.created_at,
         updated_at: target.updated_at,
     })
-}
-
-fn normalize_non_blank(field: &str, value: &str) -> Result<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(AsterError::validation_error(format!(
-            "{field} cannot be blank"
-        )));
-    }
-    Ok(trimmed.to_string())
 }

@@ -147,6 +147,8 @@ pub async fn create(
     let allowed_types = allowed_types.unwrap_or_default();
     let options = options.unwrap_or_default().normalized();
     let serialized_options = serialize_options(&options)?;
+    let max_file_size =
+        crate::storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
     crate::storage::connectors::validate_policy_options(
         state.writer_db(),
@@ -451,7 +453,8 @@ pub async fn update(
         active.remote_storage_target_key = Set(final_remote_storage_target_key);
     }
     if let Some(v) = max_file_size {
-        active.max_file_size = Set(v);
+        active.max_file_size =
+            Set(crate::storage::field_contract::normalize_storage_policy_max_file_size(v)?);
     }
     if let Some(v) = chunk_size {
         active.chunk_size = Set(v);
@@ -939,6 +942,92 @@ mod tests {
         assert_eq!(diagnostic.kind, "transient");
         assert_eq!(diagnostic.message, "capacity probe timed out");
         assert!(diagnostic.retryable);
+    }
+
+    #[tokio::test]
+    async fn create_rejects_negative_max_file_size_at_service_boundary() {
+        let state = setup_state("storage-token-test-master-key-32bytes").await;
+
+        let error = create(
+            &state,
+            CreateStoragePolicyInput {
+                name: "Local".to_string(),
+                connection: StoragePolicyConnectionInput {
+                    driver_type: DriverType::Local,
+                    endpoint: "data/uploads".to_string(),
+                    bucket: String::new(),
+                    access_key: String::new(),
+                    secret_key: String::new(),
+                    base_path: "data/uploads".to_string(),
+                    remote_node_id: None,
+                    remote_storage_target_key: None,
+                    options: StoragePolicyOptions::default(),
+                },
+                max_file_size: -1,
+                chunk_size: Some(5_242_880),
+                is_default: false,
+                allowed_types: None,
+                options: None,
+                remote_storage_target_key: None,
+                application_config: Default::default(),
+            },
+        )
+        .await
+        .expect_err("negative max_file_size should be rejected");
+
+        assert!(
+            error
+                .message()
+                .contains("max_file_size must be non-negative")
+        );
+    }
+
+    #[tokio::test]
+    async fn update_rejects_negative_max_file_size_at_service_boundary() {
+        let state = setup_state("storage-token-test-master-key-32bytes").await;
+        let policy = create(
+            &state,
+            CreateStoragePolicyInput {
+                name: "Local".to_string(),
+                connection: StoragePolicyConnectionInput {
+                    driver_type: DriverType::Local,
+                    endpoint: "data/uploads".to_string(),
+                    bucket: String::new(),
+                    access_key: String::new(),
+                    secret_key: String::new(),
+                    base_path: "data/uploads".to_string(),
+                    remote_node_id: None,
+                    remote_storage_target_key: None,
+                    options: StoragePolicyOptions::default(),
+                },
+                max_file_size: 0,
+                chunk_size: Some(5_242_880),
+                is_default: false,
+                allowed_types: None,
+                options: None,
+                remote_storage_target_key: None,
+                application_config: Default::default(),
+            },
+        )
+        .await
+        .expect("policy should create");
+
+        let error = update(
+            &state,
+            policy.id,
+            UpdateStoragePolicyInput {
+                max_file_size: Some(-1),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect_err("negative max_file_size should be rejected");
+
+        assert!(
+            error
+                .message()
+                .contains("max_file_size must be non-negative")
+        );
     }
 
     #[tokio::test]

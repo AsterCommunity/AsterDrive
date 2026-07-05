@@ -8,6 +8,7 @@ pub mod connector_descriptor;
 pub mod connectors;
 pub mod drivers;
 pub mod error;
+pub(crate) mod field_contract;
 mod metrics_driver;
 pub mod object_key;
 pub mod policy_snapshot;

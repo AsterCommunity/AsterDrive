@@ -10,6 +10,8 @@ use utoipa::ToSchema;
 
 use crate::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
 
+use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSemantics};
+
 /// 为 connector 提供静态/半静态 descriptor。
 ///
 /// 内置 connector 目前直接返回静态结构；未来 plugin connector 也应该走同一层，
@@ -100,6 +102,30 @@ pub enum StorageConnectorFieldKind {
     Select,
     Boolean,
     Number,
+}
+
+impl From<StorageDescriptorFieldKind> for StorageConnectorFieldKind {
+    fn from(value: StorageDescriptorFieldKind) -> Self {
+        match value {
+            StorageDescriptorFieldKind::Text => Self::Text,
+            StorageDescriptorFieldKind::Secret => Self::Secret,
+            StorageDescriptorFieldKind::Select => Self::Select,
+            StorageDescriptorFieldKind::Boolean => Self::Boolean,
+            StorageDescriptorFieldKind::Number => Self::Number,
+        }
+    }
+}
+
+impl From<StorageConnectorFieldKind> for StorageDescriptorFieldKind {
+    fn from(value: StorageConnectorFieldKind) -> Self {
+        match value {
+            StorageConnectorFieldKind::Text => Self::Text,
+            StorageConnectorFieldKind::Secret => Self::Secret,
+            StorageConnectorFieldKind::Select => Self::Select,
+            StorageConnectorFieldKind::Boolean => Self::Boolean,
+            StorageConnectorFieldKind::Number => Self::Number,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -764,18 +790,23 @@ pub(crate) struct StorageConnectorFieldDisplayInput<'a> {
 pub(crate) fn storage_connector_field_with_display(
     input: StorageConnectorFieldDisplayInput<'_>,
 ) -> StorageConnectorFieldDescriptor {
+    let semantics = StorageDescriptorFieldSemantics::from_descriptor_bits(
+        input.kind.into(),
+        input.required,
+        input.secret,
+    );
     StorageConnectorFieldDescriptor {
         name: input.name.to_string(),
         scope: input.scope,
-        kind: input.kind,
+        kind: semantics.kind.into(),
         label_key: input.label_key.to_string(),
         placeholder: input.placeholder.map(ToOwned::to_owned),
         help_key: input.help_key.map(ToOwned::to_owned),
         required_message_key: input.required_message_key.map(ToOwned::to_owned),
         invalid_protocol_message_key: input.invalid_protocol_message_key.map(ToOwned::to_owned),
         trim_on_blur: input.trim_on_blur,
-        required: input.required,
-        secret: input.secret,
+        required: semantics.required,
+        secret: semantics.secret,
         options: Vec::new(),
         visible_when_driver_types: input.visible_when_driver_types,
     }

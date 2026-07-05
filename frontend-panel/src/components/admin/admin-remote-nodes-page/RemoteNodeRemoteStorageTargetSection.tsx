@@ -108,6 +108,15 @@ export function RemoteNodeRemoteStorageTargetSection({
 	const activeFieldNames = new Set(
 		activeDriverDescriptor?.fields.map((field) => field.name) ?? [],
 	);
+	const activeFieldByName = new Map(
+		activeDriverDescriptor?.fields.map((field) => [field.name, field]) ?? [],
+	);
+	const activeField = (name: string) => activeFieldByName.get(name);
+	const basePathField = activeField("base_path");
+	const endpointField = activeField("endpoint");
+	const bucketField = activeField("bucket");
+	const accessKeyField = activeField("access_key");
+	const secretKeyField = activeField("secret_key");
 	const activePendingDeleteTargetKey = targets.some(
 		(target) => target.target_key === pendingDeleteTargetKey,
 	)
@@ -149,33 +158,41 @@ export function RemoteNodeRemoteStorageTargetSection({
 		? null
 		: t("remote_node_ingress_profile_name_required");
 	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
+	const requiresLocalRelativePath =
+		basePathField?.help_key === "remote_node_ingress_profile_local_path_hint";
 	const localPathError =
-		activeFieldNames.has("base_path") && form.driver_type === "local"
-			? !form.base_path.trim()
-				? t("remote_node_ingress_profile_base_path_required")
-				: localPathCandidate.startsWith("/") ||
-						/^[A-Za-z]:/.test(localPathCandidate) ||
-						localPathCandidate.split("/").some((segment) => segment === "..")
-					? t("remote_node_ingress_profile_base_path_relative")
-					: null
-			: null;
+		basePathField?.required && !form.base_path.trim()
+			? t("remote_node_ingress_profile_base_path_required")
+			: basePathField && requiresLocalRelativePath
+				? !form.base_path.trim()
+					? t("remote_node_ingress_profile_base_path_required")
+					: localPathCandidate.startsWith("/") ||
+							/^[A-Za-z]:/.test(localPathCandidate) ||
+							localPathCandidate.split("/").some((segment) => segment === "..")
+						? t("remote_node_ingress_profile_base_path_relative")
+						: null
+				: null;
 	const endpointError =
-		activeFieldNames.has("endpoint") && !form.endpoint.trim()
+		endpointField?.required && !form.endpoint.trim()
 			? t("remote_node_ingress_profile_endpoint_required")
 			: null;
 	const bucketError =
-		activeFieldNames.has("bucket") && !form.bucket.trim()
+		bucketField?.required && !form.bucket.trim()
 			? t("remote_node_ingress_profile_bucket_required")
 			: null;
-	const requiresS3Credentials =
-		activeFieldNames.has("access_key") &&
-		(activeDraftMode === "create" || editingTarget?.driver_type !== "s3");
+	const preservesExistingCredentialValues =
+		activeDraftMode === "edit" &&
+		editingTarget?.driver_type === form.driver_type;
 	const accessKeyError =
-		requiresS3Credentials && !form.access_key.trim()
+		accessKeyField?.required &&
+		!preservesExistingCredentialValues &&
+		!form.access_key.trim()
 			? t("remote_node_ingress_profile_access_key_required")
 			: null;
 	const secretKeyError =
-		requiresS3Credentials && !form.secret_key.trim()
+		secretKeyField?.required &&
+		!preservesExistingCredentialValues &&
+		!form.secret_key.trim()
 			? t("remote_node_ingress_profile_secret_key_required")
 			: null;
 	const defaultToggleLocked =

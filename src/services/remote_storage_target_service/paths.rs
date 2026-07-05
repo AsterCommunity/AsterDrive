@@ -1,9 +1,12 @@
 use std::ffi::OsString;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
+use crate::storage::field_contract::{
+    RelativeLocalPathNormalizationError, normalize_relative_local_target_path,
+};
 
 pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage_target_local_path(
     root: &str,
@@ -92,32 +95,14 @@ pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage
 pub(in crate::services::remote_storage_target_service) fn normalize_relative_local_path(
     value: &str,
 ) -> Result<String> {
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Err(AsterError::validation_error(
+    match normalize_relative_local_target_path(value) {
+        Ok(normalized) => Ok(normalized),
+        Err(RelativeLocalPathNormalizationError::Blank) => Err(AsterError::validation_error(
             "base_path cannot be blank for local remote storage targets",
-        ));
-    }
-
-    let safe_value = trimmed.replace('\\', "/");
-    let candidate = Path::new(&safe_value);
-    let mut normalized = PathBuf::new();
-    for component in candidate.components() {
-        match component {
-            Component::CurDir => {}
-            Component::Normal(segment) => normalized.push(segment),
-            Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(validation_error_with_code(
-                    ApiErrorCode::ManagedIngressLocalPathInvalid,
-                    "local remote storage target base_path must stay within server.follower.remote_storage_target_local_root",
-                ));
-            }
-        }
-    }
-
-    if normalized.as_os_str().is_empty() {
-        Ok(".".to_string())
-    } else {
-        Ok(normalized.to_string_lossy().replace('\\', "/"))
+        )),
+        Err(RelativeLocalPathNormalizationError::EscapesRoot) => Err(validation_error_with_code(
+            ApiErrorCode::ManagedIngressLocalPathInvalid,
+            "local remote storage target base_path must stay within server.follower.remote_storage_target_local_root",
+        )),
     }
 }
