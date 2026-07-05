@@ -900,12 +900,25 @@ describe("AdminSettingsPage", () => {
 		});
 		mockState.schema.mockResolvedValueOnce([
 			createSchemaItem({
+				actions: [
+					{
+						action: "send_test_email",
+						label_i18n_key: "mail_send_test_email",
+						presentation: {
+							category: "mail",
+							group: "test",
+							order: 10,
+							subcategory: "config",
+						},
+						target_key: "mail",
+					},
+				],
 				category: "mail.config",
 				key: "mail_smtp_host",
 				value_type: "string",
 			}),
 		]);
-		mockState.sendTestEmail.mockResolvedValueOnce({
+		mockState.actionConfig.mockResolvedValueOnce({
 			message: "Test email sent to deliver@example.com",
 		});
 
@@ -930,9 +943,10 @@ describe("AdminSettingsPage", () => {
 		);
 
 		await waitFor(() => {
-			expect(mockState.sendTestEmail).toHaveBeenCalledWith(
-				"deliver@example.com",
-			);
+			expect(mockState.actionConfig).toHaveBeenCalledWith("mail", {
+				action: "send_test_email",
+				target_email: "deliver@example.com",
+			});
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith(
 			"mail_test_email_sent:deliver@example.com",

@@ -305,6 +305,59 @@ async fn test_admin_scope_allows_admin_users() {
     );
     assert_eq!(register_toggle["category"], "user.registration_and_login");
 
+    let mail_smtp_host = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "mail_smtp_host")
+        .unwrap();
+    assert!(
+        mail_smtp_host["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["action"] == "send_test_email"
+                && action["target_key"] == "mail"
+                && action["presentation"]["category"] == "mail"
+                && action["presentation"]["subcategory"] == "config")
+    );
+
+    let media_registry = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "media_processing_registry_json")
+        .unwrap();
+    let media_actions = media_registry["actions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter_map(|action| action["action"].as_str())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        media_actions,
+        ["test_vips_cli", "test_ffmpeg_cli", "test_ffprobe_cli"]
+    );
+
+    let offline_registry = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["key"] == "offline_download_engine_registry_json")
+        .unwrap();
+    assert!(
+        offline_registry["actions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|action| action["action"] == "test_aria2_rpc"
+                && action["draft_value_keys"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .any(|key| key == "offline_download_aria2_rpc_secret"))
+    );
+
     let register_activation_toggle = body["data"]
         .as_array()
         .unwrap()

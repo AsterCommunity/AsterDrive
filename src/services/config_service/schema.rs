@@ -1,11 +1,16 @@
-use crate::config::definitions::{ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY};
+use crate::config::definitions::{ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, MAIL_SMTP_HOST_KEY};
+use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{
-    FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY, OfflineDownloadEngine,
+    FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
+    OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
+use crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY;
 use crate::types::{AuditAction, SystemConfigValueType};
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
+
+use super::actions::{ConfigActionType, MAIL_CONFIG_ACTION_KEY};
 
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -20,6 +25,8 @@ pub struct ConfigSchemaItem {
     pub is_sensitive: bool,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<ConfigSchemaOption>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub actions: Vec<ConfigActionDescriptor>,
 }
 
 #[derive(Serialize)]
@@ -28,6 +35,27 @@ pub struct ConfigSchemaOption {
     pub value: String,
     pub label_i18n_key: String,
     pub group: String,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ConfigActionDescriptor {
+    pub action: ConfigActionType,
+    pub target_key: String,
+    pub label_i18n_key: String,
+    pub presentation: ConfigActionPresentation,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub draft_value_keys: Vec<String>,
+    pub value_source_key: Option<String>,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ConfigActionPresentation {
+    pub category: String,
+    pub subcategory: Option<String>,
+    pub group: String,
+    pub order: i32,
 }
 
 #[derive(Serialize)]
@@ -60,6 +88,7 @@ pub fn get_schema() -> Vec<ConfigSchemaItem> {
             requires_restart: def.requires_restart,
             is_sensitive: def.is_sensitive,
             options: config_schema_options(def.key),
+            actions: config_schema_actions(def.key),
         })
         .collect()
 }
@@ -94,6 +123,98 @@ fn config_schema_options(key: &str) -> Vec<ConfigSchemaOption> {
                 group: action.group().to_string(),
             })
             .collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn config_schema_actions(key: &str) -> Vec<ConfigActionDescriptor> {
+    match key {
+        MAIL_SMTP_HOST_KEY => vec![ConfigActionDescriptor {
+            action: ConfigActionType::SendTestEmail,
+            target_key: MAIL_CONFIG_ACTION_KEY.to_string(),
+            label_i18n_key: "mail_send_test_email".to_string(),
+            presentation: ConfigActionPresentation {
+                category: "mail".to_string(),
+                subcategory: Some("config".to_string()),
+                group: "test".to_string(),
+                order: 10,
+            },
+            draft_value_keys: Vec::new(),
+            value_source_key: None,
+        }],
+        PREVIEW_APPS_CONFIG_KEY => vec![ConfigActionDescriptor {
+            action: ConfigActionType::BuildWopiDiscoveryPreviewConfig,
+            target_key: PREVIEW_APPS_CONFIG_KEY.to_string(),
+            label_i18n_key: "preview_apps_wopi_discovery_action".to_string(),
+            presentation: ConfigActionPresentation {
+                category: "site".to_string(),
+                subcategory: Some("preview".to_string()),
+                group: "editor".to_string(),
+                order: 10,
+            },
+            draft_value_keys: vec![PREVIEW_APPS_CONFIG_KEY.to_string()],
+            value_source_key: Some(PREVIEW_APPS_CONFIG_KEY.to_string()),
+        }],
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY => vec![
+            ConfigActionDescriptor {
+                action: ConfigActionType::TestVipsCli,
+                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
+                label_i18n_key: "media_processing_test_vips_cli".to_string(),
+                presentation: ConfigActionPresentation {
+                    category: "file_processing".to_string(),
+                    subcategory: Some("media".to_string()),
+                    group: "editor".to_string(),
+                    order: 10,
+                },
+                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
+                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
+            },
+            ConfigActionDescriptor {
+                action: ConfigActionType::TestFfmpegCli,
+                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
+                label_i18n_key: "media_processing_test_ffmpeg_cli".to_string(),
+                presentation: ConfigActionPresentation {
+                    category: "file_processing".to_string(),
+                    subcategory: Some("media".to_string()),
+                    group: "editor".to_string(),
+                    order: 20,
+                },
+                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
+                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
+            },
+            ConfigActionDescriptor {
+                action: ConfigActionType::TestFfprobeCli,
+                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
+                label_i18n_key: "media_processing_test_ffprobe_cli".to_string(),
+                presentation: ConfigActionPresentation {
+                    category: "file_processing".to_string(),
+                    subcategory: Some("media".to_string()),
+                    group: "editor".to_string(),
+                    order: 30,
+                },
+                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
+                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
+            },
+        ],
+        OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY => vec![ConfigActionDescriptor {
+            action: ConfigActionType::TestAria2Rpc,
+            target_key: OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY.to_string(),
+            label_i18n_key: "offline_download_test_aria2_rpc".to_string(),
+            presentation: ConfigActionPresentation {
+                category: "file_processing".to_string(),
+                subcategory: Some("offline_download".to_string()),
+                group: "editor".to_string(),
+                order: 10,
+            },
+            draft_value_keys: vec![
+                OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY.to_string(),
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY.to_string(),
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY.to_string(),
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY
+                    .to_string(),
+            ],
+            value_source_key: Some(OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY.to_string()),
+        }],
         _ => Vec::new(),
     }
 }
@@ -177,5 +298,69 @@ mod tests {
             .collect::<Vec<_>>();
 
         assert_eq!(actual, ["original_first", "preview_first"]);
+    }
+
+    #[test]
+    fn schema_exposes_builtin_config_actions() {
+        let schema = get_schema();
+
+        let mail_action = schema
+            .iter()
+            .find(|item| item.key == MAIL_SMTP_HOST_KEY)
+            .and_then(|item| item.actions.first())
+            .expect("mail config should expose test email action");
+        assert_eq!(mail_action.action, ConfigActionType::SendTestEmail);
+        assert_eq!(mail_action.target_key, MAIL_CONFIG_ACTION_KEY);
+        assert_eq!(mail_action.presentation.category, "mail");
+        assert_eq!(
+            mail_action.presentation.subcategory.as_deref(),
+            Some("config")
+        );
+
+        let preview_actions = schema
+            .iter()
+            .find(|item| item.key == PREVIEW_APPS_CONFIG_KEY)
+            .expect("preview apps config should be in schema")
+            .actions
+            .iter()
+            .map(|action| action.action)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            preview_actions,
+            [ConfigActionType::BuildWopiDiscoveryPreviewConfig]
+        );
+
+        let media_actions = schema
+            .iter()
+            .find(|item| item.key == MEDIA_PROCESSING_REGISTRY_JSON_KEY)
+            .expect("media processing config should be in schema")
+            .actions
+            .iter()
+            .map(|action| action.action)
+            .collect::<Vec<_>>();
+        assert_eq!(
+            media_actions,
+            [
+                ConfigActionType::TestVipsCli,
+                ConfigActionType::TestFfmpegCli,
+                ConfigActionType::TestFfprobeCli,
+            ]
+        );
+
+        let offline_action = schema
+            .iter()
+            .find(|item| item.key == OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY)
+            .and_then(|item| item.actions.first())
+            .expect("offline download registry should expose aria2 test action");
+        assert_eq!(offline_action.action, ConfigActionType::TestAria2Rpc);
+        assert_eq!(
+            offline_action.draft_value_keys,
+            [
+                OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
+                crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
+            ]
+        );
     }
 }
