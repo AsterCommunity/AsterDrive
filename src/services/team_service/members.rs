@@ -131,6 +131,16 @@ pub async fn update_admin_member_role(
         member_user_id,
     )
     .await;
+    if let Err(error) =
+        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
+            .await
+    {
+        tracing::warn!(
+            team_id,
+            member_user_id,
+            "failed to invalidate WebDAV auth cache after admin team member role update: {error}"
+        );
+    }
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -163,6 +173,16 @@ pub async fn remove_admin_member(
         member_user_id,
     )
     .await;
+    if let Err(error) =
+        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
+            .await
+    {
+        tracing::warn!(
+            team_id,
+            member_user_id,
+            "failed to invalidate WebDAV auth cache after admin team member removal: {error}"
+        );
+    }
     tracing::debug!(
         team_id,
         member_user_id,
@@ -314,6 +334,16 @@ pub async fn update_member_role(
         member_user_id,
     )
     .await;
+    if let Err(error) =
+        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
+            .await
+    {
+        tracing::warn!(
+            team_id,
+            member_user_id,
+            "failed to invalidate WebDAV auth cache after team member role update: {error}"
+        );
+    }
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -363,6 +393,16 @@ pub async fn remove_member(
         member_user_id,
     )
     .await;
+    if let Err(error) =
+        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
+            .await
+    {
+        tracing::warn!(
+            team_id,
+            member_user_id,
+            "failed to invalidate WebDAV auth cache after team member removal: {error}"
+        );
+    }
     tracing::debug!(
         team_id,
         actor_user_id,

@@ -241,6 +241,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     }
 
     purge_archived_team_files(state, &team).await?;
+    crate::webdav::auth::invalidate_webdav_auth_for_team(state, team_id).await?;
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     team_repo::lock_archived_by_id(&txn, team_id).await?;
