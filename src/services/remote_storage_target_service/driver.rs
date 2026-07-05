@@ -48,18 +48,26 @@ pub enum RemoteStorageTargetDriverFieldKind {
     Number,
 }
 
-impl From<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind {
-    fn from(value: StorageDescriptorFieldKind) -> Self {
+impl TryFrom<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind {
+    type Error = &'static str;
+
+    fn try_from(value: StorageDescriptorFieldKind) -> std::result::Result<Self, Self::Error> {
         match value {
-            StorageDescriptorFieldKind::Text => Self::Text,
-            StorageDescriptorFieldKind::Secret => Self::Secret,
-            StorageDescriptorFieldKind::Boolean => Self::Boolean,
-            StorageDescriptorFieldKind::Number => Self::Number,
+            StorageDescriptorFieldKind::Text => Ok(Self::Text),
+            StorageDescriptorFieldKind::Secret => Ok(Self::Secret),
+            StorageDescriptorFieldKind::Boolean => Ok(Self::Boolean),
+            StorageDescriptorFieldKind::Number => Ok(Self::Number),
             StorageDescriptorFieldKind::Select => {
-                panic!("managed ingress target descriptors do not support select fields")
+                Err("managed ingress target descriptors do not support select fields")
             }
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct RemoteStorageTargetDriverFieldValidation {
+    pub relative_local_path: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -74,6 +82,8 @@ pub struct RemoteStorageTargetDriverFieldDescriptor {
     pub placeholder: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub help_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub validation: Option<RemoteStorageTargetDriverFieldValidation>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -93,6 +103,26 @@ fn remote_storage_target_text_field(
     required: bool,
     secret: bool,
 ) -> RemoteStorageTargetDriverFieldDescriptor {
+    remote_storage_target_text_field_with_validation(
+        name,
+        label_key,
+        placeholder,
+        help_key,
+        required,
+        secret,
+        None,
+    )
+}
+
+fn remote_storage_target_text_field_with_validation(
+    name: &str,
+    label_key: &str,
+    placeholder: Option<&str>,
+    help_key: Option<&str>,
+    required: bool,
+    secret: bool,
+    validation: Option<RemoteStorageTargetDriverFieldValidation>,
+) -> RemoteStorageTargetDriverFieldDescriptor {
     let semantics = if secret {
         StorageDescriptorFieldSemantics::secret(required)
     } else {
@@ -100,12 +130,16 @@ fn remote_storage_target_text_field(
     };
     RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: semantics.kind.into(),
+        kind: semantics
+            .kind
+            .try_into()
+            .expect("text/secret storage target fields must map to managed ingress field kinds"),
         required: semantics.required,
         secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: placeholder.map(str::to_string),
         help_key: help_key.map(str::to_string),
+        validation,
     }
 }
 
@@ -118,12 +152,16 @@ fn remote_storage_target_boolean_field(
     let semantics = StorageDescriptorFieldSemantics::boolean(required);
     RemoteStorageTargetDriverFieldDescriptor {
         name: name.to_string(),
-        kind: semantics.kind.into(),
+        kind: semantics
+            .kind
+            .try_into()
+            .expect("boolean storage target fields must map to managed ingress field kinds"),
         required: semantics.required,
         secret: semantics.secret,
         label_key: label_key.to_string(),
         placeholder: None,
         help_key: help_key.map(str::to_string),
+        validation: None,
     }
 }
 
@@ -159,13 +197,16 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
             label_key: "remote_node_ingress_profile_driver_local".to_string(),
             description_key: "remote_node_ingress_profile_local_scope_hint".to_string(),
             fields: vec![
-                remote_storage_target_text_field(
+                remote_storage_target_text_field_with_validation(
                     "base_path",
                     "base_path",
                     Some("tenant-a/incoming"),
                     Some("remote_node_ingress_profile_local_path_hint"),
                     true,
                     false,
+                    Some(RemoteStorageTargetDriverFieldValidation {
+                        relative_local_path: true,
+                    }),
                 ),
                 remote_storage_target_boolean_field(
                     "is_default",

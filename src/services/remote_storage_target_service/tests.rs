@@ -432,6 +432,18 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
             .collect::<Vec<_>>(),
         vec!["base_path", "is_default"]
     );
+    let local_base_path = local
+        .fields
+        .iter()
+        .find(|field| field.name == "base_path")
+        .expect("local base_path descriptor should exist");
+    assert_eq!(
+        local_base_path
+            .validation
+            .as_ref()
+            .map(|validation| validation.relative_local_path),
+        Some(true)
+    );
 
     let s3 = descriptors
         .iter()
@@ -456,6 +468,12 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
             .iter()
             .any(|field| field.name == "secret_key" && field.secret)
     );
+    let s3_base_path = s3
+        .fields
+        .iter()
+        .find(|field| field.name == "base_path")
+        .expect("s3 base_path descriptor should exist");
+    assert_eq!(s3_base_path.validation, None);
 }
 
 #[test]

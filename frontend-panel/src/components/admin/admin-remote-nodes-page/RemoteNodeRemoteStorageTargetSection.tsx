@@ -159,7 +159,7 @@ export function RemoteNodeRemoteStorageTargetSection({
 		: t("remote_node_ingress_profile_name_required");
 	const localPathCandidate = form.base_path.trim().replaceAll("\\", "/");
 	const requiresLocalRelativePath =
-		basePathField?.help_key === "remote_node_ingress_profile_local_path_hint";
+		basePathField?.validation?.relative_local_path === true;
 	const localPathError =
 		basePathField?.required && !form.base_path.trim()
 			? t("remote_node_ingress_profile_base_path_required")
