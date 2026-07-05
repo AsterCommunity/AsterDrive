@@ -1,12 +1,14 @@
 //! WebDAV GET/HEAD/PUT transfer handlers.
 
+use std::time::Instant;
+
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
 use futures::StreamExt;
 use tokio_util::io::ReaderStream;
 
 use crate::services::file_service;
-use crate::webdav::dav::{DavFileSystem, DavLockSystem, FsError, OpenOptions};
+use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavMetaData, FsError, OpenOptions};
 use crate::webdav::{
     ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, format_http_date, fs,
     fs_error_response, href_for_relative, protocol, request_origin, request_path, responses,
@@ -14,7 +16,7 @@ use crate::webdav::{
 };
 use protocol::HttpEtagPrecondition;
 
-const CHUNK_SIZE: usize = 16 * 1024;
+const CHUNK_SIZE: usize = 64 * 1024;
 
 pub(crate) async fn handle_get_head(
     req: &HttpRequest,
@@ -23,6 +25,7 @@ pub(crate) async fn handle_get_head(
     prefix: &str,
     head_only: bool,
 ) -> HttpResponse {
+    let request_started_at = Instant::now();
     let (path, relative) = match request_path(req, prefix) {
         Ok(v) => v,
         Err(resp) => return resp,
@@ -42,13 +45,15 @@ pub(crate) async fn handle_get_head(
         return resp;
     }
 
-    let meta = match dav_fs.metadata(&path).await {
-        Ok(meta) => meta,
+    let resolve_started_at = Instant::now();
+    let target = match dav_fs.resolve_download_target(&path).await {
+        Ok(target) => target,
         Err(err) => return fs_error_response(err),
     };
-    if meta.is_dir() {
+    let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
+    let fs::AsterDavDownloadTarget::File { file, blob, meta } = target else {
         return responses::empty(StatusCode::METHOD_NOT_ALLOWED);
-    }
+    };
     let last_modified = match meta.modified() {
         Ok(modified) => modified,
         Err(err) => return fs_error_response(err),
@@ -114,17 +119,37 @@ pub(crate) async fn handle_get_head(
     }
 
     // GET must stream directly from storage; do not fall back to DavFileSystem::open(read).
+    let storage_started_at = Instant::now();
     let stream = match match range {
         Some(range) => {
             dav_fs
-                .open_read_stream_with_range(&path, Some(range.start()), Some(range.length()))
+                .open_download_stream_for_file(
+                    &file,
+                    &blob,
+                    Some(range.start()),
+                    Some(range.length()),
+                )
                 .await
         }
-        None => dav_fs.open_read_stream(&path).await,
+        None => {
+            dav_fs
+                .open_download_stream_for_file(&file, &blob, None, None)
+                .await
+        }
     } {
         Ok(stream) => stream,
         Err(err) => return fs_error_response(err),
     };
+    tracing::debug!(
+        path = %relative,
+        head_only,
+        has_range = range.is_some(),
+        content_length,
+        resolve_elapsed_ms,
+        storage_open_elapsed_ms = storage_started_at.elapsed().as_millis(),
+        total_prepare_elapsed_ms = request_started_at.elapsed().as_millis(),
+        "WebDAV GET/HEAD stream prepared"
+    );
     response.streaming(ReaderStream::with_capacity(stream, CHUNK_SIZE))
 }
 

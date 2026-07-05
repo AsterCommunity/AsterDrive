@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
+use std::time::Instant;
 
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
@@ -180,28 +181,38 @@ pub(crate) async fn handle_propfind(
         Err(resp) => return resp,
     };
 
+    let request_started_at = Instant::now();
+    let metadata_started_at = Instant::now();
     let root_meta = match dav_fs.metadata(&path).await {
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
+    let metadata_elapsed_ms = metadata_started_at.elapsed().as_millis();
     if depth == Depth::Infinity && root_meta.is_dir() {
         return responses::propfind_finite_depth_response();
     }
-    let resources = match collect_propfind_resources(dav_fs, &path, &relative, depth).await {
-        Ok(resources) => resources,
-        Err(err) => return fs_error_response(err),
-    };
+    let collect_started_at = Instant::now();
+    let resources =
+        match collect_propfind_resources(dav_fs, &path, &relative, depth, root_meta).await {
+            Ok(resources) => resources,
+            Err(err) => return fs_error_response(err),
+        };
+    let collect_elapsed_ms = collect_started_at.elapsed().as_millis();
+    let resource_count = resources.len();
+    let preload_started_at = Instant::now();
     let preload = match PropfindPreload::load(dav_fs, lock_system, &request_kind, &resources).await
     {
         Ok(preload) => preload,
         Err(resp) => return resp,
     };
+    let preload_elapsed_ms = preload_started_at.elapsed().as_millis();
 
     let mut multistatus = dav_element("multistatus");
     multistatus
         .attributes
         .insert("xmlns:D".to_string(), "DAV:".to_string());
 
+    let render_started_at = Instant::now();
     for resource in resources {
         let response =
             match build_propfind_response(prefix, &request_kind, &preload, resource).await {
@@ -210,6 +221,17 @@ pub(crate) async fn handle_propfind(
             };
         multistatus.children.push(XMLNode::Element(response));
     }
+    tracing::debug!(
+        depth = ?depth,
+        kind = propfind_kind_label(&request_kind),
+        resource_count,
+        metadata_elapsed_ms,
+        collect_elapsed_ms,
+        preload_elapsed_ms,
+        render_elapsed_ms = render_started_at.elapsed().as_millis(),
+        total_elapsed_ms = request_started_at.elapsed().as_millis(),
+        "WebDAV PROPFIND completed"
+    );
 
     xml_response(multistatus, multi_status())
 }
@@ -416,8 +438,8 @@ async fn collect_propfind_resources(
     path: &DavPath,
     relative: &str,
     depth: Depth,
+    root_meta: Box<dyn DavMetaData>,
 ) -> Result<Vec<PropfindResource>, FsError> {
-    let root_meta = dav_fs.metadata(path).await?;
     let root_is_dir = root_meta.is_dir();
     let mut resources = vec![PropfindResource {
         path: path.clone(),
@@ -442,6 +464,14 @@ async fn collect_propfind_resources(
     }
 
     Ok(resources)
+}
+
+fn propfind_kind_label(kind: &PropfindKind) -> &'static str {
+    match kind {
+        PropfindKind::AllProp { .. } => "allprop",
+        PropfindKind::PropName => "propname",
+        PropfindKind::Prop(_) => "prop",
+    }
 }
 
 async fn build_propfind_response(
@@ -874,6 +904,7 @@ mod tests {
     use xmltree::Element;
 
     use super::handle_propfind;
+    use crate::types::EntityType;
     use crate::webdav::dav::{
         DavDirEntry, DavFile, DavFileSystem, DavLock, DavLockError, DavLockSystem, DavMetaData,
         DavPath, DavProp, FsError, FsFuture, FsResult, FsStream, LsFuture, OpenOptions,
@@ -882,12 +913,14 @@ mod tests {
 
     struct PropfindTestFs {
         child_count: usize,
+        metadata_calls: Arc<AtomicUsize>,
         get_props_calls: Arc<AtomicUsize>,
     }
 
     struct PropfindTestMeta {
         is_dir: bool,
         len: u64,
+        property_entity: Option<(EntityType, i64)>,
     }
 
     impl DavMetaData for PropfindTestMeta {
@@ -914,6 +947,10 @@ mod tests {
         fn created(&self) -> FsResult<SystemTime> {
             Ok(SystemTime::UNIX_EPOCH)
         }
+
+        fn property_entity(&self) -> Option<(EntityType, i64)> {
+            self.property_entity
+        }
     }
 
     struct PropfindTestEntry {
@@ -931,6 +968,10 @@ mod tests {
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: self.len,
+                    property_entity: Some((
+                        EntityType::File,
+                        i64::try_from(self.len).expect("test len should fit i64"),
+                    )),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -969,16 +1010,19 @@ mod tests {
 
         fn metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
             Box::pin(async move {
+                self.metadata_calls.fetch_add(1, Ordering::SeqCst);
                 if path.as_str() == "/" {
                     return Ok(Box::new(PropfindTestMeta {
                         is_dir: true,
                         len: 0,
+                        property_entity: None,
                     }) as Box<dyn DavMetaData>);
                 }
 
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: 1,
+                    property_entity: Some((EntityType::File, 1)),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -1095,14 +1139,16 @@ mod tests {
         }
     }
 
-    async fn propfind_depth_one(body: &'static str) -> (String, usize, usize, usize) {
+    async fn propfind_depth_one(body: &'static str) -> (String, usize, usize, usize, usize) {
         const CHILD_COUNT: usize = 24;
 
+        let metadata_calls = Arc::new(AtomicUsize::new(0));
         let get_props_calls = Arc::new(AtomicUsize::new(0));
         let discover_calls = Arc::new(AtomicUsize::new(0));
         let discover_many_calls = Arc::new(AtomicUsize::new(0));
         let fs = PropfindTestFs {
             child_count: CHILD_COUNT,
+            metadata_calls: metadata_calls.clone(),
             get_props_calls: get_props_calls.clone(),
         };
         let lock_system = PropfindTestLockSystem {
@@ -1122,6 +1168,7 @@ mod tests {
             .expect("PROPFIND response body should be readable");
         (
             String::from_utf8(body.to_vec()).expect("PROPFIND body should be utf-8"),
+            metadata_calls.load(Ordering::SeqCst),
             get_props_calls.load(Ordering::SeqCst),
             discover_calls.load(Ordering::SeqCst),
             discover_many_calls.load(Ordering::SeqCst),
@@ -1142,8 +1189,13 @@ mod tests {
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, calls, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, metadata_calls, calls, discover_calls, discover_many_calls) =
+            propfind_depth_one(body).await;
 
+        assert_eq!(
+            metadata_calls, 1,
+            "Depth: 1 PROPFIND should reuse root metadata instead of loading it twice: {xml}"
+        );
         assert_eq!(
             calls, 0,
             "live-property-only Depth: 1 PROPFIND should not load dead properties: {xml}"
@@ -1174,7 +1226,7 @@ mod tests {
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, calls, _, _) = propfind_depth_one(body).await;
+        let (xml, _, calls, _, _) = propfind_depth_one(body).await;
 
         assert_eq!(
             calls, 24,
@@ -1188,7 +1240,7 @@ mod tests {
 
     #[actix_web::test]
     async fn propfind_depth_one_allprop_still_loads_dead_properties() {
-        let (xml, calls, _, discover_many_calls) = propfind_depth_one("").await;
+        let (xml, _, calls, _, discover_many_calls) = propfind_depth_one("").await;
 
         assert_eq!(
             calls, 24,
@@ -1211,7 +1263,7 @@ mod tests {
   <D:propname />
 </D:propfind>"#;
 
-        let (xml, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, _, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
 
         assert!(
             xml.contains("<D:lockdiscovery />"),
@@ -1236,7 +1288,7 @@ mod tests {
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, _, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
 
         assert!(
             xml.contains("lockdiscovery"),

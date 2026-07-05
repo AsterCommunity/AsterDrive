@@ -147,6 +147,25 @@ ASTER_BENCH_WEBDAV_LIST_SIZE=10000 \
 k6 run tests/performance/k6/webdav-propfind-large.js
 ```
 
+### WebDAV Hotspot Baseline
+
+Issue `#382` recorded a local SQLite/local-filesystem baseline on 2026-07-05
+where REST 256 KiB range GET was much faster than the equivalent WebDAV range
+GET:
+
+- `download-range.js`: p95 `1.85 ms`, p99 `2.29 ms`, `1.57 GB/s`
+- `webdav-range-read.js`: p95 `106.82 ms`, p99 `114.51 ms`, `19.86 MB/s`
+- `webdav-concurrent-read.js`: p95 `120.93 ms`, p99 `132.73 ms`, `350.76 MB/s`
+- `webdav-propfind-large.js` over 10000 files: p95 `415.26 ms`, p99 `513.90 ms`
+
+When comparing before/after runs, keep the same seed data and set
+`ASTER_BENCH_SUMMARY_DIR` so each script writes a compact JSON summary. WebDAV
+GET/HEAD now emits debug fields for path resolution and storage-open time, and
+PROPFIND emits debug fields for metadata, listing collection, preload, and XML
+rendering time. Enable debug logs for `aster_drive::webdav` while running the
+k6 scripts to separate protocol overhead from storage and directory listing
+work.
+
 Mixed ramp:
 
 ```bash

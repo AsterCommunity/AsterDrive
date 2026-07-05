@@ -6,6 +6,7 @@ use futures::stream;
 use tokio::io::AsyncRead;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
+use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
@@ -35,6 +36,15 @@ pub struct AsterDavFs {
     /// 限制访问范围：None = 用户全部文件，Some(id) = 只能访问该文件夹及子目录
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
+}
+
+pub(crate) enum AsterDavDownloadTarget {
+    Directory,
+    File {
+        file: file::Model,
+        blob: file_blob::Model,
+        meta: AsterDavMeta,
+    },
 }
 
 impl std::fmt::Debug for AsterDavFs {
@@ -85,19 +95,10 @@ impl AsterDavFs {
         self.scope
     }
 
-    pub(crate) async fn open_read_stream(
+    pub(crate) async fn resolve_download_target(
         &self,
         path: &DavPath,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
-        self.open_read_stream_with_range(path, None, None).await
-    }
-
-    pub(crate) async fn open_read_stream_with_range(
-        &self,
-        path: &DavPath,
-        offset: Option<u64>,
-        length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
+    ) -> Result<AsterDavDownloadTarget, FsError> {
         let node = path_resolver::resolve_path_cached_for_read_in_scope(
             &self.state,
             self.scope,
@@ -107,13 +108,27 @@ impl AsterDavFs {
         .await?;
 
         let file = match node {
+            ResolvedNode::Root | ResolvedNode::Folder(_) => {
+                return Ok(AsterDavDownloadTarget::Directory);
+            }
             ResolvedNode::File(file) => file,
-            _ => return Err(FsError::Forbidden),
         };
 
         let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
             .await
             .map_err(|_| FsError::GeneralFailure)?;
+        let meta = AsterDavMeta::from_file(&file, &blob);
+
+        Ok(AsterDavDownloadTarget::File { file, blob, meta })
+    }
+
+    pub(crate) async fn open_download_stream_for_file(
+        &self,
+        file: &file::Model,
+        blob: &file_blob::Model,
+        offset: Option<u64>,
+        length: Option<u64>,
+    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
         let policy = self
             .state
             .policy_snapshot
@@ -277,7 +292,7 @@ impl DavFileSystem for AsterDavFs {
                 Ok(Box::new(dav_file) as Box<dyn DavFile>)
             } else {
                 let _ = path;
-                // 读路径只允许 GET/HEAD 通过 open_read_stream 访问，避免回退到临时文件兜底。
+                // 读路径只允许 GET/HEAD 通过专用下载目标访问，避免回退到临时文件兜底。
                 Err(FsError::Forbidden)
             }
         })
