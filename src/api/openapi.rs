@@ -653,6 +653,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::config_service::SystemConfig,
             crate::services::config_service::ConfigActionDescriptor,
             crate::services::config_service::ConfigActionPresentation,
+            crate::services::config_service::ConfigInvalidationTarget,
             crate::services::config_service::ConfigSchemaItem,
             crate::services::config_service::ConfigSchemaOption,
             crate::services::config_service::TemplateVariableItem,

@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { PREVIEW_APPS_CONFIG_KEY } from "@/components/admin/previewAppsConfigEditorShared";
 import { executeAdminSettingsSaveTransaction } from "@/components/admin/settings/adminSettingsSaveTransaction";
-import type { SystemConfig, SystemConfigVisibility } from "@/types/api";
+import type {
+	ConfigInvalidationTarget,
+	ConfigSchemaItem,
+	SystemConfig,
+	SystemConfigVisibility,
+} from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	deleteConfig: vi.fn(),
@@ -30,6 +35,23 @@ function createConfig(overrides: Partial<SystemConfig> = {}): SystemConfig {
 		value_type: "string_array",
 		visibility: "private",
 		...overrides,
+	};
+}
+
+function createSchemaItem(
+	key: string,
+	invalidates: ConfigInvalidationTarget[],
+): ConfigSchemaItem {
+	return {
+		category: "site",
+		description: "",
+		description_i18n_key: "",
+		invalidates,
+		is_sensitive: false,
+		key,
+		label_i18n_key: "",
+		requires_restart: false,
+		value_type: "string",
 	};
 }
 
@@ -107,6 +129,11 @@ describe("adminSettingsSaveTransaction", () => {
 				}
 				return config.value as string;
 			},
+			schemas: [
+				createSchemaItem("public_site_url", ["frontend_config"]),
+				createSchemaItem(PREVIEW_APPS_CONFIG_KEY, ["preview_apps"]),
+				createSchemaItem("custom.theme", []),
+			],
 		});
 
 		expect(mockState.deleteConfig).toHaveBeenCalledWith("custom.old");
@@ -138,6 +165,33 @@ describe("adminSettingsSaveTransaction", () => {
 			"frontend_preview_apps_json",
 			"public_site_url",
 		]);
+	});
+
+	it("keeps fallback invalidation targets when schema metadata is unavailable", async () => {
+		const existingPublicSiteUrl = createConfig();
+
+		const result = await executeAdminSettingsSaveTransaction({
+			activeNewCustomRows: [],
+			changedExistingConfigs: [existingPublicSiteUrl],
+			configs: [existingPublicSiteUrl],
+			deletedCustomConfigs: [],
+			getCustomVisibilityDraft: () => "private",
+			getDraftValue: () => ["https://next.example.com"],
+			schemas: [
+				{
+					category: "site",
+					description: "",
+					description_i18n_key: "",
+					is_sensitive: false,
+					key: "public_site_url",
+					label_i18n_key: "",
+					requires_restart: false,
+					value_type: "string_array",
+				},
+			],
+		});
+
+		expect(Array.from(result.invalidationTargets)).toEqual(["frontend_config"]);
 	});
 
 	it("fails when the backend returns a different key for a new custom row", async () => {

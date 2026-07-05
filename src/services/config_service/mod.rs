@@ -19,8 +19,9 @@ pub(crate) use public::{
     invalidate_public_media_data_support_cache, invalidate_public_thumbnail_support_cache,
 };
 pub use schema::{
-    ConfigActionDescriptor, ConfigActionPresentation, ConfigSchemaItem, ConfigSchemaOption,
-    TemplateVariableGroup, TemplateVariableItem, get_schema, list_template_variable_groups,
+    ConfigActionDescriptor, ConfigActionPresentation, ConfigInvalidationTarget, ConfigSchemaItem,
+    ConfigSchemaOption, TemplateVariableGroup, TemplateVariableItem, get_schema,
+    list_template_variable_groups,
 };
 pub use system::{
     SystemConfig, SystemConfigValue, delete, delete_with_audit, get_by_key, list_paginated, set,

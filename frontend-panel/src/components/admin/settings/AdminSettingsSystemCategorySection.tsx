@@ -3,6 +3,10 @@ import { AdminSettingsCategoryHeader } from "@/components/admin/settings/AdminSe
 import { SystemConfigRow } from "@/components/admin/settings/AdminSettingsConfigRows";
 import { ADMIN_SETTINGS_CONTENT_MAX_WIDTH_CLASS } from "@/components/admin/settings/adminSettingsAnimation";
 import {
+	AdminSettingsCategoryActions,
+	getAdminSettingsCategoryActions,
+} from "@/components/admin/settings/adminSettingsCategoryActions";
+import {
 	AnimatedCollapsible,
 	getConfigValueType,
 	getMailTemplateFieldOrder,
@@ -113,6 +117,7 @@ function AdminSettingsSystemSubcategoryCard({
 		expandedSubcategoryGroups,
 		expandedTemplateGroups,
 		getDraftValue,
+		getSystemConfigSchemas,
 		getSubcategoryDescription,
 		getSubcategoryLabel,
 		openTestEmailDialog,
@@ -137,18 +142,18 @@ function AdminSettingsSystemSubcategoryCard({
 		category,
 		group.subcategory,
 	);
-	const extra =
-		category === "mail" && group.subcategory === "config" ? (
-			<div className="flex flex-col items-start gap-2 lg:items-end">
-				<Button variant="outline" size="sm" onClick={openTestEmailDialog}>
-					<Icon name="EnvelopeSimple" className="size-4" />
-					{t("mail_send_test_email")}
-				</Button>
-				<p className="max-w-xs text-xs text-muted-foreground lg:text-right">
-					{t("mail_send_test_email_hint")}
-				</p>
-			</div>
-		) : null;
+	const categoryActions = getAdminSettingsCategoryActions({
+		category,
+		schemas: getSystemConfigSchemas(),
+		subcategory: group.subcategory,
+	});
+	const extra = (
+		<AdminSettingsCategoryActions
+			actions={categoryActions}
+			onOpenTestEmailDialog={openTestEmailDialog}
+			t={t}
+		/>
+	);
 	const mailTemplateGroups = isMailTemplateSection
 		? Array.from(
 				group.configs.reduce((map, config) => {

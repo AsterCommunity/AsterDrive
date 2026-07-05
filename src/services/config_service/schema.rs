@@ -1,4 +1,9 @@
-use crate::config::definitions::{ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, MAIL_SMTP_HOST_KEY};
+use crate::config::definitions::{
+    ALL_CONFIGS, AUDIT_LOG_RECORDED_ACTIONS_KEY, AUTH_ALLOW_USER_REGISTRATION_KEY,
+    BRANDING_DESCRIPTION_KEY, BRANDING_FAVICON_URL_KEY, BRANDING_TITLE_KEY,
+    BRANDING_WORDMARK_DARK_URL_KEY, BRANDING_WORDMARK_LIGHT_URL_KEY, MAIL_SMTP_HOST_KEY,
+    MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY, PUBLIC_SITE_URL_KEY,
+};
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{
     FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
@@ -27,6 +32,8 @@ pub struct ConfigSchemaItem {
     pub options: Vec<ConfigSchemaOption>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub actions: Vec<ConfigActionDescriptor>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub invalidates: Vec<ConfigInvalidationTarget>,
 }
 
 #[derive(Serialize)]
@@ -56,6 +63,16 @@ pub struct ConfigActionPresentation {
     pub subcategory: Option<String>,
     pub group: String,
     pub order: i32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum ConfigInvalidationTarget {
+    FrontendConfig,
+    PreviewApps,
+    ThumbnailSupport,
+    MediaDataSupport,
 }
 
 #[derive(Serialize)]
@@ -89,6 +106,7 @@ pub fn get_schema() -> Vec<ConfigSchemaItem> {
             is_sensitive: def.is_sensitive,
             options: config_schema_options(def.key),
             actions: config_schema_actions(def.key),
+            invalidates: config_schema_invalidates(def.key),
         })
         .collect()
 }
@@ -215,6 +233,32 @@ fn config_schema_actions(key: &str) -> Vec<ConfigActionDescriptor> {
             ],
             value_source_key: Some(OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY.to_string()),
         }],
+        _ => Vec::new(),
+    }
+}
+
+fn config_schema_invalidates(key: &str) -> Vec<ConfigInvalidationTarget> {
+    match key {
+        PUBLIC_SITE_URL_KEY
+        | AUTH_ALLOW_USER_REGISTRATION_KEY
+        | BRANDING_TITLE_KEY
+        | BRANDING_DESCRIPTION_KEY
+        | BRANDING_FAVICON_URL_KEY
+        | BRANDING_WORDMARK_DARK_URL_KEY
+        | BRANDING_WORDMARK_LIGHT_URL_KEY
+        | FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY => {
+            vec![ConfigInvalidationTarget::FrontendConfig]
+        }
+        PREVIEW_APPS_CONFIG_KEY => vec![ConfigInvalidationTarget::PreviewApps],
+        MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
+            vec![
+                ConfigInvalidationTarget::ThumbnailSupport,
+                ConfigInvalidationTarget::MediaDataSupport,
+            ]
+        }
+        MEDIA_METADATA_ENABLED_KEY | MEDIA_METADATA_MAX_SOURCE_BYTES_KEY => {
+            vec![ConfigInvalidationTarget::MediaDataSupport]
+        }
         _ => Vec::new(),
     }
 }
@@ -361,6 +405,43 @@ mod tests {
                 crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
                 crate::config::operations::OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
             ]
+        );
+    }
+
+    #[test]
+    fn schema_exposes_public_config_invalidation_targets() {
+        let schema = get_schema();
+        let invalidates_for = |key: &str| {
+            schema
+                .iter()
+                .find(|item| item.key == key)
+                .unwrap_or_else(|| panic!("{key} should be in schema"))
+                .invalidates
+                .clone()
+        };
+
+        assert_eq!(
+            invalidates_for(PUBLIC_SITE_URL_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(AUTH_ALLOW_USER_REGISTRATION_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(PREVIEW_APPS_CONFIG_KEY),
+            [ConfigInvalidationTarget::PreviewApps]
+        );
+        assert_eq!(
+            invalidates_for(MEDIA_PROCESSING_REGISTRY_JSON_KEY),
+            [
+                ConfigInvalidationTarget::ThumbnailSupport,
+                ConfigInvalidationTarget::MediaDataSupport,
+            ]
+        );
+        assert_eq!(
+            invalidates_for(MEDIA_METADATA_ENABLED_KEY),
+            [ConfigInvalidationTarget::MediaDataSupport]
         );
     }
 }

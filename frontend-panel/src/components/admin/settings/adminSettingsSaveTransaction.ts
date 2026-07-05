@@ -5,7 +5,11 @@ import {
 } from "@/components/admin/settings/adminSettingsContentShared";
 import { collectAdminSettingsInvalidationTargets } from "@/components/admin/settings/adminSettingsInvalidation";
 import { adminConfigService } from "@/services/adminService";
-import type { SystemConfig, SystemConfigVisibility } from "@/types/api";
+import type {
+	ConfigSchemaItem,
+	SystemConfig,
+	SystemConfigVisibility,
+} from "@/types/api";
 
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
 const PUBLIC_SITE_URL_KEY = "public_site_url";
@@ -17,6 +21,7 @@ export interface AdminSettingsSaveTransactionInput {
 	deletedCustomConfigs: SystemConfig[];
 	getCustomVisibilityDraft: (config: SystemConfig) => SystemConfigVisibility;
 	getDraftValue: (config: SystemConfig) => ConfigDraftValue;
+	schemas?: ConfigSchemaItem[];
 }
 
 export interface AdminSettingsSaveTransactionResult {
@@ -38,9 +43,11 @@ export async function executeAdminSettingsSaveTransaction({
 	deletedCustomConfigs,
 	getCustomVisibilityDraft,
 	getDraftValue,
+	schemas,
 }: AdminSettingsSaveTransactionInput): Promise<AdminSettingsSaveTransactionResult> {
 	const invalidationTargets = collectAdminSettingsInvalidationTargets(
 		changedExistingConfigs,
+		schemas,
 	);
 	const nextConfigsByKey = new Map(
 		configs.map((config) => [config.key, config] as const),

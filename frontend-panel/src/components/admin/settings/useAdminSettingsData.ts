@@ -354,6 +354,8 @@ export function useAdminSettingsData({
 		[schemaMap],
 	);
 
+	const getSystemConfigSchemas = useCallback(() => schemas, [schemas]);
+
 	const mailTemplateVariableGroups = useMemo(
 		() =>
 			[...templateVariableGroups]
@@ -858,6 +860,7 @@ export function useAdminSettingsData({
 					deletedCustomConfigs,
 					getCustomVisibilityDraft,
 					getDraftValue,
+					schemas,
 				});
 			setConfigs(nextConfigs);
 			resetEditableState(nextConfigs);
@@ -888,6 +891,7 @@ export function useAdminSettingsData({
 		load,
 		onPublicSiteUrlChanged,
 		resetEditableState,
+		schemas,
 		saving,
 		t,
 	]);
@@ -910,6 +914,7 @@ export function useAdminSettingsData({
 		getSystemConfigDescription,
 		getSystemConfigLabel,
 		getSystemConfigSchema,
+		getSystemConfigSchemas,
 		getTemplateVariableDescription,
 		getTemplateVariableGroupLabel,
 		getTemplateVariableLabel,

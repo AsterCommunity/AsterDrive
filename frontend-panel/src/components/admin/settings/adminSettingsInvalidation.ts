@@ -4,11 +4,15 @@ import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import type { SystemConfig } from "@/types/api";
+import type {
+	ConfigInvalidationTarget,
+	ConfigSchemaItem,
+	SystemConfig,
+} from "@/types/api";
 
 const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 	"public_site_url",
-	"allow_user_registration",
+	"auth_allow_user_registration",
 	"branding_title",
 	"branding_description",
 	"branding_favicon_url",
@@ -27,18 +31,30 @@ const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
 	"media_metadata_max_source_bytes",
 ]);
 
-export type AdminSettingsInvalidationTarget =
-	| "frontend_config"
-	| "preview_apps"
-	| "thumbnail_support"
-	| "media_data_support";
+export type AdminSettingsInvalidationTarget = ConfigInvalidationTarget;
 
 export function collectAdminSettingsInvalidationTargets(
 	changedConfigs: Pick<SystemConfig, "key">[],
+	schemas?: Pick<ConfigSchemaItem, "key" | "invalidates">[],
 ) {
 	const targets = new Set<AdminSettingsInvalidationTarget>();
+	const schemaInvalidatesByKey = new Map(
+		schemas?.map((schema) => [schema.key, schema.invalidates ?? []] as const),
+	);
+	const schemaHasInvalidationMetadata =
+		schemas?.some((schema) => Object.hasOwn(schema, "invalidates")) ?? false;
 
 	for (const config of changedConfigs) {
+		if (
+			schemaHasInvalidationMetadata &&
+			schemaInvalidatesByKey.has(config.key)
+		) {
+			for (const target of schemaInvalidatesByKey.get(config.key) ?? []) {
+				targets.add(target);
+			}
+			continue;
+		}
+
 		if (FRONTEND_CONFIG_KEYS.has(config.key)) {
 			targets.add("frontend_config");
 		}

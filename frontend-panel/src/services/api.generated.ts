@@ -4680,6 +4680,7 @@ export interface components {
                 category: string;
                 description: string;
                 description_i18n_key: string;
+                invalidates?: components["schemas"]["ConfigInvalidationTarget"][];
                 is_sensitive: boolean;
                 key: string;
                 label_i18n_key: string;
@@ -5061,11 +5062,14 @@ export interface components {
         };
         /** @enum {string} */
         ConfigActionType: "build_wopi_discovery_preview_config" | "send_test_email" | "test_vips_cli" | "test_ffmpeg_cli" | "test_ffprobe_cli" | "test_aria2_rpc";
+        /** @enum {string} */
+        ConfigInvalidationTarget: "frontend_config" | "preview_apps" | "thumbnail_support" | "media_data_support";
         ConfigSchemaItem: {
             actions?: components["schemas"]["ConfigActionDescriptor"][];
             category: string;
             description: string;
             description_i18n_key: string;
+            invalidates?: components["schemas"]["ConfigInvalidationTarget"][];
             is_sensitive: boolean;
             key: string;
             label_i18n_key: string;
