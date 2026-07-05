@@ -8,7 +8,7 @@ use tokio_util::io::ReaderStream;
 use crate::services::file_service;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, FsError, OpenOptions};
 use crate::webdav::{
-    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, fs,
+    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, format_http_date, fs,
     fs_error_response, href_for_relative, protocol, request_origin, request_path, responses,
     system_file,
 };
@@ -49,16 +49,22 @@ pub(crate) async fn handle_get_head(
     if meta.is_dir() {
         return responses::empty(StatusCode::METHOD_NOT_ALLOWED);
     }
-    match protocol::evaluate_http_etag_preconditions(
+    let last_modified = match meta.modified() {
+        Ok(modified) => modified,
+        Err(err) => return fs_error_response(err),
+    };
+    let last_modified_header = format_http_date(last_modified);
+    let etag = meta.etag();
+    match protocol::evaluate_http_download_preconditions(
         req.headers(),
-        true,
-        meta.etag().as_deref(),
-        true,
+        etag.as_deref(),
+        Some(last_modified),
     ) {
         Ok(HttpEtagPrecondition::Proceed) => {}
         Ok(HttpEtagPrecondition::NotModified) => {
             let mut response = HttpResponse::NotModified();
-            if let Some(etag) = meta.etag() {
+            response.insert_header((header::LAST_MODIFIED, last_modified_header));
+            if let Some(etag) = etag {
                 response.insert_header((header::ETAG, format!("\"{etag}\"")));
             }
             return response.finish();
@@ -95,10 +101,11 @@ pub(crate) async fn handle_get_head(
     response.insert_header((header::CONTENT_TYPE, content_type));
     response.insert_header(("Accept-Ranges", "bytes"));
     response.insert_header((header::CONTENT_ENCODING, "identity"));
+    response.insert_header((header::LAST_MODIFIED, last_modified_header));
     if let Some(content_range) = content_range {
         response.insert_header((header::CONTENT_RANGE, content_range));
     }
-    if let Some(etag) = meta.etag() {
+    if let Some(etag) = etag {
         response.insert_header((header::ETAG, format!("\"{etag}\"")));
     }
 

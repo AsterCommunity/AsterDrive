@@ -465,9 +465,7 @@ pub(crate) fn parent_relative_path(relative: &str) -> Option<String> {
 }
 
 pub(crate) fn format_http_date(time: std::time::SystemTime) -> String {
-    chrono::DateTime::<chrono::Utc>::from(time)
-        .format("%a, %d %b %Y %H:%M:%S GMT")
-        .to_string()
+    crate::utils::http_validators::format_http_date(time)
 }
 
 pub(crate) fn format_creation_date(time: std::time::SystemTime) -> String {

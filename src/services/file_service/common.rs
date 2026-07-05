@@ -3,6 +3,7 @@
 use crate::entities::file;
 use crate::errors::Result;
 use crate::services::workspace_storage_service;
+use crate::utils::http_validators;
 
 const INLINE_SANDBOX_CSP: &str = "sandbox";
 
@@ -29,10 +30,8 @@ pub(crate) fn ensure_personal_file_scope(file: &file::Model) -> Result<()> {
 }
 
 pub(crate) fn if_none_match_matches_value(if_none_match: &str, etag_value: &str) -> bool {
-    if_none_match.split(',').any(|value| {
-        let candidate = value.trim();
-        candidate == "*" || candidate.trim_matches('"').eq_ignore_ascii_case(etag_value)
-    })
+    http_validators::if_none_match_header_matches(if_none_match, true, Some(etag_value))
+        .unwrap_or(false)
 }
 
 pub(crate) fn if_none_match_matches(if_none_match: &str, blob_hash: &str) -> bool {

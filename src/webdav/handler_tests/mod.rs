@@ -287,6 +287,7 @@ impl AsyncRead for OneChunkThenErrorReader {
 #[derive(Clone, Default)]
 struct TrailingErrorStreamDriver {
     get_stream_calls: Arc<AtomicUsize>,
+    get_range_calls: Arc<AtomicUsize>,
 }
 
 #[async_trait]
@@ -309,6 +310,16 @@ impl StorageDriver for TrailingErrorStreamDriver {
         Ok(Box::new(OneChunkThenErrorReader {
             yielded_first_chunk: false,
         }))
+    }
+
+    async fn get_range(
+        &self,
+        _path: &str,
+        _offset: u64,
+        _length: Option<u64>,
+    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.get_range_calls.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(Cursor::new(b"bc".to_vec())))
     }
 
     async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
@@ -485,6 +496,51 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
         get_stream_calls.load(Ordering::SeqCst),
         1,
         "GET should open exactly one streaming reader from storage"
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
+async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
+    let driver = TrailingErrorStreamDriver::default();
+    let get_stream_calls = driver.get_stream_calls.clone();
+    let get_range_calls = driver.get_range_calls.clone();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        crate::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "range.txt",
+        3,
+        "files/range.txt",
+    )
+    .await;
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let req = actix_web::test::TestRequest::get()
+        .uri("/webdav/range.txt")
+        .insert_header((header::RANGE, "bytes=1-2"))
+        .to_http_request();
+    let lock_system = NoopLockSystem;
+    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", false).await;
+
+    assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
+    assert_eq!(
+        get_range_calls.load(Ordering::SeqCst),
+        1,
+        "range GET should delegate to StorageDriver::get_range"
+    );
+    assert_eq!(
+        get_stream_calls.load(Ordering::SeqCst),
+        0,
+        "range GET must not open a full-object stream"
     );
 
     drop(state);

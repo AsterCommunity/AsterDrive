@@ -5128,6 +5128,159 @@ async fn test_webdav_get_head_if_none_match_matching_etag_returns_not_modified()
 }
 
 #[actix_web::test]
+async fn test_webdav_get_head_return_last_modified() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/http-last-modified.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("last modified body")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let mut observed = Vec::new();
+    for method in [actix_web::http::Method::GET, actix_web::http::Method::HEAD] {
+        let req = test::TestRequest::with_uri("/webdav/http-last-modified.txt")
+            .method(method.clone())
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::OK,
+            "{method} should succeed"
+        );
+        let last_modified = resp
+            .headers()
+            .get("Last-Modified")
+            .and_then(|value| value.to_str().ok())
+            .expect("GET/HEAD should return Last-Modified")
+            .to_string();
+        assert!(
+            last_modified
+                .parse::<actix_web::http::header::HttpDate>()
+                .is_ok(),
+            "Last-Modified should be a valid HTTP date: {last_modified}"
+        );
+        observed.push(last_modified);
+    }
+
+    assert_eq!(
+        observed[0], observed[1],
+        "GET and HEAD should expose the same Last-Modified for the same resource"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_get_head_http_date_preconditions() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("date validator body")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::HEAD)
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let last_modified = resp
+        .headers()
+        .get("Last-Modified")
+        .and_then(|value| value.to_str().ok())
+        .expect("HEAD should return Last-Modified")
+        .to_string();
+    let etag = resp
+        .headers()
+        .get("ETag")
+        .and_then(|value| value.to_str().ok())
+        .expect("HEAD should return ETag")
+        .to_string();
+    let old_http_date = "Sun, 06 Nov 1994 08:49:37 GMT";
+
+    for method in [actix_web::http::Method::GET, actix_web::http::Method::HEAD] {
+        let req = test::TestRequest::with_uri("/webdav/http-date-preconditions.txt")
+            .method(method.clone())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("If-Modified-Since", last_modified.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::NOT_MODIFIED,
+            "{method} with matching If-Modified-Since should return 304"
+        );
+        assert_eq!(
+            resp.headers()
+                .get("Last-Modified")
+                .and_then(|value| value.to_str().ok()),
+            Some(last_modified.as_str())
+        );
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If-Modified-Since", old_http_date))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::OK,
+        "stale If-Modified-Since should not suppress the response body"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If-Unmodified-Since", old_http_date))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::PRECONDITION_FAILED,
+        "If-Unmodified-Since should fail when the resource changed after the supplied timestamp"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If-None-Match", "\"definitely-wrong\""))
+        .insert_header(("If-Modified-Since", last_modified.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::OK,
+        "If-None-Match should take precedence over If-Modified-Since when it is present"
+    );
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/http-date-preconditions.txt")
+        .insert_header(("Authorization", auth))
+        .insert_header(("If-None-Match", etag))
+        .insert_header(("If-Modified-Since", old_http_date))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::NOT_MODIFIED,
+        "matching If-None-Match should still return 304 regardless of If-Modified-Since"
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_put_http_if_match_preconditions() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);

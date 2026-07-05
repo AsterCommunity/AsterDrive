@@ -1,8 +1,11 @@
 //! WebDAV protocol parsing helpers.
 
+use std::time::SystemTime;
+
 use actix_web::HttpResponse;
 use actix_web::http::header;
 
+use crate::utils::http_validators;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError};
 use crate::webdav::{decode_relative_path, responses};
 
@@ -236,19 +239,75 @@ pub(crate) fn evaluate_http_etag_preconditions(
 ) -> Result<HttpEtagPrecondition, HttpResponse> {
     if let Some(value) = headers.get(header::IF_MATCH) {
         let raw = value.to_str().map_err(|_| invalid_if_match_header())?;
-        if !if_match_header_matches(raw, resource_exists, current_etag)? {
+        if !http_validators::if_match_header_matches(raw, resource_exists, current_etag)
+            .map_err(|_| invalid_if_match_header())?
+        {
             return Err(responses::precondition_failed());
         }
     }
 
     if let Some(value) = headers.get(header::IF_NONE_MATCH) {
         let raw = value.to_str().map_err(|_| invalid_if_none_match_header())?;
-        if if_none_match_header_matches(raw, resource_exists, current_etag)? {
+        if http_validators::if_none_match_header_matches(raw, resource_exists, current_etag)
+            .map_err(|_| invalid_if_none_match_header())?
+        {
             return if safe_method {
                 Ok(HttpEtagPrecondition::NotModified)
             } else {
                 Err(responses::precondition_failed())
             };
+        }
+    }
+
+    Ok(HttpEtagPrecondition::Proceed)
+}
+
+pub(crate) fn evaluate_http_download_preconditions(
+    headers: &header::HeaderMap,
+    current_etag: Option<&str>,
+    last_modified: Option<SystemTime>,
+) -> Result<HttpEtagPrecondition, HttpResponse> {
+    let has_if_match = headers.contains_key(header::IF_MATCH);
+    if let Some(value) = headers.get(header::IF_MATCH) {
+        let raw = value.to_str().map_err(|_| invalid_if_match_header())?;
+        if !http_validators::if_match_header_matches(raw, true, current_etag)
+            .map_err(|_| invalid_if_match_header())?
+        {
+            return Err(responses::precondition_failed());
+        }
+    }
+
+    if !has_if_match
+        && let (Some(value), Some(last_modified)) =
+            (headers.get(header::IF_UNMODIFIED_SINCE), last_modified)
+    {
+        let since = parse_http_date_header(value, invalid_if_unmodified_since_header)?;
+        if http_validators::http_date_epoch_seconds(last_modified)
+            > http_validators::http_date_epoch_seconds(since)
+        {
+            return Err(responses::precondition_failed());
+        }
+    }
+
+    let has_if_none_match = headers.contains_key(header::IF_NONE_MATCH);
+    if let Some(value) = headers.get(header::IF_NONE_MATCH) {
+        let raw = value.to_str().map_err(|_| invalid_if_none_match_header())?;
+        if http_validators::if_none_match_header_matches(raw, true, current_etag)
+            .map_err(|_| invalid_if_none_match_header())?
+        {
+            return Ok(HttpEtagPrecondition::NotModified);
+        }
+    }
+
+    if !has_if_none_match
+        && let (Some(value), Some(last_modified)) =
+            (headers.get(header::IF_MODIFIED_SINCE), last_modified)
+    {
+        let since = parse_http_date_header(value, invalid_if_modified_since_header)?;
+        if http_validators::http_date_epoch_seconds(last_modified)
+            <= http_validators::http_date_epoch_seconds(since)
+        {
+            return Ok(HttpEtagPrecondition::NotModified);
         }
     }
 
@@ -323,10 +382,10 @@ async fn evaluate_if_state_list(
                 lock_tokens.iter().any(|token| token == value) ^ *negated
             }
             IfStateCondition::Etag { value, negated } => {
-                current_etag
-                    .as_deref()
-                    .is_some_and(|etag| etag_matches(value, etag))
-                    ^ *negated
+                current_etag.as_deref().is_some_and(|etag| {
+                    http_validators::if_none_match_header_matches(value, true, Some(etag))
+                        .unwrap_or(false)
+                }) ^ *negated
             }
         };
         if !matched {
@@ -390,103 +449,12 @@ fn tagged_dav_path(
     Ok(Some(path))
 }
 
-fn etag_matches(header_value: &str, current_etag: &str) -> bool {
-    let header_value = strip_weak_etag_prefix(header_value.trim());
-    let current = strip_weak_etag_prefix(current_etag.trim());
-    let header_value = strip_etag_quotes(header_value);
-    let current = strip_etag_quotes(current);
-    header_value == current
-}
-
-fn if_match_header_matches(
-    raw: &str,
-    resource_exists: bool,
-    current_etag: Option<&str>,
-) -> Result<bool, HttpResponse> {
-    let raw = raw.trim();
-    if raw == "*" {
-        return Ok(resource_exists);
-    }
-    let Some(current_etag) = current_etag else {
-        return Ok(false);
-    };
-    let mut saw_tag = false;
-    for candidate in raw
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        saw_tag = true;
-        if is_weak_etag(candidate) {
-            continue;
-        }
-        if strong_etag_matches(candidate, current_etag) {
-            return Ok(true);
-        }
-    }
-    if saw_tag {
-        Ok(false)
-    } else {
-        Err(invalid_if_match_header())
-    }
-}
-
-fn if_none_match_header_matches(
-    raw: &str,
-    resource_exists: bool,
-    current_etag: Option<&str>,
-) -> Result<bool, HttpResponse> {
-    let raw = raw.trim();
-    if raw == "*" {
-        return Ok(resource_exists);
-    }
-    let Some(current_etag) = current_etag else {
-        return Ok(false);
-    };
-    let mut saw_tag = false;
-    for candidate in raw
-        .split(',')
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-    {
-        saw_tag = true;
-        if etag_matches(candidate, current_etag) {
-            return Ok(true);
-        }
-    }
-    if saw_tag {
-        Ok(false)
-    } else {
-        Err(invalid_if_none_match_header())
-    }
-}
-
-fn strong_etag_matches(candidate: &str, current_etag: &str) -> bool {
-    if is_weak_etag(current_etag) {
-        return false;
-    }
-    strip_etag_quotes(candidate.trim()) == strip_etag_quotes(current_etag.trim())
-}
-
-fn is_weak_etag(value: &str) -> bool {
-    value
-        .trim()
-        .get(..2)
-        .is_some_and(|prefix| prefix.eq_ignore_ascii_case("W/"))
-}
-
-fn strip_weak_etag_prefix(value: &str) -> &str {
-    value
-        .strip_prefix("W/")
-        .or_else(|| value.strip_prefix("w/"))
-        .unwrap_or(value)
-}
-
-fn strip_etag_quotes(value: &str) -> &str {
-    value
-        .strip_prefix('"')
-        .and_then(|value| value.strip_suffix('"'))
-        .unwrap_or(value)
+fn parse_http_date_header(
+    value: &header::HeaderValue,
+    invalid_response: fn() -> HttpResponse,
+) -> Result<SystemTime, HttpResponse> {
+    let raw = value.to_str().map_err(|_| invalid_response())?;
+    http_validators::parse_http_date(raw).map_err(|_| invalid_response())
 }
 
 fn invalid_destination_header() -> HttpResponse {
@@ -503,6 +471,14 @@ fn invalid_if_match_header() -> HttpResponse {
 
 fn invalid_if_none_match_header() -> HttpResponse {
     responses::bad_request_text("Invalid If-None-Match header")
+}
+
+fn invalid_if_modified_since_header() -> HttpResponse {
+    responses::bad_request_text("Invalid If-Modified-Since header")
+}
+
+fn invalid_if_unmodified_since_header() -> HttpResponse {
+    responses::bad_request_text("Invalid If-Unmodified-Since header")
 }
 
 fn invalid_overwrite_header() -> HttpResponse {

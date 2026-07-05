@@ -3,6 +3,7 @@
 pub mod email;
 pub mod file_classification;
 pub mod hash;
+pub(crate) mod http_validators;
 pub mod id;
 pub mod net;
 pub mod numbers;
