@@ -163,7 +163,7 @@ fn folder_chain_matches_segments(
 }
 
 async fn validate_cached_folder_path(
-    state: &impl SharedRuntimeState,
+    db: &impl ConnectionTrait,
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
     folder_id: i64,
@@ -171,10 +171,10 @@ async fn validate_cached_folder_path(
 ) -> Result<bool, FsError> {
     let chain = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_ancestor_models(state.writer_db(), user_id, folder_id).await
+            folder_repo::find_ancestor_models(db, user_id, folder_id).await
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_ancestor_models(state.writer_db(), team_id, folder_id).await
+            folder_repo::find_team_ancestor_models(db, team_id, folder_id).await
         }
     };
     let chain = match chain {
@@ -200,6 +200,7 @@ async fn validate_cached_folder_path(
 
 async fn load_cached_resolved_node(
     state: &impl SharedRuntimeState,
+    db: &impl ConnectionTrait,
     scope: WorkspaceStorageScope,
     path: &DavPath,
     root_folder_id: Option<i64>,
@@ -221,7 +222,7 @@ async fn load_cached_resolved_node(
             parent_id,
             name,
         } => {
-            let folder = match folder_repo::find_by_id(state.writer_db(), id).await {
+            let folder = match folder_repo::find_by_id(db, id).await {
                 Ok(folder) => folder,
                 Err(error) if is_missing_entity(&error) => {
                     cache::delete_by_key(state, cache_key).await;
@@ -243,7 +244,7 @@ async fn load_cached_resolved_node(
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
             }
-            if !validate_cached_folder_path(state, scope, root_folder_id, id, &segments).await? {
+            if !validate_cached_folder_path(db, scope, root_folder_id, id, &segments).await? {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
             }
@@ -254,7 +255,7 @@ async fn load_cached_resolved_node(
             folder_id,
             name,
         } => {
-            let file = match file_repo::find_by_id(state.writer_db(), id).await {
+            let file = match file_repo::find_by_id(db, id).await {
                 Ok(file) => file,
                 Err(error) if is_missing_entity(&error) => {
                     cache::delete_by_key(state, cache_key).await;
@@ -280,14 +281,8 @@ async fn load_cached_resolved_node(
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
             };
-            if !validate_cached_parent(
-                state,
-                scope,
-                root_folder_id,
-                parent_segments,
-                file.folder_id,
-            )
-            .await?
+            if !validate_cached_parent(db, scope, root_folder_id, parent_segments, file.folder_id)
+                .await?
             {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
@@ -415,17 +410,45 @@ pub(crate) async fn resolve_path_cached_in_scope(
     path: &DavPath,
     root_folder_id: Option<i64>,
 ) -> Result<ResolvedNode, FsError> {
+    // Authoritative path resolution for write-sensitive WebDAV operations.
+    // PUT/MKCOL/COPY/MOVE/DELETE/LOCK preconditions must observe the writer DB
+    // so a lagging reader cannot resurrect stale cache entries or miss a fresh
+    // destination created earlier in the same client workflow.
+    resolve_path_cached_in_scope_with_db(state, state.writer_db(), scope, path, root_folder_id)
+        .await
+}
+
+pub(crate) async fn resolve_path_cached_for_read_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    path: &DavPath,
+    root_folder_id: Option<i64>,
+) -> Result<ResolvedNode, FsError> {
+    // Metadata, listing, download, and property reads may tolerate normal
+    // reader lag. Cached entries are still validated against the selected DB
+    // handle before reuse.
+    resolve_path_cached_in_scope_with_db(state, state.reader_db(), scope, path, root_folder_id)
+        .await
+}
+
+async fn resolve_path_cached_in_scope_with_db<C: ConnectionTrait>(
+    state: &impl SharedRuntimeState,
+    db: &C,
+    scope: WorkspaceStorageScope,
+    path: &DavPath,
+    root_folder_id: Option<i64>,
+) -> Result<ResolvedNode, FsError> {
     let cache_key = resolve_path_cache_key(scope, path, root_folder_id);
     if let Some(cached) = cache::load_resolved_node_by_key(state, &cache_key).await
         && let Some(node) =
-            load_cached_resolved_node(state, scope, path, root_folder_id, &cache_key, cached)
+            load_cached_resolved_node(state, db, scope, path, root_folder_id, &cache_key, cached)
                 .await?
     {
         tracing::debug!(?scope, root_folder_id, "webdav path cache hit");
         return Ok(node);
     }
 
-    let node = resolve_path_in_scope(state.writer_db(), scope, path, root_folder_id).await?;
+    let node = resolve_path_in_scope(db, scope, path, root_folder_id).await?;
     cache::store_resolved_node_by_key(state, &cache_key, &cacheable_node(&node)).await;
     tracing::debug!(?scope, root_folder_id, "webdav path cache miss");
     Ok(node)
@@ -475,7 +498,7 @@ pub(crate) async fn resolve_parent_in_scope<C: ConnectionTrait>(
 }
 
 async fn validate_cached_parent(
-    state: &impl SharedRuntimeState,
+    db: &impl ConnectionTrait,
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
     parent_segments: &[String],
@@ -483,8 +506,7 @@ async fn validate_cached_parent(
 ) -> Result<bool, FsError> {
     match parent_id {
         Some(parent_id) => {
-            validate_cached_folder_path(state, scope, root_folder_id, parent_id, parent_segments)
-                .await
+            validate_cached_folder_path(db, scope, root_folder_id, parent_id, parent_segments).await
         }
         None => Ok(root_folder_id.is_none() && parent_segments.is_empty()),
     }
@@ -520,7 +542,7 @@ pub(crate) async fn resolve_parent_cached_in_scope(
     let cache_key = resolve_parent_cache_key(scope, path, root_folder_id);
     if let Some(cached) = cache::load_resolved_parent_by_key(state, &cache_key).await {
         if validate_cached_parent(
-            state,
+            state.writer_db(),
             scope,
             root_folder_id,
             parent_segments,

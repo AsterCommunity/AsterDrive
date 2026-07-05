@@ -1915,6 +1915,155 @@ async fn test_webdav_copy_move() {
 }
 
 #[actix_web::test]
+async fn test_webdav_immediate_read_after_write_operations() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/read-after-write.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("read after put")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/read-after-write.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "GET must see a just-written file");
+    let body = test::read_body(resp).await;
+    assert_eq!(String::from_utf8_lossy(&body), "read after put");
+
+    let req = test::TestRequest::with_uri("/webdav/read-after-write.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/read-after-copy.txt"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/read-after-copy.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "GET must see a just-copied file");
+    let body = test::read_body(resp).await;
+    assert_eq!(String::from_utf8_lossy(&body), "read after put");
+
+    let req = test::TestRequest::with_uri("/webdav/read-after-copy.txt")
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/read-after-move.txt"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/read-after-copy.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404, "GET must not see a just-moved source");
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/read-after-move.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "GET must see a just-moved target");
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>read-after-write-test</D:href></D:owner>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/read-after-move.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
+
+    let propfind_lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop>
+    <D:lockdiscovery />
+  </D:prop>
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/read-after-move.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propfind_lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains(lock_token.trim_matches(&['<', '>'][..])),
+        "PROPFIND lockdiscovery must see a just-created lock: {xml}"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/read-after-move.txt")
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Lock-Token", lock_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 200 || resp.status() == 204,
+        "UNLOCK should succeed, got {}",
+        resp.status()
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/read-after-move.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propfind_lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        !xml.contains("activelock"),
+        "PROPFIND lockdiscovery must not see a just-unlocked lock: {xml}"
+    );
+
+    let req = test::TestRequest::delete()
+        .uri("/webdav/read-after-move.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 200 || resp.status() == 204);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/read-after-move.txt")
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404, "GET must not see a just-deleted file");
+}
+
+#[actix_web::test]
 async fn test_webdav_copy_move_rejects_similar_destination_prefix() {
     let app = setup_with_webdav!();
 
