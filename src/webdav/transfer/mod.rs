@@ -51,7 +51,7 @@ pub(crate) async fn handle_get_head(
         Err(err) => return fs_error_response(err),
     };
     let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
-    let fs::AsterDavDownloadTarget::File { file, blob, meta } = target else {
+    let Some(fs::AsterDavDownloadFile { file, blob, meta }) = target else {
         return responses::empty(StatusCode::METHOD_NOT_ALLOWED);
     };
     let last_modified = match meta.modified() {

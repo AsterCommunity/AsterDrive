@@ -24,6 +24,13 @@ impl AsterDavDirEntry {
             metadata: AsterDavMeta::from_file(file, blob),
         }
     }
+
+    pub fn from_file_record(file: &file::Model) -> Self {
+        Self {
+            name: file.name.as_bytes().to_vec(),
+            metadata: AsterDavMeta::from_file_record(file),
+        }
+    }
 }
 
 impl DavDirEntry for AsterDavDirEntry {

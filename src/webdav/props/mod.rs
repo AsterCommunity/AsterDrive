@@ -43,6 +43,9 @@ struct PropfindResource {
     meta: Box<dyn DavMetaData>,
 }
 
+type PropKey = (String, Option<String>);
+type PropKeySet = BTreeSet<PropKey>;
+
 #[derive(Default)]
 struct PropfindPreload {
     dead_props: HashMap<DavPath, Vec<DavProp>>,
@@ -540,7 +543,7 @@ fn all_prop_elements(
     prefix: &str,
     resource: &PropfindResource,
     preload: &PropfindPreload,
-) -> Result<(Vec<Element>, BTreeSet<(String, Option<String>)>), HttpResponse> {
+) -> Result<(Vec<Element>, PropKeySet), HttpResponse> {
     let mut props = standard_prop_name_list(resource)
         .into_iter()
         .map(|prop| RequestedProp {
@@ -561,8 +564,8 @@ fn all_prop_elements(
         }
     }
     for prop in custom_props {
-        keys.insert(dav_prop_key(&prop));
-        elements.push(prop_element(&prop, None));
+        keys.insert(dav_prop_key(prop));
+        elements.push(prop_element(prop, None));
     }
     Ok((elements, keys))
 }
@@ -735,6 +738,17 @@ fn standard_prop_element(
                 .push(XMLNode::Text(resource.meta.len().to_string()));
             Ok(Some(element))
         }
+        "getcontenttype" => {
+            if resource.meta.is_dir() {
+                return Ok(None);
+            }
+            if let Some(content_type) = resource.meta.content_type() {
+                element
+                    .children
+                    .push(XMLNode::Text(content_type.to_string()));
+            }
+            Ok(Some(element))
+        }
         "getlastmodified" => {
             let modified = resource.meta.modified().map_err(fs_error_response)?;
             element
@@ -878,6 +892,7 @@ fn standard_prop_name_list(resource: &PropfindResource) -> Vec<&'static str> {
     ];
     if !resource.meta.is_dir() {
         props.insert(2, "getcontentlength");
+        props.insert(3, "getcontenttype");
     }
     props
 }
@@ -888,6 +903,7 @@ fn is_standard_live_prop_name(name: &str) -> bool {
         "displayname"
             | "resourcetype"
             | "getcontentlength"
+            | "getcontenttype"
             | "getlastmodified"
             | "creationdate"
             | "getetag"
