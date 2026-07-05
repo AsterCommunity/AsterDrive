@@ -64,6 +64,8 @@
 	"settings_item_webdav_enabled_desc": "控制 WebDAV 入口是否对外提供服务。关闭后客户端将无法通过 WebDAV 访问文件。",
 	"settings_item_webdav_max_active_locks_per_user_label": "WebDAV 活跃锁上限",
 	"settings_item_webdav_max_active_locks_per_user_desc": "每个 WebDAV 用户可持有的最大活跃锁数量。超过后拒绝新的 LOCK 请求，以防止资源滥用。",
+	"settings_item_webdav_download_audit_coalesce_window_secs_label": "WebDAV 下载审计合并窗口",
+	"settings_item_webdav_download_audit_coalesce_window_secs_desc": "同一账号、文件、请求类型和客户端在该秒数内的重复 WebDAV 下载审计会合并记录。设为 0 则每次读取都记录。",
 	"settings_item_webdav_block_system_files_enabled_label": "阻止 WebDAV 系统文件",
 	"settings_item_webdav_block_system_files_enabled_desc": "阻止 WebDAV 客户端创建常见操作系统元数据文件和目录，例如 .DS_Store、Thumbs.db、desktop.ini。",
 	"settings_item_webdav_block_system_file_patterns_label": "WebDAV 系统文件拦截规则",

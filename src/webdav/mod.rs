@@ -5,6 +5,7 @@ pub mod dav;
 pub mod db_lock_system;
 pub mod deltav;
 pub mod dir_entry;
+mod download_audit;
 pub mod file;
 pub mod fs;
 mod locks;
@@ -110,6 +111,7 @@ pub async fn webdav_handler(
 
     let dav_fs = fs::AsterDavFs::new_with_audit(
         state.get_ref().clone(),
+        Some(auth_result.account_id),
         auth_result.scope,
         auth_result.root_folder_id,
         audit_ctx.clone(),

@@ -231,6 +231,9 @@ pub const AUDIT_LOG_RECORDED_ACTIONS_KEY: &str = "audit_log_recorded_actions";
 pub const WEBDAV_ENABLED_KEY: &str = "webdav_enabled";
 pub const WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY: &str = "webdav_max_active_locks_per_user";
 pub const DEFAULT_WEBDAV_MAX_ACTIVE_LOCKS_PER_USER: u64 = 1024;
+pub const WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS_KEY: &str =
+    "webdav_download_audit_coalesce_window_secs";
+pub const DEFAULT_WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS: u64 = 30;
 pub const WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY: &str = "webdav_block_system_files_enabled";
 pub const WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY: &str = "webdav_block_system_file_patterns";
 pub const DEFAULT_WEBDAV_SYSTEM_FILE_PATTERNS: &[&str] = &[
@@ -446,6 +449,17 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         is_sensitive: false,
         category: CONFIG_CATEGORY_WEBDAV,
         description: "Maximum active WebDAV locks a single user can hold before new LOCK requests are rejected",
+    },
+    ConfigDef {
+        key: WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS_KEY,
+        label_i18n_key: "settings_item_webdav_download_audit_coalesce_window_secs_label",
+        description_i18n_key: "settings_item_webdav_download_audit_coalesce_window_secs_desc",
+        value_type: SystemConfigValueType::Number,
+        default_fn: || DEFAULT_WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS.to_string(),
+        requires_restart: false,
+        is_sensitive: false,
+        category: CONFIG_CATEGORY_WEBDAV,
+        description: "Seconds to coalesce repeated WebDAV download audit records for the same account, file, request type, and client fingerprint; 0 records every read",
     },
     ConfigDef {
         key: WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY,

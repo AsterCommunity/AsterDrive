@@ -16,6 +16,7 @@ use crate::utils::hash;
 /// WebDAV 认证结果
 #[derive(Debug)]
 pub(crate) struct WebdavAuthResult {
+    pub(crate) account_id: i64,
     pub(crate) scope: WorkspaceStorageScope,
     /// 限制访问范围：None = 全部，Some(folder_id) = 只能访问该文件夹及子目录
     pub(crate) root_folder_id: Option<i64>,
@@ -101,6 +102,7 @@ async fn authenticate_basic(
         validate_cached_account(state, username, password, &cached).await?;
         tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
         return Ok(WebdavAuthResult {
+            account_id: cached.account_id,
             scope: cached.scope(),
             root_folder_id: cached.root_folder_id,
         });
@@ -163,6 +165,7 @@ async fn authenticate_basic(
     .await;
     tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache miss");
     Ok(WebdavAuthResult {
+        account_id: account.id,
         scope,
         root_folder_id: account.root_folder_id,
     })
@@ -277,7 +280,9 @@ mod tests {
         }
     }
 
-    async fn seed_webdav_account(state: &PrimaryAppState) -> (String, String, i64, Option<i64>) {
+    async fn seed_webdav_account(
+        state: &PrimaryAppState,
+    ) -> (String, String, i64, i64, Option<i64>) {
         let now = Utc::now();
         let user = user::ActiveModel {
             username: Set("webdav-auth-user".to_string()),
@@ -304,7 +309,7 @@ mod tests {
         let password = "webdav-pass".to_string();
         let root_folder_id = Some(123);
 
-        webdav_account::ActiveModel {
+        let account = webdav_account::ActiveModel {
             user_id: Set(user.id),
             username: Set(username.clone()),
             password_hash: Set(
@@ -320,7 +325,7 @@ mod tests {
         .await
         .expect("webdav auth test account should be inserted");
 
-        (username, password, user.id, root_folder_id)
+        (username, password, user.id, account.id, root_folder_id)
     }
 
     fn basic_headers(username: &str, password: &str) -> HeaderMap {
@@ -348,12 +353,14 @@ mod tests {
     #[actix_web::test]
     async fn basic_auth_succeeds() {
         let state = build_auth_test_state().await;
-        let (username, password, user_id, root_folder_id) = seed_webdav_account(&state).await;
+        let (username, password, user_id, account_id, root_folder_id) =
+            seed_webdav_account(&state).await;
 
         let result = authenticate_webdav(&basic_headers(&username, &password), &state)
             .await
             .expect("basic auth should succeed");
 
+        assert_eq!(result.account_id, account_id);
         assert_eq!(result.scope.actor_user_id(), user_id);
         assert_eq!(result.root_folder_id, root_folder_id);
     }
@@ -361,7 +368,7 @@ mod tests {
     #[actix_web::test]
     async fn basic_auth_wrong_password_returns_invalid_credentials() {
         let state = build_auth_test_state().await;
-        let (username, _, _, _) = seed_webdav_account(&state).await;
+        let (username, _, _, _, _) = seed_webdav_account(&state).await;
 
         let err = authenticate_webdav(&basic_headers(&username, "wrong-password"), &state)
             .await
@@ -390,7 +397,7 @@ mod tests {
     #[actix_web::test]
     async fn cached_basic_auth_rechecks_account_active_state() {
         let state = build_auth_test_state().await;
-        let (username, password, _, _) = seed_webdav_account(&state).await;
+        let (username, password, _, _, _) = seed_webdav_account(&state).await;
 
         authenticate_webdav(&basic_headers(&username, &password), &state)
             .await
@@ -420,7 +427,7 @@ mod tests {
     #[actix_web::test]
     async fn cached_basic_auth_rechecks_current_password_hash() {
         let state = build_auth_test_state().await;
-        let (username, password, _, _) = seed_webdav_account(&state).await;
+        let (username, password, _, _, _) = seed_webdav_account(&state).await;
 
         authenticate_webdav(&basic_headers(&username, &password), &state)
             .await

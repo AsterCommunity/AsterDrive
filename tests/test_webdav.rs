@@ -7,12 +7,18 @@ use actix_web::test;
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::{RateLimitConfig, WebDavConfig};
 use aster_drive::db::repository::{file_repo, property_repo};
-use aster_drive::entities::{team, team_member, user, webdav_account};
+use aster_drive::entities::{audit_log, system_config, team, team_member, user, webdav_account};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::types::{EntityType, TeamMemberRole, UserRole, UserStatus};
+use aster_drive::services::audit_service;
+use aster_drive::types::{
+    AuditAction, EntityType, SystemConfigSource, SystemConfigValueType, SystemConfigVisibility,
+    TeamMemberRole, UserRole, UserStatus,
+};
 use base64::Engine;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
+};
 use std::io::Cursor;
 use tokio::task::JoinHandle;
 use xmltree::Element;
@@ -30,6 +36,34 @@ fn webdav_test_username(label: &str) -> String {
 
 fn webdav_test_password(label: &str) -> String {
     format!("TEST_PASSWORD_{label}_{}", uuid::Uuid::new_v4().simple())
+}
+
+async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
+    audit_service::flush_global_audit_log_manager().await;
+    audit_log::Entity::find()
+        .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
+        .filter(audit_log::Column::EntityName.eq(entity_name))
+        .count(state.writer_db())
+        .await
+        .expect("file download audit count should query successfully")
+}
+
+fn runtime_number_config(key: &str, value: &str) -> system_config::Model {
+    system_config::Model {
+        id: 0,
+        key: key.to_string(),
+        value: value.to_string(),
+        value_type: SystemConfigValueType::Number,
+        requires_restart: false,
+        is_sensitive: false,
+        source: SystemConfigSource::System,
+        visibility: SystemConfigVisibility::Private,
+        namespace: String::new(),
+        category: "webdav".to_string(),
+        description: "test runtime config".to_string(),
+        updated_at: Utc::now(),
+        updated_by: None,
+    }
 }
 
 struct RunningWebdavServer {
@@ -908,6 +942,100 @@ async fn test_webdav_get_supports_binary_range_requests() {
     assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     let body = test::read_body(resp).await;
     assert_eq!(body.as_ref(), data.as_slice());
+}
+
+#[actix_web::test]
+async fn test_webdav_range_download_audit_is_coalesced_by_default() {
+    let state = common::setup().await;
+    let db1 = state.writer_db().clone();
+    let db2 = state.writer_db().clone();
+    let webdav_config = WebDavConfig::default();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
+            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::Data::new(state.clone()))
+            .configure(move |cfg| {
+                aster_drive::webdav::configure(cfg, &webdav_config, &db2);
+                aster_drive::api::configure_primary(cfg, &db1);
+            }),
+    )
+    .await;
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let file_name = "range-audit-coalesced.bin";
+    let data: Vec<u8> = (0..=255).cycle().take(4096).collect();
+
+    let req = test::TestRequest::put()
+        .uri(&format!("/webdav/{file_name}"))
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .insert_header(("Content-Length", data.len().to_string()))
+        .set_payload(data.clone())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::CREATED);
+
+    let before = count_file_download_audit_rows(&state, file_name).await;
+    for range in ["bytes=0-127", "bytes=128-255", "bytes=256-383"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/webdav/{file_name}"))
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Range", range))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::PARTIAL_CONTENT);
+        let _ = test::read_body(resp).await;
+    }
+
+    let after_ranges = count_file_download_audit_rows(&state, file_name).await;
+    assert_eq!(
+        after_ranges - before,
+        1,
+        "repeated WebDAV range reads should be coalesced into one file_download audit row"
+    );
+
+    for _ in 0..2 {
+        let req = test::TestRequest::get()
+            .uri(&format!("/webdav/{file_name}"))
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+        let _ = test::read_body(resp).await;
+    }
+
+    let after_full_reads = count_file_download_audit_rows(&state, file_name).await;
+    assert_eq!(
+        after_full_reads - after_ranges,
+        1,
+        "full and ranged WebDAV reads should be coalesced independently"
+    );
+
+    state.runtime_config().apply(runtime_number_config(
+        aster_drive::config::definitions::WEBDAV_DOWNLOAD_AUDIT_COALESCE_WINDOW_SECS_KEY,
+        "0",
+    ));
+
+    for range in ["bytes=512-639", "bytes=640-767"] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/webdav/{file_name}"))
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Range", range))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::PARTIAL_CONTENT);
+        let _ = test::read_body(resp).await;
+    }
+
+    let after_disabled_coalescing = count_file_download_audit_rows(&state, file_name).await;
+    assert_eq!(
+        after_disabled_coalescing - after_full_reads,
+        2,
+        "setting the WebDAV download audit coalescing window to 0 should record every read"
+    );
 }
 
 #[actix_web::test]

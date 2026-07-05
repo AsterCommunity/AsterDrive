@@ -19,6 +19,9 @@ use crate::webdav::dav::{
     FsStream, OpenOptions, ReadDirMeta,
 };
 use crate::webdav::dir_entry::AsterDavDirEntry;
+use crate::webdav::download_audit::{
+    WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
+};
 use crate::webdav::file::AsterDavFile;
 use crate::webdav::metadata::AsterDavMeta;
 use crate::webdav::path_resolver::{self, ResolvedNode};
@@ -27,6 +30,7 @@ use crate::webdav::path_resolver::{self, ResolvedNode};
 #[derive(Clone)]
 pub struct AsterDavFs {
     state: PrimaryAppState,
+    webdav_account_id: Option<i64>,
     scope: WorkspaceStorageScope,
     /// 限制访问范围：None = 用户全部文件，Some(id) = 只能访问该文件夹及子目录
     root_folder_id: Option<i64>,
@@ -46,6 +50,7 @@ impl AsterDavFs {
     pub fn new(state: PrimaryAppState, user_id: i64, root_folder_id: Option<i64>) -> Self {
         Self::new_with_audit(
             state,
+            None,
             WorkspaceStorageScope::Personal { user_id },
             root_folder_id,
             AuditContext {
@@ -58,12 +63,14 @@ impl AsterDavFs {
 
     pub(crate) fn new_with_audit(
         state: PrimaryAppState,
+        webdav_account_id: Option<i64>,
         scope: WorkspaceStorageScope,
         root_folder_id: Option<i64>,
         audit_ctx: AuditContext,
     ) -> Self {
         Self {
             state,
+            webdav_account_id,
             scope,
             root_folder_id,
             audit_ctx,
@@ -128,16 +135,19 @@ impl AsterDavFs {
                 .await
                 .map_err(|_| FsError::NotFound)?,
         };
-        let details =
-            file_service::audit_location_details_for_model(&self.state, self.scope, &file).await;
-        audit_service::log_with_details(
+        record_download(
             &self.state,
             &self.audit_ctx,
-            audit_service::AuditAction::FileDownload,
-            crate::services::audit_service::AuditEntityType::File,
-            Some(file.id),
-            Some(&file.name),
-            || details.clone(),
+            WebdavDownloadAuditIdentity {
+                account_id: self.webdav_account_id,
+                scope: self.scope,
+                root_folder_id: self.root_folder_id,
+            },
+            &file,
+            match offset {
+                Some(_) => WebdavDownloadRequestKind::Ranged,
+                None => WebdavDownloadRequestKind::Full,
+            },
         )
         .await;
         Ok(stream)

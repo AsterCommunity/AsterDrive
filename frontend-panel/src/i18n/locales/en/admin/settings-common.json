@@ -64,6 +64,8 @@
 	"settings_item_webdav_enabled_desc": "Controls whether the WebDAV entrypoint is exposed. When disabled, clients can no longer access files through WebDAV.",
 	"settings_item_webdav_max_active_locks_per_user_label": "WebDAV active lock limit",
 	"settings_item_webdav_max_active_locks_per_user_desc": "Maximum active locks each WebDAV user can hold. New LOCK requests are rejected after this limit to prevent resource abuse.",
+	"settings_item_webdav_download_audit_coalesce_window_secs_label": "WebDAV download audit window",
+	"settings_item_webdav_download_audit_coalesce_window_secs_desc": "Seconds to coalesce repeated WebDAV download audit records for the same account, file, request type, and client. Set to 0 to record every read.",
 	"settings_item_webdav_block_system_files_enabled_label": "Block WebDAV system files",
 	"settings_item_webdav_block_system_files_enabled_desc": "Prevents WebDAV clients from creating common operating-system metadata files and folders such as .DS_Store, Thumbs.db, and desktop.ini.",
 	"settings_item_webdav_block_system_file_patterns_label": "Blocked WebDAV system-file patterns",
