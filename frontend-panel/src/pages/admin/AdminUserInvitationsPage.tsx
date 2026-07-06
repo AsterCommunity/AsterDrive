@@ -1,5 +1,5 @@
 import type { FormEvent } from "react";
-import { useCallback, useEffect, useMemo, useReducer } from "react";
+import { useMemo, useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -17,18 +17,22 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-} from "@/lib/pagination";
+import { parsePageSizeOption } from "@/lib/pagination";
 import { emailSchema } from "@/lib/validation";
 import { adminUserService } from "@/services/adminService";
 import type {
@@ -39,6 +43,23 @@ import type {
 const INVITATION_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_INVITATION_PAGE_SIZE = 20 as const;
 type InvitationPageSize = (typeof INVITATION_PAGE_SIZE_OPTIONS)[number];
+type ManagedInvitationQuery = {
+	offset: number;
+	pageSize: InvitationPageSize;
+};
+
+const MANAGED_INVITATION_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_INVITATION_PAGE_SIZE,
+} satisfies ManagedInvitationQuery;
+
+const MANAGED_INVITATION_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		INVITATION_PAGE_SIZE_OPTIONS,
+		DEFAULT_INVITATION_PAGE_SIZE,
+	),
+} satisfies ManagedListQuerySchema<ManagedInvitationQuery>;
 
 type AdminUserInvitationsPageState = {
 	createdInvitation: AdminUserInvitationInfo | null;
@@ -72,10 +93,6 @@ type AdminUserInvitationsPageAction =
 	| { type: "inviteFormReset" }
 	| { type: "inviteOpenSet"; open: boolean }
 	| { type: "invitingSet"; inviting: boolean };
-
-function normalizeOffset(offset: number) {
-	return Math.max(0, Math.floor(offset));
-}
 
 function createInitialInviteForm(): CreateUserInvitationRequest {
 	return { email: "" };
@@ -166,72 +183,38 @@ export default function AdminUserInvitationsPage() {
 		inviteForm,
 		inviting,
 	} = state;
-	const offset = normalizeOffset(
-		parseOffsetSearchParam(searchParams.get("offset")),
-	);
-	const pageSize = parsePageSizeSearchParam(
-		searchParams.get("pageSize"),
-		INVITATION_PAGE_SIZE_OPTIONS,
-		DEFAULT_INVITATION_PAGE_SIZE,
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_INVITATION_QUERY_DEFAULTS,
+		schema: MANAGED_INVITATION_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { offset, pageSize } = query;
+	const setOffset = useManagedOffset(setQuery);
 	const {
+		currentPage,
 		items: invitations,
 		loading,
 		reload,
 		setItems: setInvitations,
 		total,
-	} = useApiList(
-		() =>
+		totalPages,
+		nextPageDisabled,
+		prevPageDisabled,
+	} = useManagedAdminList<AdminUserInvitationInfo, ManagedInvitationQuery>({
+		loadPage: (query) =>
 			adminUserService.listInvitations({
-				limit: pageSize,
-				offset,
+				limit: query.pageSize,
+				offset: query.offset,
 			}),
-		[offset, pageSize],
-	);
+		query,
+		setOffset,
+	});
 	const {
 		pendingId: revokingInvitationId,
 		runWithPending: runWithRevokingInvitation,
 	} = usePendingId<number>();
 
-	useEffect(() => {
-		const normalizedParams = buildOffsetPaginationSearchParams({
-			offset,
-			pageSize,
-			defaultPageSize: DEFAULT_INVITATION_PAGE_SIZE,
-		});
-
-		if (normalizedParams.toString() !== searchParams.toString()) {
-			setSearchParams(normalizedParams, { replace: true });
-		}
-	}, [offset, pageSize, searchParams, setSearchParams]);
-
-	const setPagination = useCallback(
-		(nextOffset: number, nextPageSize: InvitationPageSize) => {
-			setSearchParams(
-				buildOffsetPaginationSearchParams({
-					offset: normalizeOffset(nextOffset),
-					pageSize: nextPageSize,
-					defaultPageSize: DEFAULT_INVITATION_PAGE_SIZE,
-				}),
-			);
-		},
-		[setSearchParams],
-	);
-
-	useEffect(() => {
-		if (loading || invitations.length > 0 || total === 0) {
-			return;
-		}
-		const lastOffset = Math.floor((total - 1) / pageSize) * pageSize;
-		if (offset !== lastOffset) {
-			setPagination(lastOffset, pageSize);
-		}
-	}, [invitations.length, loading, offset, pageSize, total, setPagination]);
-
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 	const outOfRangeEmptyPage = invitations.length === 0 && total > 0;
 	const pageSizeOptions = INVITATION_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
@@ -294,7 +277,7 @@ export default function AdminUserInvitationsPage() {
 			dispatch({ type: "inviteCreated", invitation });
 			toast.success(t("invitation_created"));
 			if (offset !== 0) {
-				setPagination(0, pageSize);
+				setOffset(0);
 			} else {
 				await reload();
 			}
@@ -333,7 +316,7 @@ export default function AdminUserInvitationsPage() {
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, INVITATION_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPagination(0, next);
+		setQuery({ offset: 0, pageSize: next });
 	};
 	const invitationsPagination = (
 		<AdminOffsetPagination
@@ -345,8 +328,8 @@ export default function AdminUserInvitationsPage() {
 			onPageSizeChange={handlePageSizeChange}
 			prevDisabled={prevPageDisabled}
 			nextDisabled={nextPageDisabled}
-			onPrevious={() => setPagination(offset - pageSize, pageSize)}
-			onNext={() => setPagination(offset + pageSize, pageSize)}
+			onPrevious={() => setOffset((current) => current - pageSize)}
+			onNext={() => setOffset((current) => current + pageSize)}
 		/>
 	);
 	const invitationsEmptyIcon = (

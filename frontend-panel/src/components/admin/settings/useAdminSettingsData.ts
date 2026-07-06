@@ -12,10 +12,10 @@ import {
 	getPreviewAppsConfigIssuesFromString,
 	PREVIEW_APPS_CONFIG_KEY,
 } from "@/components/admin/previewAppsConfigEditorShared";
+import { executeAdminSettingsAction } from "@/components/admin/settings/adminSettingsActionRegistry";
 import {
 	buildDraftValues,
 	configDraftValueChanged,
-	configDraftValuesEqual,
 	configValueToString,
 	configValueToStringArray,
 	type DraftValues,
@@ -38,11 +38,12 @@ import {
 	SIZE_DISPLAY_UNITS,
 	type SizeDisplayUnitValue,
 	type SystemSubcategoryGroup,
-	serializeConfigDraftValue,
 	sortConfigsByKey,
 	TIME_DISPLAY_UNITS,
 	type TimeDisplayUnitValue,
 } from "@/components/admin/settings/adminSettingsContentShared";
+import { applyAdminSettingsInvalidations } from "@/components/admin/settings/adminSettingsInvalidation";
+import { executeAdminSettingsSaveTransaction } from "@/components/admin/settings/adminSettingsSaveTransaction";
 import {
 	isMailDeliveryConfigReady,
 	MAIL_DELIVERY_CONFIG_KEYS,
@@ -59,12 +60,7 @@ import {
 	numberUnitValueIsValid,
 } from "@/lib/numberUnit";
 import { adminConfigService } from "@/services/adminService";
-import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
-import { useMediaDataSupportStore } from "@/stores/mediaDataSupportStore";
-import { usePreviewAppStore } from "@/stores/previewAppStore";
-import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import type {
-	ConfigActionType,
 	ConfigSchemaItem,
 	SystemConfig,
 	SystemConfigVisibility,
@@ -72,52 +68,10 @@ import type {
 } from "@/types/api";
 
 const CONFIG_PAGE_SIZE = 100;
-const PUBLIC_SITE_URL_KEY = "public_site_url";
 const CORS_ALLOWED_ORIGINS_KEY = "cors_allowed_origins";
 const CORS_ALLOW_CREDENTIALS_KEY = "cors_allow_credentials";
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
 const LEGACY_OFFLINE_DOWNLOAD_ENGINE_KEY = "offline_download_engine";
-const OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY = "offline_download_aria2_rpc_url";
-const OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY =
-	"offline_download_aria2_rpc_secret";
-const OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY =
-	"offline_download_aria2_request_timeout_secs";
-const OFFLINE_DOWNLOAD_ACTION_DRAFT_KEYS = [
-	OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
-	OFFLINE_DOWNLOAD_ARIA2_RPC_URL_KEY,
-	OFFLINE_DOWNLOAD_ARIA2_RPC_SECRET_KEY,
-	OFFLINE_DOWNLOAD_ARIA2_REQUEST_TIMEOUT_SECS_KEY,
-];
-const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
-	PUBLIC_SITE_URL_KEY,
-	"allow_user_registration",
-	"branding_title",
-	"branding_description",
-	"branding_favicon_url",
-	"branding_wordmark_dark_url",
-	"branding_wordmark_light_url",
-]);
-const FRONTEND_CONFIG_KEYS = new Set([
-	...PUBLIC_BRANDING_CONFIG_KEYS,
-	"frontend_image_preview_preference",
-]);
-const MEDIA_DATA_SUPPORT_CONFIG_KEYS = new Set([
-	MEDIA_PROCESSING_CONFIG_KEY,
-	"media_metadata_enabled",
-	"media_metadata_max_source_bytes",
-]);
-
-function draftValueChangedForKey(
-	configsByKey: Map<string, SystemConfig>,
-	key: string,
-	value: DraftValues[string] | undefined,
-) {
-	const config = configsByKey.get(key);
-	if (!config) {
-		return !configDraftValuesEqual(value, undefined);
-	}
-	return configDraftValueChanged(config, value);
-}
 
 function effectiveDraftValueForConfig(
 	config: SystemConfig | undefined,
@@ -220,7 +174,13 @@ export function useAdminSettingsData({
 		setSendingTestEmail(true);
 		try {
 			const targetEmail = testEmailTarget.trim() || currentUserEmail.trim();
-			await adminConfigService.sendTestEmail(targetEmail || undefined);
+			await executeAdminSettingsAction(
+				{
+					actionId: "send_test_email",
+					targetEmail: targetEmail || undefined,
+				},
+				{ configs, draftValues, schemas },
+			);
 			toast.success(
 				targetEmail
 					? t("mail_test_email_sent", { email: targetEmail })
@@ -232,7 +192,7 @@ export function useAdminSettingsData({
 		} finally {
 			setSendingTestEmail(false);
 		}
-	}, [currentUserEmail, t, testEmailTarget]);
+	}, [configs, currentUserEmail, draftValues, schemas, t, testEmailTarget]);
 
 	const handleBuildWopiDiscoveryPreviewConfig = useCallback(
 		async ({
@@ -243,13 +203,13 @@ export function useAdminSettingsData({
 			value: string;
 		}) => {
 			try {
-				const response = await adminConfigService.action(
-					PREVIEW_APPS_CONFIG_KEY,
+				const response = await executeAdminSettingsAction(
 					{
-						action: "build_wopi_discovery_preview_config",
-						discovery_url: discoveryUrl,
+						actionId: "build_wopi_discovery_preview_config",
+						discoveryUrl,
 						value,
 					},
+					{ configs, draftValues, schemas },
 				);
 				toast.success(t("preview_apps_wopi_discovery_success"));
 				return response.value ?? value;
@@ -258,85 +218,18 @@ export function useAdminSettingsData({
 				throw error;
 			}
 		},
-		[t],
+		[configs, draftValues, schemas, t],
 	);
 
-	const handleTestVipsCliCommand = useCallback(async (value: string) => {
-		try {
-			const response = await adminConfigService.action(
-				MEDIA_PROCESSING_CONFIG_KEY,
-				{
-					action: "test_vips_cli" satisfies ConfigActionType,
-					value,
-				},
-			);
-			toast.success(response.message);
-		} catch (error) {
-			handleApiError(error);
-			throw error;
-		}
-	}, []);
-
-	const handleTestFfmpegCliCommand = useCallback(async (value: string) => {
-		try {
-			const response = await adminConfigService.action(
-				MEDIA_PROCESSING_CONFIG_KEY,
-				{
-					action: "test_ffmpeg_cli" satisfies ConfigActionType,
-					value,
-				},
-			);
-			toast.success(response.message);
-		} catch (error) {
-			handleApiError(error);
-			throw error;
-		}
-	}, []);
-
-	const handleTestFfprobeCliCommand = useCallback(async (value: string) => {
-		try {
-			const response = await adminConfigService.action(
-				MEDIA_PROCESSING_CONFIG_KEY,
-				{
-					action: "test_ffprobe_cli" satisfies ConfigActionType,
-					value,
-				},
-			);
-			toast.success(response.message);
-		} catch (error) {
-			handleApiError(error);
-			throw error;
-		}
-	}, []);
-
-	const handleTestAria2Rpc = useCallback(
-		async (value: string) => {
+	const handleTestMediaProcessingAction = useCallback(
+		async (
+			actionId: "test_vips_cli" | "test_ffmpeg_cli" | "test_ffprobe_cli",
+			value: string,
+		) => {
 			try {
-				const draftConfigMap = new Map(
-					configs.map((config) => [config.key, config] as const),
-				);
-				const draftValuesForAction = Object.fromEntries(
-					OFFLINE_DOWNLOAD_ACTION_DRAFT_KEYS.flatMap((key) => {
-						const draftValue =
-							key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY
-								? value
-								: draftValues[key];
-						if (
-							draftValue == null ||
-							!draftValueChangedForKey(draftConfigMap, key, draftValue)
-						) {
-							return [];
-						}
-						return [[key, configValueToString(draftValue)]];
-					}),
-				);
-				const response = await adminConfigService.action(
-					OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY,
-					{
-						action: "test_aria2_rpc" satisfies ConfigActionType,
-						draft_values: draftValuesForAction,
-						value,
-					},
+				const response = await executeAdminSettingsAction(
+					{ actionId, value },
+					{ configs, draftValues, schemas },
 				);
 				toast.success(response.message);
 			} catch (error) {
@@ -344,7 +237,40 @@ export function useAdminSettingsData({
 				throw error;
 			}
 		},
-		[configs, draftValues],
+		[configs, draftValues, schemas],
+	);
+
+	const handleTestVipsCliCommand = useCallback(
+		(value: string) => handleTestMediaProcessingAction("test_vips_cli", value),
+		[handleTestMediaProcessingAction],
+	);
+
+	const handleTestFfmpegCliCommand = useCallback(
+		(value: string) =>
+			handleTestMediaProcessingAction("test_ffmpeg_cli", value),
+		[handleTestMediaProcessingAction],
+	);
+
+	const handleTestFfprobeCliCommand = useCallback(
+		(value: string) =>
+			handleTestMediaProcessingAction("test_ffprobe_cli", value),
+		[handleTestMediaProcessingAction],
+	);
+
+	const handleTestAria2Rpc = useCallback(
+		async (value: string) => {
+			try {
+				const response = await executeAdminSettingsAction(
+					{ actionId: "test_aria2_rpc", value },
+					{ configs, draftValues, schemas },
+				);
+				toast.success(response.message);
+			} catch (error) {
+				handleApiError(error);
+				throw error;
+			}
+		},
+		[configs, draftValues, schemas],
 	);
 
 	const load = useCallback(
@@ -427,6 +353,8 @@ export function useAdminSettingsData({
 		(config: SystemConfig) => schemaMap.get(config.key),
 		[schemaMap],
 	);
+
+	const getSystemConfigSchemas = useCallback(() => schemas, [schemas]);
 
 	const mailTemplateVariableGroups = useMemo(
 		() =>
@@ -924,90 +852,22 @@ export function useAdminSettingsData({
 
 		try {
 			setSaving(true);
-			const previewAppsChanged = changedExistingConfigs.some(
-				(config) => config.key === PREVIEW_APPS_CONFIG_KEY,
-			);
-			const mediaProcessingChanged = changedExistingConfigs.some(
-				(config) => config.key === MEDIA_PROCESSING_CONFIG_KEY,
-			);
-			const mediaDataSupportChanged = changedExistingConfigs.some((config) =>
-				MEDIA_DATA_SUPPORT_CONFIG_KEYS.has(config.key),
-			);
-			const frontendConfigChanged = changedExistingConfigs.some((config) =>
-				FRONTEND_CONFIG_KEYS.has(config.key),
-			);
-			const nextConfigsByKey = new Map(
-				configs.map((config) => [config.key, config] as const),
-			);
-
-			for (const config of deletedCustomConfigs) {
-				await adminConfigService.delete(config.key);
-				nextConfigsByKey.delete(config.key);
-			}
-
-			const orderedChangedConfigs = [...changedExistingConfigs].sort(
-				(left, right) => {
-					const priority = (config: SystemConfig) =>
-						config.key === AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY ? 1 : 0;
-					return priority(left) - priority(right);
-				},
-			);
-
-			for (const config of orderedChangedConfigs) {
-				const nextValue = getDraftValue(config);
-				const serializedValue = serializeConfigDraftValue(nextValue);
-				const savedConfig = isSystemConfigSource(config.source)
-					? await adminConfigService.set(config.key, serializedValue)
-					: await adminConfigService.set(
-							config.key,
-							serializedValue,
-							getCustomVisibilityDraft(config),
-						);
-				nextConfigsByKey.set(
-					config.key,
-					savedConfig.key === config.key
-						? savedConfig
-						: { ...config, value: serializedValue },
-				);
-			}
-
-			for (const row of activeNewCustomRows) {
-				const key = row.key.trim();
-				const savedConfig = await adminConfigService.set(
-					key,
-					row.value,
-					row.visibility,
-				);
-				if (savedConfig.key !== key) {
-					throw new Error(`Saved config key mismatch: expected ${key}`);
-				}
-				nextConfigsByKey.set(key, savedConfig);
-			}
-
-			const nextConfigs = Array.from(nextConfigsByKey.values());
+			const { invalidationTargets, nextConfigs, nextPublicSiteUrl } =
+				await executeAdminSettingsSaveTransaction({
+					activeNewCustomRows,
+					changedExistingConfigs,
+					configs,
+					deletedCustomConfigs,
+					getCustomVisibilityDraft,
+					getDraftValue,
+					schemas,
+				});
 			setConfigs(nextConfigs);
 			resetEditableState(nextConfigs);
-			const nextPublicSiteUrl =
-				nextConfigsByKey.get(PUBLIC_SITE_URL_KEY)?.value;
 			if (Array.isArray(nextPublicSiteUrl)) {
 				onPublicSiteUrlChanged(nextPublicSiteUrl);
 			}
-			if (frontendConfigChanged) {
-				useFrontendConfigStore.getState().invalidate();
-				void useFrontendConfigStore.getState().load({ force: true });
-			}
-			if (previewAppsChanged) {
-				usePreviewAppStore.getState().invalidate();
-				void usePreviewAppStore.getState().load({ force: true });
-			}
-			if (mediaProcessingChanged) {
-				useThumbnailSupportStore.getState().invalidate();
-				void useThumbnailSupportStore.getState().load({ force: true });
-			}
-			if (mediaDataSupportChanged) {
-				useMediaDataSupportStore.getState().invalidate();
-				void useMediaDataSupportStore.getState().load({ force: true });
-			}
+			applyAdminSettingsInvalidations(invalidationTargets);
 			toast.success(t("settings_saved"));
 		} catch (error) {
 			handleApiError(error);
@@ -1031,6 +891,7 @@ export function useAdminSettingsData({
 		load,
 		onPublicSiteUrlChanged,
 		resetEditableState,
+		schemas,
 		saving,
 		t,
 	]);
@@ -1053,6 +914,7 @@ export function useAdminSettingsData({
 		getSystemConfigDescription,
 		getSystemConfigLabel,
 		getSystemConfigSchema,
+		getSystemConfigSchemas,
 		getTemplateVariableDescription,
 		getTemplateVariableGroupLabel,
 		getTemplateVariableLabel,

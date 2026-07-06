@@ -1,11 +1,5 @@
 import { useRef, useState } from "react";
 import { AdminNumberUnitInput } from "@/components/admin/AdminNumberUnitInput";
-import { MediaProcessingConfigEditor } from "@/components/admin/MediaProcessingConfigEditor";
-import { MEDIA_PROCESSING_CONFIG_KEY } from "@/components/admin/mediaProcessingConfigEditorShared";
-import { OfflineDownloadEngineRegistryEditor } from "@/components/admin/OfflineDownloadEngineRegistryEditor";
-import { OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY } from "@/components/admin/offlineDownloadEngineRegistryShared";
-import { PreviewAppsConfigEditor } from "@/components/admin/PreviewAppsConfigEditor";
-import { PREVIEW_APPS_CONFIG_KEY } from "@/components/admin/previewAppsConfigEditorShared";
 import { useAdminSettingsCategoryContent } from "@/components/admin/settings/AdminSettingsCategoryContentContext";
 import {
 	ConfigCodeEditor,
@@ -39,6 +33,7 @@ import {
 	type TimeDisplayUnitValue,
 	UrlAssetPreview,
 } from "@/components/admin/settings/adminSettingsContentShared";
+import { renderAdminSettingsEditor } from "@/components/admin/settings/adminSettingsEditorRegistry";
 import { isMailDeliveryConfigReady } from "@/components/admin/settings/mailDeliveryConfigReady";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
@@ -793,6 +788,17 @@ function ConfigInputControl({
 	const brandingPreviewAppearance = isBrandingAssetConfig(config)
 		? getBrandingAssetPreviewAppearance(config)
 		: null;
+	const specialEditor = renderAdminSettingsEditor(config.key, {
+		actions: {
+			buildWopiDiscoveryPreviewConfig: handleBuildWopiDiscoveryPreviewConfig,
+			testAria2Rpc: handleTestAria2Rpc,
+			testFfmpegCliCommand: handleTestFfmpegCliCommand,
+			testFfprobeCliCommand: handleTestFfprobeCliCommand,
+			testVipsCliCommand: handleTestVipsCliCommand,
+		},
+		value: draftStringValue,
+		onChange: (nextValue) => updateDraftValue(config.key, nextValue),
+	});
 
 	if (brandingPreviewAppearance) {
 		return (
@@ -823,38 +829,8 @@ function ConfigInputControl({
 		);
 	}
 
-	if (config.key === PREVIEW_APPS_CONFIG_KEY) {
-		return (
-			<PreviewAppsConfigEditor
-				onBuildWopiDiscoveryPreviewConfig={
-					handleBuildWopiDiscoveryPreviewConfig
-				}
-				value={draftStringValue}
-				onChange={(nextValue) => updateDraftValue(config.key, nextValue)}
-			/>
-		);
-	}
-
-	if (config.key === MEDIA_PROCESSING_CONFIG_KEY) {
-		return (
-			<MediaProcessingConfigEditor
-				onTestFfmpegCliCommand={handleTestFfmpegCliCommand}
-				onTestFfprobeCliCommand={handleTestFfprobeCliCommand}
-				onTestVipsCliCommand={handleTestVipsCliCommand}
-				value={draftStringValue}
-				onChange={(nextValue) => updateDraftValue(config.key, nextValue)}
-			/>
-		);
-	}
-
-	if (config.key === OFFLINE_DOWNLOAD_ENGINE_REGISTRY_KEY) {
-		return (
-			<OfflineDownloadEngineRegistryEditor
-				onTestAria2Rpc={handleTestAria2Rpc}
-				value={draftStringValue}
-				onChange={(nextValue) => updateDraftValue(config.key, nextValue)}
-			/>
-		);
+	if (specialEditor) {
+		return specialEditor;
 	}
 
 	if (stringArray) {

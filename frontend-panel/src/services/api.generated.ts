@@ -4676,9 +4676,11 @@ export interface components {
         ApiResponse_Vec_ConfigSchemaItem: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
+                actions?: components["schemas"]["ConfigActionDescriptor"][];
                 category: string;
                 description: string;
                 description_i18n_key: string;
+                invalidates?: components["schemas"]["ConfigInvalidationTarget"][];
                 is_sensitive: boolean;
                 key: string;
                 label_i18n_key: string;
@@ -5043,12 +5045,31 @@ export interface components {
             /** Format: int32 */
             part_number: number;
         };
+        ConfigActionDescriptor: {
+            action: components["schemas"]["ConfigActionType"];
+            draft_value_keys?: string[];
+            label_i18n_key: string;
+            presentation: components["schemas"]["ConfigActionPresentation"];
+            target_key: string;
+            value_source_key?: string | null;
+        };
+        ConfigActionPresentation: {
+            category: string;
+            group: string;
+            /** Format: int32 */
+            order: number;
+            subcategory?: string | null;
+        };
         /** @enum {string} */
         ConfigActionType: "build_wopi_discovery_preview_config" | "send_test_email" | "test_vips_cli" | "test_ffmpeg_cli" | "test_ffprobe_cli" | "test_aria2_rpc";
+        /** @enum {string} */
+        ConfigInvalidationTarget: "frontend_config" | "preview_apps" | "thumbnail_support" | "media_data_support";
         ConfigSchemaItem: {
+            actions?: components["schemas"]["ConfigActionDescriptor"][];
             category: string;
             description: string;
             description_i18n_key: string;
+            invalidates?: components["schemas"]["ConfigInvalidationTarget"][];
             is_sensitive: boolean;
             key: string;
             label_i18n_key: string;

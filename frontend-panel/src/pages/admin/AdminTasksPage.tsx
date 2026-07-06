@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { FormEvent, ReactNode, SetStateAction } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -20,20 +20,23 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { toDateTimeLocalValue, toIsoDateTime } from "@/lib/dateTimeLocal";
 import { formatDateTime } from "@/lib/format";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { formatTaskKind as formatSharedTaskKind } from "@/pages/tasks/taskPresentation";
 import { adminTaskService } from "@/services/adminService";
 import type { AdminTaskSortBy } from "@/types/adminSort";
@@ -45,14 +48,6 @@ import type {
 
 const TASK_PAGE_SIZE_OPTIONS = [20, 50, 100] as const;
 const DEFAULT_TASK_PAGE_SIZE = 20 as const;
-const TASK_MANAGED_QUERY_KEYS = [
-	"kind",
-	"offset",
-	"pageSize",
-	"sortBy",
-	"sortOrder",
-	"status",
-] as const;
 const TASK_SORT_BY_OPTIONS = [
 	"id",
 	"display_name",
@@ -132,10 +127,6 @@ type AdminTasksUiAction =
 	| { submitting: boolean; type: "set_cleanup_submitting" }
 	| { type: "reset_cleanup_conditions" };
 
-function normalizeOffset(offset: number) {
-	return Math.max(0, Math.floor(offset));
-}
-
 function parseTaskKindSearchParam(value: string | null): TaskKindFilter {
 	return TASK_KIND_FILTER_VALUES.includes(
 		value as (typeof TASK_KIND_FILTER_VALUES)[number],
@@ -152,62 +143,35 @@ function parseTaskStatusSearchParam(value: string | null): TaskStatusFilter {
 		: "__all__";
 }
 
-function buildManagedTaskSearchParams({
-	offset,
-	pageSize,
-	kind,
-	status,
-	sortBy,
-	sortOrder,
-}: ManagedTaskQuery) {
-	return buildOffsetPaginationSearchParams({
-		offset,
-		pageSize,
-		defaultPageSize: DEFAULT_TASK_PAGE_SIZE,
-		extraParams: {
-			kind: kind !== "__all__" ? kind : undefined,
-			sortBy: sortBy !== DEFAULT_TASK_SORT_BY ? sortBy : undefined,
-			sortOrder: sortOrder !== DEFAULT_TASK_SORT_ORDER ? sortOrder : undefined,
-			status: status !== "__all__" ? status : undefined,
-		},
-	});
-}
+const MANAGED_TASK_QUERY_DEFAULTS = {
+	kind: "__all__",
+	offset: 0,
+	pageSize: DEFAULT_TASK_PAGE_SIZE,
+	sortBy: DEFAULT_TASK_SORT_BY,
+	sortOrder: DEFAULT_TASK_SORT_ORDER,
+	status: "__all__",
+} satisfies ManagedTaskQuery;
 
-function readManagedTaskQuery(searchParams: URLSearchParams): ManagedTaskQuery {
-	return {
-		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-		pageSize: parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			TASK_PAGE_SIZE_OPTIONS,
-			DEFAULT_TASK_PAGE_SIZE,
-		),
-		kind: parseTaskKindSearchParam(searchParams.get("kind")),
-		status: parseTaskStatusSearchParam(searchParams.get("status")),
-		sortBy: parseSortSearchParam(
-			searchParams.get("sortBy"),
-			TASK_SORT_BY_OPTIONS,
-			DEFAULT_TASK_SORT_BY,
-		),
-		sortOrder: parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_TASK_SORT_ORDER,
-		),
-	};
-}
-
-function mergeManagedTaskSearchParams(
-	searchParams: URLSearchParams,
-	managedSearchParams: URLSearchParams,
-) {
-	const merged = new URLSearchParams(searchParams);
-	for (const key of TASK_MANAGED_QUERY_KEYS) {
-		merged.delete(key);
-	}
-	for (const [key, value] of managedSearchParams.entries()) {
-		merged.set(key, value);
-	}
-	return merged;
-}
+const MANAGED_TASK_QUERY_SCHEMA = {
+	kind: {
+		keys: ["kind"],
+		parse: (searchParams) => parseTaskKindSearchParam(searchParams.get("kind")),
+		serialize: (value) => (value !== "__all__" ? value : undefined),
+	},
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		TASK_PAGE_SIZE_OPTIONS,
+		DEFAULT_TASK_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(TASK_SORT_BY_OPTIONS, DEFAULT_TASK_SORT_BY),
+	sortOrder: managedSortOrderQueryField(DEFAULT_TASK_SORT_ORDER),
+	status: {
+		keys: ["status"],
+		parse: (searchParams) =>
+			parseTaskStatusSearchParam(searchParams.get("status")),
+		serialize: (value) => (value !== "__all__" ? value : undefined),
+	},
+} satisfies ManagedListQuerySchema<ManagedTaskQuery>;
 
 function defaultCleanupFinishedBeforeValue() {
 	return toDateTimeLocalValue(
@@ -367,7 +331,14 @@ function useAdminTasksPageContent() {
 	const { t } = useTranslation(["admin", "tasks", "core"]);
 	usePageTitle(t("admin:tasks"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const taskQuery = readManagedTaskQuery(searchParams);
+	const { query: taskQuery, setQuery: setTaskQuery } = useManagedListQueryState(
+		{
+			defaults: MANAGED_TASK_QUERY_DEFAULTS,
+			schema: MANAGED_TASK_QUERY_SCHEMA,
+			searchParams,
+			setSearchParams,
+		},
+	);
 	const {
 		kind: kindFilter,
 		offset,
@@ -390,46 +361,36 @@ function useAdminTasksPageContent() {
 		detailDialogTaskId,
 		resumingStorageMigrationTaskId,
 	} = uiState;
-	const setTaskQuery = (updates: Partial<ManagedTaskQuery>) => {
-		const nextManagedSearchParams = buildManagedTaskSearchParams({
-			...taskQuery,
-			...updates,
-		});
-		setSearchParams(
-			mergeManagedTaskSearchParams(searchParams, nextManagedSearchParams),
-			{ replace: true },
-		);
-	};
-	const setOffset = (value: SetStateAction<number>) => {
-		setTaskQuery({
-			offset: normalizeOffset(
-				typeof value === "function" ? value(offset) : value,
-			),
-		});
-	};
+	const setOffset = useManagedOffset(setTaskQuery);
 
-	const { items, loading, reload, total } = useApiList(
-		() =>
+	const {
+		currentPage,
+		items,
+		loading,
+		nextPageDisabled,
+		prevPageDisabled,
+		reload,
+		total,
+		totalPages,
+	} = useManagedAdminList<TaskInfo, ManagedTaskQuery>({
+		loadPage: (query) =>
 			adminTaskService.list({
-				limit: pageSize,
-				offset,
-				...(kindFilter !== "__all__"
-					? { kind: kindFilter as BackgroundTaskKind }
+				limit: query.pageSize,
+				offset: query.offset,
+				...(query.kind !== "__all__"
+					? { kind: query.kind as BackgroundTaskKind }
 					: {}),
-				...(statusFilter !== "__all__" ? { status: statusFilter } : {}),
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				...(query.status !== "__all__" ? { status: query.status } : {}),
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[kindFilter, offset, pageSize, sortBy, sortOrder, statusFilter],
-	);
+		query: taskQuery,
+		setOffset,
+	});
 
 	const activeFilterCount =
 		(kindFilter !== "__all__" ? 1 : 0) + (statusFilter !== "__all__" ? 1 : 0);
 	const hasServerFilters = activeFilterCount > 0;
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 	const visibleDetailTaskId =
 		detailDialogTaskId != null &&
 		items.some((task) => task.id === detailDialogTaskId)

@@ -1,5 +1,5 @@
-import type { FormEvent, SetStateAction } from "react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import type { FormEvent } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -21,8 +21,20 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	managedStringQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingAction } from "@/hooks/usePendingAction";
 import { usePendingId } from "@/hooks/usePendingId";
@@ -30,15 +42,7 @@ import { loadAdminPolicyGroupLookup } from "@/lib/adminPolicyGroupLookup";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { runWhenIdle } from "@/lib/idleTask";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { emailSchema, passwordSchema, usernameSchema } from "@/lib/validation";
 import { adminUserService } from "@/services/adminService";
 import type { AdminUserSortBy } from "@/types/adminSort";
@@ -47,6 +51,7 @@ import type {
 	CreateUserInvitationRequest,
 	CreateUserReq,
 	UpdateUserRequest,
+	UserInfo,
 	UserRole,
 	UserStatus,
 } from "@/types/api";
@@ -60,15 +65,6 @@ type CreateUserTextField = "email" | "password" | "username";
 
 const USER_PAGE_SIZE_OPTIONS = [10, 20, 50] as const;
 const DEFAULT_USER_PAGE_SIZE = 20 as const;
-const USER_MANAGED_QUERY_KEYS = [
-	"keyword",
-	"offset",
-	"pageSize",
-	"role",
-	"sortBy",
-	"sortOrder",
-	"status",
-] as const;
 const USER_SORT_BY_OPTIONS = [
 	"id",
 	"username",
@@ -82,9 +78,16 @@ const USER_SORT_BY_OPTIONS = [
 ] as const satisfies readonly AdminUserSortBy[];
 const DEFAULT_USER_SORT_BY = "created_at" as const satisfies AdminUserSortBy;
 const DEFAULT_USER_SORT_ORDER = "desc" as const satisfies SortOrder;
-function normalizeOffset(offset: number) {
-	return Math.max(0, Math.floor(offset));
-}
+
+type ManagedUserQuery = {
+	keyword: string;
+	offset: number;
+	pageSize: (typeof USER_PAGE_SIZE_OPTIONS)[number];
+	role: "__all__" | UserRole;
+	sortBy: AdminUserSortBy;
+	sortOrder: SortOrder;
+	status: "__all__" | UserStatus;
+};
 
 function parseRoleSearchParam(value: string | null): "__all__" | UserRole {
 	return value === "admin" || value === "user" ? value : "__all__";
@@ -94,117 +97,58 @@ function parseStatusSearchParam(value: string | null): "__all__" | UserStatus {
 	return value === "active" || value === "disabled" ? value : "__all__";
 }
 
-function buildManagedUserSearchParams({
-	offset,
-	pageSize,
-	keyword,
-	role,
-	status,
-	sortBy,
-	sortOrder,
-}: {
-	offset: number;
-	pageSize: (typeof USER_PAGE_SIZE_OPTIONS)[number];
-	keyword: string;
-	role: "__all__" | UserRole;
-	status: "__all__" | UserStatus;
-	sortBy: AdminUserSortBy;
-	sortOrder: SortOrder;
-}) {
-	return buildOffsetPaginationSearchParams({
-		offset,
-		pageSize,
-		defaultPageSize: DEFAULT_USER_PAGE_SIZE,
-		extraParams: {
-			keyword: keyword.trim() || undefined,
-			role: role !== "__all__" ? role : undefined,
-			sortBy: sortBy !== DEFAULT_USER_SORT_BY ? sortBy : undefined,
-			sortOrder: sortOrder !== DEFAULT_USER_SORT_ORDER ? sortOrder : undefined,
-			status: status !== "__all__" ? status : undefined,
-		},
-	});
-}
+const MANAGED_USER_QUERY_DEFAULTS = {
+	keyword: "",
+	offset: 0,
+	pageSize: DEFAULT_USER_PAGE_SIZE,
+	role: "__all__",
+	sortBy: DEFAULT_USER_SORT_BY,
+	sortOrder: DEFAULT_USER_SORT_ORDER,
+	status: "__all__",
+} satisfies ManagedUserQuery;
 
-function getManagedUserSearchString(searchParams: URLSearchParams) {
-	return buildManagedUserSearchParams({
-		offset: normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-		pageSize: parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			USER_PAGE_SIZE_OPTIONS,
-			DEFAULT_USER_PAGE_SIZE,
-		),
-		keyword: searchParams.get("keyword") ?? "",
-		role: parseRoleSearchParam(searchParams.get("role")),
-		status: parseStatusSearchParam(searchParams.get("status")),
-		sortBy: parseSortSearchParam(
-			searchParams.get("sortBy"),
-			USER_SORT_BY_OPTIONS,
-			DEFAULT_USER_SORT_BY,
-		),
-		sortOrder: parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_USER_SORT_ORDER,
-		),
-	}).toString();
-}
-
-function mergeManagedUserSearchParams(
-	searchParams: URLSearchParams,
-	managedSearchParams: URLSearchParams,
-) {
-	const merged = new URLSearchParams(searchParams);
-	for (const key of USER_MANAGED_QUERY_KEYS) {
-		merged.delete(key);
-	}
-	for (const [key, value] of managedSearchParams.entries()) {
-		merged.set(key, value);
-	}
-	return merged;
-}
+const MANAGED_USER_QUERY_SCHEMA = {
+	keyword: managedStringQueryField({ key: "keyword" }),
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		USER_PAGE_SIZE_OPTIONS,
+		DEFAULT_USER_PAGE_SIZE,
+	),
+	role: {
+		keys: ["role"],
+		parse: (searchParams) => parseRoleSearchParam(searchParams.get("role")),
+		serialize: (value) => (value !== "__all__" ? value : undefined),
+	},
+	sortBy: managedSortByQueryField(USER_SORT_BY_OPTIONS, DEFAULT_USER_SORT_BY),
+	sortOrder: managedSortOrderQueryField(DEFAULT_USER_SORT_ORDER),
+	status: {
+		keys: ["status"],
+		parse: (searchParams) => parseStatusSearchParam(searchParams.get("status")),
+		serialize: (value) => (value !== "__all__" ? value : undefined),
+	},
+} satisfies ManagedListQuerySchema<ManagedUserQuery>;
 
 export default function AdminUsersPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("users"));
 	const navigate = useNavigate();
 	const [searchParams, setSearchParams] = useSearchParams();
-	const initialKeyword = searchParams.get("keyword") ?? "";
-	const initialRole = searchParams.get("role");
-	const initialStatus = searchParams.get("status");
-	const [offset, setOffsetState] = useState(
-		normalizeOffset(parseOffsetSearchParam(searchParams.get("offset"))),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof USER_PAGE_SIZE_OPTIONS)[number]
-	>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			USER_PAGE_SIZE_OPTIONS,
-			DEFAULT_USER_PAGE_SIZE,
-		),
-	);
-	const [keyword, setKeyword] = useState(initialKeyword);
-	const [debouncedKeyword, setDebouncedKeyword] = useState(initialKeyword);
-	const [roleFilter, setRoleFilter] = useState<"__all__" | UserRole>(
-		initialRole === "admin" || initialRole === "user" ? initialRole : "__all__",
-	);
-	const [statusFilter, setStatusFilter] = useState<"__all__" | UserStatus>(
-		initialStatus === "active" || initialStatus === "disabled"
-			? initialStatus
-			: "__all__",
-	);
-	const [sortBy, setSortBy] = useState<AdminUserSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			USER_SORT_BY_OPTIONS,
-			DEFAULT_USER_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_USER_SORT_ORDER,
-		),
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_USER_QUERY_DEFAULTS,
+		schema: MANAGED_USER_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const {
+		keyword: debouncedKeyword,
+		offset,
+		pageSize,
+		role: roleFilter,
+		sortBy,
+		sortOrder,
+		status: statusFilter,
+	} = query;
+	const [keyword, setKeyword] = useState(debouncedKeyword);
 	const [detailDialogUserId, setDetailDialogUserId] = useState<number | null>(
 		null,
 	);
@@ -228,19 +172,23 @@ export default function AdminUsersPage() {
 	});
 	const [createdInvitation, setCreatedInvitation] =
 		useState<AdminUserInvitationInfo | null>(null);
-	const lastWrittenSearchRef = useRef<string | null>(null);
-	const setOffset = (value: SetStateAction<number>) => {
-		setOffsetState((current) =>
-			normalizeOffset(typeof value === "function" ? value(current) : value),
-		);
-	};
+	const setOffset = useManagedOffset(setQuery);
 
 	useEffect(() => {
+		if (keyword === debouncedKeyword) {
+			return;
+		}
 		const timer = window.setTimeout(() => {
-			setDebouncedKeyword(keyword);
+			setQuery({ keyword, offset: 0 });
 		}, 300);
 		return () => window.clearTimeout(timer);
-	}, [keyword]);
+	}, [debouncedKeyword, keyword, setQuery]);
+
+	useEffect(() => {
+		setKeyword((current) =>
+			current === debouncedKeyword ? current : debouncedKeyword,
+		);
+	}, [debouncedKeyword]);
 
 	useEffect(() => {
 		return runWhenIdle(() => {
@@ -248,111 +196,31 @@ export default function AdminUsersPage() {
 		});
 	}, []);
 
-	useEffect(() => {
-		const managedSearch = getManagedUserSearchString(searchParams);
-		if (managedSearch === lastWrittenSearchRef.current) {
-			return;
-		}
-
-		const nextOffset = normalizeOffset(
-			parseOffsetSearchParam(searchParams.get("offset")),
-		);
-		const nextPageSize = parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			USER_PAGE_SIZE_OPTIONS,
-			DEFAULT_USER_PAGE_SIZE,
-		);
-		const nextKeyword = searchParams.get("keyword") ?? "";
-		const nextRole = parseRoleSearchParam(searchParams.get("role"));
-		const nextStatus = parseStatusSearchParam(searchParams.get("status"));
-		const nextSortBy = parseSortSearchParam(
-			searchParams.get("sortBy"),
-			USER_SORT_BY_OPTIONS,
-			DEFAULT_USER_SORT_BY,
-		);
-		const nextSortOrder = parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_USER_SORT_ORDER,
-		);
-
-		setOffsetState((prev) => (prev === nextOffset ? prev : nextOffset));
-		setPageSize((prev) => (prev === nextPageSize ? prev : nextPageSize));
-		setKeyword((prev) => (prev === nextKeyword ? prev : nextKeyword));
-		setDebouncedKeyword((prev) => (prev === nextKeyword ? prev : nextKeyword));
-		setRoleFilter((prev) => (prev === nextRole ? prev : nextRole));
-		setStatusFilter((prev) => (prev === nextStatus ? prev : nextStatus));
-		setSortBy((prev) => (prev === nextSortBy ? prev : nextSortBy));
-		setSortOrder((prev) => (prev === nextSortOrder ? prev : nextSortOrder));
-	}, [searchParams]);
-
-	useEffect(() => {
-		const nextManagedSearchParams = buildManagedUserSearchParams({
-			offset,
-			pageSize,
-			keyword: debouncedKeyword,
-			role: roleFilter,
-			status: statusFilter,
-			sortBy,
-			sortOrder,
-		});
-		const nextSearch = nextManagedSearchParams.toString();
-		const currentSearch = getManagedUserSearchString(searchParams);
-		if (
-			currentSearch !== lastWrittenSearchRef.current &&
-			currentSearch !== nextSearch
-		) {
-			return;
-		}
-
-		lastWrittenSearchRef.current = nextSearch;
-		if (nextSearch === currentSearch) {
-			return;
-		}
-
-		setSearchParams(
-			mergeManagedUserSearchParams(searchParams, nextManagedSearchParams),
-			{ replace: true },
-		);
-	}, [
-		debouncedKeyword,
-		offset,
-		pageSize,
-		roleFilter,
-		searchParams,
-		setSearchParams,
-		sortBy,
-		sortOrder,
-		statusFilter,
-	]);
-
 	const {
+		currentPage,
 		items: users,
 		loading,
+		nextPageDisabled,
+		prevPageDisabled,
 		reload: reloadUsers,
 		setItems: setUsers,
 		setTotal,
 		total,
-	} = useApiList(
-		() =>
+		totalPages,
+	} = useManagedAdminList<UserInfo, ManagedUserQuery>({
+		loadPage: (query) =>
 			adminUserService.list({
-				limit: pageSize,
-				offset,
-				keyword: debouncedKeyword.trim() || undefined,
-				role: roleFilter === "__all__" ? undefined : roleFilter,
-				status: statusFilter === "__all__" ? undefined : statusFilter,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				limit: query.pageSize,
+				offset: query.offset,
+				keyword: query.keyword.trim() || undefined,
+				role: query.role === "__all__" ? undefined : query.role,
+				status: query.status === "__all__" ? undefined : query.status,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[
-			debouncedKeyword,
-			offset,
-			pageSize,
-			roleFilter,
-			sortBy,
-			sortOrder,
-			statusFilter,
-		],
-	);
+		query,
+		setOffset,
+	});
 	const { pendingId: deletingUserId, runWithPending: runWithDeletingUser } =
 		usePendingId<number>();
 	const { pending: creating, runWithPending: runWithCreatingUser } =
@@ -362,51 +230,38 @@ export default function AdminUsersPage() {
 		(debouncedKeyword.trim().length > 0 ? 1 : 0) +
 		(roleFilter !== "__all__" ? 1 : 0) +
 		(statusFilter !== "__all__" ? 1 : 0);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
 	const hasServerFilters = activeFilterCount > 0;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 
 	const resetFilters = () => {
 		setKeyword("");
-		setDebouncedKeyword("");
-		setRoleFilter("__all__");
-		setStatusFilter("__all__");
-		setOffset(0);
+		setQuery({ keyword: "", offset: 0, role: "__all__", status: "__all__" });
 	};
 
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, USER_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleKeywordChange = (value: string) => {
 		setKeyword(value);
-		setOffset(0);
 	};
 
 	const handleRoleFilterChange = (value: string | null) => {
 		if (!value) return;
-		setRoleFilter(value as "__all__" | UserRole);
-		setOffset(0);
+		setQuery({ offset: 0, role: value as "__all__" | UserRole });
 	};
 
 	const handleStatusFilterChange = (value: string | null) => {
 		if (!value) return;
-		setStatusFilter(value as "__all__" | UserStatus);
-		setOffset(0);
+		setQuery({ offset: 0, status: value as "__all__" | UserStatus });
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminUserSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
 	const resetCreateForm = () => {

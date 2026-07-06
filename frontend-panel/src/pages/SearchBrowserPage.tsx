@@ -11,6 +11,7 @@ import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import type { FileBrowserContextValue } from "@/components/files/FileBrowserContext";
+import { FILE_BROWSER_BATCH_ACTION_POLICIES } from "@/components/files/fileActionPolicy";
 import { getImagePreviewNavigation } from "@/components/files/preview/navigation/imagePreviewNavigation";
 import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
@@ -392,7 +393,7 @@ export default function SearchBrowserPage() {
 
 	const { dialogs: batchActionDialogs, selectionToolbar } =
 		useFileBrowserBatchActions({
-			allowCopyMove: false,
+			...FILE_BROWSER_BATCH_ACTION_POLICIES.virtual,
 			displayFiles: files,
 			displayFolders: folders,
 			onChanged: () => loadSearch(0, "replace"),

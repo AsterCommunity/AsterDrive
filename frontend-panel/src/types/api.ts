@@ -445,6 +445,12 @@ export type AdminTaskCleanupRequest =
 	components["schemas"]["AdminTaskCleanupReq"];
 export type AdminLockListQuery = OperationQuery<"list_locks">;
 export type ConfigActionType = components["schemas"]["ConfigActionType"];
+export type ConfigActionDescriptor =
+	components["schemas"]["ConfigActionDescriptor"];
+export type ConfigActionPresentation =
+	components["schemas"]["ConfigActionPresentation"];
+export type ConfigInvalidationTarget =
+	components["schemas"]["ConfigInvalidationTarget"];
 export type ConfigSchemaItem = components["schemas"]["ConfigSchemaItem"];
 export type ConfigSchemaOption = components["schemas"]["ConfigSchemaOption"];
 export type AdminConfigListQuery = OperationQuery<"list_config">;

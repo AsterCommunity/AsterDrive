@@ -843,6 +843,125 @@ describe("AdminFilesPage", () => {
 		});
 	});
 
+	it("falls back from an empty page to the last available blob page", async () => {
+		mockState.listBlobs
+			.mockResolvedValueOnce({
+				items: [],
+				total: 21,
+			})
+			.mockResolvedValue({
+				items: [createBlob()],
+				total: 21,
+			});
+
+		renderPage("blobs", "/admin/file-blobs?offset=40");
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 40,
+				policy_id: undefined,
+				ref_count_max: undefined,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+
+		await waitFor(() => {
+			expect(mockState.listBlobs).toHaveBeenLastCalledWith({
+				hash: undefined,
+				limit: 20,
+				offset: 20,
+				policy_id: undefined,
+				ref_count_max: undefined,
+				ref_count_min: undefined,
+				size_max: undefined,
+				size_min: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				storage_path: undefined,
+			});
+		});
+		expect(screen.getByTestId("location-search").textContent).toContain(
+			"offset=20",
+		);
+	});
+
+	it("resets offset when changing file page size or sort", async () => {
+		mockState.listFiles.mockResolvedValue({
+			items: [createFile()],
+			total: 65,
+		});
+
+		renderPage("files", "/admin/files?offset=20");
+
+		await waitFor(() => {
+			expect(mockState.listFiles).toHaveBeenCalledWith({
+				blob_id: undefined,
+				deleted: undefined,
+				limit: 20,
+				name: undefined,
+				offset: 20,
+				owner_user_id: undefined,
+				policy_id: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				team_id: undefined,
+			});
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "size:50" }));
+
+		await waitFor(() => {
+			expect(mockState.listFiles).toHaveBeenLastCalledWith({
+				blob_id: undefined,
+				deleted: undefined,
+				limit: 50,
+				name: undefined,
+				offset: 0,
+				owner_user_id: undefined,
+				policy_id: undefined,
+				sort_by: "created_at",
+				sort_order: "desc",
+				team_id: undefined,
+			});
+		});
+		await waitFor(() => {
+			const search = screen.getByTestId("location-search").textContent ?? "";
+			expect(search).toContain("pageSize=50");
+			expect(search).not.toContain("offset=20");
+		});
+
+		fireEvent.click(screen.getByRole("button", { name: "core:name" }));
+
+		await waitFor(() => {
+			expect(mockState.listFiles).toHaveBeenLastCalledWith({
+				blob_id: undefined,
+				deleted: undefined,
+				limit: 50,
+				name: undefined,
+				offset: 0,
+				owner_user_id: undefined,
+				policy_id: undefined,
+				sort_by: "name",
+				sort_order: "asc",
+				team_id: undefined,
+			});
+		});
+		await waitFor(() => {
+			const search = screen.getByTestId("location-search").textContent ?? "";
+			expect(search).toContain("pageSize=50");
+			expect(search).toContain("sortBy=name");
+			expect(search).toContain("sortOrder=asc");
+			expect(search).not.toContain("offset=20");
+		});
+	});
+
 	it("opens blob details from keyboard activation", async () => {
 		renderPage("blobs");
 
