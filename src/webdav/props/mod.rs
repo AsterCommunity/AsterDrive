@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
 use std::io::Cursor;
+use std::time::Instant;
 
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
@@ -37,10 +38,13 @@ enum PropfindKind {
 }
 
 struct PropfindResource {
-    path: DavPath,
+    path: Option<DavPath>,
     relative: String,
     meta: Box<dyn DavMetaData>,
 }
+
+type PropKey = (String, Option<String>);
+type PropKeySet = BTreeSet<PropKey>;
 
 #[derive(Default)]
 struct PropfindPreload {
@@ -108,7 +112,7 @@ impl PropfindPreload {
                 .filter(|resource| !is_root_resource(resource))
                 .filter_map(|resource| {
                     let (entity_type, entity_id) = resource.meta.property_entity()?;
-                    Some((resource.path.clone(), entity_type, entity_id))
+                    Some((resource.path.clone()?, entity_type, entity_id))
                 })
                 .collect::<Vec<_>>();
             preload.dead_props = dav_fs
@@ -123,7 +127,7 @@ impl PropfindPreload {
         if propfind_kind_needs_lockdiscovery(request_kind) {
             let paths = resources
                 .iter()
-                .map(|resource| resource.path.clone())
+                .filter_map(|resource| resource.path.clone())
                 .collect::<Vec<_>>();
             preload.locks = lock_system.discover_many(&paths).await;
         }
@@ -132,15 +136,19 @@ impl PropfindPreload {
     }
 
     fn dead_props_for(&self, resource: &PropfindResource) -> &[DavProp] {
-        self.dead_props
-            .get(&resource.path)
+        resource
+            .path
+            .as_ref()
+            .and_then(|path| self.dead_props.get(path))
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
 
     fn locks_for(&self, resource: &PropfindResource) -> &[DavLock] {
-        self.locks
-            .get(&resource.path)
+        resource
+            .path
+            .as_ref()
+            .and_then(|path| self.locks.get(path))
             .map(Vec::as_slice)
             .unwrap_or_default()
     }
@@ -180,36 +188,67 @@ pub(crate) async fn handle_propfind(
         Err(resp) => return resp,
     };
 
+    let request_started_at = Instant::now();
+    let metadata_started_at = Instant::now();
     let root_meta = match dav_fs.metadata(&path).await {
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
+    let metadata_elapsed_ms = metadata_started_at.elapsed().as_millis();
     if depth == Depth::Infinity && root_meta.is_dir() {
         return responses::propfind_finite_depth_response();
     }
-    let resources = match collect_propfind_resources(dav_fs, &path, &relative, depth).await {
+    let collect_started_at = Instant::now();
+    let preload_needs_paths = propfind_kind_needs_dead_props(&request_kind)
+        || propfind_kind_needs_lockdiscovery(&request_kind);
+    let resources = match collect_propfind_resources(
+        dav_fs,
+        &path,
+        &relative,
+        depth,
+        root_meta,
+        preload_needs_paths,
+    )
+    .await
+    {
         Ok(resources) => resources,
         Err(err) => return fs_error_response(err),
     };
+    let collect_elapsed_ms = collect_started_at.elapsed().as_millis();
+    let resource_count = resources.len();
+
+    let preload_started_at = Instant::now();
     let preload = match PropfindPreload::load(dav_fs, lock_system, &request_kind, &resources).await
     {
         Ok(preload) => preload,
         Err(resp) => return resp,
     };
+    let preload_elapsed_ms = preload_started_at.elapsed().as_millis();
 
     let mut multistatus = dav_element("multistatus");
     multistatus
         .attributes
         .insert("xmlns:D".to_string(), "DAV:".to_string());
 
+    let render_started_at = Instant::now();
     for resource in resources {
-        let response =
-            match build_propfind_response(prefix, &request_kind, &preload, resource).await {
-                Ok(response) => response,
-                Err(resp) => return resp,
-            };
+        let response = match build_propfind_response(prefix, &request_kind, &preload, resource) {
+            Ok(response) => response,
+            Err(resp) => return resp,
+        };
         multistatus.children.push(XMLNode::Element(response));
     }
+    tracing::debug!(
+        depth = ?depth,
+        kind = propfind_kind_label(&request_kind),
+        resource_count,
+        metadata_elapsed_ms,
+        collect_elapsed_ms,
+        preload_elapsed_ms,
+        render_elapsed_ms = render_started_at.elapsed().as_millis(),
+        total_elapsed_ms = request_started_at.elapsed().as_millis(),
+        "WebDAV PROPFIND completed"
+    );
 
     xml_response(multistatus, multi_status())
 }
@@ -416,11 +455,12 @@ async fn collect_propfind_resources(
     path: &DavPath,
     relative: &str,
     depth: Depth,
+    root_meta: Box<dyn DavMetaData>,
+    include_paths: bool,
 ) -> Result<Vec<PropfindResource>, FsError> {
-    let root_meta = dav_fs.metadata(path).await?;
     let root_is_dir = root_meta.is_dir();
     let mut resources = vec![PropfindResource {
-        path: path.clone(),
+        path: include_paths.then(|| path.clone()),
         relative: relative.to_string(),
         meta: root_meta,
     }];
@@ -432,7 +472,11 @@ async fn collect_propfind_resources(
             let entry = entry?;
             let meta = entry.metadata().await?;
             let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir());
-            let child_path = DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?;
+            let child_path = if include_paths {
+                Some(DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?)
+            } else {
+                None
+            };
             resources.push(PropfindResource {
                 path: child_path,
                 relative: child_relative,
@@ -444,7 +488,15 @@ async fn collect_propfind_resources(
     Ok(resources)
 }
 
-async fn build_propfind_response(
+fn propfind_kind_label(kind: &PropfindKind) -> &'static str {
+    match kind {
+        PropfindKind::AllProp { .. } => "allprop",
+        PropfindKind::PropName => "propname",
+        PropfindKind::Prop(_) => "prop",
+    }
+}
+
+fn build_propfind_response(
     prefix: &str,
     request_kind: &PropfindKind,
     preload: &PropfindPreload,
@@ -458,13 +510,13 @@ async fn build_propfind_response(
 
     let propstats = match request_kind {
         PropfindKind::AllProp { include } => {
-            all_propstat_elements(prefix, &resource, include, preload).await?
+            all_propstat_elements(prefix, &resource, include, preload)?
         }
         PropfindKind::PropName => {
             vec![(StatusCode::OK, prop_name_elements(&resource, preload))]
         }
         PropfindKind::Prop(requested) => {
-            requested_prop_elements(prefix, &resource, requested, preload).await?
+            requested_prop_elements(prefix, &resource, requested, preload)?
         }
     };
 
@@ -487,11 +539,11 @@ async fn build_propfind_response(
     Ok(response)
 }
 
-async fn all_prop_elements(
+fn all_prop_elements(
     prefix: &str,
     resource: &PropfindResource,
     preload: &PropfindPreload,
-) -> Result<(Vec<Element>, BTreeSet<(String, Option<String>)>), HttpResponse> {
+) -> Result<(Vec<Element>, PropKeySet), HttpResponse> {
     let mut props = standard_prop_name_list(resource)
         .into_iter()
         .map(|prop| RequestedProp {
@@ -507,24 +559,24 @@ async fn all_prop_elements(
     let custom_props = preload.dead_props_for(resource);
     let mut elements = Vec::new();
     for requested in props.drain(..) {
-        if let Some(element) = standard_prop_element(prefix, resource, &requested, preload).await? {
+        if let Some(element) = standard_prop_element(prefix, resource, &requested, preload)? {
             elements.push(element);
         }
     }
     for prop in custom_props {
-        keys.insert(dav_prop_key(&prop));
-        elements.push(prop_element(&prop, None));
+        keys.insert(dav_prop_key(prop));
+        elements.push(prop_element(prop, None));
     }
     Ok((elements, keys))
 }
 
-async fn all_propstat_elements(
+fn all_propstat_elements(
     prefix: &str,
     resource: &PropfindResource,
     include: &[RequestedProp],
     preload: &PropfindPreload,
 ) -> Result<Vec<(StatusCode, Vec<Element>)>, HttpResponse> {
-    let (all_props, all_prop_keys) = all_prop_elements(prefix, resource, preload).await?;
+    let (all_props, all_prop_keys) = all_prop_elements(prefix, resource, preload)?;
     if include.is_empty() {
         return Ok(vec![(StatusCode::OK, all_props)]);
     }
@@ -539,7 +591,7 @@ async fn all_propstat_elements(
     }
 
     let mut result = vec![(StatusCode::OK, all_props)];
-    let requested = requested_prop_elements(prefix, resource, &include, preload).await?;
+    let requested = requested_prop_elements(prefix, resource, &include, preload)?;
     for (status, props) in requested {
         if !props.is_empty() {
             result.push((status, props));
@@ -571,7 +623,7 @@ fn prop_name_elements(resource: &PropfindResource, preload: &PropfindPreload) ->
     elements
 }
 
-async fn requested_prop_elements(
+fn requested_prop_elements(
     prefix: &str,
     resource: &PropfindResource,
     requested: &[RequestedProp],
@@ -587,7 +639,7 @@ async fn requested_prop_elements(
             continue;
         }
 
-        if let Some(element) = standard_prop_element(prefix, resource, prop, preload).await? {
+        if let Some(element) = standard_prop_element(prefix, resource, prop, preload)? {
             ok.push(element);
             continue;
         }
@@ -650,7 +702,7 @@ fn is_lockdiscovery_prop(prop: &RequestedProp) -> bool {
     prop.namespace.as_deref().unwrap_or("DAV:") == "DAV:" && prop.name == "lockdiscovery"
 }
 
-async fn standard_prop_element(
+fn standard_prop_element(
     prefix: &str,
     resource: &PropfindResource,
     requested: &RequestedProp,
@@ -684,6 +736,22 @@ async fn standard_prop_element(
             element
                 .children
                 .push(XMLNode::Text(resource.meta.len().to_string()));
+            Ok(Some(element))
+        }
+        "getcontenttype" => {
+            if resource.meta.is_dir() {
+                return Ok(None);
+            }
+            let Some(content_type) = resource
+                .meta
+                .content_type()
+                .filter(|value| !value.is_empty())
+            else {
+                return Ok(None);
+            };
+            element
+                .children
+                .push(XMLNode::Text(content_type.to_string()));
             Ok(Some(element))
         }
         "getlastmodified" => {
@@ -829,6 +897,7 @@ fn standard_prop_name_list(resource: &PropfindResource) -> Vec<&'static str> {
     ];
     if !resource.meta.is_dir() {
         props.insert(2, "getcontentlength");
+        props.insert(3, "getcontenttype");
     }
     props
 }
@@ -839,6 +908,7 @@ fn is_standard_live_prop_name(name: &str) -> bool {
         "displayname"
             | "resourcetype"
             | "getcontentlength"
+            | "getcontenttype"
             | "getlastmodified"
             | "creationdate"
             | "getetag"
@@ -874,6 +944,7 @@ mod tests {
     use xmltree::Element;
 
     use super::handle_propfind;
+    use crate::types::EntityType;
     use crate::webdav::dav::{
         DavDirEntry, DavFile, DavFileSystem, DavLock, DavLockError, DavLockSystem, DavMetaData,
         DavPath, DavProp, FsError, FsFuture, FsResult, FsStream, LsFuture, OpenOptions,
@@ -882,12 +953,15 @@ mod tests {
 
     struct PropfindTestFs {
         child_count: usize,
+        metadata_calls: Arc<AtomicUsize>,
         get_props_calls: Arc<AtomicUsize>,
     }
 
     struct PropfindTestMeta {
         is_dir: bool,
         len: u64,
+        content_type: Option<&'static str>,
+        property_entity: Option<(EntityType, i64)>,
     }
 
     impl DavMetaData for PropfindTestMeta {
@@ -911,8 +985,16 @@ mod tests {
             })
         }
 
+        fn content_type(&self) -> Option<&str> {
+            self.content_type
+        }
+
         fn created(&self) -> FsResult<SystemTime> {
             Ok(SystemTime::UNIX_EPOCH)
+        }
+
+        fn property_entity(&self) -> Option<(EntityType, i64)> {
+            self.property_entity
         }
     }
 
@@ -931,6 +1013,11 @@ mod tests {
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: self.len,
+                    content_type: Some("text/plain"),
+                    property_entity: Some((
+                        EntityType::File,
+                        i64::try_from(self.len).expect("test len should fit i64"),
+                    )),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -969,16 +1056,21 @@ mod tests {
 
         fn metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
             Box::pin(async move {
+                self.metadata_calls.fetch_add(1, Ordering::SeqCst);
                 if path.as_str() == "/" {
                     return Ok(Box::new(PropfindTestMeta {
                         is_dir: true,
                         len: 0,
+                        content_type: None,
+                        property_entity: None,
                     }) as Box<dyn DavMetaData>);
                 }
 
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: 1,
+                    content_type: Some("text/plain"),
+                    property_entity: Some((EntityType::File, 1)),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -1095,14 +1187,16 @@ mod tests {
         }
     }
 
-    async fn propfind_depth_one(body: &'static str) -> (String, usize, usize, usize) {
+    async fn propfind_depth_one(body: &'static str) -> (String, usize, usize, usize, usize) {
         const CHILD_COUNT: usize = 24;
 
+        let metadata_calls = Arc::new(AtomicUsize::new(0));
         let get_props_calls = Arc::new(AtomicUsize::new(0));
         let discover_calls = Arc::new(AtomicUsize::new(0));
         let discover_many_calls = Arc::new(AtomicUsize::new(0));
         let fs = PropfindTestFs {
             child_count: CHILD_COUNT,
+            metadata_calls: metadata_calls.clone(),
             get_props_calls: get_props_calls.clone(),
         };
         let lock_system = PropfindTestLockSystem {
@@ -1122,6 +1216,7 @@ mod tests {
             .expect("PROPFIND response body should be readable");
         (
             String::from_utf8(body.to_vec()).expect("PROPFIND body should be utf-8"),
+            metadata_calls.load(Ordering::SeqCst),
             get_props_calls.load(Ordering::SeqCst),
             discover_calls.load(Ordering::SeqCst),
             discover_many_calls.load(Ordering::SeqCst),
@@ -1136,14 +1231,20 @@ mod tests {
     <D:displayname />
     <D:resourcetype />
     <D:getcontentlength />
+    <D:getcontenttype />
     <D:getlastmodified />
     <D:creationdate />
     <D:getetag />
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, calls, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, metadata_calls, calls, discover_calls, discover_many_calls) =
+            propfind_depth_one(body).await;
 
+        assert_eq!(
+            metadata_calls, 1,
+            "Depth: 1 PROPFIND should reuse root metadata instead of loading it twice: {xml}"
+        );
         assert_eq!(
             calls, 0,
             "live-property-only Depth: 1 PROPFIND should not load dead properties: {xml}"
@@ -1156,6 +1257,10 @@ mod tests {
         assert!(
             xml.contains("file-23.txt") && xml.contains("getlastmodified"),
             "live property response should still include child resources and requested live props: {xml}"
+        );
+        assert!(
+            xml.contains("<D:getcontenttype>text/plain</D:getcontenttype>"),
+            "file live property response should include stored content type: {xml}"
         );
         assert_eq!(discover_calls, 0, "live props should not discover locks");
         assert_eq!(
@@ -1174,7 +1279,7 @@ mod tests {
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, calls, _, _) = propfind_depth_one(body).await;
+        let (xml, _, calls, _, _) = propfind_depth_one(body).await;
 
         assert_eq!(
             calls, 24,
@@ -1188,7 +1293,7 @@ mod tests {
 
     #[actix_web::test]
     async fn propfind_depth_one_allprop_still_loads_dead_properties() {
-        let (xml, calls, _, discover_many_calls) = propfind_depth_one("").await;
+        let (xml, _, calls, _, discover_many_calls) = propfind_depth_one("").await;
 
         assert_eq!(
             calls, 24,
@@ -1211,7 +1316,7 @@ mod tests {
   <D:propname />
 </D:propfind>"#;
 
-        let (xml, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, _, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
 
         assert!(
             xml.contains("<D:lockdiscovery />"),
@@ -1236,7 +1341,7 @@ mod tests {
   </D:prop>
 </D:propfind>"#;
 
-        let (xml, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
+        let (xml, _, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
 
         assert!(
             xml.contains("lockdiscovery"),

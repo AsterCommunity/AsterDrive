@@ -55,7 +55,31 @@ pub(crate) async fn invalidate_webdav_auth_for_user(
     state: &impl SharedRuntimeState,
     user_id: i64,
 ) -> Result<(), AsterError> {
-    let accounts = webdav_account_repo::find_by_user(state.writer_db(), user_id).await?;
+    let accounts = webdav_account_repo::find_all_by_user(state.writer_db(), user_id).await?;
+    for account in accounts {
+        invalidate_webdav_auth_for_username(state, &account.username).await;
+    }
+    Ok(())
+}
+
+pub(crate) async fn invalidate_webdav_auth_for_team(
+    state: &impl SharedRuntimeState,
+    team_id: i64,
+) -> Result<(), AsterError> {
+    let accounts = webdav_account_repo::find_by_team(state.writer_db(), team_id).await?;
+    for account in accounts {
+        invalidate_webdav_auth_for_username(state, &account.username).await;
+    }
+    Ok(())
+}
+
+pub(crate) async fn invalidate_webdav_auth_for_team_member(
+    state: &impl SharedRuntimeState,
+    team_id: i64,
+    user_id: i64,
+) -> Result<(), AsterError> {
+    let accounts =
+        webdav_account_repo::find_by_team_and_user(state.writer_db(), team_id, user_id).await?;
     for account in accounts {
         invalidate_webdav_auth_for_username(state, &account.username).await;
     }
@@ -99,7 +123,6 @@ async fn authenticate_basic(
         .ok_or_else(|| AsterError::auth_invalid_credentials("invalid basic auth format"))?;
 
     if let Some(cached) = cache::load_auth(state, username, password).await {
-        validate_cached_account(state, username, password, &cached).await?;
         tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
         return Ok(WebdavAuthResult {
             account_id: cached.account_id,
@@ -171,56 +194,9 @@ async fn authenticate_basic(
     })
 }
 
-async fn validate_cached_account(
-    state: &impl SharedRuntimeState,
-    username: &str,
-    password: &str,
-    cached: &CachedWebdavAuth,
-) -> Result<(), AsterError> {
-    let account = webdav_account_repo::find_by_id(state.writer_db(), cached.account_id).await?;
-    if account.username != username
-        || account.user_id != cached.user_id
-        || account.team_id != cached.team_id
-        || account.root_folder_id != cached.root_folder_id
-    {
-        invalidate_webdav_auth_for_username(state, username).await;
-        return Err(AsterError::auth_invalid_credentials(
-            "cached WebDAV account changed",
-        ));
-    }
-    if !account.is_active {
-        invalidate_webdav_auth_for_username(state, username).await;
-        return Err(auth_forbidden_with_code(
-            ApiErrorCode::AuthAccountDisabled,
-            "WebDAV account is disabled",
-        ));
-    }
-    if !hash::verify_password(password, &account.password_hash)? {
-        invalidate_webdav_auth_for_username(state, username).await;
-        return Err(AsterError::auth_invalid_credentials(
-            "cached WebDAV password changed",
-        ));
-    }
-    validate_cached_scope(state, cached.scope()).await
-}
-
-async fn validate_cached_scope(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-) -> Result<(), AsterError> {
-    let user = user_repo::find_by_id(state.writer_db(), scope.actor_user_id()).await?;
-    if !user.status.is_active() {
-        return Err(auth_forbidden_with_code(
-            ApiErrorCode::AuthAccountDisabled,
-            "user account is disabled",
-        ));
-    }
-    crate::services::workspace_storage_service::require_scope_access(state, scope).await
-}
-
 #[cfg(test)]
 mod tests {
-    use super::authenticate_webdav;
+    use super::{authenticate_webdav, invalidate_webdav_auth_for_username};
     use crate::cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::{user, webdav_account};
@@ -395,7 +371,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn cached_basic_auth_rechecks_account_active_state() {
+    async fn cached_basic_auth_rejects_disabled_account_after_invalidation() {
         let state = build_auth_test_state().await;
         let (username, password, _, _, _) = seed_webdav_account(&state).await;
 
@@ -416,16 +392,17 @@ mod tests {
             .update(state.writer_db())
             .await
             .expect("account disable should work");
+        invalidate_webdav_auth_for_username(&state, &username).await;
 
         let err = authenticate_webdav(&basic_headers(&username, &password), &state)
             .await
-            .expect_err("cached auth should reject a disabled account immediately");
+            .expect_err("invalidated auth should reject a disabled account immediately");
 
         assert!(matches!(err, AsterError::AuthForbidden(_)));
     }
 
     #[actix_web::test]
-    async fn cached_basic_auth_rechecks_current_password_hash() {
+    async fn cached_basic_auth_rejects_changed_password_after_invalidation() {
         let state = build_auth_test_state().await;
         let (username, password, _, _, _) = seed_webdav_account(&state).await;
 
@@ -447,10 +424,11 @@ mod tests {
             .update(state.writer_db())
             .await
             .expect("password update should work");
+        invalidate_webdav_auth_for_username(&state, &username).await;
 
         let err = authenticate_webdav(&basic_headers(&username, &password), &state)
             .await
-            .expect_err("cached auth should reject the old password immediately");
+            .expect_err("invalidated auth should reject the old password immediately");
 
         assert!(matches!(err, AsterError::AuthInvalidCredentials(_)));
     }

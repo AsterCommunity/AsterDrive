@@ -41,6 +41,20 @@ pub async fn find_by_user(
         .map_err(AsterError::from)
 }
 
+/// Enumerates every WebDAV account owned by the user, including team-linked
+/// accounts. Unlike `find_by_user`, this intentionally does not filter `team_id`.
+pub async fn find_all_by_user(
+    db: &DatabaseConnection,
+    user_id: i64,
+) -> Result<Vec<webdav_account::Model>> {
+    WebdavAccount::find()
+        .filter(webdav_account::Column::UserId.eq(user_id))
+        .order_by_asc(webdav_account::Column::Id)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn find_by_team(
     db: &DatabaseConnection,
     team_id: i64,

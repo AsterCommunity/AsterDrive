@@ -1,11 +1,12 @@
 //! WebDAV 子模块：`fs`。
 
-use std::{collections::HashMap, pin::Pin};
+use std::{collections::HashMap, pin::Pin, time::Instant};
 
 use futures::stream;
 use tokio::io::AsyncRead;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
+use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
@@ -35,6 +36,12 @@ pub struct AsterDavFs {
     /// 限制访问范围：None = 用户全部文件，Some(id) = 只能访问该文件夹及子目录
     root_folder_id: Option<i64>,
     audit_ctx: AuditContext,
+}
+
+pub(crate) struct AsterDavDownloadFile {
+    pub(crate) file: file::Model,
+    pub(crate) blob: file_blob::Model,
+    pub(crate) meta: AsterDavMeta,
 }
 
 impl std::fmt::Debug for AsterDavFs {
@@ -85,19 +92,10 @@ impl AsterDavFs {
         self.scope
     }
 
-    pub(crate) async fn open_read_stream(
+    pub(crate) async fn resolve_download_target(
         &self,
         path: &DavPath,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
-        self.open_read_stream_with_range(path, None, None).await
-    }
-
-    pub(crate) async fn open_read_stream_with_range(
-        &self,
-        path: &DavPath,
-        offset: Option<u64>,
-        length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
+    ) -> Result<Option<AsterDavDownloadFile>, FsError> {
         let node = path_resolver::resolve_path_cached_for_read_in_scope(
             &self.state,
             self.scope,
@@ -107,13 +105,27 @@ impl AsterDavFs {
         .await?;
 
         let file = match node {
+            ResolvedNode::Root | ResolvedNode::Folder(_) => {
+                return Ok(None);
+            }
             ResolvedNode::File(file) => file,
-            _ => return Err(FsError::Forbidden),
         };
 
         let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
             .await
             .map_err(|_| FsError::GeneralFailure)?;
+        let meta = AsterDavMeta::from_file(&file, &blob);
+
+        Ok(Some(AsterDavDownloadFile { file, blob, meta }))
+    }
+
+    pub(crate) async fn open_download_stream_for_file(
+        &self,
+        file: &file::Model,
+        blob: &file_blob::Model,
+        offset: Option<u64>,
+        length: Option<u64>,
+    ) -> Result<Box<dyn AsyncRead + Unpin + Send>, FsError> {
         let policy = self
             .state
             .policy_snapshot
@@ -143,7 +155,7 @@ impl AsterDavFs {
                 scope: self.scope,
                 root_folder_id: self.root_folder_id,
             },
-            &file,
+            file,
             match offset {
                 Some(_) => WebdavDownloadRequestKind::Ranged,
                 None => WebdavDownloadRequestKind::Full,
@@ -277,7 +289,7 @@ impl DavFileSystem for AsterDavFs {
                 Ok(Box::new(dav_file) as Box<dyn DavFile>)
             } else {
                 let _ = path;
-                // 读路径只允许 GET/HEAD 通过 open_read_stream 访问，避免回退到临时文件兜底。
+                // 读路径只允许 GET/HEAD 通过专用下载目标访问，避免回退到临时文件兜底。
                 Err(FsError::Forbidden)
             }
         })
@@ -289,6 +301,8 @@ impl DavFileSystem for AsterDavFs {
         _meta: ReadDirMeta,
     ) -> FsFuture<'a, FsStream<Box<dyn DavDirEntry>>> {
         Box::pin(async move {
+            let started_at = Instant::now();
+            let resolve_started_at = Instant::now();
             let folder_id = match path_resolver::resolve_path_cached_for_read_in_scope(
                 &self.state,
                 self.scope,
@@ -301,7 +315,9 @@ impl DavFileSystem for AsterDavFs {
                 ResolvedNode::Folder(f) => Some(f.id),
                 ResolvedNode::File(_) => return Err(FsError::Forbidden),
             };
+            let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
 
+            let folders_started_at = Instant::now();
             let folders = crate::services::workspace_storage_service::list_folders_in_parent(
                 &self.state,
                 self.scope,
@@ -309,6 +325,9 @@ impl DavFileSystem for AsterDavFs {
             )
             .await
             .map_err(|_| FsError::GeneralFailure)?;
+            let folders_elapsed_ms = folders_started_at.elapsed().as_millis();
+
+            let files_started_at = Instant::now();
             let files = crate::services::workspace_storage_service::list_files_in_folder(
                 &self.state,
                 self.scope,
@@ -316,24 +335,32 @@ impl DavFileSystem for AsterDavFs {
             )
             .await
             .map_err(|_| FsError::GeneralFailure)?;
+            let files_elapsed_ms = files_started_at.elapsed().as_millis();
 
             let mut entries: Vec<Box<dyn DavDirEntry>> = Vec::new();
 
+            let entry_started_at = Instant::now();
             for folder in &folders {
                 entries.push(Box::new(AsterDavDirEntry::from_folder(folder)));
             }
 
-            // 批量查询所有 blob（1 次查询替代 N 次）
-            let blob_ids: Vec<i64> = files.iter().map(|f| f.blob_id).collect();
-            let blobs = file_repo::find_blobs_by_ids(self.state.reader_db(), &blob_ids)
-                .await
-                .map_err(|_| FsError::GeneralFailure)?;
-
             for file in &files {
-                if let Some(blob) = blobs.get(&file.blob_id) {
-                    entries.push(Box::new(AsterDavDirEntry::from_file(file, blob)));
-                }
+                entries.push(Box::new(AsterDavDirEntry::from_file_record(file)));
             }
+            let entry_elapsed_ms = entry_started_at.elapsed().as_millis();
+
+            tracing::debug!(
+                folder_id,
+                folder_count = folders.len(),
+                file_count = files.len(),
+                entry_count = entries.len(),
+                resolve_elapsed_ms,
+                folders_elapsed_ms,
+                files_elapsed_ms,
+                entry_elapsed_ms,
+                total_elapsed_ms = started_at.elapsed().as_millis(),
+                "WebDAV read_dir completed"
+            );
 
             Ok(Box::pin(stream::iter(entries.into_iter().map(Ok)))
                 as FsStream<Box<dyn DavDirEntry>>)

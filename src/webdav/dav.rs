@@ -184,6 +184,9 @@ pub trait DavMetaData: Send + Sync {
     fn modified(&self) -> FsResult<SystemTime>;
     fn is_dir(&self) -> bool;
     fn etag(&self) -> Option<String>;
+    fn content_type(&self) -> Option<&str> {
+        None
+    }
     fn created(&self) -> FsResult<SystemTime>;
     fn property_entity(&self) -> Option<(crate::types::EntityType, i64)> {
         None
