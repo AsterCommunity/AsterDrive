@@ -330,7 +330,7 @@ export function ShareFolderView({
 										<EmptyState
 											icon={<Icon name="FolderOpen" className="size-12" />}
 											title={t("empty_folder")}
-											description={t("files:folder_empty_desc")}
+											description={t("share:empty_folder_desc")}
 										/>
 									) : fileBrowserContextValue ? (
 										<FileBrowserProvider value={fileBrowserContextValue}>

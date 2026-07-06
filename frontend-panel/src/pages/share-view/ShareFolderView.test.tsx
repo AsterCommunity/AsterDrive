@@ -267,6 +267,19 @@ describe("ShareFolderView", () => {
 		});
 	});
 
+	it("uses share-specific copy for an empty shared folder", () => {
+		renderFolderView({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+			folderContents: createContents([]),
+		});
+
+		expect(screen.getByText("empty_folder")).toBeInTheDocument();
+		expect(screen.getByText("share:empty_folder_desc")).toBeInTheDocument();
+		expect(
+			screen.queryByText("files:folder_empty_desc"),
+		).not.toBeInTheDocument();
+	});
+
 	it("keeps selection across renders when breadcrumb ids are unchanged", async () => {
 		const rootBreadcrumb = [{ id: null, name: "Shared Root" }];
 		const contents = createContents([createFile(1, "alpha.txt")]);

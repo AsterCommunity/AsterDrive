@@ -35,6 +35,8 @@ interface FileBrowserWorkspaceProps {
 	contentDragOver: boolean;
 	currentFolderActions?: "full" | "refresh-only";
 	error: string | null;
+	emptyDescription?: string;
+	emptyTitle?: string;
 	fileBrowserContextValue: FileBrowserContextValue;
 	hasMoreFiles: boolean;
 	infoPanelOpen: boolean;
@@ -82,6 +84,8 @@ export function FileBrowserWorkspace({
 	contentDragOver,
 	currentFolderActions = "full",
 	error,
+	emptyDescription,
+	emptyTitle,
 	fileBrowserContextValue,
 	hasMoreFiles,
 	infoPanelOpen,
@@ -173,8 +177,8 @@ export function FileBrowserWorkspace({
 							) : isEmpty ? (
 								<EmptyState
 									icon={<Icon name="FolderOpen" className="size-12" />}
-									title={t("folder_empty")}
-									description={t("folder_empty_desc")}
+									title={emptyTitle ?? t("folder_empty")}
+									description={emptyDescription ?? t("folder_empty_desc")}
 								/>
 							) : (
 								<FileBrowserProvider value={fileBrowserContextValue}>
