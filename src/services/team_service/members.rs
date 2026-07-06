@@ -34,6 +34,47 @@ pub async fn list_admin_members(
     load_team_member_page(state, team_id, &filters, limit, offset).await
 }
 
+async fn invalidate_webdav_auth_for_team_member_change(
+    state: &impl SharedRuntimeState,
+    team_id: i64,
+    member_user_id: i64,
+    operation: &'static str,
+) -> Result<()> {
+    match crate::webdav::auth::invalidate_webdav_auth_for_team_member(
+        state,
+        team_id,
+        member_user_id,
+    )
+    .await
+    {
+        Ok(()) => Ok(()),
+        Err(first_error) => {
+            tracing::warn!(
+                team_id,
+                member_user_id,
+                operation,
+                "failed to invalidate WebDAV auth cache after team member change, retrying: {first_error}"
+            );
+            if let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_team_member(
+                state,
+                team_id,
+                member_user_id,
+            )
+            .await
+            {
+                tracing::error!(
+                    team_id,
+                    member_user_id,
+                    operation,
+                    "failed to invalidate WebDAV auth cache after retry: {error}"
+                );
+                return Err(error);
+            }
+            Ok(())
+        }
+    }
+}
+
 pub async fn get_admin_member(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -131,16 +172,13 @@ pub async fn update_admin_member_role(
         member_user_id,
     )
     .await;
-    if let Err(error) =
-        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
-            .await
-    {
-        tracing::warn!(
-            team_id,
-            member_user_id,
-            "failed to invalidate WebDAV auth cache after admin team member role update: {error}"
-        );
-    }
+    invalidate_webdav_auth_for_team_member_change(
+        state,
+        team_id,
+        member_user_id,
+        "admin_team_member_role_update",
+    )
+    .await?;
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -173,16 +211,13 @@ pub async fn remove_admin_member(
         member_user_id,
     )
     .await;
-    if let Err(error) =
-        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
-            .await
-    {
-        tracing::warn!(
-            team_id,
-            member_user_id,
-            "failed to invalidate WebDAV auth cache after admin team member removal: {error}"
-        );
-    }
+    invalidate_webdav_auth_for_team_member_change(
+        state,
+        team_id,
+        member_user_id,
+        "admin_team_member_removal",
+    )
+    .await?;
     tracing::debug!(
         team_id,
         member_user_id,
@@ -334,16 +369,13 @@ pub async fn update_member_role(
         member_user_id,
     )
     .await;
-    if let Err(error) =
-        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
-            .await
-    {
-        tracing::warn!(
-            team_id,
-            member_user_id,
-            "failed to invalidate WebDAV auth cache after team member role update: {error}"
-        );
-    }
+    invalidate_webdav_auth_for_team_member_change(
+        state,
+        team_id,
+        member_user_id,
+        "team_member_role_update",
+    )
+    .await?;
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -393,16 +425,13 @@ pub async fn remove_member(
         member_user_id,
     )
     .await;
-    if let Err(error) =
-        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
-            .await
-    {
-        tracing::warn!(
-            team_id,
-            member_user_id,
-            "failed to invalidate WebDAV auth cache after team member removal: {error}"
-        );
-    }
+    invalidate_webdav_auth_for_team_member_change(
+        state,
+        team_id,
+        member_user_id,
+        "team_member_removal",
+    )
+    .await?;
     tracing::debug!(
         team_id,
         actor_user_id,

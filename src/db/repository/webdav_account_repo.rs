@@ -41,6 +41,8 @@ pub async fn find_by_user(
         .map_err(AsterError::from)
 }
 
+/// Enumerates every WebDAV account owned by the user, including team-linked
+/// accounts. Unlike `find_by_user`, this intentionally does not filter `team_id`.
 pub async fn find_all_by_user(
     db: &DatabaseConnection,
     user_id: i64,

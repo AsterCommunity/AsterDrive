@@ -742,11 +742,16 @@ fn standard_prop_element(
             if resource.meta.is_dir() {
                 return Ok(None);
             }
-            if let Some(content_type) = resource.meta.content_type() {
-                element
-                    .children
-                    .push(XMLNode::Text(content_type.to_string()));
-            }
+            let Some(content_type) = resource
+                .meta
+                .content_type()
+                .filter(|value| !value.is_empty())
+            else {
+                return Ok(None);
+            };
+            element
+                .children
+                .push(XMLNode::Text(content_type.to_string()));
             Ok(Some(element))
         }
         "getlastmodified" => {
@@ -955,6 +960,7 @@ mod tests {
     struct PropfindTestMeta {
         is_dir: bool,
         len: u64,
+        content_type: Option<&'static str>,
         property_entity: Option<(EntityType, i64)>,
     }
 
@@ -977,6 +983,10 @@ mod tests {
             } else {
                 format!("file-etag-{}", self.len)
             })
+        }
+
+        fn content_type(&self) -> Option<&str> {
+            self.content_type
         }
 
         fn created(&self) -> FsResult<SystemTime> {
@@ -1003,6 +1013,7 @@ mod tests {
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: self.len,
+                    content_type: Some("text/plain"),
                     property_entity: Some((
                         EntityType::File,
                         i64::try_from(self.len).expect("test len should fit i64"),
@@ -1050,6 +1061,7 @@ mod tests {
                     return Ok(Box::new(PropfindTestMeta {
                         is_dir: true,
                         len: 0,
+                        content_type: None,
                         property_entity: None,
                     }) as Box<dyn DavMetaData>);
                 }
@@ -1057,6 +1069,7 @@ mod tests {
                 Ok(Box::new(PropfindTestMeta {
                     is_dir: false,
                     len: 1,
+                    content_type: Some("text/plain"),
                     property_entity: Some((EntityType::File, 1)),
                 }) as Box<dyn DavMetaData>)
             })
@@ -1218,6 +1231,7 @@ mod tests {
     <D:displayname />
     <D:resourcetype />
     <D:getcontentlength />
+    <D:getcontenttype />
     <D:getlastmodified />
     <D:creationdate />
     <D:getetag />
@@ -1243,6 +1257,10 @@ mod tests {
         assert!(
             xml.contains("file-23.txt") && xml.contains("getlastmodified"),
             "live property response should still include child resources and requested live props: {xml}"
+        );
+        assert!(
+            xml.contains("<D:getcontenttype>text/plain</D:getcontenttype>"),
+            "file live property response should include stored content type: {xml}"
         );
         assert_eq!(discover_calls, 0, "live props should not discover locks");
         assert_eq!(

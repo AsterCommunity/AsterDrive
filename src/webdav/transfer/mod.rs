@@ -77,10 +77,16 @@ pub(crate) async fn handle_get_head(
         Err(resp) => return resp,
     }
 
-    let content_type = mime_guess::from_path(relative.trim_end_matches('/'))
-        .first_or_octet_stream()
-        .essence_str()
-        .to_string();
+    let content_type = meta
+        .content_type()
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            mime_guess::from_path(relative.trim_end_matches('/'))
+                .first_or_octet_stream()
+                .essence_str()
+                .to_string()
+        });
     let range = if head_only {
         None
     } else {
@@ -120,23 +126,14 @@ pub(crate) async fn handle_get_head(
 
     // GET must stream directly from storage; do not fall back to DavFileSystem::open(read).
     let storage_started_at = Instant::now();
-    let stream = match match range {
-        Some(range) => {
-            dav_fs
-                .open_download_stream_for_file(
-                    &file,
-                    &blob,
-                    Some(range.start()),
-                    Some(range.length()),
-                )
-                .await
-        }
-        None => {
-            dav_fs
-                .open_download_stream_for_file(&file, &blob, None, None)
-                .await
-        }
-    } {
+    let (range_offset, range_length) = range
+        .as_ref()
+        .map(|range| (Some(range.start()), Some(range.length())))
+        .unwrap_or((None, None));
+    let stream = match dav_fs
+        .open_download_stream_for_file(&file, &blob, range_offset, range_length)
+        .await
+    {
         Ok(stream) => stream,
         Err(err) => return fs_error_response(err),
     };

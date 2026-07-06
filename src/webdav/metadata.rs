@@ -51,10 +51,10 @@ impl AsterDavMeta {
         }
     }
 
-    pub fn from_file(file: &file::Model, blob: &file_blob::Model) -> Self {
+    pub fn from_file(file: &file::Model, _blob: &file_blob::Model) -> Self {
         Self {
             is_dir: false,
-            len: u64::try_from(blob.size).unwrap_or_default(),
+            len: u64::try_from(file.size).unwrap_or_default(),
             modified: to_system_time(file.updated_at),
             created: to_system_time(file.created_at),
             etag: Some(file_etag(file)),
@@ -77,6 +77,9 @@ impl AsterDavMeta {
 }
 
 fn file_etag(file: &file::Model) -> String {
+    // File records are updated together with blob_id, size, and updated_at on
+    // content replacement/version restore, so GET/HEAD and PROPFIND can share
+    // this file-state validator without loading the blob in directory listings.
     format!(
         "file-{}-{}-{}-{}",
         file.id,
