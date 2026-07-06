@@ -848,7 +848,10 @@ fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
 
     let error = common::ensure_sftp_options_absent(&options).unwrap_err();
 
-    assert_eq!(error.api_error_code(), ApiErrorCode::BadRequest);
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicySftpOptionsUnsupported
+    );
     assert!(
         error
             .to_string()

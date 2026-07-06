@@ -199,7 +199,7 @@ pub(super) fn ensure_sftp_options_absent(
 ) -> Result<()> {
     if options.sftp_host_key_fingerprint.is_some() {
         return Err(validation_error_with_code(
-            ApiErrorCode::BadRequest,
+            ApiErrorCode::PolicySftpOptionsUnsupported,
             "SFTP host key options are only valid for SFTP storage policies",
         ));
     }

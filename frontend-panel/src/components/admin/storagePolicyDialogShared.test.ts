@@ -1373,6 +1373,12 @@ describe("storage policy dialog helper modules", () => {
 					name: "sftp_host_key_fingerprint",
 					kind: "text",
 					scope: "policy_options",
+					trim_on_blur: true,
+				},
+				{
+					name: "api_secret",
+					kind: "secret",
+					scope: "policy_options",
 				},
 			],
 		} as never;
@@ -1385,12 +1391,14 @@ describe("storage policy dialog helper modules", () => {
 					access_key: "aster",
 					secret_key: "secret",
 					policy_option_values: {
+						api_secret: "  keep-space  ",
 						sftp_host_key_fingerprint: " SHA256:trusted ",
 					},
 				},
 				sftpDescriptor,
 			).options,
 		).toEqual({
+			api_secret: "  keep-space  ",
 			sftp_host_key_fingerprint: "SHA256:trusted",
 		});
 	});

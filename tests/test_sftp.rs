@@ -53,16 +53,15 @@ fn sftp_policy(
     }
 }
 
-fn extract_sftp_host_key_fingerprint(error: &aster_drive::errors::AsterError) -> String {
-    let message = error.message();
-    let marker = "Confirm fingerprint ";
-    let (_, rest) = message
-        .split_once(marker)
-        .expect("untrusted host key error should include fingerprint");
-    rest.split_whitespace()
-        .next()
-        .expect("fingerprint should be present")
-        .to_string()
+fn docker_sftp_test_enabled() -> bool {
+    std::env::var("ASTER_SFTP_TEST_DOCKER")
+        .map(|value| {
+            !matches!(
+                value.as_str(),
+                "0" | "false" | "FALSE" | "no" | "NO" | "off" | "OFF"
+            )
+        })
+        .unwrap_or(true)
 }
 
 async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
@@ -76,7 +75,10 @@ async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
                 Ok(Err(error))
                     if error.storage_error_kind() == Some(StorageErrorKind::Precondition) =>
                 {
-                    break extract_sftp_host_key_fingerprint(&error);
+                    let rejection = SftpDriver::host_key_rejection(&error)
+                        .expect("untrusted host key error should expose rejection details");
+                    assert_eq!(rejection.expected, None);
+                    break rejection.actual;
                 }
                 Ok(Err(error)) => last_error = Some(error.to_string()),
                 Err(_) => last_error = Some("host key probe attempt timed out".to_string()),
@@ -126,6 +128,13 @@ async fn wait_for_sftp(driver: &SftpDriver) {
 
 #[tokio::test]
 async fn test_sftp_driver_upload_download_round_trip() {
+    if !docker_sftp_test_enabled() {
+        eprintln!(
+            "skipping SFTP docker integration test because ASTER_SFTP_TEST_DOCKER disables it"
+        );
+        return;
+    }
+
     let container = GenericImage::new(SFTP_IMAGE, SFTP_TAG)
         .with_exposed_port(IntoContainerPort::tcp(SFTP_PORT))
         .with_cmd(vec![format!("{SFTP_USERNAME}:{SFTP_PASSWORD}:::upload")])

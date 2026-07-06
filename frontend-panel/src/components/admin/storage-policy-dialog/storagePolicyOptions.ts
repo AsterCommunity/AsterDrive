@@ -142,7 +142,8 @@ function buildDescriptorPolicyOptions(
 		) {
 			continue;
 		}
-		const value = form.policy_option_values?.[field.name]?.trim() ?? "";
+		const rawValue = form.policy_option_values?.[field.name] ?? "";
+		const value = field.trim_on_blur === true ? rawValue.trim() : rawValue;
 		if (value) {
 			optionRecord[field.name] = value;
 		}

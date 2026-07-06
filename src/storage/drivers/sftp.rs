@@ -14,7 +14,9 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use crate::storage::error::{
+    StorageErrorContext, StorageErrorKind, storage_driver_error, storage_driver_error_with_context,
+};
 use crate::storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use crate::types::parse_storage_policy_options;
 
@@ -38,9 +40,30 @@ pub struct SftpDriver {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SftpHostKeyRejection {
+    pub expected: Option<String>,
+    pub actual: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum HostKeyRejection {
     MissingPin { actual: String },
     Mismatch { expected: String, actual: String },
+}
+
+impl HostKeyRejection {
+    fn expected(&self) -> Option<&str> {
+        match self {
+            Self::MissingPin { .. } => None,
+            Self::Mismatch { expected, .. } => Some(expected),
+        }
+    }
+
+    fn actual(&self) -> &str {
+        match self {
+            Self::MissingPin { actual } | Self::Mismatch { actual, .. } => actual,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -147,6 +170,15 @@ impl SftpDriver {
             ));
         }
         Ok(())
+    }
+
+    pub fn host_key_rejection(error: &AsterError) -> Option<SftpHostKeyRejection> {
+        let StorageErrorContext::SftpHostKeyRejected { expected, actual } =
+            error.storage_error_context()?;
+        Some(SftpHostKeyRejection {
+            expected: expected.clone(),
+            actual: actual.clone(),
+        })
     }
 
     async fn connect(&self) -> Result<SftpConnection> {
@@ -446,20 +478,26 @@ fn host_key_rejection_error(
     rejection: &Arc<Mutex<Option<HostKeyRejection>>>,
 ) -> Option<AsterError> {
     let rejection = rejection.lock().ok()?.clone()?;
+    let context = StorageErrorContext::SftpHostKeyRejected {
+        expected: rejection.expected().map(ToOwned::to_owned),
+        actual: rejection.actual().to_string(),
+    };
     Some(match rejection {
-        HostKeyRejection::MissingPin { actual } => storage_driver_error(
+        HostKeyRejection::MissingPin { actual } => storage_driver_error_with_context(
             StorageErrorKind::Precondition,
             format!(
                 "SFTP host key is not trusted for {}:{}. Confirm fingerprint {actual} and save it as sftp_host_key_fingerprint before testing again",
                 endpoint.host, endpoint.port
             ),
+            context,
         ),
-        HostKeyRejection::Mismatch { expected, actual } => storage_driver_error(
+        HostKeyRejection::Mismatch { expected, actual } => storage_driver_error_with_context(
             StorageErrorKind::Precondition,
             format!(
                 "SFTP host key mismatch for {}:{}. Expected {expected}, got {actual}. Verify the server identity before updating sftp_host_key_fingerprint",
                 endpoint.host, endpoint.port
             ),
+            context,
         ),
     })
 }

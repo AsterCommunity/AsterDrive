@@ -20,6 +20,14 @@ pub enum StorageErrorKind {
     Unknown,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageErrorContext {
+    SftpHostKeyRejected {
+        expected: Option<String>,
+        actual: String,
+    },
+}
+
 impl StorageErrorKind {
     pub fn as_str(self) -> &'static str {
         match self {
@@ -53,6 +61,14 @@ impl StorageErrorKind {
 
 pub fn storage_driver_error(kind: StorageErrorKind, message: impl Into<String>) -> AsterError {
     AsterError::storage_driver_error(encode_storage_driver_error_message(kind, message.into()))
+}
+
+pub fn storage_driver_error_with_context(
+    kind: StorageErrorKind,
+    message: impl Into<String>,
+    context: StorageErrorContext,
+) -> AsterError {
+    storage_driver_error(kind, message).with_storage_error_context(context)
 }
 
 pub fn storage_driver_error_with_code(
