@@ -3,7 +3,16 @@ use crate::services::wopi_service::types::DiscoveredWopiApp;
 
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
-const DISCOVERY_ACTION_PRIORITY: &[&str] = &[
+const EDIT_FALLBACK_ACTION_PRIORITY: &[&str] = &[
+    "edit",
+    "embededit",
+    "mobileedit",
+    "view",
+    "embedview",
+    "mobileview",
+];
+
+const EMBED_EDIT_FALLBACK_ACTION_PRIORITY: &[&str] = &[
     "embededit",
     "edit",
     "mobileedit",
@@ -11,6 +20,17 @@ const DISCOVERY_ACTION_PRIORITY: &[&str] = &[
     "view",
     "mobileview",
 ];
+
+const MOBILE_EDIT_FALLBACK_ACTION_PRIORITY: &[&str] = &[
+    "mobileedit",
+    "edit",
+    "embededit",
+    "mobileview",
+    "view",
+    "embedview",
+];
+
+const DISCOVERY_ACTION_PRIORITY: &[&str] = EDIT_FALLBACK_ACTION_PRIORITY;
 
 impl WopiDiscovery {
     pub(crate) fn find_action_url(
@@ -61,11 +81,17 @@ fn preferred_discovery_actions(requested_action: &str) -> Vec<String> {
     let normalized = requested_action.trim().to_ascii_lowercase();
     let mut actions = Vec::new();
 
+    let fallback_priority = match normalized.as_str() {
+        "embededit" => EMBED_EDIT_FALLBACK_ACTION_PRIORITY,
+        "mobileedit" => MOBILE_EDIT_FALLBACK_ACTION_PRIORITY,
+        _ => EDIT_FALLBACK_ACTION_PRIORITY,
+    };
+
     if !normalized.is_empty() && !is_known_discovery_action(&normalized) {
-        actions.push(normalized);
+        actions.push(normalized.clone());
     }
 
-    for candidate in DISCOVERY_ACTION_PRIORITY {
+    for candidate in fallback_priority {
         if actions.iter().any(|existing| existing == candidate) {
             continue;
         }
