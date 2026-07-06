@@ -4,6 +4,7 @@ pub mod api_error_code;
 mod common;
 pub mod constants;
 pub mod dto;
+pub mod extractors;
 mod follower;
 pub mod middleware;
 #[cfg(all(debug_assertions, feature = "openapi"))]
