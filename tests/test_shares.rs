@@ -809,6 +809,37 @@ async fn test_share_download_limit() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 403, "download limit should block");
 
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/preview-link"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "iframe preview-link should ignore exhausted download limit"
+    );
+    let body: Value = test::read_body_json(resp).await;
+    let preview_path = body["data"]["path"].as_str().unwrap().to_string();
+
+    for _ in 0..8 {
+        let req = test::TestRequest::get()
+            .uri(&preview_path)
+            .insert_header((header::RANGE, "bytes=0-3"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            StatusCode::PARTIAL_CONTENT,
+            "preview-link range resource should ignore exhausted download limit"
+        );
+        assert_eq!(
+            resp.headers().get(header::CONTENT_RANGE).unwrap(),
+            "bytes 0-3/12"
+        );
+        let body = test::read_body(resp).await;
+        assert_eq!(body.as_ref(), b"test");
+    }
+
     let req = test::TestRequest::get()
         .uri("/api/v1/shares")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -818,6 +849,7 @@ async fn test_share_download_limit() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["items"][0]["status"], "exhausted");
+    assert_eq!(body["data"]["items"][0]["download_count"], 1);
     assert_eq!(body["data"]["items"][0]["remaining_downloads"], 0);
 }
 
@@ -1708,12 +1740,27 @@ async fn test_folder_share_file_preview_link_supports_public_inline_access() {
         .uri("/api/v1/shares")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "target": folder_target(folder_id) }))
+        .set_json(serde_json::json!({
+            "target": folder_target(folder_id),
+            "max_downloads": 1
+        }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/files/{file_id}/download"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}/files/{file_id}/download"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403, "download limit should block");
 
     let req = test::TestRequest::post()
         .uri(&format!(
@@ -1721,7 +1768,11 @@ async fn test_folder_share_file_preview_link_supports_public_inline_access() {
         ))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
+    assert_eq!(
+        resp.status(),
+        200,
+        "folder file iframe preview-link should ignore exhausted download limit"
+    );
     let body: Value = test::read_body_json(resp).await;
     let preview_path = body["data"]["path"].as_str().unwrap().to_string();
 

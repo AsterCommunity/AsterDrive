@@ -139,7 +139,6 @@ export function previewLinkResource(
 		}),
 		lifecycle: {
 			expiresAt: link.expires_at,
-			maxUses: link.max_uses,
 		},
 	} satisfies ReadyFileResourceHandle;
 }

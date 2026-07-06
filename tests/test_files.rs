@@ -469,7 +469,7 @@ async fn test_file_download_inline_dangerous_mime_keeps_csp_sandbox() {
 }
 
 #[actix_web::test]
-async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() {
+async fn test_file_preview_link_supports_public_inline_access_without_request_limit() {
     let mut state = common::setup().await;
     state.cache = aster_drive::cache::create_cache(&aster_drive::config::CacheConfig {
         ..Default::default()
@@ -493,14 +493,14 @@ async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() 
         .expect("preview link path should exist")
         .to_string();
     assert!(preview_path.starts_with("/pv/"));
-    assert_eq!(body["data"]["max_uses"], 5);
+    assert!(body["data"].get("max_uses").is_none());
     let preview_etag = body["data"]["etag"]
         .as_str()
         .expect("preview link should include canonical ETag")
         .to_string();
     assert!(preview_etag.starts_with('"') && preview_etag.ends_with('"'));
 
-    for _ in 0..5 {
+    for _ in 0..8 {
         let req = test::TestRequest::get().uri(&preview_path).to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
@@ -515,10 +515,6 @@ async fn test_file_preview_link_supports_public_inline_access_and_usage_limit() 
             "inline; filename*=UTF-8''report%201.docx"
         );
     }
-
-    let req = test::TestRequest::get().uri(&preview_path).to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 403);
 }
 
 #[actix_web::test]
@@ -584,26 +580,28 @@ async fn test_file_preview_link_honors_single_range_header() {
         .expect("preview link path should exist")
         .to_string();
 
-    let req = test::TestRequest::get()
-        .uri(&preview_path)
-        .insert_header((header::RANGE, "bytes=-4"))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
-    assert_eq!(
-        resp.headers().get(header::CONTENT_RANGE).unwrap(),
-        "bytes 22-25/26"
-    );
-    assert_eq!(
-        resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
-        "inline; filename*=UTF-8''range%2Dpreview.mp4"
-    );
-    let body = test::read_body(resp).await;
-    assert_eq!(body.as_ref(), b"wxyz");
+    for _ in 0..8 {
+        let req = test::TestRequest::get()
+            .uri(&preview_path)
+            .insert_header((header::RANGE, "bytes=-4"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), StatusCode::PARTIAL_CONTENT);
+        assert_eq!(
+            resp.headers().get(header::CONTENT_RANGE).unwrap(),
+            "bytes 22-25/26"
+        );
+        assert_eq!(
+            resp.headers().get(header::CONTENT_DISPOSITION).unwrap(),
+            "inline; filename*=UTF-8''range%2Dpreview.mp4"
+        );
+        let body = test::read_body(resp).await;
+        assert_eq!(body.as_ref(), b"wxyz");
+    }
 }
 
 #[actix_web::test]
-async fn test_file_preview_link_usage_limit_falls_back_when_cache_backend_does_not_persist() {
+async fn test_file_preview_link_without_cache_backend_has_no_request_limit() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
@@ -623,15 +621,11 @@ async fn test_file_preview_link_usage_limit_falls_back_when_cache_backend_does_n
         .expect("preview link path should exist")
         .to_string();
 
-    for _ in 0..5 {
+    for _ in 0..8 {
         let req = test::TestRequest::get().uri(&preview_path).to_request();
         let resp = test::call_service(&app, req).await;
         assert_eq!(resp.status(), 200);
     }
-
-    let req = test::TestRequest::get().uri(&preview_path).to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 403);
 }
 
 #[actix_web::test]

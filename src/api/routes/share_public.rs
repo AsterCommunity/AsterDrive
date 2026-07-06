@@ -311,7 +311,7 @@ pub async fn verify_password(
     params(("token" = String, Path, description = "Share token")),
     responses(
         (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
-        (status = 403, description = "Password required or download limit"),
+        (status = 403, description = "Password required"),
         (status = 404, description = "Share not found"),
     ),
 )]
@@ -321,7 +321,7 @@ pub async fn create_preview_link(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
+    check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let link = preview_link_service::create_token_for_shared_file_for_origin(
@@ -713,7 +713,7 @@ pub async fn create_folder_file_preview_link(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
+    check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let link = preview_link_service::create_token_for_shared_folder_file_for_origin(
