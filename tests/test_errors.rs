@@ -307,3 +307,33 @@ async fn json_payload_over_limit_uses_aster_error_envelope() {
     )
     .await;
 }
+
+#[actix_web::test]
+async fn json_payload_stream_overflow_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(
+                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
+            ))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let (mut sender, payload) = actix_http::h1::Payload::create(false);
+    sender.set_error(actix_web::error::PayloadError::Overflow);
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "application/json"))
+        .to_request();
+    let (req, _) = req.replace_payload(actix_http::Payload::from(payload));
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(
+        resp,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "file.too_large",
+        "configured size limit",
+    )
+    .await;
+}

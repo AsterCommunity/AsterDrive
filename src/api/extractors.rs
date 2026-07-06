@@ -70,6 +70,16 @@ mod tests {
     }
 
     #[test]
+    fn payload_overflow_maps_to_payload_too_large() {
+        let error = json_payload_error(JsonPayloadError::Payload(
+            actix_web::error::PayloadError::Overflow,
+        ));
+
+        assert!(matches!(error, AsterError::PayloadTooLarge(_)));
+        assert_eq!(error.api_error_code(), ApiErrorCode::FileTooLarge);
+    }
+
+    #[test]
     fn serialize_payload_error_maps_to_validation_error_in_request_config() {
         let error =
             serde_json::to_string(&std::collections::HashMap::from([(vec![1_u8], "value")]))
