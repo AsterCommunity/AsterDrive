@@ -53,13 +53,12 @@ describe("fileResource", () => {
 		expect(resource.request.redirectPolicy).toBe("same_origin_only");
 	});
 
-	it("builds preview-link resources with omit credentials and lifecycle metadata", () => {
+	it("builds preview-link resources with omit credentials and expiry lifecycle metadata", () => {
 		const resource = previewLinkResource(
 			"/files/7/download",
 			{
 				etag: '"etag-7"',
 				expires_at: "2026-06-23T12:00:00Z",
-				max_uses: 5,
 				path: "/pv/token/report.pdf",
 			},
 			{
@@ -76,8 +75,8 @@ describe("fileResource", () => {
 		expect(resource.request.redirectPolicy).toBe("may_cross_origin");
 		expect(resource.lifecycle).toEqual({
 			expiresAt: "2026-06-23T12:00:00Z",
-			maxUses: 5,
 		});
+		expect(resource.lifecycle).not.toHaveProperty("maxUses");
 	});
 
 	it("evicts expired preview-link cache entries", () => {
@@ -87,7 +86,6 @@ describe("fileResource", () => {
 			cachePreviewLinkResource("/files/7/download", {
 				etag: '"etag-7"',
 				expires_at: "2026-06-23T12:00:20Z",
-				max_uses: 5,
 				path: "/pv/token/report.pdf",
 			});
 
@@ -126,13 +124,11 @@ describe("fileResource", () => {
 			cachePreviewLinkResource("/files/7/download", {
 				etag: '"etag-7-a"',
 				expires_at: "2026-06-23T12:01:00Z",
-				max_uses: 5,
 				path: "/pv/token-a/report.pdf",
 			});
 			cachePreviewLinkResource("/files/7/download", {
 				etag: '"etag-7-b"',
 				expires_at: "2026-06-23T12:01:00Z",
-				max_uses: 5,
 				path: "/pv/token-b/report.pdf",
 			});
 
@@ -156,7 +152,6 @@ describe("fileResource", () => {
 			cachePreviewLinkResource("/files/7/download", {
 				etag: '"etag-boundary"',
 				expires_at: "2026-06-23T12:00:10Z",
-				max_uses: 5,
 				path: "/pv/boundary/report.pdf",
 			});
 
@@ -170,7 +165,6 @@ describe("fileResource", () => {
 			cachePreviewLinkResource("/files/7/download", {
 				etag: '"etag-usable"',
 				expires_at: "2026-06-23T12:00:11Z",
-				max_uses: 5,
 				path: "/pv/usable/report.pdf",
 			});
 			expect(

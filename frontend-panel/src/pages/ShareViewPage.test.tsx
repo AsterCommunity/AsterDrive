@@ -65,7 +65,6 @@ const mockState = vi.hoisted(() => ({
 		Promise.resolve({
 			etag: '"etag-share"',
 			expires_at: "2026-01-01T00:00:00Z",
-			max_uses: 1,
 			path: `/pv/${token}/files/${fileId}`,
 		}),
 	),
@@ -95,7 +94,6 @@ const mockState = vi.hoisted(() => ({
 		Promise.resolve({
 			etag: '"etag-share"',
 			expires_at: "2026-01-01T00:00:00Z",
-			max_uses: 1,
 			path: `/pv/${token}`,
 		}),
 	),

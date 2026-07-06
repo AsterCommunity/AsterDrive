@@ -501,6 +501,12 @@ export default function CategoryBrowserPage() {
 				breadcrumb={[{ id: null, name: categoryLabel }]}
 				contentDragOver={false}
 				currentFolderActions="refresh-only"
+				emptyDescription={t("search:category_view_empty_desc", {
+					category: categoryLabel,
+				})}
+				emptyTitle={t("search:category_view_empty", {
+					category: categoryLabel,
+				})}
 				error={error}
 				fileBrowserContextValue={fileBrowserContextValue}
 				hasMoreFiles={hasMoreFiles}

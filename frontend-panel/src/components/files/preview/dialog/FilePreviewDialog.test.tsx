@@ -1140,7 +1140,6 @@ describe("FilePreviewDialog", () => {
 					createExternalPreviewLink: vi.fn(async () => ({
 						etag: '"etag-report"',
 						expires_at: "2026-04-08T12:00:00Z",
-						max_uses: 5,
 						path: "/pv/token/report.docx",
 					})),
 				},

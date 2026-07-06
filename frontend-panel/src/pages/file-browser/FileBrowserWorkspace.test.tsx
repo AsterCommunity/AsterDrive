@@ -258,6 +258,19 @@ describe("FileBrowserWorkspace", () => {
 		expect(screen.getByText("folder_empty_desc")).toBeInTheDocument();
 	});
 
+	it("allows read-only views to override the empty state copy", () => {
+		renderWorkspace({
+			emptyDescription: "category_empty_desc",
+			emptyTitle: "category_empty",
+			isEmpty: true,
+			uploadReady: false,
+		});
+
+		expect(screen.getByText("category_empty")).toBeInTheDocument();
+		expect(screen.getByText("category_empty_desc")).toBeInTheDocument();
+		expect(screen.queryByText("folder_empty_desc")).not.toBeInTheDocument();
+	});
+
 	it("wires context menu actions and forwarded info dialog callbacks", () => {
 		const handlers = renderWorkspace({
 			infoPanelOpen: true,

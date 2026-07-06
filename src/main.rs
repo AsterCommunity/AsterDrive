@@ -288,8 +288,12 @@ async fn run_primary_http_server(
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::cors::RuntimeCors)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
-            .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
-            .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(actix_web::web::PayloadConfig::new(
+                aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
+            ))
+            .app_data(aster_drive::api::extractors::json_config(
+                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
+            ))
             .app_data(app_state.clone())
             .app_data(metrics.clone())
             .app_data(app_shutdown_data.clone())
@@ -353,8 +357,12 @@ async fn run_follower_http_server(
             .wrap(aster_drive::api::middleware::metrics::MetricsMiddleware)
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
-            .app_data(actix_web::web::PayloadConfig::new(10 * 1024 * 1024))
-            .app_data(actix_web::web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(actix_web::web::PayloadConfig::new(
+                aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
+            ))
+            .app_data(aster_drive::api::extractors::json_config(
+                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
+            ))
             .app_data(app_state.clone())
             .app_data(metrics.clone())
             .app_data(app_shutdown_data.clone())

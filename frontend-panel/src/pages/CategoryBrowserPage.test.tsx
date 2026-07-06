@@ -198,6 +198,8 @@ vi.mock("@/pages/file-browser/FileBrowserToolbar", () => ({
 vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 	FileBrowserWorkspace: ({
 		currentFolderActions,
+		emptyDescription,
+		emptyTitle,
 		fileBrowserContextValue,
 		hasMoreFiles,
 		infoPanelOpen,
@@ -207,6 +209,8 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		suppressLoadMore,
 	}: {
 		currentFolderActions?: "full" | "refresh-only";
+		emptyDescription?: string;
+		emptyTitle?: string;
 		fileBrowserContextValue: {
 			files: FileListItem[];
 			onCopy?: unknown;
@@ -225,6 +229,8 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		<div
 			data-testid="workspace"
 			data-current-folder-actions={currentFolderActions ?? "full"}
+			data-empty-description={emptyDescription ?? ""}
+			data-empty-title={emptyTitle ?? ""}
 			data-has-more={String(hasMoreFiles)}
 			data-loading={String(loading)}
 			data-suppress-load-more={String(Boolean(suppressLoadMore))}
@@ -380,7 +386,42 @@ describe("CategoryBrowserPage", () => {
 			"data-has-more",
 			"true",
 		);
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-empty-title",
+			"search:category_view_empty:search:category_image",
+		);
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-empty-description",
+			"search:category_view_empty_desc:search:category_image",
+		);
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+	});
+
+	it("uses category-specific empty copy when no files match", async () => {
+		mockState.search.mockResolvedValue({
+			files: [],
+			folders: [],
+			total_files: 0,
+			total_folders: 0,
+		});
+
+		render(<CategoryBrowserPage />);
+
+		await waitFor(() => {
+			expect(screen.getByTestId("workspace")).toHaveAttribute(
+				"data-loading",
+				"false",
+			);
+		});
+
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-empty-title",
+			"search:category_view_empty:search:category_image",
+		);
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-empty-description",
+			"search:category_view_empty_desc:search:category_image",
+		);
 	});
 
 	it("keeps the unused folder policy close callback harmless", () => {

@@ -1,7 +1,8 @@
 //! 集成测试：`errors`。
 
-use actix_web::{ResponseError, body::to_bytes, http::StatusCode};
+use actix_web::{App, HttpResponse, ResponseError, body::to_bytes, http::StatusCode, web};
 use aster_drive::errors::AsterError;
+use serde::Deserialize;
 use serde_json::Value;
 use std::sync::{Arc, Mutex};
 use tracing::{Event, Level, Subscriber};
@@ -153,4 +154,186 @@ async fn storage_quota_exceeded_keeps_response_message() {
 
     let body = response_body_json(resp).await;
     assert_eq!(body["msg"], "quota 1024, used 1000, need 100");
+}
+
+#[derive(Deserialize)]
+struct JsonExtractorRequiredFieldReq {
+    client_id: String,
+}
+
+async fn json_extractor_required_field_handler(
+    body: web::Json<JsonExtractorRequiredFieldReq>,
+) -> HttpResponse {
+    HttpResponse::Ok().json(serde_json::json!({ "client_id": body.client_id }))
+}
+
+async fn json_extractor_echo_handler(body: web::Json<Value>) -> HttpResponse {
+    HttpResponse::Ok().json(body.into_inner())
+}
+
+async fn assert_json_extractor_error(
+    resp: actix_web::dev::ServiceResponse,
+    status: StatusCode,
+    code: &str,
+    msg_contains: &str,
+) {
+    assert_eq!(resp.status(), status);
+    let body: Value = actix_web::test::read_body_json(resp).await;
+    assert_eq!(body["code"], code);
+    assert_eq!(body["data"], Value::Null);
+    assert_eq!(body["error"]["retryable"], false);
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|msg| msg.contains(msg_contains)),
+        "unexpected response body: {body:?}"
+    );
+}
+
+#[actix_web::test]
+async fn json_deserialize_error_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(1024))
+            .route(
+                "/requires-client-id",
+                web::post().to(json_extractor_required_field_handler),
+            ),
+    )
+    .await;
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/requires-client-id")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload(r#"{"redirect_uri":"https://example.test/callback"}"#)
+        .to_request();
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(resp, StatusCode::BAD_REQUEST, "bad_request", "client_id").await;
+}
+
+#[actix_web::test]
+async fn malformed_json_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(1024))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload("{")
+        .to_request();
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(
+        resp,
+        StatusCode::BAD_REQUEST,
+        "bad_request",
+        "invalid JSON request body",
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn json_content_type_error_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(1024))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "text/plain"))
+        .set_payload("{}")
+        .to_request();
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(
+        resp,
+        StatusCode::BAD_REQUEST,
+        "bad_request",
+        "application/json",
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn json_payload_at_limit_is_accepted() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(2))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload("{}")
+        .to_request();
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), StatusCode::OK);
+    let body: Value = actix_web::test::read_body_json(resp).await;
+    assert_eq!(body, serde_json::json!({}));
+}
+
+#[actix_web::test]
+async fn json_payload_over_limit_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(2))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "application/json"))
+        .set_payload(r#"{"a":1}"#)
+        .to_request();
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(
+        resp,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "file.too_large",
+        "JSON payload is too large",
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn json_payload_stream_overflow_uses_aster_error_envelope() {
+    let app = actix_web::test::init_service(
+        App::new()
+            .app_data(aster_drive::api::extractors::json_config(
+                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
+            ))
+            .route("/echo", web::post().to(json_extractor_echo_handler)),
+    )
+    .await;
+
+    let (mut sender, payload) = actix_http::h1::Payload::create(false);
+    sender.set_error(actix_web::error::PayloadError::Overflow);
+
+    let req = actix_web::test::TestRequest::post()
+        .uri("/echo")
+        .insert_header(("Content-Type", "application/json"))
+        .to_request();
+    let (req, _) = req.replace_payload(actix_http::Payload::from(payload));
+    let resp = actix_web::test::call_service(&app, req).await;
+
+    assert_json_extractor_error(
+        resp,
+        StatusCode::PAYLOAD_TOO_LARGE,
+        "file.too_large",
+        "configured size limit",
+    )
+    .await;
 }

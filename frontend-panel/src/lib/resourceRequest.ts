@@ -39,7 +39,6 @@ export interface ReadyFileResourceHandle {
 	};
 	lifecycle?: {
 		expiresAt?: string;
-		maxUses?: number;
 	};
 }
 

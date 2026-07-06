@@ -409,7 +409,6 @@ describe("useFilePreviewDialogModel", () => {
 		const createExternalPreviewLink = vi.fn(async () => ({
 			etag: '"etag-manual"',
 			expires_at: "2026-06-21T22:30:00Z",
-			max_uses: 5,
 			path: "/pv/token/manual.pdf",
 		}));
 		mockState.detectFilePreviewProfile.mockReturnValue(

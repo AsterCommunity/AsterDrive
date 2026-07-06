@@ -6752,8 +6752,6 @@ export interface components {
         PreviewLinkInfo: {
             etag: string;
             expires_at: string;
-            /** Format: int32 */
-            max_uses: number;
             path: string;
         };
         /** @enum {string} */
@@ -18048,8 +18046,6 @@ export interface operations {
                         data?: {
                             etag: string;
                             expires_at: string;
-                            /** Format: int32 */
-                            max_uses: number;
                             path: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -19872,8 +19868,6 @@ export interface operations {
                         data?: {
                             etag: string;
                             expires_at: string;
-                            /** Format: int32 */
-                            max_uses: number;
                             path: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -20236,8 +20230,6 @@ export interface operations {
                         data?: {
                             etag: string;
                             expires_at: string;
-                            /** Format: int32 */
-                            max_uses: number;
                             path: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -20245,7 +20237,7 @@ export interface operations {
                     };
                 };
             };
-            /** @description Password required or download limit */
+            /** @description Password required */
             403: {
                 headers: {
                     [name: string]: unknown;
@@ -23944,8 +23936,6 @@ export interface operations {
                         data?: {
                             etag: string;
                             expires_at: string;
-                            /** Format: int32 */
-                            max_uses: number;
                             path: string;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];

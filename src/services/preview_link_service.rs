@@ -1,7 +1,5 @@
 //! 服务模块：`preview_link_service`。
 
-mod cache;
-
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -20,7 +18,6 @@ use crate::services::{
 };
 
 const PREVIEW_LINK_TTL_SECS: i64 = 5 * 60;
-const PREVIEW_LINK_MAX_USES: u32 = 5;
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -28,7 +25,6 @@ pub struct PreviewLinkInfo {
     pub path: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub expires_at: DateTime<Utc>,
-    pub max_uses: u32,
     pub etag: String,
 }
 
@@ -44,14 +40,8 @@ enum PreviewSubject {
 struct PreviewTokenPayload {
     subject: PreviewSubject,
     exp: i64,
-    max_uses: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     nonce: Option<String>,
-}
-
-struct ReservedUse {
-    token: String,
-    slot: u32,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -61,14 +51,8 @@ pub struct RequestOrigin<'a> {
 }
 
 enum ResolvedPreviewTarget {
-    File {
-        payload: PreviewTokenPayload,
-        file: file::Model,
-    },
-    Shared {
-        payload: PreviewTokenPayload,
-        file: file::Model,
-    },
+    File { file: file::Model },
+    Shared { file: file::Model },
 }
 
 pub(crate) async fn create_token_for_file_in_scope_for_origin(
@@ -86,7 +70,8 @@ pub async fn create_token_for_shared_file(
     state: &impl SharedRuntimeState,
     share_token: &str,
 ) -> Result<PreviewLinkInfo> {
-    let (share, file) = share_service::load_preview_shared_file(state, share_token).await?;
+    let (share, file) =
+        share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
     let payload = build_payload(PreviewSubject::ShareFile {
         share_token: share.token.clone(),
     });
@@ -98,7 +83,8 @@ pub async fn create_token_for_shared_file_for_origin(
     share_token: &str,
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
-    let (share, file) = share_service::load_preview_shared_file(state, share_token).await?;
+    let (share, file) =
+        share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
     let payload = build_payload(PreviewSubject::ShareFile {
         share_token: share.token.clone(),
     });
@@ -111,7 +97,8 @@ pub async fn create_token_for_shared_folder_file(
     file_id: i64,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
-        share_service::load_preview_shared_folder_file(state, share_token, file_id).await?;
+        share_service::load_shared_folder_file_ignoring_download_limit(state, share_token, file_id)
+            .await?;
     let payload = build_payload(PreviewSubject::ShareFolderFile {
         share_token: share.token.clone(),
         file_id: file.id,
@@ -126,7 +113,8 @@ pub async fn create_token_for_shared_folder_file_for_origin(
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
-        share_service::load_preview_shared_folder_file(state, share_token, file_id).await?;
+        share_service::load_shared_folder_file_ignoring_download_limit(state, share_token, file_id)
+            .await?;
     let payload = build_payload(PreviewSubject::ShareFolderFile {
         share_token: share.token.clone(),
         file_id: file.id,
@@ -142,9 +130,9 @@ pub(crate) async fn download_file(
     range: Option<ResolvedDownloadRange>,
 ) -> Result<file_service::DownloadOutcome> {
     let resolved = resolve_token(state, token).await?;
-    let (payload, file) = match &resolved {
-        ResolvedPreviewTarget::File { payload, file } => (payload, file),
-        ResolvedPreviewTarget::Shared { payload, file, .. } => (payload, file),
+    let file = match &resolved {
+        ResolvedPreviewTarget::File { file, .. } => file,
+        ResolvedPreviewTarget::Shared { file, .. } => file,
     };
 
     direct_link_service::validate_public_file_name(file, requested_name)?;
@@ -164,8 +152,7 @@ pub(crate) async fn download_file(
         .await;
     }
 
-    let reserved = reserve_usage(state, token, payload).await?;
-    match file_service::build_download_outcome_with_disposition_and_range(
+    file_service::build_download_outcome_with_disposition_and_range(
         state,
         file,
         &blob,
@@ -174,13 +161,6 @@ pub(crate) async fn download_file(
         range,
     )
     .await
-    {
-        Ok(outcome) => Ok(outcome),
-        Err(error) => {
-            rollback_usage(state, &reserved).await;
-            Err(error)
-        }
-    }
 }
 
 pub(crate) async fn resolve_file_for_download(
@@ -201,7 +181,6 @@ fn build_payload(subject: PreviewSubject) -> PreviewTokenPayload {
     PreviewTokenPayload {
         subject,
         exp: (Utc::now() + Duration::seconds(PREVIEW_LINK_TTL_SECS)).timestamp(),
-        max_uses: PREVIEW_LINK_MAX_USES,
         nonce: Some(crate::utils::id::new_short_token()),
     }
 }
@@ -217,7 +196,6 @@ async fn build_link_for_file(
     Ok(PreviewLinkInfo {
         path: preview_path(state.runtime_config(), &token, &file.name, request_origin),
         expires_at: decode_expiry(payload.exp)?,
-        max_uses: payload.max_uses,
         etag,
     })
 }
@@ -239,7 +217,6 @@ async fn build_link_for_shared_file(
     Ok(PreviewLinkInfo {
         path: preview_path(state.runtime_config(), &token, &file.name, request_origin),
         expires_at: decode_expiry(payload.exp)?,
-        max_uses: payload.max_uses,
         etag,
     })
 }
@@ -317,10 +294,11 @@ async fn resolve_token(
                     "preview link token signature mismatch",
                 ));
             }
-            Ok(ResolvedPreviewTarget::File { payload, file })
+            Ok(ResolvedPreviewTarget::File { file })
         }
         PreviewSubject::ShareFile { share_token } => {
-            let (share, file) = share_service::load_preview_shared_file(state, share_token).await?;
+            let (share, file) =
+                share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
             if !verify_shared_payload(
                 &share,
                 &file,
@@ -332,15 +310,18 @@ async fn resolve_token(
                     "preview link token signature mismatch",
                 ));
             }
-            Ok(ResolvedPreviewTarget::Shared { payload, file })
+            Ok(ResolvedPreviewTarget::Shared { file })
         }
         PreviewSubject::ShareFolderFile {
             share_token,
             file_id,
         } => {
-            let (share, file) =
-                share_service::load_preview_shared_folder_file(state, share_token, *file_id)
-                    .await?;
+            let (share, file) = share_service::load_shared_folder_file_ignoring_download_limit(
+                state,
+                share_token,
+                *file_id,
+            )
+            .await?;
             if !verify_shared_payload(
                 &share,
                 &file,
@@ -352,7 +333,7 @@ async fn resolve_token(
                     "preview link token signature mismatch",
                 ));
             }
-            Ok(ResolvedPreviewTarget::Shared { payload, file })
+            Ok(ResolvedPreviewTarget::Shared { file })
         }
     }
 }
@@ -485,42 +466,6 @@ fn verify_shared_payload(
         .is_ok())
 }
 
-async fn reserve_usage(
-    state: &impl SharedRuntimeState,
-    token: &str,
-    payload: &PreviewTokenPayload,
-) -> Result<ReservedUse> {
-    let ttl_secs = ttl_seconds(payload)?;
-    let marker = Vec::new();
-    for slot in 0..payload.max_uses {
-        if cache::reserve_usage_slot(state, token, slot, marker.clone(), ttl_secs).await {
-            return Ok(ReservedUse {
-                token: token.to_string(),
-                slot,
-            });
-        }
-    }
-
-    Err(AsterError::share_download_limit(
-        "preview link usage limit reached",
-    ))
-}
-
-async fn rollback_usage(state: &impl SharedRuntimeState, reserved: &ReservedUse) {
-    cache::release_usage_slot(state, &reserved.token, reserved.slot).await;
-}
-
-fn ttl_seconds(payload: &PreviewTokenPayload) -> Result<u64> {
-    let remaining = payload.exp.saturating_sub(Utc::now().timestamp());
-    if remaining <= 0 {
-        return Err(AsterError::share_expired("preview link expired"));
-    }
-    u64::try_from(remaining).map_aster_err_ctx(
-        "preview link ttl conversion failed",
-        AsterError::internal_error,
-    )
-}
-
 #[cfg(test)]
 mod tests {
     use super::{
@@ -634,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn decode_payload_accepts_legacy_payload_without_nonce() {
+    fn decode_payload_accepts_legacy_payload_with_usage_limit_fields() {
         let legacy_payload = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(
             serde_json::json!({
                 "subject": {

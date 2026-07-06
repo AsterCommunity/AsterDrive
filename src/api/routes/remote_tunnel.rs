@@ -1,6 +1,7 @@
 //! Primary-side reverse tunnel endpoints for remote followers.
 
 use crate::api::dto::validate_request;
+use crate::api::extractors;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::storage::remote_protocol::tunnel::server::{
@@ -21,7 +22,7 @@ pub struct RemoteTunnelPollReq {
 pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     web::scope("/internal/remote-tunnel")
         .app_data(web::PayloadConfig::new(REMOTE_TUNNEL_JSON_LIMIT))
-        .app_data(web::JsonConfig::default().limit(REMOTE_TUNNEL_JSON_LIMIT))
+        .app_data(extractors::json_config(REMOTE_TUNNEL_JSON_LIMIT))
         .route("/poll", web::post().to(poll_remote_tunnel))
         .route("/complete", web::post().to(complete_remote_tunnel))
         .route("/connect", web::get().to(connect_remote_tunnel))

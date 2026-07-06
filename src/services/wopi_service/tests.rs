@@ -189,6 +189,251 @@ fn resolve_discovery_action_url_prefers_editable_actions_for_legacy_view_configs
 }
 
 #[test]
+fn resolve_discovery_action_url_prefers_plain_edit_for_default_edit_configs() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="embededit" ext="docx" urlsrc="https://office.example.com/word/embededit?" />
+                  <action name="edit" ext="docx" urlsrc="https://office.example.com/word/edit?" />
+                  <action name="view" ext="docx" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "edit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/edit?")
+    );
+}
+
+#[test]
+fn resolve_discovery_action_url_respects_explicit_embededit_configs() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="edit" ext="docx" urlsrc="https://office.example.com/word/edit?" />
+                  <action name="embededit" ext="docx" urlsrc="https://office.example.com/word/embededit?" />
+                  <action name="view" ext="docx" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "embededit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/embededit?")
+    );
+}
+
+#[test]
+fn resolve_discovery_action_url_respects_explicit_mobileedit_configs() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="edit" ext="docx" urlsrc="https://office.example.com/word/edit?" />
+                  <action name="mobileedit" ext="docx" urlsrc="https://office.example.com/word/mobileedit?" />
+                  <action name="view" ext="docx" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "mobileedit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/mobileedit?")
+    );
+}
+
+#[test]
+fn resolve_discovery_action_url_tries_custom_action_before_edit_fallbacks() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="edit" ext="docx" urlsrc="https://office.example.com/word/edit?" />
+                  <action name="previewedit" ext="docx" urlsrc="https://office.example.com/word/previewedit?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "previewedit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/previewedit?")
+    );
+}
+
+#[test]
+fn resolve_discovery_action_url_falls_back_when_plain_edit_is_missing() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="embededit" ext="docx" urlsrc="https://office.example.com/word/embededit?" />
+                  <action name="view" ext="docx" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "edit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/embededit?")
+    );
+}
+
+#[test]
+fn resolve_discovery_action_url_falls_back_to_view_when_no_edit_action_matches() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="view" ext="docx" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "edit",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/view?")
+    );
+}
+
+#[test]
+fn build_discovered_apps_prefers_plain_edit_over_embededit() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="embededit" ext="docx" urlsrc="https://office.example.com/word/embededit?" />
+                  <action name="edit" ext="docx" urlsrc="https://office.example.com/word/edit?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    let apps = build_discovered_apps(&discovery);
+
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].action, "edit");
+    assert_eq!(apps[0].extensions, vec!["docx".to_string()]);
+}
+
+#[test]
+fn build_discovered_apps_uses_embededit_when_plain_edit_is_missing() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="embededit" ext="docx" urlsrc="https://office.example.com/word/embededit?" />
+                  <action name="view" ext="doc" urlsrc="https://office.example.com/word/view?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    let apps = build_discovered_apps(&discovery);
+
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].action, "embededit");
+    assert_eq!(
+        apps[0].extensions,
+        vec!["docx".to_string(), "doc".to_string()]
+    );
+}
+
+#[test]
+fn build_discovered_apps_uses_view_when_no_editable_actions_exist() {
+    let discovery = parse_discovery_xml(
+        r#"
+            <wopi-discovery>
+              <net-zone name="external-http">
+                <app name="Word">
+                  <action name="view" ext="doc" urlsrc="https://office.example.com/word/view?" />
+                  <action name="mobileview" ext="docx" urlsrc="https://office.example.com/word/mobileview?" />
+                </app>
+              </net-zone>
+            </wopi-discovery>
+            "#,
+    )
+    .unwrap();
+
+    let apps = build_discovered_apps(&discovery);
+
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].action, "view");
+    assert_eq!(
+        apps[0].extensions,
+        vec!["doc".to_string(), "docx".to_string()]
+    );
+}
+
+#[test]
 fn access_token_hash_is_stable_sha256_hex() {
     assert_eq!(
         access_token_hash("wopi_abc123"),

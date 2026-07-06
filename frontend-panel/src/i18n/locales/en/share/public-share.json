@@ -9,5 +9,6 @@
 	"never_expires": "Never expires",
 	"password_required": "Password required",
 	"public_access": "Public access",
-	"shared_by": "Shared by {{name}}"
+	"shared_by": "Shared by {{name}}",
+	"empty_folder_desc": "This shared folder does not contain any items yet."
 }
