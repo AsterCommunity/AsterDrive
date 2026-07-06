@@ -39,38 +39,30 @@ async fn invalidate_webdav_auth_for_team_member_change(
     team_id: i64,
     member_user_id: i64,
     operation: &'static str,
-) -> Result<()> {
-    match crate::webdav::auth::invalidate_webdav_auth_for_team_member(
-        state,
-        team_id,
-        member_user_id,
-    )
-    .await
+) {
+    if let Err(first_error) =
+        crate::webdav::auth::invalidate_webdav_auth_for_team_member(state, team_id, member_user_id)
+            .await
     {
-        Ok(()) => Ok(()),
-        Err(first_error) => {
-            tracing::warn!(
+        tracing::warn!(
+            team_id,
+            member_user_id,
+            operation,
+            "failed to invalidate WebDAV auth cache after team member change, retrying: {first_error}"
+        );
+        if let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_team_member(
+            state,
+            team_id,
+            member_user_id,
+        )
+        .await
+        {
+            tracing::error!(
                 team_id,
                 member_user_id,
                 operation,
-                "failed to invalidate WebDAV auth cache after team member change, retrying: {first_error}"
+                "failed to invalidate WebDAV auth cache after retry: {error}"
             );
-            if let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_team_member(
-                state,
-                team_id,
-                member_user_id,
-            )
-            .await
-            {
-                tracing::error!(
-                    team_id,
-                    member_user_id,
-                    operation,
-                    "failed to invalidate WebDAV auth cache after retry: {error}"
-                );
-                return Err(error);
-            }
-            Ok(())
         }
     }
 }
@@ -178,7 +170,7 @@ pub async fn update_admin_member_role(
         member_user_id,
         "admin_team_member_role_update",
     )
-    .await?;
+    .await;
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -217,7 +209,7 @@ pub async fn remove_admin_member(
         member_user_id,
         "admin_team_member_removal",
     )
-    .await?;
+    .await;
     tracing::debug!(
         team_id,
         member_user_id,
@@ -375,7 +367,7 @@ pub async fn update_member_role(
         member_user_id,
         "team_member_role_update",
     )
-    .await?;
+    .await;
     build_team_member_info(state, updated, target_user).await
 }
 
@@ -431,7 +423,7 @@ pub async fn remove_member(
         member_user_id,
         "team_member_removal",
     )
-    .await?;
+    .await;
     tracing::debug!(
         team_id,
         actor_user_id,
