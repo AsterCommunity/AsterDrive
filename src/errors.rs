@@ -6,13 +6,15 @@ use std::any::Any;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::{ApiErrorDiagnostic, ApiErrorInfo};
 use crate::storage::error::{
-    StorageErrorKind, storage_driver_error_display_message, storage_driver_error_kind_from_message,
+    StorageErrorContext, StorageErrorKind, storage_driver_error_display_message,
+    storage_driver_error_kind_from_message,
 };
 
 #[derive(Debug, Clone)]
 pub struct AsterErrorPayload {
     message: String,
     api_code: Option<ApiErrorCode>,
+    storage_context: Option<StorageErrorContext>,
 }
 
 impl AsterErrorPayload {
@@ -20,6 +22,7 @@ impl AsterErrorPayload {
         Self {
             message: message.into(),
             api_code: None,
+            storage_context: None,
         }
     }
 
@@ -34,6 +37,15 @@ impl AsterErrorPayload {
 
     fn api_code(&self) -> Option<ApiErrorCode> {
         self.api_code
+    }
+
+    fn with_storage_context(mut self, context: StorageErrorContext) -> Self {
+        self.storage_context = Some(context);
+        self
+    }
+
+    fn storage_context(&self) -> Option<&StorageErrorContext> {
+        self.storage_context.as_ref()
     }
 }
 
@@ -94,10 +106,24 @@ macro_rules! define_errors {
                 }
             }
 
+            pub(crate) fn storage_error_context(&self) -> Option<&StorageErrorContext> {
+                match self {
+                    $(AsterError::$variant(payload) => payload.storage_context(),)*
+                }
+            }
+
             pub fn with_api_error_code(self, api_code: ApiErrorCode) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {
                         AsterError::$variant(payload.with_api_code(api_code))
+                    })*
+                }
+            }
+
+            pub(crate) fn with_storage_error_context(self, context: StorageErrorContext) -> Self {
+                match self {
+                    $(AsterError::$variant(payload) => {
+                        AsterError::$variant(payload.with_storage_context(context))
                     })*
                 }
             }

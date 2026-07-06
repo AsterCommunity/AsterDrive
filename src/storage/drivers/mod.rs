@@ -9,4 +9,5 @@ pub mod remote;
 pub mod s3;
 pub mod s3_compatible;
 pub mod s3_config;
+pub mod sftp;
 pub mod tencent_cos;

@@ -20,6 +20,8 @@ pub enum DriverType {
     Local,
     #[sea_orm(string_value = "s3")]
     S3,
+    #[sea_orm(string_value = "sftp")]
+    Sftp,
     #[sea_orm(string_value = "azure_blob")]
     AzureBlob,
     #[sea_orm(string_value = "tencent_cos")]
@@ -35,6 +37,7 @@ impl DriverType {
         match self {
             Self::Local => "local",
             Self::S3 => "s3",
+            Self::Sftp => "sftp",
             Self::AzureBlob => "azure_blob",
             Self::TencentCos => "tencent_cos",
             Self::Remote => "remote",
@@ -46,6 +49,7 @@ impl DriverType {
         match value {
             "local" => Some(Self::Local),
             "s3" => Some(Self::S3),
+            "sftp" => Some(Self::Sftp),
             "azure_blob" => Some(Self::AzureBlob),
             "tencent_cos" => Some(Self::TencentCos),
             "remote" => Some(Self::Remote),
@@ -355,6 +359,8 @@ pub struct StoragePolicyOptions {
     pub onedrive_site_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onedrive_group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sftp_host_key_fingerprint: Option<String>,
 }
 
 impl StoragePolicyOptions {
@@ -417,6 +423,7 @@ impl StoragePolicyOptions {
         trim_empty_option_string(&mut self.onedrive_root_item_id);
         trim_empty_option_string(&mut self.onedrive_site_id);
         trim_empty_option_string(&mut self.onedrive_group_id);
+        trim_empty_option_string(&mut self.sftp_host_key_fingerprint);
     }
 
     pub fn normalized(mut self) -> Self {
@@ -1112,6 +1119,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json, r#"{"s3_operation_timeout_secs":600}"#);
+
+        let json = String::from(
+            serialize_storage_policy_options(&StoragePolicyOptions {
+                sftp_host_key_fingerprint: Some("  SHA256:abc123  ".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        assert_eq!(json, r#"{"sftp_host_key_fingerprint":"SHA256:abc123"}"#);
     }
 
     #[test]

@@ -56,11 +56,16 @@ export function applyPolicyDriverTransition(
 		form;
 	const nextSupportsStorageNativeProcessing =
 		supportsStorageNativeProcessing(nextDriverDescriptor);
+	const nextPolicyOptionValues = policyOptionValuesForDescriptor(
+		form.policy_option_values ?? {},
+		nextDriverDescriptor,
+	);
 
 	if (supportsObjectStorageConnection(nextDriverDescriptor)) {
 		return {
 			...formWithoutS3PathStyle,
 			driver_type: driverType,
+			policy_option_values: nextPolicyOptionValues,
 			remote_node_id: "",
 			remote_storage_target_key: "",
 			storage_native_processing_enabled: nextSupportsStorageNativeProcessing
@@ -92,6 +97,7 @@ export function applyPolicyDriverTransition(
 			bucket: "",
 			access_key: "",
 			secret_key: "",
+			policy_option_values: nextPolicyOptionValues,
 			content_dedup: false,
 			storage_native_processing_enabled: false,
 			thumbnail_processor: null,
@@ -112,6 +118,7 @@ export function applyPolicyDriverTransition(
 			bucket: "",
 			access_key: "",
 			secret_key: "",
+			policy_option_values: nextPolicyOptionValues,
 			remote_node_id: "",
 			remote_storage_target_key: "",
 			content_dedup: false,
@@ -150,6 +157,7 @@ export function applyPolicyDriverTransition(
 		bucket: "",
 		access_key: "",
 		secret_key: "",
+		policy_option_values: nextPolicyOptionValues,
 		remote_node_id: "",
 		remote_storage_target_key: "",
 		storage_native_processing_enabled: false,
@@ -162,4 +170,21 @@ export function applyPolicyDriverTransition(
 		object_storage_upload_strategy: "relay_stream",
 		object_storage_download_strategy: "relay_stream",
 	};
+}
+
+function policyOptionValuesForDescriptor(
+	values: Record<string, string>,
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	const nextValues: Record<string, string> = {};
+	for (const field of descriptor?.fields ?? []) {
+		if (
+			field.scope === "policy_options" &&
+			(field.kind === "text" || field.kind === "secret") &&
+			Object.hasOwn(values, field.name)
+		) {
+			nextValues[field.name] = values[field.name];
+		}
+	}
+	return nextValues;
 }

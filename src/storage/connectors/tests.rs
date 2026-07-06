@@ -168,14 +168,27 @@ async fn azure_blob_draft_connection_rejects_saved_credential_driver_mismatch() 
     assert_saved_credentials_driver_mismatch_for_driver(DriverType::AzureBlob).await;
 }
 
+#[tokio::test]
+async fn sftp_draft_connection_can_merge_saved_credentials() {
+    assert!(SftpConnector::supports_saved_draft_credentials());
+    assert_saved_credentials_merge_for_driver(DriverType::Sftp).await;
+}
+
+#[tokio::test]
+async fn sftp_draft_connection_rejects_saved_credential_driver_mismatch() {
+    assert!(SftpConnector::supports_saved_draft_credentials());
+    assert_saved_credentials_driver_mismatch_for_driver(DriverType::Sftp).await;
+}
+
 #[test]
 fn descriptors_cover_every_storage_driver() {
     let descriptors = list_storage_driver_descriptors();
 
-    assert_eq!(descriptors.len(), 6);
+    assert_eq!(descriptors.len(), 7);
     for driver_type in [
         DriverType::Local,
         DriverType::S3,
+        DriverType::Sftp,
         DriverType::AzureBlob,
         DriverType::TencentCos,
         DriverType::Remote,
@@ -255,6 +268,15 @@ fn descriptors_expose_connector_owned_ui_metadata() {
         onedrive.ui.config_step_title_key,
         "policy_wizard_step_onedrive_title"
     );
+
+    let sftp = descriptor(DriverType::Sftp);
+    assert_eq!(sftp.ui.label_key, "driver_type_sftp");
+    assert_eq!(sftp.ui.helper_key, "policy_wizard_sftp_helper");
+    assert_eq!(
+        sftp.ui.config_step_description_key,
+        "policy_wizard_step_sftp_desc"
+    );
+    assert_eq!(sftp.ui.base_path_empty_display, "core:root");
 }
 
 #[test]
@@ -262,6 +284,7 @@ fn connector_registry_covers_every_builtin_storage_driver() {
     for driver_type in [
         DriverType::Local,
         DriverType::S3,
+        DriverType::Sftp,
         DriverType::AzureBlob,
         DriverType::TencentCos,
         DriverType::Remote,
@@ -307,6 +330,14 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
     let remote = descriptor(DriverType::Remote);
     assert!(has_policy_option(&remote, "remote_download_strategy"));
     assert!(has_policy_option(&remote, "remote_upload_strategy"));
+
+    let sftp = descriptor(DriverType::Sftp);
+    assert!(!has_policy_option(&sftp, "object_storage_upload_strategy"));
+    assert!(!has_policy_option(
+        &sftp,
+        "object_storage_download_strategy"
+    ));
+    assert!(!has_policy_option(&sftp, "s3_path_style"));
 }
 
 #[test]
@@ -420,6 +451,54 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
     assert!(!field(&tencent_cos, "access_key").trim_on_blur);
     assert_eq!(field(&tencent_cos, "secret_key").label_key, "secret_key");
     assert!(!has_policy_option(&tencent_cos, "s3_path_style"));
+}
+
+#[test]
+fn sftp_connection_field_display_metadata_is_connector_owned() {
+    let sftp = descriptor(DriverType::Sftp);
+
+    assert_eq!(sftp.ui.label_key, "driver_type_sftp");
+    assert_eq!(sftp.ui.helper_key, "policy_wizard_sftp_helper");
+    assert_eq!(sftp.ui.edit_context_key, "policy_edit_context_sftp_desc");
+    assert_eq!(
+        field(&sftp, "endpoint").placeholder.as_deref(),
+        Some("sftp://example.com:22")
+    );
+    assert_eq!(
+        field(&sftp, "endpoint").help_key.as_deref(),
+        Some("sftp_endpoint_hint")
+    );
+    assert_eq!(
+        field(&sftp, "endpoint")
+            .invalid_protocol_message_key
+            .as_deref(),
+        Some("sftp_endpoint_protocol_required_error")
+    );
+    assert_eq!(
+        field(&sftp, "endpoint").allowed_endpoint_protocols,
+        vec!["sftp:"]
+    );
+    assert!(field(&sftp, "endpoint").allow_endpoint_without_protocol);
+    assert_eq!(field(&sftp, "access_key").label_key, "sftp_username");
+    assert!(field(&sftp, "access_key").trim_on_blur);
+    assert_eq!(field(&sftp, "secret_key").label_key, "sftp_password");
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint").scope,
+        StorageConnectorFieldScope::PolicyOptions
+    );
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint").label_key,
+        "sftp_host_key_fingerprint"
+    );
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint")
+            .help_key
+            .as_deref(),
+        Some("sftp_host_key_fingerprint_hint")
+    );
+    assert!(sftp.fields.iter().all(|field| field.name != "bucket"));
+    assert!(!sftp.upload_workflows.presigned_upload);
+    assert!(!sftp.upload_workflows.object_multipart_upload);
 }
 
 #[test]
@@ -624,6 +703,7 @@ fn runtime_credential_requirement_is_connector_owned() {
     for driver_type in [
         DriverType::Local,
         DriverType::S3,
+        DriverType::Sftp,
         DriverType::AzureBlob,
         DriverType::TencentCos,
         DriverType::Remote,
@@ -756,6 +836,26 @@ fn onedrive_options_are_rejected_for_non_onedrive_connector() {
         error
             .to_string()
             .contains("OneDrive options are only valid for OneDrive")
+    );
+}
+
+#[test]
+fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
+    let options = StoragePolicyOptions {
+        sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
+        ..Default::default()
+    };
+
+    let error = common::ensure_sftp_options_absent(&options).unwrap_err();
+
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::PolicySftpOptionsUnsupported
+    );
+    assert!(
+        error
+            .to_string()
+            .contains("SFTP host key options are only valid for SFTP")
     );
 }
 
@@ -1007,6 +1107,7 @@ fn non_local_upload_transports_expose_opaque_blob_hash_prefix() {
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
         StorageConnectorUploadTransport::StreamUpload,
+        StorageConnectorUploadTransport::Sftp,
     ] {
         assert!(
             transport.opaque_blob_hash_prefix().is_some(),
@@ -1032,6 +1133,7 @@ fn presigned_download_policy_is_connector_owned() {
         1024,
         r#"{"object_storage_download_strategy":"relay_stream"}"#,
     );
+    let sftp = mock_policy(DriverType::Sftp, 1024, "{}");
 
     assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
     assert!(
@@ -1040,6 +1142,7 @@ fn presigned_download_policy_is_connector_owned() {
     assert!(
         !presigned_download_enabled(&relay_s3).expect("presigned download support should resolve")
     );
+    assert!(!presigned_download_enabled(&sftp).expect("presigned download support should resolve"));
 }
 
 #[test]
@@ -1283,6 +1386,45 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
 }
 
 #[test]
+fn sftp_uses_server_relay_without_presigned_or_multipart_tracking() {
+    let policy = mock_policy(DriverType::Sftp, 1024, "{}");
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
+
+    assert_eq!(transport, StorageConnectorUploadTransport::Sftp);
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1024),
+        UploadMode::Direct
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1025),
+        UploadMode::Chunked
+    );
+    assert!(!transport.supports_streaming_direct_upload(&policy, 0));
+    assert!(transport.supports_streaming_direct_upload(&policy, 1024));
+    assert!(!transport.supports_streaming_direct_upload(&policy, 1025));
+    assert!(!transport.uses_relay_multipart_tracking());
+    assert_eq!(transport.opaque_blob_hash_prefix(), Some("sftp"));
+    assert_eq!(
+        transport.chunked_completion(),
+        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
+    );
+}
+
+#[test]
+fn sftp_zero_chunk_size_uses_single_streaming_request() {
+    let policy = mock_policy(DriverType::Sftp, 0, "{}");
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
+
+    assert_eq!(
+        transport.resolve_init_mode(&policy, i64::MAX),
+        UploadMode::Direct
+    );
+    assert!(transport.supports_streaming_direct_upload(&policy, i64::MAX));
+}
+
+#[test]
 fn upload_workflow_descriptors_match_default_connector_transports() {
     assert_upload_workflow_alignment(
         DriverType::Local,
@@ -1328,6 +1470,20 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
             object_multipart: true,
             provider_resumable: false,
             presigned: true,
+            frontend_direct_provider_resumable: false,
+            small_mode: UploadMode::Direct,
+            large_mode: UploadMode::Chunked,
+            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
+        },
+    );
+    assert_upload_workflow_alignment(
+        DriverType::Sftp,
+        "{}",
+        ExpectedUploadWorkflow {
+            transport: StorageConnectorUploadTransport::Sftp,
+            object_multipart: false,
+            provider_resumable: false,
+            presigned: false,
             frontend_direct_provider_resumable: false,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
@@ -1411,7 +1567,8 @@ fn assert_upload_workflow_alignment(
         StorageConnectorUploadTransport::ObjectStorage(_) => OBJECT_STORAGE_LARGE_UPLOAD_SIZE,
         StorageConnectorUploadTransport::Local
         | StorageConnectorUploadTransport::Remote(_)
-        | StorageConnectorUploadTransport::StreamUpload => 2048,
+        | StorageConnectorUploadTransport::StreamUpload
+        | StorageConnectorUploadTransport::Sftp => 2048,
     };
     let descriptor = descriptor(driver_type);
     let workflows = descriptor.upload_workflows;

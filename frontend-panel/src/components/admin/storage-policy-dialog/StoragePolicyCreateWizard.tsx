@@ -41,6 +41,7 @@ import {
 	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
+	supportsStaticSecretConnection,
 	supportsStorageNativeProcessing,
 } from "./descriptorPredicates";
 import type { PolicyFormData } from "./formTypes";
@@ -428,7 +429,7 @@ function ConnectionStep({
 	remoteStorageTargetsLoading,
 	t,
 }: ConnectionStepProps) {
-	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+	const canUseStaticSecretConnection = supportsStaticSecretConnection(
 		storageDriverDescriptor,
 	);
 	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
@@ -459,7 +460,7 @@ function ConnectionStep({
 					t={t}
 					onFieldChange={onFieldChange}
 				/>
-				{canUseObjectStorageConnection ? (
+				{canUseStaticSecretConnection ? (
 					<ObjectStorageConnectionFields
 						form={form}
 						bucketError={createBucketError}

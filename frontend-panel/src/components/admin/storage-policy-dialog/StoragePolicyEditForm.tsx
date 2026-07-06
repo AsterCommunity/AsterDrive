@@ -45,6 +45,7 @@ import {
 	supportsObjectStorageTransferStrategy,
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
+	supportsStaticSecretConnection,
 	supportsStorageAuthorizationAction,
 	supportsStorageNativeProcessing,
 } from "./descriptorPredicates";
@@ -149,7 +150,7 @@ export function StoragePolicyEditForm({
 	const renderedPromotionTargetLabel =
 		s3DriverPromotionTargetLabel ??
 		renderedS3DriverPromotionTargetLabelRef.current;
-	const canUseObjectStorageConnection = supportsObjectStorageConnection(
+	const canUseStaticSecretConnection = supportsStaticSecretConnection(
 		storageDriverDescriptor,
 	);
 	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
@@ -213,7 +214,7 @@ export function StoragePolicyEditForm({
 					</div>
 				</section>
 
-				{canUseObjectStorageConnection ? (
+				{canUseStaticSecretConnection ? (
 					<section className="rounded-2xl border border-border/70 bg-background/70 p-5">
 						<PolicySectionIntro
 							title={t("policy_editor_connection_title")}

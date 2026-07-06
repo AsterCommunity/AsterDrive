@@ -16,6 +16,7 @@ mod models;
 mod onedrive;
 mod remote;
 mod s3;
+mod sftp;
 mod tencent_cos;
 mod upload;
 
@@ -35,7 +36,8 @@ use crate::storage::connector_descriptor::{
     StorageConnectorDescriptorProvider, StoragePolicyExecutableAction,
 };
 use crate::storage::drivers::{
-    azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, tencent_cos::TencentCosDriver,
+    azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
+    tencent_cos::TencentCosDriver,
 };
 use crate::types::{DriverType, StorageCredentialKind, StorageCredentialProvider};
 
@@ -57,6 +59,7 @@ pub(crate) use models::{
 use onedrive::OneDriveConnector;
 use remote::RemoteConnector;
 use s3::S3Connector;
+use sftp::SftpConnector;
 use tencent_cos::TencentCosConnector;
 pub use upload::{StorageConnectorChunkedCompletion, StorageConnectorUploadTransport};
 
@@ -126,7 +129,8 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
             Self::storage_connector_descriptor(),
             options,
         )?;
-        common::ensure_onedrive_options_absent(options)
+        common::ensure_onedrive_options_absent(options)?;
+        common::ensure_sftp_options_absent(options)
     }
 
     /// 持久化 provider application credential/config。
@@ -317,6 +321,7 @@ struct StorageConnectorRegistration {
 enum BuiltinStorageConnector {
     Local,
     S3,
+    Sftp,
     AzureBlob,
     TencentCos,
     Remote,
@@ -328,6 +333,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::storage_connector_descriptor(),
             Self::S3 => S3Connector::storage_connector_descriptor(),
+            Self::Sftp => SftpConnector::storage_connector_descriptor(),
             Self::AzureBlob => AzureBlobConnector::storage_connector_descriptor(),
             Self::TencentCos => TencentCosConnector::storage_connector_descriptor(),
             Self::Remote => RemoteConnector::storage_connector_descriptor(),
@@ -345,6 +351,9 @@ impl BuiltinStorageConnector {
                 common::normalize_policy_connection_for::<LocalConnector, _>(db, input).await
             }
             Self::S3 => common::normalize_policy_connection_for::<S3Connector, _>(db, input).await,
+            Self::Sftp => {
+                common::normalize_policy_connection_for::<SftpConnector, _>(db, input).await
+            }
             Self::AzureBlob => {
                 common::normalize_policy_connection_for::<AzureBlobConnector, _>(db, input).await
             }
@@ -370,6 +379,7 @@ impl BuiltinStorageConnector {
                 LocalConnector::prepare_connection_for_storage(input, application_config)
             }
             Self::S3 => S3Connector::prepare_connection_for_storage(input, application_config),
+            Self::Sftp => SftpConnector::prepare_connection_for_storage(input, application_config),
             Self::AzureBlob => {
                 AzureBlobConnector::prepare_connection_for_storage(input, application_config)
             }
@@ -396,6 +406,7 @@ impl BuiltinStorageConnector {
                 LocalConnector::validate_policy_options(db, remote_node_id, options).await
             }
             Self::S3 => S3Connector::validate_policy_options(db, remote_node_id, options).await,
+            Self::Sftp => SftpConnector::validate_policy_options(db, remote_node_id, options).await,
             Self::AzureBlob => {
                 AzureBlobConnector::validate_policy_options(db, remote_node_id, options).await
             }
@@ -432,6 +443,16 @@ impl BuiltinStorageConnector {
             }
             Self::S3 => {
                 S3Connector::persist_application_config(
+                    db,
+                    encryption_key,
+                    policy_id,
+                    options,
+                    application_config,
+                )
+                .await
+            }
+            Self::Sftp => {
+                SftpConnector::persist_application_config(
                     db,
                     encryption_key,
                     policy_id,
@@ -491,6 +512,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::test_draft_connection(state, input).await,
             Self::S3 => S3Connector::test_draft_connection(state, input).await,
+            Self::Sftp => SftpConnector::test_draft_connection(state, input).await,
             Self::AzureBlob => AzureBlobConnector::test_draft_connection(state, input).await,
             Self::TencentCos => TencentCosConnector::test_draft_connection(state, input).await,
             Self::Remote => RemoteConnector::test_draft_connection(state, input).await,
@@ -506,6 +528,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::test_saved_connection(state, policy).await,
             Self::S3 => S3Connector::test_saved_connection(state, policy).await,
+            Self::Sftp => SftpConnector::test_saved_connection(state, policy).await,
             Self::AzureBlob => AzureBlobConnector::test_saved_connection(state, policy).await,
             Self::TencentCos => TencentCosConnector::test_saved_connection(state, policy).await,
             Self::Remote => RemoteConnector::test_saved_connection(state, policy).await,
@@ -522,6 +545,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::execute_saved_action(state, policy, action).await,
             Self::S3 => S3Connector::execute_saved_action(state, policy, action).await,
+            Self::Sftp => SftpConnector::execute_saved_action(state, policy, action).await,
             Self::AzureBlob => {
                 AzureBlobConnector::execute_saved_action(state, policy, action).await
             }
@@ -541,6 +565,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::execute_draft_action(state, input).await,
             Self::S3 => S3Connector::execute_draft_action(state, input).await,
+            Self::Sftp => SftpConnector::execute_draft_action(state, input).await,
             Self::AzureBlob => AzureBlobConnector::execute_draft_action(state, input).await,
             Self::TencentCos => TencentCosConnector::execute_draft_action(state, input).await,
             Self::Remote => RemoteConnector::execute_draft_action(state, input).await,
@@ -552,6 +577,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::upload_transport(policy),
             Self::S3 => S3Connector::upload_transport(policy),
+            Self::Sftp => SftpConnector::upload_transport(policy),
             Self::AzureBlob => AzureBlobConnector::upload_transport(policy),
             Self::TencentCos => TencentCosConnector::upload_transport(policy),
             Self::Remote => RemoteConnector::upload_transport(policy),
@@ -563,6 +589,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::presigned_download_enabled(policy),
             Self::S3 => S3Connector::presigned_download_enabled(policy),
+            Self::Sftp => SftpConnector::presigned_download_enabled(policy),
             Self::AzureBlob => AzureBlobConnector::presigned_download_enabled(policy),
             Self::TencentCos => TencentCosConnector::presigned_download_enabled(policy),
             Self::Remote => RemoteConnector::presigned_download_enabled(policy),
@@ -574,6 +601,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::runtime_credential_requirement(),
             Self::S3 => S3Connector::runtime_credential_requirement(),
+            Self::Sftp => SftpConnector::runtime_credential_requirement(),
             Self::AzureBlob => AzureBlobConnector::runtime_credential_requirement(),
             Self::TencentCos => TencentCosConnector::runtime_credential_requirement(),
             Self::Remote => RemoteConnector::runtime_credential_requirement(),
@@ -593,6 +621,9 @@ impl BuiltinStorageConnector {
                 LocalConnector::load_runtime_credential(db, config, policy, credential).await
             }
             Self::S3 => S3Connector::load_runtime_credential(db, config, policy, credential).await,
+            Self::Sftp => {
+                SftpConnector::load_runtime_credential(db, config, policy, credential).await
+            }
             Self::AzureBlob => {
                 AzureBlobConnector::load_runtime_credential(db, config, policy, credential).await
             }
@@ -616,6 +647,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => LocalConnector::build_authorized_driver(policy, credential),
             Self::S3 => S3Connector::build_authorized_driver(policy, credential),
+            Self::Sftp => SftpConnector::build_authorized_driver(policy, credential),
             Self::AzureBlob => AzureBlobConnector::build_authorized_driver(policy, credential),
             Self::TencentCos => TencentCosConnector::build_authorized_driver(policy, credential),
             Self::Remote => RemoteConnector::build_authorized_driver(policy, credential),
@@ -635,6 +667,7 @@ impl BuiltinStorageConnector {
                 LocalConnector::validate_credential(db, config, policy, credential).await
             }
             Self::S3 => S3Connector::validate_credential(db, config, policy, credential).await,
+            Self::Sftp => SftpConnector::validate_credential(db, config, policy, credential).await,
             Self::AzureBlob => {
                 AzureBlobConnector::validate_credential(db, config, policy, credential).await
             }
@@ -658,7 +691,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Remote => RemoteConnector::cleanup_snapshot_for_policy(state, policy).await,
             Self::OneDrive => OneDriveConnector::cleanup_snapshot_for_policy(state, policy).await,
-            Self::Local | Self::S3 | Self::AzureBlob | Self::TencentCos => Ok(None),
+            Self::Local | Self::S3 | Self::Sftp | Self::AzureBlob | Self::TencentCos => Ok(None),
         }
     }
 
@@ -671,6 +704,7 @@ impl BuiltinStorageConnector {
         match self {
             Self::Local => Ok(Arc::new(LocalDriver::new(policy)?)),
             Self::S3 => Ok(Arc::new(S3Driver::new(policy)?)),
+            Self::Sftp => Ok(Arc::new(SftpDriver::new(policy)?)),
             Self::AzureBlob => Ok(Arc::new(AzureBlobDriver::new(policy)?)),
             Self::TencentCos => Ok(Arc::new(TencentCosDriver::new(policy)?)),
             Self::Remote => RemoteConnector::build_cleanup_driver(state, policy, snapshots).await,
@@ -703,6 +737,11 @@ static CONNECTOR_REGISTRATIONS: &[StorageConnectorRegistration] = &[
     StorageConnectorRegistration {
         driver_type: DriverType::S3,
         connector: BuiltinStorageConnector::S3,
+        cleanup_snapshot_required: false,
+    },
+    StorageConnectorRegistration {
+        driver_type: DriverType::Sftp,
+        connector: BuiltinStorageConnector::Sftp,
         cleanup_snapshot_required: false,
     },
     StorageConnectorRegistration {

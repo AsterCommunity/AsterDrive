@@ -76,7 +76,7 @@ Create example:
 
 Current notes:
 
-- `driver_type` currently supports `local`, `s3`, `azure_blob`, `tencent_cos`, `remote`, and `onedrive`
+- `driver_type` currently supports `local`, `s3`, `sftp`, `azure_blob`, `tencent_cos`, `remote`, and `one_drive`
 - `GET /admin/policies/storage-drivers` returns `StorageConnectorDescriptor` entries. The frontend should use descriptor `capabilities`, `fields`, `upload_workflows`, `actions`, and `credential_mode` to decide forms, connection tests, upload/download strategies, and action affordances instead of maintaining a hard-coded driver capability matrix.
 - create and update both honor request `chunk_size`
 - `options` carries policy-level behavior:
@@ -88,11 +88,13 @@ Current notes:
   - storage-native thumbnails / image previews with `storage_native_processing_enabled`, `thumbnail_processor`, and `thumbnail_extensions`
   - storage-native media metadata with `storage_native_media_metadata_enabled` and `media_metadata_extensions`
   - OneDrive location options: `onedrive_account_mode`, `onedrive_tenant`, `onedrive_site_id`, `onedrive_drive_id`, `onedrive_group_id`, and `onedrive_root_item_id`
+  - SFTP host key pinning: `sftp_host_key_fingerprint`
 - `application_config.microsoft_graph` stores OneDrive / Microsoft Graph app settings. Client secrets are stored encrypted; API responses expose only `client_secret_configured`.
 - `driver_type = "azure_blob"` uses Azure Block Blob capabilities. Presigned browser upload uses SAS URLs and requires the client to send `x-ms-blob-type: BlockBlob`.
-- `driver_type = "onedrive"` uses Microsoft Graph OAuth credentials. Save the policy and `application_config.microsoft_graph` before starting authorization.
+- `driver_type = "one_drive"` uses Microsoft Graph OAuth credentials. Save the policy and `application_config.microsoft_graph` before starting authorization.
+- `driver_type = "sftp"` uses SSH username / password credentials to connect to an SFTP server. Endpoint supports `sftp://host:port`, bare `host`, and `host:port`; the remote root belongs in `base_path`. Unknown or mismatched SSH host keys are rejected as `StorageErrorKind::Precondition` with diagnostics that include actual / expected fingerprints; the confirmed fingerprint is stored in `options.sftp_host_key_fingerprint`.
 - `driver_type = "tencent_cos"` uses the S3-compatible object path for normal reads and writes, validates Tencent COS endpoint shape, and can expose COS CI storage-native thumbnail / image-preview / media-metadata capabilities when the policy opts in
-- built-in Local, S3-compatible, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
+- built-in Local, S3-compatible, SFTP, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
 - legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
 - `driver_type = "remote"` requires `remote_node_id`
@@ -130,7 +132,7 @@ Failed connection tests no longer return a `StoragePolicyProbeResult` success pa
 }
 ```
 
-Draft test requests support optional `policy_id`. While editing a saved policy, blank sensitive fields such as `access_key` or `secret_key` can be filled from the saved policy by S3-compatible, Azure Blob, and Tencent COS connectors. Unsaved new policies must still provide complete credentials.
+Draft test requests support optional `policy_id`. While editing a saved policy, blank sensitive fields such as `access_key` or `secret_key` can be filled from the saved policy by S3-compatible, SFTP, Azure Blob, and Tencent COS connectors. Unsaved new policies must still provide complete credentials.
 
 ### Storage OAuth Credentials
 

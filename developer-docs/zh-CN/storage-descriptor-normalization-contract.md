@@ -18,6 +18,7 @@
 - 管理端字段、动作、能力和 UI 辅助元数据必须优先来自后端 descriptor。前端不能用本地 `driver_type` 白名单或矩阵推断连接测试、授权、上传策略、原生处理、远端绑定、字段可见性等能力。
 - `label_key`、`help_key`、`placeholder`、`required_message_key` 和类似字段只表达稳定的本地化 key 或提示参数。具体文案由前端 i18n 决定，但字段是否存在、是否必填、是否敏感由后端 descriptor 决定。
 - `secret: true` 或 secret kind 表示前端必须使用敏感输入控件，后端日志和 `Debug` 输出不得打印明文。创建流程按 descriptor 的 `required` 和后端校验执行；编辑流程中，省略 secret 字段表示保留已有值，显式提供新值才替换。
+- `StorageConnectorFieldScope::PolicyOptions` 字段属于 `storage_policy.options`，前端必须按 descriptor 渲染和归一化，不允许为某个 driver 额外写本地字段矩阵。SFTP 的 `sftp_host_key_fingerprint` 就是这种字段：后端声明字段、label key、trim 行为和校验规则，前端只负责展示与提交。
 - 不支持的 driver 必须由后端返回稳定错误。remote storage target 只能暴露已注册且远端 capability 声明支持的 known driver；未知 driver id 可以在 wire model 中保留，但不能被前端当成本地可配置 driver。
 - descriptor 缺失、远端 capability 缺失或解析失败时，前端只能做保守兜底：隐藏高风险动作或显示不可用状态。不能在兜底路径里恢复本地 capability 矩阵。
 - action descriptor 用来声明入口是否需要 saved policy、授权 credential，以及是否会修改远端状态。路由和 service 仍要做最终校验，不能只靠前端隐藏按钮。
@@ -29,6 +30,8 @@
 - local remote storage target `base_path` 使用 `normalize_relative_local_path`：trim 空白，支持 `.` 当前目录归一化，拒绝空值、绝对路径、`..`、Windows prefix 和反斜杠逃逸，最终路径必须落在 `server.follower.remote_storage_target_local_root` 内。
 - object-storage remote storage target `base_path` 当前按 prefix 处理：trim 空白并去掉首尾 `/`，允许空 prefix 表示 bucket/container 根。
 - storage policy object-storage endpoint/bucket 使用 `normalize_s3_endpoint_and_bucket` 及 connector 错误码映射：endpoint 非空时必须是 `http://` 或 `https://` 且包含 hostname，bucket/container 不能为空。
+- storage policy SFTP endpoint 由 `parse_sftp_endpoint` 处理：允许 `sftp://host:port`、裸 `host` 和 `host:port`，默认端口 `22`；只有出现真实 `://` scheme 分隔符时才按 URL scheme 校验。路径、query、fragment 和 URL 内凭据无效，远程根目录必须走 `base_path`。
+- SFTP 主机密钥指纹存放在 `storage_policy.options.sftp_host_key_fingerprint`。未知或不匹配的 host key 必须 fail closed，并通过结构化 `SftpHostKeyRejected` 上下文暴露 actual / expected 指纹，测试不要解析错误文本。
 - `max_file_size` 的 `0` 表示不声明额外限制；负数无效。上传链路仍要在使用 policy/target 时执行最终大小校验。
 - 同 driver 编辑时，`access_key` / `secret_key` / `base_path` / endpoint / bucket 等可选字段省略表示保留已有值；显式提供字段则重新走对应 driver 的规范化和校验。
 - 切换 remote storage target driver 时，旧 driver-specific 字段不能继承到新 driver：endpoint、bucket、access key、secret key 会重置为空；base path 回到新 driver 输入或默认根语义后再规范化。
@@ -47,5 +50,6 @@
 
 - descriptor 必须覆盖每个内置 driver 的字段、secret 标记、action 和关键 capability。
 - normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
+- SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
 - storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote_storage_target_service::tests::<filter>`。
 - 改 OpenAPI schema 后必须重新导出 OpenAPI 并生成前端 SDK。本契约切片不改变 API shape。

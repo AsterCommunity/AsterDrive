@@ -19,6 +19,7 @@
 	"policy_remote_node_base_url_required": "选中的直连远程节点需要先配置 Base URL 才能用于存储策略",
 	"policy_remote_node_transfer_strategy_unsupported": "该远程节点不支持浏览器预签名传输策略，请改用中继流式传输",
 	"policy_onedrive_options_unsupported": "OneDrive 选项只能用于 OneDrive 存储策略",
+	"policy_sftp_options_unsupported": "SFTP 主机密钥选项只能用于 SFTP 存储策略",
 	"policy_onedrive_account_mode_required": "保存 OneDrive 存储策略前需要先选择账号模式",
 	"policy_onedrive_personal_china_cloud_unsupported": "Microsoft 个人账号必须使用 Global Microsoft Graph 云",
 	"policy_onedrive_sharepoint_site_required": "SharePoint 站点模式需要填写 Site ID，除非已指定 Drive ID",

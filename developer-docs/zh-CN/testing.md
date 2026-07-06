@@ -122,3 +122,23 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_c
 1. 当前用例是不是走的 `common::setup()`
 2. shell 里是否真的导出了 `ASTER_TEST_DATABASE_BACKEND`
 3. 本机 Docker 是否可用，以及对应镜像能否拉起
+
+## SFTP 集成测试
+
+SFTP 驱动有单独的集成测试：
+
+```bash
+cargo test --test test_sftp
+```
+
+这个测试默认会通过 `testcontainers` 启动 `atmoz/sftp` 容器，完成一次真实上传、下载、range 读取、删除和主机密钥指纹确认流程。它需要本机 Docker / 容器运行时可用。
+
+如果当前环境不能跑 Docker，可以显式关闭：
+
+```bash
+ASTER_SFTP_TEST_DOCKER=0 cargo test --test test_sftp
+```
+
+关闭后测试会跳过容器 round-trip。不要把这个变量作为默认 CI 行为；SFTP 是真实存储驱动，PR 改到驱动、connector、descriptor 或上传下载链路时应优先保留默认 Docker 测试。
+
+`src/storage/drivers/sftp.rs` 里还有一个手动真实服务器用例，需要 `ASTER_SFTP_TEST_*` 和 `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`。它不替代 `tests/test_sftp.rs` 的默认 Docker 覆盖，主要用于排查特定 SFTP 服务器兼容性。

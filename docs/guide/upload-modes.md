@@ -26,6 +26,7 @@ flowchart TD
   Policy --> Local["local：写入本地存储"]
   Policy --> S3Relay["s3 / tencent_cos + relay_stream：服务端转发到对象存储"]
   Policy --> S3Presigned["s3 / tencent_cos + presigned：浏览器直传对象存储"]
+  Policy --> SftpRelay["sftp：服务端流式写入 SFTP"]
   Policy --> RemoteRelay["remote + relay_stream：主控节点转发到从节点"]
   Policy --> RemotePresigned["remote + presigned：浏览器直连从节点 base_url"]
 ```
@@ -44,6 +45,7 @@ flowchart TD
 - 服务本地临时目录有没有足够空间
 - 反向代理的上传大小和超时是否足够
 - 如果要直传对象存储，浏览器上传所需的 CORS 是否已经配好
+- 如果用 SFTP，SSH 主机密钥指纹是否已经确认并保存
 - 如果用远程节点，follower 是否已经有默认接收落点
 - 如果用远程节点 `presigned`，远程节点是否使用直连传输、浏览器是否能访问 follower 的 `base_url`，并且 follower 对外暴露了所需的 CORS 响应头
 
@@ -77,6 +79,17 @@ flowchart TD
 - 允许上传站点的来源
 - `ExposeHeaders` 里包含 `ETag`
 
+## 如果你使用 SFTP
+
+SFTP 上传和下载都由 AsterDrive 服务端中继。浏览器不会直接连 SFTP 服务器，也没有预签名 URL 或 CORS 配置项。
+
+上线前重点确认：
+
+- AsterDrive 服务器能访问 SFTP endpoint 和端口
+- SSH 用户名 / 密码可用
+- 基础路径可写
+- SSH 主机密钥指纹已经通过可信渠道确认并保存
+
 ## 上传失败时，先按这个顺序查
 
 1. 当前工作空间是不是切对了
@@ -84,8 +97,9 @@ flowchart TD
 3. 命中的存储策略单文件大小上限是否够
 4. 反向代理的请求体大小和超时时间是否够
 5. 如果走对象存储直传，CORS 配置是否正确
-6. 如果走远程节点，节点是否启用、当前传输方式是否测试通过、协议能力是否兼容、默认接收落点是否已应用
-7. 用户或团队配额是不是已经满了
+6. 如果走 SFTP，Endpoint、SSH 凭据、基础路径和主机密钥指纹是否正确
+7. 如果走远程节点，节点是否启用、当前传输方式是否测试通过、协议能力是否兼容、默认接收落点是否已应用
+8. 用户或团队配额是不是已经满了
 
 ## 什么时候应该改配置
 
@@ -96,4 +110,5 @@ flowchart TD
 - 服务器本地临时目录的可用空间
 - 反向代理的上传大小和超时
 - 对象存储的浏览器直传放行规则
+- SFTP 的 endpoint、基础路径和 SSH 主机密钥指纹
 - 远程节点的传输方式、协议能力、默认接收落点和网络可达性；如果使用远程 `presigned`，再确认浏览器能访问 follower 的 `base_url`

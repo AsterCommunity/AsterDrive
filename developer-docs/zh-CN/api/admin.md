@@ -91,7 +91,7 @@
 
 当前实现注意点：
 
-- `driver_type` 当前支持 `local`、`s3`、`azure_blob`、`tencent_cos`、`remote` 和 `onedrive`
+- `driver_type` 当前支持 `local`、`s3`、`sftp`、`azure_blob`、`tencent_cos`、`remote` 和 `one_drive`
 - `GET /admin/policies/storage-drivers` 返回 `StorageConnectorDescriptor` 列表，前端应以 descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions` 和 `credential_mode` 决定表单、连接测试、上传/下载策略和操作入口，不要在前端维护一份 driver-type 能力矩阵
 - 创建和更新都会采用请求里的 `chunk_size`
 - `options` 当前承载策略级行为：
@@ -103,11 +103,13 @@
   - 存储原生缩略图 / 图片预览：`storage_native_processing_enabled`、`thumbnail_processor`、`thumbnail_extensions`
   - 存储原生媒体元数据：`storage_native_media_metadata_enabled`、`media_metadata_extensions`
   - OneDrive 位置选项：`onedrive_account_mode`、`onedrive_tenant`、`onedrive_site_id`、`onedrive_drive_id`、`onedrive_group_id`、`onedrive_root_item_id`
+  - SFTP 主机密钥固定：`sftp_host_key_fingerprint`
 - `application_config.microsoft_graph` 用于保存 OneDrive / Microsoft Graph 应用配置；client secret 只写入加密存储，API 响应只暴露 `client_secret_configured`
 - `driver_type = "azure_blob"` 使用 Azure Blob Block Blob 能力，预签名上传使用 SAS URL，前端直传时需要带 `x-ms-blob-type: BlockBlob`
-- `driver_type = "onedrive"` 使用 Microsoft Graph OAuth 凭据，授权前需要先保存策略和 `application_config.microsoft_graph`
+- `driver_type = "one_drive"` 使用 Microsoft Graph OAuth 凭据，授权前需要先保存策略和 `application_config.microsoft_graph`
+- `driver_type = "sftp"` 使用 SSH 用户名 / 密码连接 SFTP 服务器；Endpoint 支持 `sftp://host:port`、裸 `host` 和 `host:port`，远程根目录放在 `base_path`。未知或不匹配的 SSH 主机密钥会以 `StorageErrorKind::Precondition` 拒绝，并通过诊断提示 actual / expected 指纹；确认后的指纹保存在 `options.sftp_host_key_fingerprint`。
 - `driver_type = "tencent_cos"` 普通读写复用 S3-compatible 对象存储路径，会校验 Tencent COS endpoint 形态；策略启用后可通过 COS CI 暴露原生缩略图、图片预览和媒体元数据能力
-- 内置 Local、S3-compatible、Azure Blob、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
+- 内置 Local、S3-compatible、SFTP、Azure Blob、OneDrive 和 Remote 驱动不暴露存储原生缩略图、图片预览或媒体元数据能力
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
@@ -149,7 +151,7 @@
 }
 ```
 
-草稿测试请求支持可选 `policy_id`。编辑已保存策略时，如果 `access_key`、`secret_key` 等敏感字段为空，S3-compatible、Azure Blob 和 Tencent COS connector 会从该策略已保存凭据补齐空白字段；新建未保存策略时仍必须传完整凭据。
+草稿测试请求支持可选 `policy_id`。编辑已保存策略时，如果 `access_key`、`secret_key` 等敏感字段为空，S3-compatible、SFTP、Azure Blob 和 Tencent COS connector 会从该策略已保存凭据补齐空白字段；新建未保存策略时仍必须传完整凭据。
 
 ### 存储 OAuth 凭据
 

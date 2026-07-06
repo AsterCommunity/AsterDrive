@@ -52,6 +52,7 @@ export interface PolicyFormData {
 	onedrive_root_item_id: string;
 	onedrive_site_id: string;
 	onedrive_group_id: string;
+	policy_option_values?: Record<string, string>;
 	application_credentials: StorageApplicationCredentialForm;
 	storage_native_processing_enabled: boolean;
 	storage_native_media_metadata_enabled?: boolean;
@@ -96,6 +97,7 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 		onedrive_root_item_id: options.onedrive_root_item_id ?? "",
 		onedrive_site_id: options.onedrive_site_id ?? "",
 		onedrive_group_id: options.onedrive_group_id ?? "",
+		policy_option_values: scalarPolicyOptionValues(options),
 		application_credentials: {
 			microsoft_graph: {
 				cloud: options.onedrive_cloud ?? "global",
@@ -151,6 +153,7 @@ export const emptyForm: PolicyFormData = {
 	onedrive_root_item_id: "",
 	onedrive_site_id: "",
 	onedrive_group_id: "",
+	policy_option_values: {},
 	application_credentials: {
 		microsoft_graph: {
 			cloud: "global",
@@ -166,3 +169,19 @@ export const emptyForm: PolicyFormData = {
 	thumbnail_extensions: [],
 	media_metadata_extensions: [],
 };
+
+function scalarPolicyOptionValues(
+	options: StoragePolicyOptions,
+): Record<string, string> {
+	const values: Record<string, string> = {};
+	for (const [key, value] of Object.entries(options)) {
+		if (
+			typeof value === "string" ||
+			typeof value === "number" ||
+			typeof value === "boolean"
+		) {
+			values[key] = String(value);
+		}
+	}
+	return values;
+}

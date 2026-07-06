@@ -25,6 +25,7 @@ AsterDrive 里有两层概念：
 | Azure Blob Storage | Azure Storage account、Blob container、Azure 托管对象存储 | [Azure Blob Storage](/storage/azure-blob) |
 | 腾讯云 COS | 腾讯云对象存储、COS 数据万象、按策略启用原生处理 | [腾讯云 COS](/storage/tencent-cos) |
 | OneDrive | Microsoft 365、OneDrive、SharePoint / group drive、Microsoft Graph 授权 | [OneDrive](/storage/onedrive) |
+| SFTP | SSH/SFTP 文件服务器、NAS、传统服务器目录、服务端流式读写 | [SFTP](/storage/sftp) |
 | 远程节点 | 控制面在主控，真实对象写到另一台 AsterDrive | [远程节点存储策略](/storage/remote-follower) |
 
 ## 通用配置流程
@@ -51,5 +52,5 @@ flowchart TD
 5. 确认没有问题后，再把真实用户或团队迁到新策略组
 
 ::: warning 已写入文件的策略，不要直接改真实落点
-`local` 的目录、S3 的 bucket / endpoint / prefix、Azure Blob 的 endpoint / container / 基础路径、OneDrive 的 drive / root item / site 或 group 定位字段、远程节点绑定，这些字段决定旧文件在哪里。直接改掉，旧文件可能会找不到。
+`local` 的目录、S3 的 bucket / endpoint / prefix、Azure Blob 的 endpoint / container / 基础路径、OneDrive 的 drive / root item / site 或 group 定位字段、SFTP 的 endpoint / 基础路径、远程节点绑定，这些字段决定旧文件在哪里。直接改掉，旧文件可能会找不到。
 :::

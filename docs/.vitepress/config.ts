@@ -458,6 +458,7 @@ function buildZhSidebar() {
         { text: 'Azure Blob Storage', link: '/storage/azure-blob' },
         { text: '腾讯云 COS', link: '/storage/tencent-cos' },
         { text: 'OneDrive', link: '/storage/onedrive' },
+        { text: 'SFTP', link: '/storage/sftp' },
         { text: '远程节点存储策略', link: '/storage/remote-follower' }
       ]
     },
@@ -573,6 +574,7 @@ function buildEnSidebar() {
         { text: 'Azure Blob Storage', link: '/en/storage/azure-blob' },
         { text: 'Tencent COS', link: '/en/storage/tencent-cos' },
         { text: 'OneDrive', link: '/en/storage/onedrive' },
+        { text: 'SFTP', link: '/en/storage/sftp' },
         { text: 'Follower Node Storage Policy', link: '/en/storage/remote-follower' }
       ]
     },

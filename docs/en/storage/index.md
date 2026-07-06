@@ -25,6 +25,7 @@ If you have already decided which backend to connect, use the tutorials here.
 | Azure Blob Storage | Azure Storage accounts, Blob containers, Azure-managed object storage | [Azure Blob Storage](/en/storage/azure-blob) |
 | Tencent COS | Tencent object storage, COS CI, per-policy native processing | [Tencent COS](/en/storage/tencent-cos) |
 | OneDrive | Microsoft 365, OneDrive, SharePoint / group drives, Microsoft Graph authorization | [OneDrive](/en/storage/onedrive) |
+| SFTP | SSH/SFTP file servers, NAS, traditional server directories, server-side streaming | [SFTP](/en/storage/sftp) |
 | Follower node | The control plane stays on the primary node, while real objects are written to another AsterDrive node | [Follower Node Storage Policy](/en/storage/remote-follower) |
 
 ## General Configuration Flow
@@ -51,5 +52,5 @@ Recommended flow:
 5. After confirming there are no issues, move real users or teams to the new policy group
 
 ::: warning Do not directly change the real destination for policies that already have files
-The `local` directory, S3 bucket / endpoint / prefix, Azure Blob endpoint / container / base path, OneDrive drive / root item / site or group identifiers, and follower node binding determine where old files are located. If you change them directly, old files may no longer be found.
+The `local` directory, S3 bucket / endpoint / prefix, Azure Blob endpoint / container / base path, OneDrive drive / root item / site or group identifiers, SFTP endpoint / base path, and follower node binding determine where old files are located. If you change them directly, old files may no longer be found.
 :::

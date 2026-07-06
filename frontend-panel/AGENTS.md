@@ -63,6 +63,7 @@ import type { UserInfo, ShareInfo, StoragePolicy } from "@/types/api";
 ### 存储策略能力
 - 存储策略 UI 的连接测试、字段显示、上传工作流、授权入口、远端节点绑定、S3 传输策略、存储原生处理、driver action 可用性等能力判断，必须优先来自后端 storage connector descriptor 的 `capabilities`、`fields`、`upload_workflows`、`actions`、`connection_tests` 等元数据。
 - 不要在前端新增 `driver_type === "s3" || driver_type === "azure_blob" || ...` 这类白名单/矩阵来推断能力。已有临时兜底也只能用于 descriptor 缺失时的保守兼容，不能扩大成新的事实来源。
+- 存储策略表单的连接字段、字段标签、credential mode、endpoint 协议、是否允许裸 host、测试 payload 和 create/update payload，都必须从 descriptor 字段和后端 schema 派生；不要在 `storage-policy-dialog`、`descriptorPredicates`、`connectionNormalization` 或页面测试 fixture 里硬编码 S3/Azure/COS/SFTP/Remote/OneDrive 的字段矩阵。
 - descriptor 缺失时，如果必须根据表单内容做兼容判断，只能使用字段是否存在、用户是否实际填写了相关字段、URL scheme 这类局部信号；不要把 S3/Azure/COS/Remote/OneDrive 的能力关系重新硬编码回前端。
 
 ### 组件库

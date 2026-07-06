@@ -46,6 +46,17 @@ export function supportsObjectStorageConnection(
 	);
 }
 
+export function supportsStaticSecretConnection(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+) {
+	return (
+		descriptor?.credential_mode === "static_secret" &&
+		descriptorHasConnectionField(descriptor, "endpoint") &&
+		descriptorHasConnectionField(descriptor, "access_key") &&
+		descriptorHasConnectionField(descriptor, "secret_key")
+	);
+}
+
 export function supportsRemoteNodeBinding(
 	descriptor: StorageConnectorDescriptor | null | undefined,
 ) {

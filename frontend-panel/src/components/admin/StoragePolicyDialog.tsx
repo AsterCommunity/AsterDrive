@@ -12,6 +12,7 @@ import {
 	supportsOneDrivePolicyOptions,
 	supportsRemoteNodeBinding,
 	supportsSavedConnectionTest,
+	supportsStaticSecretConnection,
 	supportsStorageNativeProcessing,
 } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
@@ -192,6 +193,9 @@ function useStoragePolicyDialogContent({
 	const canUseObjectStorageConnection = supportsObjectStorageConnection(
 		storageDriverDescriptor,
 	);
+	const canUseStaticSecretConnection = supportsStaticSecretConnection(
+		storageDriverDescriptor,
+	);
 	const canUseRemoteNodeBinding = supportsRemoteNodeBinding(
 		storageDriverDescriptor,
 	);
@@ -286,7 +290,7 @@ function useStoragePolicyDialogContent({
 			? t("onedrive_client_secret_required")
 			: null;
 	const createEndpointError =
-		canUseObjectStorageConnection && !form.endpoint.trim()
+		canUseStaticSecretConnection && !form.endpoint.trim()
 			? isCreateMode
 				? createStep === 1 && createStepTouched
 					? t("policy_wizard_endpoint_required")
@@ -410,13 +414,15 @@ function useStoragePolicyDialogContent({
 					},
 				]
 			: []),
-		...(canUseObjectStorageConnection
+		...(canUseStaticSecretConnection
 			? [
 					{
 						label: t("endpoint"),
 						value: form.endpoint || t("policy_wizard_default_endpoint"),
 					},
-					{ label: t("bucket"), value: form.bucket || "—" },
+					...(canUseObjectStorageConnection
+						? [{ label: t("bucket"), value: form.bucket || "—" }]
+						: []),
 					...(canUseObjectStorageTransferStrategy
 						? [
 								{

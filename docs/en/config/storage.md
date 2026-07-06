@@ -26,6 +26,7 @@ If you change nothing, new users are automatically bound to the default policy g
 | `azure_blob` | Files are stored in an Azure Blob Storage container using the Azure Blob SDK and SAS URLs | [Azure Blob Storage](/en/storage/azure-blob) |
 | `tencent_cos` | Files are stored in Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI (Cloud Infinite / 数据万象). See the Tencent COS tutorial for what COS CI provides and when it may be billed. | [Tencent COS](/en/storage/tencent-cos) |
 | `one_drive` | Files are written to Microsoft Graph-accessible OneDrive, SharePoint, or Microsoft 365 group drives | [OneDrive](/en/storage/onedrive) |
+| `sftp` | Files are streamed by the AsterDrive server to an SSH/SFTP file server | [SFTP](/en/storage/sftp) |
 | `remote` | Files are written to another AsterDrive follower node through the internal remote storage protocol | [Follower Node Storage Policy](/en/storage/remote-follower) |
 
 ## Storage Policies vs Policy Groups
@@ -46,13 +47,13 @@ If you are migrating existing data, do not directly change the old policy path, 
 | Item | Purpose |
 | --- | --- |
 | Name | Display name in the admin console |
-| Driver type | `local`, `s3`, `azure_blob`, `tencent_cos`, `one_drive`, or `remote` |
-| Connection information | Local directory / S3 endpoint, bucket, secrets / Azure Blob endpoint, container, account keys / COS endpoint, bucket, secrets / OneDrive Microsoft Graph target and authorization settings / bound follower node |
+| Driver type | `local`, `s3`, `azure_blob`, `tencent_cos`, `one_drive`, `sftp`, or `remote` |
+| Connection information | Local directory / S3 endpoint, bucket, secrets / Azure Blob endpoint, container, account keys / COS endpoint, bucket, secrets / OneDrive Microsoft Graph target and authorization settings / SFTP endpoint, SSH credentials, host key fingerprint / bound follower node |
 | Base path | Directory, prefix, or remote-target relative path used when writing through this policy |
 | Single-file size limit | Maximum upload size. `0` = unlimited. |
 | Chunk size | Size of each chunk for large-file uploads |
 | Default policy | Preferred by newly created default groups or default routing rules |
-| Extra options | Local content deduplication, S3 / Azure Blob / COS upload and download modes, S3 path-style access, OneDrive target-drive location, remote upload and download modes, storage-native processing, and so on |
+| Extra options | Local content deduplication, S3 / Azure Blob / COS upload and download modes, S3 path-style access, OneDrive target-drive location, SFTP host key fingerprint, remote upload and download modes, storage-native processing, and so on |
 
 The storage policy form is not driven only by frontend hardcoded provider fields. AsterDrive reads each driver's `StorageConnector` descriptor from the backend, including fields, capabilities, upload workflows, and management actions. When a storage backend grows or changes, the admin UI can follow the backend descriptor instead of re-creating a parallel capability table.
 
@@ -119,6 +120,14 @@ Suitable when files should be written to Microsoft Graph-accessible OneDrive, Sh
 
 OneDrive policies require a Microsoft app registration and administrator delegated OAuth authorization. Save the policy and Microsoft Graph application credentials before starting authorization; the authorization request does not carry unsaved Client ID / Secret drafts. The target drive can be resolved automatically after authorization, or specified with a Drive ID, SharePoint site ID, or group ID. See the [OneDrive storage policy tutorial](/en/storage/onedrive) for the full flow.
 
+### `sftp`
+
+Suitable when files should be written to an SSH/SFTP file server, NAS, or traditional server directory.
+
+SFTP policies use server-side streaming for both uploads and downloads; browsers never connect directly to the SFTP server. Endpoint can be `sftp://host:port`, `host`, or `host:port`; the default port is `22`, and the remote root belongs in Base path. SSH username / password still use the API fields `access_key` / `secret_key`, but the admin form labels them as SSH credentials.
+
+SFTP rejects unknown host keys by default. The first connection test reports the server's actual `SHA256:...` fingerprint; after the administrator confirms it, save it as `storage_policy.options.sftp_host_key_fingerprint`. Later connections must match that fingerprint. See the [SFTP storage policy tutorial](/en/storage/sftp) for the full flow.
+
 ### `tencent_cos`
 
 Suitable when files are stored in Tencent COS and you want to enable Tencent-native capabilities per policy.
@@ -141,6 +150,7 @@ The storage policy edit dialog shows current capacity observation:
 | `s3` / `tencent_cos` | Shows unsupported; the standard S3-compatible API does not expose a unified, reliable bucket free-capacity interface |
 | `azure_blob` | Shows unsupported; the Blob data API does not expose unified storage account capacity observation |
 | `one_drive` | Reads Microsoft Graph drive quota; if Graph does not return quota data, the result is shown as unavailable |
+| `sftp` | Shows unsupported; SFTP has no unified reliable remote filesystem capacity interface |
 | `remote` | Asks the follower's real ingress target through the internal remote storage protocol. If the follower ingress target is local, filesystem capacity is usually available. If the ingress target is S3, it is also shown as unsupported. |
 
 During data migration, preflight compares the target policy's available capacity with the estimated bytes that still need to be copied. It does not simply use the source policy's total size. Content SHA-256 blobs that already exist in the target policy are treated as reusable and are excluded from the estimated copy size.
@@ -174,6 +184,7 @@ If an opaque key already exists in the target policy, the migration does not ove
 - Local directory
 - Bucket
 - Endpoint
+- SFTP base path
 - Bound follower node
 
 Old files are read from their original locations. Changing the location directly means existing files cannot be found.

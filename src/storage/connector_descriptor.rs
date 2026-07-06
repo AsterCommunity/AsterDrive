@@ -360,6 +360,12 @@ pub struct StorageConnectorFieldDescriptor {
     /// endpoint 协议不合法时的前端文案 key。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub invalid_protocol_message_key: Option<String>,
+    /// endpoint 允许的 URL protocol，取值与浏览器 `URL.protocol` 一致，例如 `https:`。
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_endpoint_protocols: Vec<String>,
+    /// true 表示 endpoint 可以省略 URL scheme，由 connector 在后端补齐或解释。
+    #[serde(default)]
+    pub allow_endpoint_without_protocol: bool,
     /// true 表示该字段失焦时前端可以安全 trim。
     #[serde(default)]
     pub trim_on_blur: bool,
@@ -501,6 +507,8 @@ pub(crate) fn object_storage_connector_descriptor(
             help_key: Some(input.fields.endpoint_help_key),
             required_message_key: None,
             invalid_protocol_message_key: Some(input.fields.endpoint_protocol_error_key),
+            allowed_endpoint_protocols: vec!["http:", "https:"],
+            allow_endpoint_without_protocol: false,
             trim_on_blur: false,
             visible_when_driver_types: Vec::new(),
         }),
@@ -515,6 +523,8 @@ pub(crate) fn object_storage_connector_descriptor(
             help_key: None,
             required_message_key: Some(input.fields.bucket_required_message_key),
             invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
             trim_on_blur: false,
             visible_when_driver_types: Vec::new(),
         }),
@@ -529,6 +539,8 @@ pub(crate) fn object_storage_connector_descriptor(
             help_key: None,
             required_message_key: None,
             invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
             trim_on_blur: input.fields.access_key_trim_on_blur,
             visible_when_driver_types: Vec::new(),
         }),
@@ -543,6 +555,8 @@ pub(crate) fn object_storage_connector_descriptor(
             help_key: None,
             required_message_key: None,
             invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
             trim_on_blur: false,
             visible_when_driver_types: Vec::new(),
         }),
@@ -583,6 +597,8 @@ pub(crate) fn object_storage_connector_descriptor(
                 help_key: Some("s3_path_style_desc"),
                 required_message_key: None,
                 invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false,
                 trim_on_blur: false,
                 visible_when_driver_types: vec![DriverType::S3],
             },
@@ -767,6 +783,8 @@ pub(crate) fn storage_connector_field(
         help_key: None,
         required_message_key: None,
         invalid_protocol_message_key: None,
+        allowed_endpoint_protocols: Vec::new(),
+        allow_endpoint_without_protocol: false,
         trim_on_blur: false,
         visible_when_driver_types: Vec::new(),
     })
@@ -783,6 +801,8 @@ pub(crate) struct StorageConnectorFieldDisplayInput<'a> {
     pub(crate) help_key: Option<&'a str>,
     pub(crate) required_message_key: Option<&'a str>,
     pub(crate) invalid_protocol_message_key: Option<&'a str>,
+    pub(crate) allowed_endpoint_protocols: Vec<&'a str>,
+    pub(crate) allow_endpoint_without_protocol: bool,
     pub(crate) trim_on_blur: bool,
     pub(crate) visible_when_driver_types: Vec<DriverType>,
 }
@@ -804,6 +824,12 @@ pub(crate) fn storage_connector_field_with_display(
         help_key: input.help_key.map(ToOwned::to_owned),
         required_message_key: input.required_message_key.map(ToOwned::to_owned),
         invalid_protocol_message_key: input.invalid_protocol_message_key.map(ToOwned::to_owned),
+        allowed_endpoint_protocols: input
+            .allowed_endpoint_protocols
+            .into_iter()
+            .map(ToOwned::to_owned)
+            .collect(),
+        allow_endpoint_without_protocol: input.allow_endpoint_without_protocol,
         trim_on_blur: input.trim_on_blur,
         required: semantics.required,
         secret: semantics.secret,

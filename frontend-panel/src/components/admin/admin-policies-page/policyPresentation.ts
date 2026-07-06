@@ -11,6 +11,7 @@ const POLICY_DRIVER_BADGE_CLASSES = {
 	remote:
 		"border-amber-500/60 bg-amber-500/10 text-amber-600 dark:text-amber-300",
 	s3: "border-blue-500/60 bg-blue-500/10 text-blue-600 dark:text-blue-300",
+	sftp: "border-violet-500/60 bg-violet-500/10 text-violet-700 dark:text-violet-300",
 	tencent_cos:
 		"border-cyan-500/60 bg-cyan-500/10 text-cyan-700 dark:text-cyan-300",
 } satisfies Record<DriverType, string>;

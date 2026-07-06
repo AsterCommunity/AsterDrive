@@ -5,6 +5,7 @@ use super::drivers::azure_blob::AzureBlobDriver;
 use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
+use super::drivers::sftp::SftpDriver;
 use super::drivers::tencent_cos::TencentCosDriver;
 use super::error::storage_driver_error;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
@@ -368,6 +369,10 @@ impl DriverRegistry {
                 let storage: Arc<dyn StorageDriver> = driver.clone();
                 let multipart: Arc<dyn MultipartStorageDriver> = driver;
                 Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
+            }
+            DriverType::Sftp => {
+                let driver: Arc<dyn StorageDriver> = Arc::new(SftpDriver::new(policy)?);
+                Ok(self.build_entry(policy.driver_type, driver, None))
             }
             DriverType::AzureBlob => {
                 let driver = Arc::new(AzureBlobDriver::new(policy)?);

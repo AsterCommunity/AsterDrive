@@ -148,8 +148,9 @@ WebDAV does not go through `src/api/routes/**`. Instead:
 │ Infrastructure layer                        │
 │  - SeaORM + migration                       │
 │  - StorageConnector descriptor / action     │
-│  - StorageDriver(Local/S3/Azure/OneDrive)   │
-│  - StorageDriver(Tencent COS / Remote)      │
+│  - StorageDriver(Local/S3/SFTP/Azure)       │
+│  - StorageDriver(Tencent COS/OneDrive)      │
+│  - StorageDriver(Remote)                    │
 │  - CacheBackend(Memory / Redis)             │
 ├─────────────────────────────────────────────┤
 │ Data layer                                  │
@@ -190,7 +191,7 @@ The practical rule of thumb in this repository remains:
 | `src/api/routes/remote_tunnel.rs` | Primary-side remote-node reverse tunnel internal entry |
 | `src/services/` | Central business rule layer |
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
-| `src/storage/drivers/` | Local, S3-compatible, Azure Blob, Tencent COS, OneDrive, and remote drivers |
+| `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `src/storage/remote_protocol/tunnel/` | Reverse tunnel transport runtime, auth, registry, and streaming responses |
 | `src/webdav/` | WebDAV filesystem, auth, locks, and DeltaV support |
 | `frontend-panel/` | React 19 + Vite frontend; build artifacts are served by the backend |

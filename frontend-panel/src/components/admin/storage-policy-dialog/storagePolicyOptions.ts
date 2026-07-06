@@ -25,6 +25,7 @@ export interface StoragePolicyOptionsForm {
 	onedrive_root_item_id: string;
 	onedrive_site_id: string;
 	onedrive_group_id: string;
+	policy_option_values?: Record<string, string>;
 	storage_native_processing_enabled: boolean;
 	storage_native_media_metadata_enabled?: boolean;
 	thumbnail_processor: StoragePolicyOptions["thumbnail_processor"];
@@ -130,6 +131,22 @@ function buildDescriptorPolicyOptions(
 	}
 	if (hasOption("account_mode")) {
 		Object.assign(options, buildOneDrivePolicyOptions(form));
+	}
+
+	const optionRecord = options as Record<string, unknown>;
+	for (const field of descriptor.fields) {
+		if (
+			field.scope !== "policy_options" ||
+			(field.kind !== "text" && field.kind !== "secret") ||
+			Object.hasOwn(optionRecord, field.name)
+		) {
+			continue;
+		}
+		const rawValue = form.policy_option_values?.[field.name] ?? "";
+		const value = field.trim_on_blur === true ? rawValue.trim() : rawValue;
+		if (value) {
+			optionRecord[field.name] = value;
+		}
 	}
 
 	return options;

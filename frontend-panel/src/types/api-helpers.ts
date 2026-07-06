@@ -150,6 +150,7 @@ export const ApiErrorCode = {
 	PolicyRemoteNodeTransferStrategyUnsupported:
 		"policy.remote_node_transfer_strategy_unsupported",
 	PolicyOneDriveOptionsUnsupported: "policy.onedrive_options_unsupported",
+	PolicySftpOptionsUnsupported: "policy.sftp_options_unsupported",
 	PolicyOneDriveAccountModeRequired: "policy.onedrive_account_mode_required",
 	PolicyOneDrivePersonalChinaCloudUnsupported:
 		"policy.onedrive_personal_china_cloud_unsupported",

@@ -5,7 +5,7 @@ description: The official AsterDrive documentation home, organized by quick star
 hero:
   name: AsterDrive
   text: Official Documentation Center
-  tagline: Built with Rust + React. Start with single-node deployment, then add team spaces, S3, Azure Blob, OneDrive, WebDAV, WOPI, and follower nodes as needed.
+  tagline: Built with Rust + React. Start with single-node deployment, then add team spaces, S3, Azure Blob, OneDrive, SFTP, WebDAV, WOPI, and follower nodes as needed.
   actions:
     - theme: brand
       text: Quick Start
@@ -37,7 +37,7 @@ features:
 
 ## First, Know What It Is
 
-AsterDrive is a lightweight self-hosted cloud drive built with Rust and React. You can start with the default single-node deployment using SQLite and local storage, then connect PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Microsoft Graph-backed OneDrive / SharePoint drives, team spaces, WebDAV, WOPI online preview and editing, and follower node storage as needed.
+AsterDrive is a lightweight self-hosted cloud drive built with Rust and React. You can start with the default single-node deployment using SQLite and local storage, then connect PostgreSQL / MySQL, S3-compatible object storage, Azure Blob Storage, Tencent COS, Microsoft Graph-backed OneDrive / SharePoint drives, SFTP file servers, team spaces, WebDAV, WOPI online preview and editing, and follower node storage as needed.
 
 It is not a full collaboration suite or a multi-primary cluster system. The current focus is making file management, sharing, uploads, previews, storage policies, and routine operations clear for individuals and small teams.
 
@@ -57,7 +57,7 @@ Start from [User Guides](/en/guide/). Regular users should first read the [User 
 
 Read [Admin Console](/en/guide/admin-console) first, then [Configuration Overview](/en/config/). AsterDrive configuration is split into startup configuration, admin-console runtime settings, storage policies, policy groups, storage policy backends, and the external network environment. It is much clearer when viewed by layer.
 
-If you are connecting S3 / MinIO / R2 / Azure Blob Storage / Tencent COS / OneDrive, see [Storage Policy Backends](/en/storage/).
+If you are connecting S3 / MinIO / R2 / Azure Blob Storage / Tencent COS / OneDrive / SFTP, see [Storage Policy Backends](/en/storage/).
 
 ### I Want to Find Documentation by Feature Module
 

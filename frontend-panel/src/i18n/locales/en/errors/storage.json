@@ -19,6 +19,7 @@
 	"policy_remote_node_base_url_required": "The selected direct remote node needs a base URL before it can be used by a storage policy",
 	"policy_remote_node_transfer_strategy_unsupported": "This remote node does not support presigned browser transfer strategies. Use relay streaming instead",
 	"policy_onedrive_options_unsupported": "OneDrive options can only be used with OneDrive storage policies",
+	"policy_sftp_options_unsupported": "SFTP host key options can only be used with SFTP storage policies",
 	"policy_onedrive_account_mode_required": "Select a OneDrive account mode before saving this storage policy",
 	"policy_onedrive_personal_china_cloud_unsupported": "Personal Microsoft accounts must use the Global Microsoft Graph cloud",
 	"policy_onedrive_sharepoint_site_required": "SharePoint site mode needs a Site ID unless a Drive ID is already set",

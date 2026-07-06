@@ -21,6 +21,9 @@ pub enum StorageConnectorUploadTransport {
     /// driver may create Microsoft Graph upload sessions internally, but the
     /// upload service only sees a generic stream-upload target.
     StreamUpload,
+    /// SFTP can only be reached by the server. Browsers never receive a
+    /// provider-native upload URL; uploads are relayed through StreamUploadDriver.
+    Sftp,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -38,7 +41,7 @@ impl StorageConnectorUploadTransport {
     pub fn effective_chunk_size(self, policy: &storage_policy::Model) -> i64 {
         match self {
             Self::ObjectStorage(_) => effective_object_multipart_chunk_size(policy.chunk_size),
-            Self::Local | Self::Remote(_) | Self::StreamUpload => policy.chunk_size,
+            Self::Local | Self::Remote(_) | Self::StreamUpload | Self::Sftp => policy.chunk_size,
         }
     }
 
@@ -82,6 +85,7 @@ impl StorageConnectorUploadTransport {
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
             Self::StreamUpload => true,
+            Self::Sftp => self.fits_single_request(policy, declared_size),
         }
     }
 
@@ -109,6 +113,7 @@ impl StorageConnectorUploadTransport {
             Self::ObjectStorage(_) => Some("s3"),
             Self::Remote(_) => Some("remote"),
             Self::StreamUpload => Some("provider"),
+            Self::Sftp => Some("sftp"),
         }
     }
 
@@ -122,7 +127,7 @@ impl StorageConnectorUploadTransport {
             // full temp file. They can relay stored chunks into the connector's
             // stream-upload implementation, which lets the concrete driver own
             // any provider-native resumable/session behavior internally.
-            Self::Remote(_) | Self::StreamUpload => {
+            Self::Remote(_) | Self::StreamUpload | Self::Sftp => {
                 StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
             }
             Self::Local | Self::ObjectStorage(_) => {

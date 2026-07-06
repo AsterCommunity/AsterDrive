@@ -122,3 +122,23 @@ If you suspect the test did not switch backends as expected, check these three t
 1. Does the test case actually use `common::setup()`?
 2. Is `ASTER_TEST_DATABASE_BACKEND` exported in the shell?
 3. Is Docker available locally, and can the corresponding image start successfully?
+
+## SFTP Integration Tests
+
+The SFTP driver has a dedicated integration test:
+
+```bash
+cargo test --test test_sftp
+```
+
+This test starts an `atmoz/sftp` container through `testcontainers` by default and runs a real upload, download, range read, delete, and host-key fingerprint confirmation flow. It requires a local Docker / container runtime.
+
+If the current environment cannot run Docker, disable it explicitly:
+
+```bash
+ASTER_SFTP_TEST_DOCKER=0 cargo test --test test_sftp
+```
+
+With that variable set, the container round trip is skipped. Do not make this the default CI behavior; SFTP is a real storage driver, so PRs touching the driver, connector, descriptor, or upload/download path should keep the default Docker test enabled.
+
+`src/storage/drivers/sftp.rs` also contains a manual real-server test that requires `ASTER_SFTP_TEST_*` and `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`. It does not replace the default Docker coverage in `tests/test_sftp.rs`; it is mainly for debugging compatibility with a specific SFTP server.

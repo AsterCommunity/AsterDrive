@@ -148,8 +148,9 @@ WebDAV 不走 `src/api/routes/**`，而是：
 │ 基础设施层                                  │
 │  - SeaORM + migration                       │
 │  - StorageConnector descriptor / action     │
-│  - StorageDriver(Local/S3/Azure/OneDrive)   │
-│  - StorageDriver(Tencent COS / Remote)      │
+│  - StorageDriver(Local/S3/SFTP/Azure)       │
+│  - StorageDriver(Tencent COS/OneDrive)      │
+│  - StorageDriver(Remote)                    │
 │  - CacheBackend(Memory / Redis)             │
 ├─────────────────────────────────────────────┤
 │ 数据层                                      │
@@ -190,7 +191,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/api/routes/remote_tunnel.rs` | primary 侧远端节点 reverse tunnel 内部入口 |
 | `src/services/` | 业务规则集中层 |
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
-| `src/storage/drivers/` | 本地、S3-compatible、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
+| `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
 | `src/storage/remote_protocol/tunnel/` | reverse tunnel 传输运行时、鉴权、注册表和流式响应 |
 | `src/webdav/` | WebDAV 文件系统、认证、锁与 DeltaV 支持 |
 | `frontend-panel/` | React 19 + Vite 前端，构建产物由后端服务 |
