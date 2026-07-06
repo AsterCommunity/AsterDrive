@@ -8,6 +8,8 @@
 	"batch_move": "移动所选",
 	"batch_copy": "复制所选",
 	"batch_target_folder_desc": "请选择要移动或复制到的目标文件夹。",
+	"batch_target_workspace": "目标工作空间",
+	"batch_target_current_workspace": "工作空间：{{name}}",
 	"batch_target_current_folder": "当前目标：{{name}}",
 	"batch_target_current_folder_hint": "确认后会把所选项目放到这个目录。",
 	"batch_target_back": "返回上一级",

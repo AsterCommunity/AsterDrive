@@ -30,7 +30,8 @@ pub use details::{
     TeamMemberAddAuditDetails, TeamMemberRemoveAuditDetails, TeamMemberUpdateAuditDetails,
     TrashPurgeAllAuditDetails, UploadCancelAuditDetails, UserAvatarSourceAuditDetails,
     UserAvatarUploadAuditDetails, UserLoginAuditDetails, UserMfaManageAuditDetails,
-    UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails, details,
+    UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails,
+    WorkspaceTransferCopyDetails, WorkspaceTransferScopeDetails, details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

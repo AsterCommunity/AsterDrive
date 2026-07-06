@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -12,22 +12,25 @@ import {
 	type RemoteNodeFormData,
 } from "@/components/admin/remoteNodeDialogShared";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import { invalidateAdminRemoteNodeLookup } from "@/lib/adminRemoteNodeLookup";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import { logger } from "@/lib/logger";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { adminRemoteNodeService } from "@/services/adminService";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type { AdminRemoteNodeSortBy } from "@/types/adminSort";
@@ -56,6 +59,33 @@ const DEFAULT_REMOTE_NODE_SORT_BY =
 	"created_at" as const satisfies AdminRemoteNodeSortBy;
 const DEFAULT_REMOTE_NODE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
+type ManagedRemoteNodeQuery = {
+	offset: number;
+	pageSize: (typeof REMOTE_NODE_PAGE_SIZE_OPTIONS)[number];
+	sortBy: AdminRemoteNodeSortBy;
+	sortOrder: SortOrder;
+};
+
+const MANAGED_REMOTE_NODE_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_REMOTE_NODE_PAGE_SIZE,
+	sortBy: DEFAULT_REMOTE_NODE_SORT_BY,
+	sortOrder: DEFAULT_REMOTE_NODE_SORT_ORDER,
+} satisfies ManagedRemoteNodeQuery;
+
+const MANAGED_REMOTE_NODE_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		REMOTE_NODE_PAGE_SIZE_OPTIONS,
+		DEFAULT_REMOTE_NODE_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(
+		REMOTE_NODE_SORT_BY_OPTIONS,
+		DEFAULT_REMOTE_NODE_SORT_BY,
+	),
+	sortOrder: managedSortOrderQueryField(DEFAULT_REMOTE_NODE_SORT_ORDER),
+} satisfies ManagedListQuerySchema<ManagedRemoteNodeQuery>;
+
 function requiresDirectStorageTargetBaseUrl(node: RemoteNodeInfo) {
 	return (
 		(node.transport_mode ?? "direct") === "direct" && !node.base_url.trim()
@@ -67,48 +97,35 @@ export function useAdminRemoteNodesPageController() {
 	usePageTitle(t("remote_nodes"));
 	const primarySiteUrl = useFrontendConfigStore((state) => state.siteUrl);
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffset] = useState(() =>
-		parseOffsetSearchParam(searchParams.get("offset")),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof REMOTE_NODE_PAGE_SIZE_OPTIONS)[number]
-	>(() =>
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			REMOTE_NODE_PAGE_SIZE_OPTIONS,
-			DEFAULT_REMOTE_NODE_PAGE_SIZE,
-		),
-	);
-	const [sortBy, setSortBy] = useState<AdminRemoteNodeSortBy>(() =>
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			REMOTE_NODE_SORT_BY_OPTIONS,
-			DEFAULT_REMOTE_NODE_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(() =>
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_REMOTE_NODE_SORT_ORDER,
-		),
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_REMOTE_NODE_QUERY_DEFAULTS,
+		schema: MANAGED_REMOTE_NODE_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { offset, pageSize, sortBy, sortOrder } = query;
+	const setOffset = useManagedOffset(setQuery);
 	const {
+		currentPage,
 		items: remoteNodes,
 		setItems: setRemoteNodes,
 		total,
-		setTotal,
+		totalPages,
 		loading,
 		reload,
-	} = useApiList(
-		() =>
+		nextPageDisabled,
+		prevPageDisabled,
+	} = useManagedAdminList<RemoteNodeInfo, ManagedRemoteNodeQuery>({
+		loadPage: (query) =>
 			adminRemoteNodeService.list({
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				limit: query.pageSize,
+				offset: query.offset,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[offset, pageSize, sortBy, sortOrder],
-	);
+		query,
+		setOffset,
+	});
 	const [dialogOpen, setDialogOpen] = useState(false);
 	const [editingId, setEditingId] = useState<number | null>(null);
 	const [editingNode, setEditingNode] = useState<RemoteNodeInfo | null>(null);
@@ -150,10 +167,6 @@ export function useAdminRemoteNodesPageController() {
 	} = usePendingId<number>();
 	const remoteStorageTargetRequestIdRef = useRef(0);
 	const remoteStorageTargetDriverDescriptorsRequestIdRef = useRef(0);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
 	const createButtonTitle = primarySiteUrl
 		? undefined
 		: t("remote_node_primary_site_url_required");
@@ -164,38 +177,17 @@ export function useAdminRemoteNodesPageController() {
 	const remoteNodeBaseUrlValidationMessage =
 		getRemoteNodeBaseUrlValidationMessage(form.base_url, t);
 
-	useEffect(() => {
-		setSearchParams(
-			buildOffsetPaginationSearchParams({
-				offset,
-				pageSize,
-				defaultPageSize: DEFAULT_REMOTE_NODE_PAGE_SIZE,
-				extraParams: {
-					sortBy: sortBy !== DEFAULT_REMOTE_NODE_SORT_BY ? sortBy : undefined,
-					sortOrder:
-						sortOrder !== DEFAULT_REMOTE_NODE_SORT_ORDER
-							? sortOrder
-							: undefined,
-				},
-			}),
-			{ replace: true },
-		);
-	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
-
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, REMOTE_NODE_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminRemoteNodeSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
 	const resetDialogState = () => {
@@ -519,15 +511,8 @@ export function useAdminRemoteNodesPageController() {
 
 	const handleRefresh = async () => {
 		try {
-			const nodesPage = await adminRemoteNodeService.list({
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
-			});
-			setRemoteNodes(nodesPage.items);
-			setTotal(nodesPage.total);
 			invalidateAdminRemoteNodeLookup();
+			await reload();
 		} catch (error) {
 			handleApiError(error);
 		}

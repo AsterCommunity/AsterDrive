@@ -8,6 +8,8 @@
 	"batch_move": "Move Selected",
 	"batch_copy": "Copy Selected",
 	"batch_target_folder_desc": "Choose the destination folder for the selected items.",
+	"batch_target_workspace": "Destination workspace",
+	"batch_target_current_workspace": "Workspace: {{name}}",
 	"batch_target_current_folder": "Current destination: {{name}}",
 	"batch_target_current_folder_hint": "Confirm to place the selected items in this folder.",
 	"batch_target_back": "Go up",

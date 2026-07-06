@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminTeamsPage from "@/pages/admin/AdminTeamsPage";
@@ -79,16 +79,45 @@ vi.mock("@/components/common/AdminTableList", () => ({
 	AdminTableList: ({
 		headerRow,
 		items,
+		pagination,
 		renderRow,
 	}: {
 		headerRow: ReactNode;
 		items: typeof TEAMS;
+		pagination?: ReactNode;
 		renderRow: (item: (typeof TEAMS)[number]) => ReactNode;
 	}) => (
-		<table>
-			{headerRow}
-			<tbody>{items.map(renderRow)}</tbody>
-		</table>
+		<>
+			<table>
+				{headerRow}
+				<tbody>{items.map(renderRow)}</tbody>
+			</table>
+			{pagination}
+		</>
+	),
+}));
+
+vi.mock("@/components/admin/AdminOffsetPagination", () => ({
+	AdminOffsetPagination: ({
+		onNext,
+		onPageSizeChange,
+		onPrevious,
+	}: {
+		onNext: () => void;
+		onPageSizeChange: (value: string | null) => void;
+		onPrevious: () => void;
+	}) => (
+		<div>
+			<button type="button" onClick={onPrevious}>
+				prev_page
+			</button>
+			<button type="button" onClick={onNext}>
+				next_page
+			</button>
+			<button type="button" onClick={() => onPageSizeChange("50")}>
+				page_size_50
+			</button>
+		</div>
 	),
 }));
 
@@ -300,6 +329,61 @@ describe("AdminTeamsPage", () => {
 				viewTransition: false,
 			},
 		);
+	});
+
+	it("wires refresh and pagination changes through managed query state", () => {
+		mockState.searchParams = "offset=20&pageSize=20";
+
+		render(<AdminTeamsPage />);
+
+		fireEvent.click(screen.getByText("core:refresh"));
+		expect(mockState.reload).toHaveBeenCalledTimes(1);
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("prev_page"));
+		let nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect(nextParams).toBeInstanceOf(URLSearchParams);
+		expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("next_page"));
+		nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect((nextParams as URLSearchParams).get("offset")).toBe("40");
+
+		mockState.setSearchParams.mockClear();
+		fireEvent.click(screen.getByText("page_size_50"));
+		nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+		expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+		expect((nextParams as URLSearchParams).get("pageSize")).toBe("50");
+	});
+
+	it("debounces keyword updates before syncing them to the query", () => {
+		vi.useFakeTimers();
+		try {
+			render(<AdminTeamsPage />);
+
+			fireEvent.click(screen.getByText("show_filters"));
+			mockState.setSearchParams.mockClear();
+			fireEvent.change(screen.getByPlaceholderText("team_search_placeholder"), {
+				target: { value: "design" },
+			});
+
+			expect(mockState.setSearchParams).not.toHaveBeenCalledWith(
+				expect.any(URLSearchParams),
+				expect.anything(),
+			);
+
+			act(() => {
+				vi.advanceTimersByTime(300);
+			});
+
+			const nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+			expect(nextParams).toBeInstanceOf(URLSearchParams);
+			expect((nextParams as URLSearchParams).get("keyword")).toBe("design");
+			expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("converts the create dialog team quota from MB to bytes", async () => {

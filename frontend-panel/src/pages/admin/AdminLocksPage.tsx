@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -20,8 +19,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import {
@@ -29,12 +39,7 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
-import {
-	buildOffsetPaginationSearchParams,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import type { SortOrder } from "@/lib/pagination";
 import type { WebdavLock } from "@/services/adminService";
 import { adminLockService } from "@/services/adminService";
 import type { AdminLockSortBy } from "@/types/adminSort";
@@ -51,6 +56,32 @@ const LOCK_SORT_BY_OPTIONS = [
 ] as const satisfies readonly AdminLockSortBy[];
 const DEFAULT_LOCK_SORT_BY = "id" as const satisfies AdminLockSortBy;
 const DEFAULT_LOCK_SORT_ORDER = "asc" as const satisfies SortOrder;
+const LOCK_PAGE_SIZE_OPTIONS = [100] as const;
+const DEFAULT_LOCK_PAGE_SIZE = 100 as const;
+
+type ManagedLockQuery = {
+	offset: number;
+	pageSize: (typeof LOCK_PAGE_SIZE_OPTIONS)[number];
+	sortBy: AdminLockSortBy;
+	sortOrder: SortOrder;
+};
+
+const MANAGED_LOCK_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_LOCK_PAGE_SIZE,
+	sortBy: DEFAULT_LOCK_SORT_BY,
+	sortOrder: DEFAULT_LOCK_SORT_ORDER,
+} satisfies ManagedLockQuery;
+
+const MANAGED_LOCK_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		LOCK_PAGE_SIZE_OPTIONS,
+		DEFAULT_LOCK_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(LOCK_SORT_BY_OPTIONS, DEFAULT_LOCK_SORT_BY),
+	sortOrder: managedSortOrderQueryField(DEFAULT_LOCK_SORT_ORDER),
+} satisfies ManagedListQuerySchema<ManagedLockQuery>;
 
 function formatLockOwnerInfo(lock: WebdavLock) {
 	if (!lock.owner_info) {
@@ -71,52 +102,32 @@ export default function AdminLocksPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("webdav_locks"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [sortBy, setSortBy] = useState<AdminLockSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			LOCK_SORT_BY_OPTIONS,
-			DEFAULT_LOCK_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_LOCK_SORT_ORDER,
-		),
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_LOCK_QUERY_DEFAULTS,
+		schema: MANAGED_LOCK_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { sortBy, sortOrder } = query;
+	const setOffset = useManagedOffset(setQuery);
 	const {
 		items: locks,
 		setItems: setLocks,
 		loading,
 		reload,
-	} = useApiList(
-		() =>
+	} = useManagedAdminList<WebdavLock, ManagedLockQuery>({
+		loadPage: (query) =>
 			adminLockService.list({
-				limit: 100,
-				offset: 0,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				limit: query.pageSize,
+				offset: query.offset,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[sortBy, sortOrder],
-	);
+		query,
+		setOffset,
+	});
 	const { pendingId: unlockingLockId, runWithPending: runWithUnlockingLock } =
 		usePendingId<number>();
-
-	useEffect(() => {
-		setSearchParams(
-			buildOffsetPaginationSearchParams({
-				offset: 0,
-				pageSize: 100,
-				defaultPageSize: 100,
-				extraParams: {
-					sortBy: sortBy !== DEFAULT_LOCK_SORT_BY ? sortBy : undefined,
-					sortOrder:
-						sortOrder !== DEFAULT_LOCK_SORT_ORDER ? sortOrder : undefined,
-				},
-			}),
-			{ replace: true },
-		);
-	}, [setSearchParams, sortBy, sortOrder]);
 
 	const handleForceUnlock = async (id: number) => {
 		await runWithUnlockingLock(id, async () => {
@@ -150,8 +161,7 @@ export default function AdminLocksPage() {
 		nextSortBy: AdminLockSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
 	const isExpired = (l: WebdavLock) =>

@@ -3,12 +3,202 @@
 #[macro_use]
 mod common;
 use aster_drive::api::api_error_code::ApiErrorCode;
+use aster_drive::db::repository::folder_repo;
 use aster_drive::entities::{file, folder};
 use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, sea_query::Expr};
+use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
 use serde_json::Value;
+
+macro_rules! register_user {
+    ($app:expr, $db:expr, $mail_sender:expr, $username:expr, $email:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": $username,
+                "email": $email,
+                "password": "password123"
+            }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        let user_id = body["data"]["id"].as_i64().unwrap();
+        let _ = confirm_latest_contact_verification!($app, $db, $mail_sender);
+        user_id
+    }};
+}
+
+macro_rules! login_user {
+    ($app:expr, $identifier:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/login")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "identifier": $identifier,
+                "password": "password123"
+            }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 200);
+        common::extract_cookie(&resp, "aster_access").unwrap()
+    }};
+}
+
+macro_rules! create_team {
+    ($app:expr, $token:expr, $name:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/api/v1/teams")
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({ "name": $name }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
+
+macro_rules! add_team_member {
+    ($app:expr, $token:expr, $team_id:expr, $user_id:expr) => {{
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/v1/teams/{}/members", $team_id))
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({ "user_id": $user_id }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+    }};
+}
+
+macro_rules! create_local_policy {
+    ($app:expr, $token:expr, $name:expr, $base_path:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({
+                "name": $name,
+                "driver_type": "local",
+                "base_path": $base_path,
+                "max_file_size": 0,
+                "is_default": false
+            }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
+
+macro_rules! set_folder_policy {
+    ($app:expr, $token:expr, $folder_id:expr, $policy_id:expr) => {{
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/folders/{}/policy", $folder_id))
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({ "policy_id": $policy_id }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 200);
+    }};
+}
+
+macro_rules! create_personal_folder {
+    ($app:expr, $token:expr, $name:expr, $parent_id:expr) => {{
+        let req = test::TestRequest::post()
+            .uri("/api/v1/folders")
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({
+                "name": $name,
+                "parent_id": $parent_id
+            }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
+
+macro_rules! create_team_folder {
+    ($app:expr, $token:expr, $team_id:expr, $name:expr, $parent_id:expr) => {{
+        let req = test::TestRequest::post()
+            .uri(&format!("/api/v1/teams/{}/folders", $team_id))
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .set_json(serde_json::json!({
+                "name": $name,
+                "parent_id": $parent_id
+            }))
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
+
+macro_rules! upload_personal_file {
+    ($app:expr, $token:expr, $folder_id:expr, $name:expr, $content:expr) => {{
+        let boundary = "----WorkspaceTransferBoundary";
+        let payload = upload_named_file($name, $content, "text/plain", boundary);
+        let uri = match $folder_id {
+            Some(folder_id) => format!("/api/v1/files/upload?folder_id={folder_id}"),
+            None => "/api/v1/files/upload".to_string(),
+        };
+        let req = test::TestRequest::post()
+            .uri(&uri)
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(payload)
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
+
+macro_rules! upload_team_file {
+    ($app:expr, $token:expr, $team_id:expr, $folder_id:expr, $name:expr, $content:expr) => {{
+        let boundary = "----WorkspaceTransferTeamBoundary";
+        let payload = upload_named_file($name, $content, "text/plain", boundary);
+        let uri = match $folder_id {
+            Some(folder_id) => {
+                format!(
+                    "/api/v1/teams/{}/files/upload?folder_id={folder_id}",
+                    $team_id
+                )
+            }
+            None => format!("/api/v1/teams/{}/files/upload", $team_id),
+        };
+        let req = test::TestRequest::post()
+            .uri(&uri)
+            .insert_header(("Cookie", common::access_cookie_header(&$token)))
+            .insert_header(common::csrf_header_for(&$token))
+            .insert_header((
+                "Content-Type",
+                format!("multipart/form-data; boundary={boundary}"),
+            ))
+            .set_payload(payload)
+            .to_request();
+        let resp = test::call_service(&$app, req).await;
+        assert_eq!(resp.status(), 201);
+        let body: Value = test::read_body_json(resp).await;
+        body["data"]["id"].as_i64().unwrap()
+    }};
+}
 
 fn upload_named_file(name: &str, content: &str, mime: &str, boundary: &str) -> String {
     format!(
@@ -1264,6 +1454,855 @@ async fn test_batch_copy_preserves_partial_failures_for_quota() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 2);
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_personal_file_to_team_root_resolves_name_conflict() {
+    let state = common::setup().await;
+    let storage_change_tx = state.storage_change_tx.clone();
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcpersonalteam",
+        "xcopy-personal-team@example.com"
+    );
+    let token = login_user!(app, "xcpersonalteam");
+    let team_id = create_team!(app, token, "Cross Copy Team");
+    let source_folder_id =
+        create_personal_folder!(app, token, "Personal Source", Option::<i64>::None);
+    let file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "conflict.txt",
+        "personal body"
+    );
+    upload_team_file!(
+        app,
+        token,
+        team_id,
+        None::<i64>,
+        "conflict.txt",
+        "existing team body"
+    );
+
+    let mut rx = storage_change_tx.subscribe();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["failed"], 0);
+
+    let event = tokio::time::timeout(std::time::Duration::from_secs(1), rx.recv())
+        .await
+        .expect("should receive destination storage change")
+        .expect("storage change channel should stay open");
+    assert_eq!(
+        event.workspace,
+        Some(
+            aster_drive::services::storage_change_service::StorageChangeWorkspace::Team { team_id }
+        )
+    );
+    assert_eq!(
+        event.kind,
+        aster_drive::services::storage_change_service::StorageChangeKind::FileCreated
+    );
+    assert_eq!(event.file_ids.len(), 1);
+    assert!(event.root_affected);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let mut names: Vec<_> = body["data"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["conflict (1).txt", "conflict.txt"]);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{source_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["files"].as_array().unwrap().len(), 1);
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_team_folder_to_personal_root() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcteampersonal",
+        "xcopy-team-personal@example.com"
+    );
+    let token = login_user!(app, "xcteampersonal");
+    let team_id = create_team!(app, token, "Team To Personal");
+    let source_id = create_team_folder!(app, token, team_id, "TeamFolder", Option::<i64>::None);
+    let child_id = create_team_folder!(app, token, team_id, "Nested", Some(source_id));
+    upload_team_file!(
+        app,
+        token,
+        team_id,
+        Some(child_id),
+        "nested.txt",
+        "nested body"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": team_id },
+            "file_ids": [],
+            "folder_ids": [source_id],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_id = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "TeamFolder")
+        .and_then(|folder| folder["id"].as_i64())
+        .expect("copied folder should be in personal root");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{copied_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_child_id = body["data"]["folders"][0]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["folders"][0]["name"], "Nested");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{copied_child_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["files"][0]["name"], "nested.txt");
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_between_team_workspaces_to_target_folder() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcopyteamteam",
+        "xcopy-team-team@example.com"
+    );
+    let token = login_user!(app, "xcopyteamteam");
+    let source_team_id = create_team!(app, token, "Source Team");
+    let dest_team_id = create_team!(app, token, "Destination Team");
+    let source_folder_id = create_team_folder!(
+        app,
+        token,
+        source_team_id,
+        "SourceFolder",
+        Option::<i64>::None
+    );
+    let target_folder_id = create_team_folder!(
+        app,
+        token,
+        dest_team_id,
+        "TargetFolder",
+        Option::<i64>::None
+    );
+    let file_id = upload_team_file!(
+        app,
+        token,
+        source_team_id,
+        Some(source_folder_id),
+        "team-a.txt",
+        "team a body"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": source_team_id },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": dest_team_id },
+            "target_folder_id": target_folder_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/teams/{dest_team_id}/folders/{target_folder_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["files"][0]["name"], "team-a.txt");
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_rejects_missing_destination_access() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _owner_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcopydestowner",
+        "xcopy-dest-owner@example.com"
+    );
+    let member_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcopydestmember",
+        "xcopy-dest-member@example.com"
+    );
+    let owner_token = login_user!(app, "xcopydestowner");
+    let member_token = login_user!(app, "xcopydestmember");
+    let source_team_id = create_team!(app, owner_token, "Readable Source Team");
+    let dest_team_id = create_team!(app, owner_token, "Forbidden Destination Team");
+    add_team_member!(app, owner_token, source_team_id, member_id);
+    let file_id = upload_team_file!(
+        app,
+        owner_token,
+        source_team_id,
+        None::<i64>,
+        "source.txt",
+        "source body"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&member_token)))
+        .insert_header(common::csrf_header_for(&member_token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": source_team_id },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": dest_team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_rejects_missing_source_access() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _owner_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcsourceowner",
+        "xcopy-source-owner@example.com"
+    );
+    let member_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcsourcemember",
+        "xcopy-source-member@example.com"
+    );
+    let owner_token = login_user!(app, "xcsourceowner");
+    let member_token = login_user!(app, "xcsourcemember");
+    let source_team_id = create_team!(app, owner_token, "Forbidden Source Team");
+    let dest_team_id = create_team!(app, owner_token, "Writable Destination Team");
+    add_team_member!(app, owner_token, dest_team_id, member_id);
+    let file_id = upload_team_file!(
+        app,
+        owner_token,
+        source_team_id,
+        None::<i64>,
+        "private.txt",
+        "private body"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&member_token)))
+        .insert_header(common::csrf_header_for(&member_token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": source_team_id },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": dest_team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_respects_destination_quota() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcopyquota",
+        "xcopy-quota@example.com"
+    );
+    let token = login_user!(app, "xcopyquota");
+    let team_id = create_team!(app, token, "Quota Destination Team");
+    let source_folder_id = create_personal_folder!(app, token, "Quota Source", None::<i64>);
+    let first_file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "first.txt",
+        "first-body"
+    );
+    let second_file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "second.txt",
+        "second-body"
+    );
+    let first_file = aster_drive::db::repository::file_repo::find_by_id(&db, first_file_id)
+        .await
+        .unwrap();
+    let team = aster_drive::db::repository::team_repo::find_active_by_id(&db, team_id)
+        .await
+        .unwrap();
+    let mut active: aster_drive::entities::team::ActiveModel = team.into();
+    active.storage_quota = Set(first_file.size);
+    active.update(&db).await.unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [first_file_id, second_file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["failed"], 1);
+    assert_eq!(body["data"]["errors"][0]["entity_id"], second_file_id);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let files = body["data"]["files"].as_array().unwrap();
+    assert_eq!(files.len(), 1);
+    assert_eq!(files[0]["name"], "first.txt");
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_validates_request_boundaries() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for payload in [
+        serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }),
+        serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": 0 },
+            "file_ids": [1],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }),
+        serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [1],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": 0
+        }),
+        serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [-1],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/workspace-transfer/copy")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(payload)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+    }
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_reports_source_scope_mismatch_per_item() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcsrcmismatch",
+        "xcopy-source-mismatch@example.com"
+    );
+    let token = login_user!(app, "xcsrcmismatch");
+    let source_folder_id = create_personal_folder!(app, token, "Mismatch Source", None::<i64>);
+    let personal_file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "personal-only.txt",
+        "personal body"
+    );
+    let team_id = create_team!(app, token, "Declared Source Team");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": team_id },
+            "file_ids": [personal_file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 0);
+    assert_eq!(body["data"]["failed"], 1);
+    assert_eq!(body["data"]["errors"][0]["entity_type"], "file");
+    assert_eq!(body["data"]["errors"][0]["entity_id"], personal_file_id);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"]["files"].as_array().unwrap().is_empty());
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_rejects_target_folder_outside_destination_scope() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xctargetscope",
+        "xcopy-target-scope@example.com"
+    );
+    let token = login_user!(app, "xctargetscope");
+    let source_folder_id = create_personal_folder!(app, token, "Target Scope Source", None::<i64>);
+    let personal_target_id = create_personal_folder!(app, token, "Personal Target", None::<i64>);
+    let file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "target-scope.txt",
+        "target body"
+    );
+    let team_id = create_team!(app, token, "Target Scope Team");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": personal_target_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 0);
+    assert_eq!(body["data"]["failed"], 1);
+    assert_eq!(body["data"]["errors"][0]["entity_type"], "file");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"]["files"].as_array().unwrap().is_empty());
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_duplicate_file_ids_allocate_unique_destination_names() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcdupefiles",
+        "xcopy-duplicate-files@example.com"
+    );
+    let token = login_user!(app, "xcdupefiles");
+    let team_id = create_team!(app, token, "Duplicate File Destination");
+    let source_folder_id = create_personal_folder!(app, token, "Duplicate Source", None::<i64>);
+    let file_id = upload_personal_file!(
+        app,
+        token,
+        Some(source_folder_id),
+        "repeat.txt",
+        "repeat body"
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [file_id, file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 2);
+    assert_eq!(body["data"]["failed"], 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let mut names: Vec<String> = body["data"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap().to_string())
+        .collect();
+    names.sort();
+    assert_eq!(names, vec!["repeat (1).txt", "repeat.txt"]);
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_folder_name_conflict_preserves_descendants() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcfolderconflict",
+        "xcopy-folder-conflict@example.com"
+    );
+    let token = login_user!(app, "xcfolderconflict");
+    let team_id = create_team!(app, token, "Folder Conflict Source");
+    let source_id = create_team_folder!(app, token, team_id, "ConflictFolder", None::<i64>);
+    let nested_id = create_team_folder!(app, token, team_id, "Nested", Some(source_id));
+    upload_team_file!(
+        app,
+        token,
+        team_id,
+        Some(nested_id),
+        "inside.txt",
+        "inside body"
+    );
+    create_personal_folder!(app, token, "ConflictFolder", None::<i64>);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "team", "team_id": team_id },
+            "file_ids": [],
+            "folder_ids": [source_id],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_id = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "ConflictFolder (1)")
+        .and_then(|folder| folder["id"].as_i64())
+        .expect("conflicting folder copy should get a unique name");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{copied_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_nested_id = body["data"]["folders"][0]["id"].as_i64().unwrap();
+    assert_eq!(body["data"]["folders"][0]["name"], "Nested");
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{copied_nested_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["files"][0]["name"], "inside.txt");
+}
+
+#[actix_web::test]
+async fn test_workspace_transfer_copy_preserves_policy_only_within_same_workspace() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+
+    let _user_id = register_user!(
+        app,
+        db,
+        mail_sender,
+        "xcpolicyscope",
+        "xcopy-policy-scope@example.com"
+    );
+    let token = login_user!(app, "xcpolicyscope");
+    let root_policy_id = create_local_policy!(
+        app,
+        token,
+        "Workspace Transfer Root Policy",
+        "/tmp/test-workspace-transfer-root-policy"
+    );
+    let child_policy_id = create_local_policy!(
+        app,
+        token,
+        "Workspace Transfer Child Policy",
+        "/tmp/test-workspace-transfer-child-policy"
+    );
+    let source_id = create_personal_folder!(app, token, "PolicyFolder", Option::<i64>::None);
+    let child_id = create_personal_folder!(app, token, "PolicyChild", Some(source_id));
+    set_folder_policy!(app, token, source_id, root_policy_id);
+    set_folder_policy!(app, token, child_id, child_policy_id);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [],
+            "folder_ids": [source_id],
+            "destination_workspace": { "kind": "personal" },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["failed"], 0);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let same_workspace_copy_id = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "PolicyFolder (1)")
+        .and_then(|folder| folder["id"].as_i64())
+        .expect("same-workspace transfer copy should get a unique name");
+    let copied_root = folder_repo::find_by_id(&db, same_workspace_copy_id)
+        .await
+        .unwrap();
+    assert_eq!(copied_root.policy_id, Some(root_policy_id));
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/folders/{same_workspace_copy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_child_id = body["data"]["folders"][0]["id"].as_i64().unwrap();
+    let copied_child = folder_repo::find_by_id(&db, copied_child_id).await.unwrap();
+    assert_eq!(copied_child.policy_id, Some(child_policy_id));
+
+    let team_id = create_team!(app, token, "Policy Copy Destination");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [],
+            "folder_ids": [source_id],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["failed"], 0);
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let cross_workspace_copy_id = body["data"]["folders"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|folder| folder["name"] == "PolicyFolder")
+        .and_then(|folder| folder["id"].as_i64())
+        .expect("cross-workspace transfer copy should exist in team root");
+    let copied_root = folder_repo::find_by_id(&db, cross_workspace_copy_id)
+        .await
+        .unwrap();
+    assert_eq!(copied_root.policy_id, None);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/teams/{team_id}/folders/{cross_workspace_copy_id}"
+        ))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let copied_child_id = body["data"]["folders"][0]["id"].as_i64().unwrap();
+    let copied_child = folder_repo::find_by_id(&db, copied_child_id).await.unwrap();
+    assert_eq!(copied_child.policy_id, None);
 }
 
 #[actix_web::test]

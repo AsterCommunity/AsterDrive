@@ -17,26 +17,64 @@ import {
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { Input } from "@/components/ui/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/ui/select";
 import { handleApiError } from "@/hooks/useApiError";
 import { usePendingAction } from "@/hooks/usePendingAction";
 import { FOLDER_LIMIT } from "@/lib/constants";
 import { isImeComposingKeyEvent } from "@/lib/keyboard";
 import { cn } from "@/lib/utils";
-import { fileService } from "@/services/fileService";
+import {
+	isTeamWorkspace,
+	PERSONAL_WORKSPACE,
+	type Workspace,
+	workspaceEquals,
+	workspaceKey,
+} from "@/lib/workspace";
+import { createFileService } from "@/services/fileService";
+import { useAuthStore } from "@/stores/authStore";
 import type { BreadcrumbItem as FileBreadcrumbItem } from "@/stores/fileStore";
+import { useTeamStore } from "@/stores/teamStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FolderListItem } from "@/types/api";
 
 const EMPTY_SELECTED_FOLDER_IDS: number[] = [];
+
+export interface BatchTargetFolderSelection {
+	workspace: Workspace;
+	folderId: number | null;
+}
 
 interface BatchTargetFolderDialogProps {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	onOpenChangeComplete?: (open: boolean) => void;
 	mode: "move" | "copy";
-	onConfirm: (targetFolderId: number | null) => Promise<void>;
+	onConfirm: (selection: BatchTargetFolderSelection) => Promise<void>;
 	currentFolderId: number | null;
 	initialBreadcrumb: FileBreadcrumbItem[];
 	selectedFolderIds?: number[];
+}
+
+interface WorkspaceOption {
+	workspace: Workspace;
+	value: string;
+	label: string;
+	meta: string;
+}
+
+function workspaceFromKey(value: string): Workspace | null {
+	if (value === "personal") return PERSONAL_WORKSPACE;
+	const teamId = Number(value.replace("team:", ""));
+	if (Number.isSafeInteger(teamId) && teamId > 0) {
+		return { kind: "team", teamId };
+	}
+	return null;
 }
 
 export function BatchTargetFolderDialog({
@@ -50,6 +88,11 @@ export function BatchTargetFolderDialog({
 	selectedFolderIds = EMPTY_SELECTED_FOLDER_IDS,
 }: BatchTargetFolderDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
+	const currentWorkspace = useWorkspaceStore((state) => state.workspace);
+	const user = useAuthStore((state) => state.user);
+	const teams = useTeamStore((state) => state.teams);
+	const teamsLoading = useTeamStore((state) => state.loading);
+	const ensureTeamsLoaded = useTeamStore((state) => state.ensureLoaded);
 	const [loading, setLoading] = useState(false);
 	const { pending: submitting, runWithPending: runConfirmWithPending } =
 		usePendingAction();
@@ -61,6 +104,8 @@ export function BatchTargetFolderDialog({
 	const [newFolderName, setNewFolderName] = useState("");
 	const [folders, setFolders] = useState<FolderListItem[]>([]);
 	const [activeFolderId, setActiveFolderId] = useState<number | null>(null);
+	const [targetWorkspace, setTargetWorkspace] =
+		useState<Workspace>(currentWorkspace);
 	const createFolderInputComposingRef = useRef(false);
 	const createFolderInputCompositionEndAtRef = useRef(0);
 	const [breadcrumb, setBreadcrumb] = useState<FileBreadcrumbItem[]>([
@@ -89,22 +134,60 @@ export function BatchTargetFolderDialog({
 		[mode, t],
 	);
 
-	const loadFolder = useCallback(async (folderId: number | null) => {
-		setLoading(true);
-		try {
-			const folderOnlyParams = { file_limit: 0, folder_limit: FOLDER_LIMIT };
-			const contents =
-				folderId === null
-					? await fileService.listRoot(folderOnlyParams)
-					: await fileService.listFolder(folderId, folderOnlyParams);
-			setFolders(contents.folders);
-			setActiveFolderId(folderId);
-		} catch (error) {
-			handleApiError(error);
-		} finally {
-			setLoading(false);
-		}
-	}, []);
+	const workspaceOptions = useMemo<WorkspaceOption[]>(() => {
+		const options: WorkspaceOption[] = [
+			{
+				workspace: PERSONAL_WORKSPACE,
+				value: "personal",
+				label: t("core:my_drive"),
+				meta: t("core:workspace_personal_label"),
+			},
+		];
+		const teamById = new Map(teams.map((team) => [team.id, team]));
+		const addTeamOption = (teamId: number) => {
+			if (options.some((option) => option.value === `team:${teamId}`)) return;
+			const team = teamById.get(teamId);
+			options.push({
+				workspace: { kind: "team", teamId },
+				value: `team:${teamId}`,
+				label: team?.name ?? t("core:workspace_team_fallback", { id: teamId }),
+				meta: t("core:workspace_team_label"),
+			});
+		};
+
+		for (const team of teams) addTeamOption(team.id);
+		if (isTeamWorkspace(currentWorkspace))
+			addTeamOption(currentWorkspace.teamId);
+		if (isTeamWorkspace(targetWorkspace)) addTeamOption(targetWorkspace.teamId);
+
+		return options;
+	}, [currentWorkspace, targetWorkspace, teams, t]);
+
+	const targetWorkspaceValue = workspaceKey(targetWorkspace);
+	const targetWorkspaceLabel =
+		workspaceOptions.find((option) => option.value === targetWorkspaceValue)
+			?.label ?? t("core:my_drive");
+
+	const loadFolder = useCallback(
+		async (workspace: Workspace, folderId: number | null) => {
+			setLoading(true);
+			try {
+				const folderOnlyParams = { file_limit: 0, folder_limit: FOLDER_LIMIT };
+				const targetFileService = createFileService(workspace);
+				const contents =
+					folderId === null
+						? await targetFileService.listRoot(folderOnlyParams)
+						: await targetFileService.listFolder(folderId, folderOnlyParams);
+				setFolders(contents.folders);
+				setActiveFolderId(folderId);
+			} catch (error) {
+				handleApiError(error);
+			} finally {
+				setLoading(false);
+			}
+		},
+		[],
+	);
 
 	useEffect(() => {
 		if (!open) return;
@@ -118,10 +201,35 @@ export function BatchTargetFolderDialog({
 				: [{ id: null, name: t("files:root") }];
 
 		setBreadcrumb(normalizedBreadcrumb);
+		setTargetWorkspace(currentWorkspace);
 		setShowCreateFolder(false);
 		setNewFolderName("");
-		loadFolder(currentFolderId);
-	}, [open, currentFolderId, initialBreadcrumb, loadFolder, t]);
+		loadFolder(currentWorkspace, currentFolderId);
+	}, [
+		open,
+		currentFolderId,
+		currentWorkspace,
+		initialBreadcrumb,
+		loadFolder,
+		t,
+	]);
+
+	useEffect(() => {
+		if (!open || mode !== "copy") return;
+		ensureTeamsLoaded(user?.id ?? null).catch(handleApiError);
+	}, [ensureTeamsLoaded, mode, open, user?.id]);
+
+	const handleWorkspaceChange = async (value: string | null) => {
+		if (!value) return;
+		const nextWorkspace = workspaceFromKey(value);
+		if (!nextWorkspace || workspaceEquals(nextWorkspace, targetWorkspace))
+			return;
+		setTargetWorkspace(nextWorkspace);
+		setBreadcrumb([{ id: null, name: t("files:root") }]);
+		setShowCreateFolder(false);
+		setNewFolderName("");
+		await loadFolder(nextWorkspace, null);
+	};
 
 	const navigateTo = async (folder: FolderListItem) => {
 		const existingIndex = breadcrumb.findIndex((item) => item.id === folder.id);
@@ -130,7 +238,7 @@ export function BatchTargetFolderDialog({
 		} else {
 			setBreadcrumb((prev) => [...prev, { id: folder.id, name: folder.name }]);
 		}
-		await loadFolder(folder.id);
+		await loadFolder(targetWorkspace, folder.id);
 	};
 
 	const navigateBreadcrumb = async (
@@ -138,7 +246,7 @@ export function BatchTargetFolderDialog({
 		index: number,
 	) => {
 		setBreadcrumb((prev) => prev.slice(0, index + 1));
-		await loadFolder(item.id);
+		await loadFolder(targetWorkspace, item.id);
 	};
 
 	const handleGoUp = async () => {
@@ -152,6 +260,7 @@ export function BatchTargetFolderDialog({
 		.filter((id): id is number => id !== null);
 
 	const validationMessage =
+		workspaceEquals(targetWorkspace, currentWorkspace) &&
 		renderedSelectedFolderIds.length > 0 &&
 		renderedSelectedFolderIds.some((folderId) =>
 			targetPathIds.includes(folderId),
@@ -164,11 +273,12 @@ export function BatchTargetFolderDialog({
 		if (!trimmedName) return;
 		await runCreateFolderWithPending(async () => {
 			try {
-				await fileService.createFolder(trimmedName, activeFolderId);
+				const targetFileService = createFileService(targetWorkspace);
+				await targetFileService.createFolder(trimmedName, activeFolderId);
 				toast.success(t("files:create_folder_success"));
 				setNewFolderName("");
 				setShowCreateFolder(false);
-				await loadFolder(activeFolderId);
+				await loadFolder(targetWorkspace, activeFolderId);
 			} catch (error) {
 				handleApiError(error);
 			}
@@ -178,12 +288,66 @@ export function BatchTargetFolderDialog({
 	const handleConfirm = async () => {
 		if (validationMessage) return;
 		await runConfirmWithPending(async () => {
-			await onConfirm(activeFolderId);
+			await onConfirm({ workspace: targetWorkspace, folderId: activeFolderId });
 			onOpenChange(false);
 		});
 	};
 	const controls = (
 		<div className="space-y-3">
+			{mode === "copy" && (
+				<div className="space-y-1.5">
+					<label
+						htmlFor="batch-target-workspace"
+						className="text-xs font-medium text-muted-foreground"
+					>
+						{t("files:batch_target_workspace")}
+					</label>
+					<Select
+						items={workspaceOptions.map((option) => ({
+							label: option.label,
+							value: option.value,
+						}))}
+						value={targetWorkspaceValue}
+						onValueChange={(value) => {
+							void handleWorkspaceChange(value);
+						}}
+					>
+						<SelectTrigger id="batch-target-workspace">
+							<SelectValue>
+								<span className="flex min-w-0 items-center gap-2">
+									<Icon
+										name={isTeamWorkspace(targetWorkspace) ? "Cloud" : "House"}
+										className="size-3.5 shrink-0 text-muted-foreground"
+									/>
+									<span className="truncate">{targetWorkspaceLabel}</span>
+									{teamsLoading && (
+										<Icon
+											name="Spinner"
+											className="size-3.5 shrink-0 animate-spin text-muted-foreground"
+										/>
+									)}
+								</span>
+							</SelectValue>
+						</SelectTrigger>
+						<SelectContent>
+							{workspaceOptions.map((option) => (
+								<SelectItem key={option.value} value={option.value}>
+									<Icon
+										name={isTeamWorkspace(option.workspace) ? "Cloud" : "House"}
+										className="size-3.5 text-muted-foreground"
+									/>
+									<span className="min-w-0">
+										<span className="block truncate">{option.label}</span>
+										<span className="block truncate text-[11px] text-muted-foreground">
+											{option.meta}
+										</span>
+									</span>
+								</SelectItem>
+							))}
+						</SelectContent>
+					</Select>
+				</div>
+			)}
 			<div className="flex items-center justify-between gap-3">
 				<Breadcrumb>
 					<BreadcrumbList>
@@ -303,6 +467,13 @@ export function BatchTargetFolderDialog({
 										breadcrumb[breadcrumb.length - 1]?.name ?? t("files:root"),
 								})}
 							</div>
+							{mode === "copy" && (
+								<div>
+									{t("files:batch_target_current_workspace", {
+										name: targetWorkspaceLabel,
+									})}
+								</div>
+							)}
 							{validationMessage && (
 								<div className="text-destructive">{validationMessage}</div>
 							)}

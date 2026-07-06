@@ -1,5 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { batchService, createBatchService } from "@/services/batchService";
+import {
+	batchService,
+	createBatchService,
+	resolveCopyDispatch,
+} from "@/services/batchService";
 
 const apiPost = vi.hoisted(() => vi.fn());
 
@@ -39,6 +43,7 @@ describe("batchService", () => {
 		teamBatchService.batchDelete([1], []);
 		teamBatchService.batchMove([], [2], 8);
 		teamBatchService.batchCopy([3], [], null);
+		teamBatchService.copyToWorkspace({ kind: "personal" }, [7], [8], null);
 
 		expect(apiPost).toHaveBeenNthCalledWith(4, "/teams/4/batch/delete", {
 			file_ids: [1],
@@ -54,6 +59,61 @@ describe("batchService", () => {
 			folder_ids: [],
 			target_folder_id: null,
 		});
+		expect(apiPost).toHaveBeenNthCalledWith(7, "/workspace-transfer/copy", {
+			source_workspace: { kind: "team", team_id: 4 },
+			file_ids: [7],
+			folder_ids: [8],
+			destination_workspace: { kind: "personal" },
+			target_folder_id: null,
+		});
+	});
+
+	it("posts workspace transfer copy payloads from personal workspaces", () => {
+		batchService.copyToWorkspace({ kind: "team", teamId: 9 }, [1], [2], 6);
+
+		expect(apiPost).toHaveBeenCalledWith("/workspace-transfer/copy", {
+			source_workspace: { kind: "personal" },
+			file_ids: [1],
+			folder_ids: [2],
+			destination_workspace: { kind: "team", team_id: 9 },
+			target_folder_id: 6,
+		});
+	});
+
+	it("dispatches copy through the workspace-aware helper", async () => {
+		const dispatcher = {
+			batchCopy: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 2 }),
+			copyToWorkspace: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 2 }),
+		};
+
+		await resolveCopyDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [1],
+			folderIds: [2],
+			targetFolderId: null,
+			dispatcher,
+		});
+		await resolveCopyDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "team", teamId: 9 },
+			fileIds: [3],
+			folderIds: [4],
+			targetFolderId: 5,
+			dispatcher,
+		});
+
+		expect(dispatcher.batchCopy).toHaveBeenCalledWith([1], [2], null);
+		expect(dispatcher.copyToWorkspace).toHaveBeenCalledWith(
+			{ kind: "team", teamId: 9 },
+			[3],
+			[4],
+			5,
+		);
 	});
 
 	it("creates archive download tickets with JSON bodies and triggers iframe downloads", async () => {

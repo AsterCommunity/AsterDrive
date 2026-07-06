@@ -4,10 +4,16 @@ import {
 	buildWorkspacePath,
 	PERSONAL_WORKSPACE,
 	type Workspace,
+	workspaceEquals,
 } from "@/lib/workspace";
 import { api } from "@/services/http";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
-import type { BatchResult, TaskInfo } from "@/types/api";
+import type {
+	BatchResult,
+	TaskInfo,
+	WorkspaceRef,
+	WorkspaceTransferCopyRequest,
+} from "@/types/api";
 
 export interface StreamTicketInfo {
 	token: string;
@@ -36,6 +42,53 @@ export function buildArchiveDownloadPayload(
 		folder_ids: folderIds,
 		...(archiveName === undefined ? {} : { archive_name: archiveName }),
 	};
+}
+
+export function workspaceToTransferRef(workspace: Workspace): WorkspaceRef {
+	return workspace.kind === "team"
+		? { kind: "team", team_id: workspace.teamId }
+		: { kind: "personal" };
+}
+
+interface WorkspaceCopyDispatcher {
+	batchCopy: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	copyToWorkspace: (
+		destinationWorkspace: Workspace,
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+}
+
+interface ResolveCopyDispatchInput {
+	currentWorkspace: Workspace;
+	targetWorkspace: Workspace;
+	fileIds: number[];
+	folderIds: number[];
+	targetFolderId: number | null;
+	dispatcher?: WorkspaceCopyDispatcher;
+}
+
+export function resolveCopyDispatch({
+	currentWorkspace,
+	targetWorkspace,
+	fileIds,
+	folderIds,
+	targetFolderId,
+	dispatcher = batchService,
+}: ResolveCopyDispatchInput) {
+	return workspaceEquals(currentWorkspace, targetWorkspace)
+		? dispatcher.batchCopy(fileIds, folderIds, targetFolderId)
+		: dispatcher.copyToWorkspace(
+				targetWorkspace,
+				fileIds,
+				folderIds,
+				targetFolderId,
+			);
 }
 
 function buildArchiveDownloadUrl(
@@ -81,6 +134,22 @@ export function createBatchService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				folder_ids: folderIds,
 				target_folder_id: targetFolderId,
 			}),
+
+		copyToWorkspace: (
+			destinationWorkspace: Workspace,
+			fileIds: number[],
+			folderIds: number[],
+			targetFolderId: number | null,
+		) => {
+			const payload: WorkspaceTransferCopyRequest = {
+				source_workspace: workspaceToTransferRef(workspace),
+				file_ids: fileIds,
+				folder_ids: folderIds,
+				destination_workspace: workspaceToTransferRef(destinationWorkspace),
+				target_folder_id: targetFolderId,
+			};
+			return api.post<BatchResult>("/workspace-transfer/copy", payload);
+		},
 
 		streamArchiveDownload: (
 			fileIds: number[],

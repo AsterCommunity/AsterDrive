@@ -39,6 +39,7 @@ export interface AdminSettingsCategoryContentProps {
 	getSystemConfigDescription: (config: SystemConfig) => string | undefined;
 	getSystemConfigLabel: (config: SystemConfig) => string;
 	getSystemConfigSchema: (config: SystemConfig) => ConfigSchemaItem | undefined;
+	getSystemConfigSchemas: () => ConfigSchemaItem[];
 	getCustomVisibilityDraft: (config: SystemConfig) => SystemConfigVisibility;
 	handleBuildWopiDiscoveryPreviewConfig: (options: {
 		discoveryUrl: string;

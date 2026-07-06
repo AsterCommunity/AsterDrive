@@ -1,4 +1,3 @@
-import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -20,8 +19,19 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useApiList } from "@/hooks/useApiList";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
+import {
+	type ManagedListQuerySchema,
+	managedOffsetQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
+	useManagedListQueryState,
+} from "@/hooks/useManagedListQueryState";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingId } from "@/hooks/usePendingId";
 import {
@@ -29,15 +39,7 @@ import {
 	ADMIN_TABLE_ACTIONS_WIDTH_CLASS,
 } from "@/lib/constants";
 import { formatDateShort } from "@/lib/format";
-import {
-	buildOffsetPaginationSearchParams,
-	parseOffsetSearchParam,
-	parsePageSizeOption,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import { parsePageSizeOption, type SortOrder } from "@/lib/pagination";
 import { adminShareService } from "@/services/adminService";
 import type { AdminShareSortBy } from "@/types/adminSort";
 import type { ShareInfo } from "@/types/api";
@@ -57,55 +59,63 @@ const SHARE_SORT_BY_OPTIONS = [
 const DEFAULT_SHARE_SORT_BY = "created_at" as const satisfies AdminShareSortBy;
 const DEFAULT_SHARE_SORT_ORDER = "desc" as const satisfies SortOrder;
 
+type ManagedShareQuery = {
+	offset: number;
+	pageSize: (typeof SHARE_PAGE_SIZE_OPTIONS)[number];
+	sortBy: AdminShareSortBy;
+	sortOrder: SortOrder;
+};
+
+const MANAGED_SHARE_QUERY_DEFAULTS = {
+	offset: 0,
+	pageSize: DEFAULT_SHARE_PAGE_SIZE,
+	sortBy: DEFAULT_SHARE_SORT_BY,
+	sortOrder: DEFAULT_SHARE_SORT_ORDER,
+} satisfies ManagedShareQuery;
+
+const MANAGED_SHARE_QUERY_SCHEMA = {
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField(
+		SHARE_PAGE_SIZE_OPTIONS,
+		DEFAULT_SHARE_PAGE_SIZE,
+	),
+	sortBy: managedSortByQueryField(SHARE_SORT_BY_OPTIONS, DEFAULT_SHARE_SORT_BY),
+	sortOrder: managedSortOrderQueryField(DEFAULT_SHARE_SORT_ORDER),
+} satisfies ManagedListQuerySchema<ManagedShareQuery>;
+
 export default function AdminSharesPage() {
 	const { t } = useTranslation("admin");
 	usePageTitle(t("shares"));
 	const [searchParams, setSearchParams] = useSearchParams();
-	const [offset, setOffset] = useState(
-		parseOffsetSearchParam(searchParams.get("offset")),
-	);
-	const [pageSize, setPageSize] = useState<
-		(typeof SHARE_PAGE_SIZE_OPTIONS)[number]
-	>(
-		parsePageSizeSearchParam(
-			searchParams.get("pageSize"),
-			SHARE_PAGE_SIZE_OPTIONS,
-			DEFAULT_SHARE_PAGE_SIZE,
-		),
-	);
-	const [sortBy, setSortBy] = useState<AdminShareSortBy>(
-		parseSortSearchParam(
-			searchParams.get("sortBy"),
-			SHARE_SORT_BY_OPTIONS,
-			DEFAULT_SHARE_SORT_BY,
-		),
-	);
-	const [sortOrder, setSortOrder] = useState<SortOrder>(
-		parseSortOrderSearchParam(
-			searchParams.get("sortOrder"),
-			DEFAULT_SHARE_SORT_ORDER,
-		),
-	);
+	const { query, setQuery } = useManagedListQueryState({
+		defaults: MANAGED_SHARE_QUERY_DEFAULTS,
+		schema: MANAGED_SHARE_QUERY_SCHEMA,
+		searchParams,
+		setSearchParams,
+	});
+	const { offset, pageSize, sortBy, sortOrder } = query;
+	const setOffset = useManagedOffset(setQuery);
 	const {
+		currentPage,
 		items: shares,
 		setItems: setShares,
 		setTotal,
 		total,
+		totalPages,
 		loading,
-	} = useApiList(
-		() =>
+		nextPageDisabled,
+		prevPageDisabled,
+	} = useManagedAdminList<ShareInfo, ManagedShareQuery>({
+		loadPage: (query) =>
 			adminShareService.list({
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
+				limit: query.pageSize,
+				offset: query.offset,
+				sort_by: query.sortBy,
+				sort_order: query.sortOrder,
 			}),
-		[offset, pageSize, sortBy, sortOrder],
-	);
-	const totalPages = Math.max(1, Math.ceil(total / pageSize));
-	const currentPage = Math.floor(offset / pageSize) + 1;
-	const prevPageDisabled = offset === 0;
-	const nextPageDisabled = offset + pageSize >= total;
+		query,
+		setOffset,
+	});
 	const pageSizeOptions = SHARE_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
 		value: String(size),
@@ -113,36 +123,17 @@ export default function AdminSharesPage() {
 	const { pendingId: deletingShareId, runWithPending: runWithDeletingShare } =
 		usePendingId<number>();
 
-	useEffect(() => {
-		setSearchParams(
-			buildOffsetPaginationSearchParams({
-				offset,
-				pageSize,
-				defaultPageSize: DEFAULT_SHARE_PAGE_SIZE,
-				extraParams: {
-					sortBy: sortBy !== DEFAULT_SHARE_SORT_BY ? sortBy : undefined,
-					sortOrder:
-						sortOrder !== DEFAULT_SHARE_SORT_ORDER ? sortOrder : undefined,
-				},
-			}),
-			{ replace: true },
-		);
-	}, [offset, pageSize, setSearchParams, sortBy, sortOrder]);
-
 	const handlePageSizeChange = (value: string | null) => {
 		const next = parsePageSizeOption(value, SHARE_PAGE_SIZE_OPTIONS);
 		if (next == null) return;
-		setPageSize(next);
-		setOffset(0);
+		setQuery({ offset: 0, pageSize: next });
 	};
 
 	const handleSortChange = (
 		nextSortBy: AdminShareSortBy,
 		nextOrder: SortOrder,
 	) => {
-		setSortBy(nextSortBy);
-		setSortOrder(nextOrder);
-		setOffset(0);
+		setQuery({ offset: 0, sortBy: nextSortBy, sortOrder: nextOrder });
 	};
 
 	const handleDelete = async (id: number) => {

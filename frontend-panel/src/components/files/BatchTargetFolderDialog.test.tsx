@@ -5,9 +5,13 @@ import { FOLDER_LIMIT } from "@/lib/constants";
 
 const mockState = vi.hoisted(() => ({
 	createFolder: vi.fn(),
+	currentWorkspace: { kind: "personal" as const },
 	handleApiError: vi.fn(),
+	ensureTeamsLoaded: vi.fn(),
 	listFolder: vi.fn(),
 	listRoot: vi.fn(),
+	teams: [] as Array<{ id: number; name: string }>,
+	teamsLoading: false,
 	translate: (key: string, opts?: Record<string, unknown>) => {
 		if (key === "files:root") return "Root";
 		if (key === "files:batch_move") return "batch-move";
@@ -15,6 +19,10 @@ const mockState = vi.hoisted(() => ({
 		if (key === "files:move_to_current_folder") return "move-here";
 		if (key === "files:copy_to_current_folder") return "copy-here";
 		if (key === "files:batch_target_folder_desc") return "target-desc";
+		if (key === "files:batch_target_workspace") return "target-workspace";
+		if (key === "files:batch_target_current_workspace") {
+			return `workspace:${opts?.name}`;
+		}
 		if (key === "files:create_folder") return "create-folder";
 		if (key === "files:folder_name") return "folder-name";
 		if (key === "files:processing") return "processing";
@@ -28,6 +36,9 @@ const mockState = vi.hoisted(() => ({
 		if (key === "files:batch_target_current_folder") {
 			return `current:${opts?.name}`;
 		}
+		if (key === "core:my_drive") return "My Drive";
+		if (key === "core:workspace_personal_label") return "Personal";
+		if (key === "core:workspace_team_label") return "Team";
 		if (key === "cancel") return "cancel";
 		return key;
 	},
@@ -145,6 +156,47 @@ vi.mock("@/components/ui/input", () => ({
 	),
 }));
 
+vi.mock("@/components/ui/select", () => ({
+	Select: ({
+		items,
+		onValueChange,
+		value,
+	}: {
+		children: React.ReactNode;
+		items: Array<{ label: string; value: string }>;
+		onValueChange?: (value: string) => void;
+		value?: string;
+	}) => (
+		<select
+			aria-label="target-workspace"
+			value={value}
+			onChange={(event) => onValueChange?.(event.currentTarget.value)}
+		>
+			{items.map((item) => (
+				<option key={item.value} value={item.value}>
+					{item.label}
+				</option>
+			))}
+		</select>
+	),
+	SelectContent: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectItem: ({
+		children,
+		value,
+	}: {
+		children: React.ReactNode;
+		value: string;
+	}) => <div data-value={value}>{children}</div>,
+	SelectTrigger: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+	SelectValue: ({ children }: { children: React.ReactNode }) => (
+		<div>{children}</div>
+	),
+}));
+
 vi.mock("@/components/ui/scroll-area", () => ({
 	ScrollArea: ({
 		children,
@@ -160,11 +212,42 @@ vi.mock("@/hooks/useApiError", () => ({
 }));
 
 vi.mock("@/services/fileService", () => ({
-	fileService: {
-		createFolder: (...args: unknown[]) => mockState.createFolder(...args),
-		listFolder: (...args: unknown[]) => mockState.listFolder(...args),
-		listRoot: (...args: unknown[]) => mockState.listRoot(...args),
-	},
+	createFileService: (workspace: unknown) => ({
+		createFolder: (...args: unknown[]) =>
+			mockState.createFolder(workspace, ...args),
+		listFolder: (...args: unknown[]) =>
+			mockState.listFolder(workspace, ...args),
+		listRoot: (...args: unknown[]) => mockState.listRoot(workspace, ...args),
+	}),
+}));
+
+vi.mock("@/stores/authStore", () => ({
+	useAuthStore: (
+		selector: (state: { user: { id: number } | null }) => unknown,
+	) => selector({ user: { id: 42 } }),
+}));
+
+vi.mock("@/stores/teamStore", () => ({
+	useTeamStore: (
+		selector: (state: {
+			teams: Array<{ id: number; name: string }>;
+			loading: boolean;
+			ensureLoaded: (userId: number | null) => Promise<void>;
+		}) => unknown,
+	) =>
+		selector({
+			teams: mockState.teams,
+			loading: mockState.teamsLoading,
+			ensureLoaded: mockState.ensureTeamsLoaded,
+		}),
+}));
+
+vi.mock("@/stores/workspaceStore", () => ({
+	useWorkspaceStore: (
+		selector: (state: {
+			workspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		}) => unknown,
+	) => selector({ workspace: mockState.currentWorkspace }),
 }));
 
 const rootFolder = {
@@ -207,9 +290,14 @@ function renderDialog(
 describe("BatchTargetFolderDialog", () => {
 	beforeEach(() => {
 		mockState.createFolder.mockReset();
+		mockState.currentWorkspace = { kind: "personal" };
+		mockState.ensureTeamsLoaded.mockReset();
+		mockState.ensureTeamsLoaded.mockResolvedValue(undefined);
 		mockState.handleApiError.mockReset();
 		mockState.listFolder.mockReset();
 		mockState.listRoot.mockReset();
+		mockState.teams = [];
+		mockState.teamsLoading = false;
 		mockState.toastSuccess.mockReset();
 		mockState.createFolder.mockResolvedValue(undefined);
 		mockState.listRoot.mockResolvedValue({ folders: [] } as never);
@@ -245,10 +333,14 @@ describe("BatchTargetFolderDialog", () => {
 		fireEvent.click(rootButton);
 
 		await waitFor(() => {
-			expect(mockState.listFolder).toHaveBeenCalledWith(1, {
-				file_limit: 0,
-				folder_limit: FOLDER_LIMIT,
-			});
+			expect(mockState.listFolder).toHaveBeenCalledWith(
+				{ kind: "personal" },
+				1,
+				{
+					file_limit: 0,
+					folder_limit: FOLDER_LIMIT,
+				},
+			);
 		});
 		expect(screen.getByText("current:Projects")).toBeInTheDocument();
 
@@ -259,9 +351,61 @@ describe("BatchTargetFolderDialog", () => {
 		fireEvent.click(confirmButton);
 
 		await waitFor(() => {
-			expect(onConfirm).toHaveBeenCalledWith(1);
+			expect(onConfirm).toHaveBeenCalledWith({
+				workspace: { kind: "personal" },
+				folderId: 1,
+			});
 		});
 		expect(onOpenChange).toHaveBeenCalledWith(false);
+	});
+
+	it("lets copy targets switch workspace and resets the browser to that root", async () => {
+		mockState.teams = [{ id: 7, name: "Design Team" }];
+		mockState.listRoot
+			.mockResolvedValueOnce({ folders: [rootFolder] } as never)
+			.mockResolvedValueOnce({ folders: [draftsFolder] } as never);
+
+		const { onConfirm } = renderDialog({
+			mode: "copy",
+			currentFolderId: null,
+		});
+
+		await screen.findByRole("button", { name: "Projects" });
+		expect(mockState.ensureTeamsLoaded).toHaveBeenCalledWith(42);
+		fireEvent.change(screen.getByLabelText("target-workspace"), {
+			target: { value: "team:7" },
+		});
+
+		await waitFor(() => {
+			expect(mockState.listRoot).toHaveBeenLastCalledWith(
+				{ kind: "team", teamId: 7 },
+				{
+					file_limit: 0,
+					folder_limit: FOLDER_LIMIT,
+				},
+			);
+		});
+		expect(screen.getByText("workspace:Design Team")).toBeInTheDocument();
+		expect(screen.getByText("current:Root")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "Drafts" })).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: "copy-here" }));
+
+		await waitFor(() => {
+			expect(onConfirm).toHaveBeenCalledWith({
+				workspace: { kind: "team", teamId: 7 },
+				folderId: null,
+			});
+		});
+	});
+
+	it("does not show the workspace picker for move targets", async () => {
+		mockState.teams = [{ id: 7, name: "Design Team" }];
+		renderDialog({ mode: "move" });
+
+		await screen.findByText("empty");
+		expect(screen.queryByLabelText("target-workspace")).not.toBeInTheDocument();
+		expect(mockState.ensureTeamsLoaded).not.toHaveBeenCalled();
 	});
 
 	it("blocks descendant targets and lets the user navigate back to a valid parent", async () => {
@@ -299,7 +443,10 @@ describe("BatchTargetFolderDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "move-here" }));
 
 		await waitFor(() => {
-			expect(onConfirm).toHaveBeenCalledWith(null);
+			expect(onConfirm).toHaveBeenCalledWith({
+				workspace: { kind: "personal" },
+				folderId: null,
+			});
 		});
 		expect(onOpenChange).toHaveBeenCalledWith(false);
 	});
@@ -328,15 +475,23 @@ describe("BatchTargetFolderDialog", () => {
 		fireEvent.keyDown(input, { key: "Enter" });
 
 		await waitFor(() => {
-			expect(mockState.createFolder).toHaveBeenCalledWith("Drafts", 5);
+			expect(mockState.createFolder).toHaveBeenCalledWith(
+				{ kind: "personal" },
+				"Drafts",
+				5,
+			);
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("folder-created");
 
 		await waitFor(() => {
-			expect(mockState.listFolder).toHaveBeenLastCalledWith(5, {
-				file_limit: 0,
-				folder_limit: FOLDER_LIMIT,
-			});
+			expect(mockState.listFolder).toHaveBeenLastCalledWith(
+				{ kind: "personal" },
+				5,
+				{
+					file_limit: 0,
+					folder_limit: FOLDER_LIMIT,
+				},
+			);
 		});
 		expect(
 			screen.queryByPlaceholderText("folder-name"),

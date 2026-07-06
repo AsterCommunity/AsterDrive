@@ -4,11 +4,10 @@ import { useFileBrowserContext } from "@/components/files/FileBrowserContext";
 import {
 	FileContextDropdownMenu,
 	FileContextMenu,
-	type FileContextMenuProps,
 } from "@/components/files/FileContextMenu";
+import { resolveFileBrowserItemMenuProps } from "@/components/files/fileBrowserItemActionResolver";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
-import { isExtractableArchiveFileName } from "@/lib/archiveFormats";
 import { useFileStore } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
@@ -38,7 +37,7 @@ type FileBrowserItemActionMenuProps =
 
 function useFileBrowserItemMenuProps(
 	props: FileBrowserItemActionMenuProps,
-): Omit<FileContextMenuProps, "children" | "renderTrigger"> {
+): ReturnType<typeof resolveFileBrowserItemMenuProps> {
 	const {
 		batchSelectionActions,
 		onArchiveCompress,
@@ -61,125 +60,42 @@ function useFileBrowserItemMenuProps(
 		onToggleLock,
 		onVersions,
 		readOnly,
-		selectionEnabled = !readOnly,
+		selectionEnabled,
 	} = useFileBrowserContext();
 	const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 	const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
-	const selected = props.isFolder
-		? selectedFolderIds.has(props.item.id)
-		: selectedFileIds.has(props.item.id);
-	const selectionCount = selectedFileIds.size + selectedFolderIds.size;
-	const useBatchMenu =
-		selectionEnabled &&
-		selected &&
-		selectionCount > 1 &&
-		batchSelectionActions != null;
 
-	if (useBatchMenu) {
-		return {
-			isFolder: props.isFolder,
-			isLocked: false,
-			selectionCount: batchSelectionActions.count,
-			downloadAction: batchSelectionActions.downloadAction,
-			onArchiveCompress: batchSelectionActions.onArchiveCompress,
-			onCopy: batchSelectionActions.onCopy,
-			onMove: batchSelectionActions.onMove,
-			onManageTags: batchSelectionActions.onManageTags,
-			onDelete: batchSelectionActions.onDelete,
-		};
-	}
-
-	if (props.isFolder) {
-		const { item } = props;
-		if (readOnly) {
-			return {
-				isFolder: true,
-				isLocked: false,
-				onOpen: () => onFolderOpen(item.id, item.name),
-			};
-		}
-
-		return {
-			isFolder: true,
-			isLocked: item.is_locked ?? false,
-			onOpen: () => onFolderOpen(item.id, item.name),
-			onPageShare: () =>
-				onShare({
-					folderId: item.id,
-					name: item.name,
-					initialMode: "page",
-				}),
-			onArchiveDownload: onArchiveDownload
-				? () => onArchiveDownload(item.id)
-				: undefined,
-			onArchiveCompress: onArchiveCompress
-				? () => onArchiveCompress("folder", item.id)
-				: undefined,
-			onCopy: onCopy ? () => onCopy("folder", item.id) : undefined,
-			onManageTags: onManageTags
-				? () => onManageTags("folder", item.id)
-				: undefined,
-			onMove: onMove ? () => onMove("folder", item.id) : undefined,
-			onFolderPolicy: onFolderPolicy ? () => onFolderPolicy(item) : undefined,
-			onRename: onRename
-				? () => onRename("folder", item.id, item.name)
-				: undefined,
-			onToggleLock: () =>
-				onToggleLock("folder", item.id, item.is_locked ?? false),
-			onDelete: onDelete ? () => onDelete("folder", item.id) : undefined,
-			onInfo: () => onInfo?.("folder", item.id),
-		};
-	}
-
-	const { item } = props;
-	if (readOnly) {
-		return {
-			isFolder: false,
-			isLocked: false,
-			onOpen: () => (onFileOpen ?? onFileClick)(item),
-			onDownload: () => onDownload(item.id, item.name),
-		};
-	}
-
-	return {
-		isFolder: false,
-		isLocked: item.is_locked ?? false,
-		onOpen: () => (onFileOpen ?? onFileClick)(item),
-		onChooseOpenMethod: onFileChooseOpenMethod
-			? () => onFileChooseOpenMethod(item)
-			: undefined,
-		onDownload: () => onDownload(item.id, item.name),
-		onArchiveExtract:
-			onArchiveExtract && isExtractableArchiveFileName(item.name)
-				? () => onArchiveExtract(item.id)
-				: undefined,
-		onArchiveCompress: onArchiveCompress
-			? () => onArchiveCompress("file", item.id)
-			: undefined,
-		onPageShare: () =>
-			onShare({
-				fileId: item.id,
-				name: item.name,
-				initialMode: "page",
-			}),
-		onDirectShare: () =>
-			onShare({
-				fileId: item.id,
-				name: item.name,
-				initialMode: "direct",
-			}),
-		onCopy: onCopy ? () => onCopy("file", item.id) : undefined,
-		onGoToLocation: onGoToLocation ? () => onGoToLocation(item) : undefined,
-		onManageTags: onManageTags
-			? () => onManageTags("file", item.id)
-			: undefined,
-		onMove: onMove ? () => onMove("file", item.id) : undefined,
-		onRename: onRename ? () => onRename("file", item.id, item.name) : undefined,
-		onToggleLock: () => onToggleLock("file", item.id, item.is_locked ?? false),
-		onDelete: onDelete ? () => onDelete("file", item.id) : undefined,
-		onVersions: onVersions ? () => onVersions(item.id) : undefined,
-		onInfo: () => onInfo?.("file", item.id),
-	};
+	return resolveFileBrowserItemMenuProps({
+		...props,
+		batchSelectionActions,
+		handlers: {
+			onArchiveCompress,
+			onArchiveDownload,
+			onArchiveExtract,
+			onCopy,
+			onDelete,
+			onDownload,
+			onFileChooseOpenMethod,
+			onFileClick,
+			onFileOpen,
+			onFolderPolicy,
+			onFolderOpen,
+			onGoToLocation,
+			onInfo,
+			onManageTags,
+			onMove,
+			onRename,
+			onShare,
+			onToggleLock,
+			onVersions,
+		},
+		readOnly,
+		selection: {
+			selectedFileIds,
+			selectedFolderIds,
+		},
+		selectionEnabled,
+	});
 }
 
 export function FileBrowserItemContextMenu({

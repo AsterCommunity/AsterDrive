@@ -32,9 +32,10 @@ struct PlannedChildFolderCopy {
     policy_id: Option<i64>,
 }
 
-async fn copy_frontier_files_in_scope(
+async fn copy_frontier_files_between_scopes(
     state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
     frontier: &[FrontierFolderCopy],
 ) -> Result<i64> {
     if frontier.is_empty() {
@@ -48,7 +49,7 @@ async fn copy_frontier_files_in_scope(
         .map(|item| (item.src_folder_id, item.dest_folder_id))
         .collect();
 
-    let files = match scope {
+    let files = match source_scope {
         WorkspaceStorageScope::Personal { user_id } => {
             file_repo::find_by_folders(db, user_id, &src_folder_ids).await?
         }
@@ -83,15 +84,16 @@ async fn copy_frontier_files_in_scope(
 
     crate::services::file_service::batch_duplicate_file_records_to_mixed_folders_in_scope(
         state,
-        scope,
+        dest_scope,
         &copy_specs,
     )
     .await
 }
 
-async fn load_frontier_child_plans_in_scope(
+async fn load_frontier_child_plans_between_scopes(
     state: &PrimaryAppState,
-    scope: WorkspaceStorageScope,
+    source_scope: WorkspaceStorageScope,
+    preserve_policy_id: bool,
     frontier: &[FrontierFolderCopy],
 ) -> Result<Vec<PlannedChildFolderCopy>> {
     if frontier.is_empty() {
@@ -105,7 +107,7 @@ async fn load_frontier_child_plans_in_scope(
         .map(|item| (item.src_folder_id, item.dest_folder_id))
         .collect();
 
-    let children = match scope {
+    let children = match source_scope {
         WorkspaceStorageScope::Personal { user_id } => {
             folder_repo::find_children_in_parents(db, user_id, &src_folder_ids).await?
         }
@@ -135,7 +137,7 @@ async fn load_frontier_child_plans_in_scope(
                 src_folder_id: child.id,
                 dest_parent_id,
                 dest_name: child.name.clone(),
-                policy_id: child.policy_id,
+                policy_id: preserve_policy_id.then_some(child.policy_id).flatten(),
             })
         })
         .collect()
@@ -221,22 +223,42 @@ pub(crate) async fn copy_folder_tree_in_scope(
     dest_parent_id: Option<i64>,
     dest_name: &str,
 ) -> Result<(folder::Model, i64)> {
+    copy_folder_tree_between_scopes(
+        state,
+        scope,
+        scope,
+        src_folder_id,
+        dest_parent_id,
+        dest_name,
+    )
+    .await
+}
+
+pub(crate) async fn copy_folder_tree_between_scopes(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    src_folder_id: i64,
+    dest_parent_id: Option<i64>,
+    dest_name: &str,
+) -> Result<(folder::Model, i64)> {
     let db = state.writer_db();
     let now = Utc::now();
     let src_folder = folder_repo::find_by_id(db, src_folder_id).await?;
-    ensure_folder_model_in_scope(&src_folder, scope)?;
-    let created_by_username = load_scope_actor_username(db, scope).await?;
+    ensure_folder_model_in_scope(&src_folder, source_scope)?;
+    let created_by_username = load_scope_actor_username(db, dest_scope).await?;
+    let preserve_policy_id = same_workspace_resource(source_scope, dest_scope);
 
     let new_folder = folder_repo::create(
         db,
         folder::ActiveModel {
             name: Set(dest_name.to_string()),
             parent_id: Set(dest_parent_id),
-            team_id: Set(scope.team_id()),
-            owner_user_id: Set(scope.owner_user_id()),
-            created_by_user_id: Set(Some(scope.actor_user_id())),
+            team_id: Set(dest_scope.team_id()),
+            owner_user_id: Set(dest_scope.owner_user_id()),
+            created_by_user_id: Set(Some(dest_scope.actor_user_id())),
             created_by_username: Set(created_by_username),
-            policy_id: Set(src_folder.policy_id),
+            policy_id: Set(preserve_policy_id.then_some(src_folder.policy_id).flatten()),
             created_at: Set(now),
             updated_at: Set(now),
             ..Default::default()
@@ -253,13 +275,19 @@ pub(crate) async fn copy_folder_tree_in_scope(
         // 先并发完成当前层的“文件批量复制”和“下一层子目录读取”，
         // 但把子目录真正写库放在文件复制成功之后，避免扩大失败时的半成品范围。
         let (frontier_storage_delta, child_plans) = tokio::try_join!(
-            copy_frontier_files_in_scope(state, scope, &frontier),
-            load_frontier_child_plans_in_scope(state, scope, &frontier),
+            copy_frontier_files_between_scopes(state, source_scope, dest_scope, &frontier),
+            load_frontier_child_plans_between_scopes(
+                state,
+                source_scope,
+                preserve_policy_id,
+                &frontier
+            ),
         )?;
         storage_delta = storage_delta
             .checked_add(frontier_storage_delta)
             .ok_or_else(|| AsterError::internal_error("folder copy storage delta overflow"))?;
-        frontier = create_frontier_children_from_plans_in_scope(state, scope, child_plans).await?;
+        frontier =
+            create_frontier_children_from_plans_in_scope(state, dest_scope, child_plans).await?;
     }
 
     Ok((new_folder, storage_delta))
@@ -271,34 +299,47 @@ pub(crate) async fn copy_folder_in_scope(
     src_id: i64,
     dest_parent_id: Option<i64>,
 ) -> Result<folder::Model> {
+    copy_folder_between_scopes(state, scope, scope, src_id, dest_parent_id).await
+}
+
+pub(crate) async fn copy_folder_between_scopes(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    src_id: i64,
+    dest_parent_id: Option<i64>,
+) -> Result<folder::Model> {
     let db = state.writer_db();
     tracing::debug!(
-        scope = ?scope,
+        source_scope = ?source_scope,
+        dest_scope = ?dest_scope,
         src_folder_id = src_id,
         dest_parent_id,
         "copying folder tree"
     );
-    let src = workspace_storage_service::verify_folder_access(state, scope, src_id).await?;
+    let src = workspace_storage_service::verify_folder_access(state, source_scope, src_id).await?;
 
     if let Some(parent_id) = dest_parent_id {
-        workspace_storage_service::verify_folder_access(state, scope, parent_id).await?;
+        workspace_storage_service::verify_folder_access(state, dest_scope, parent_id).await?;
 
-        let mut cursor = Some(parent_id);
-        while let Some(cur_id) = cursor {
-            if cur_id == src_id {
-                return Err(AsterError::validation_error(
-                    "cannot copy folder into its own subfolder",
-                ));
+        if same_workspace_resource(source_scope, dest_scope) {
+            let mut cursor = Some(parent_id);
+            while let Some(cur_id) = cursor {
+                if cur_id == src_id {
+                    return Err(AsterError::validation_error(
+                        "cannot copy folder into its own subfolder",
+                    ));
+                }
+                let current = folder_repo::find_by_id(db, cur_id).await?;
+                ensure_folder_model_in_scope(&current, dest_scope)?;
+                cursor = current.parent_id;
             }
-            let current = folder_repo::find_by_id(db, cur_id).await?;
-            ensure_folder_model_in_scope(&current, scope)?;
-            cursor = current.parent_id;
         }
     }
 
     let mut dest_name = src.name.clone();
     for _ in 0..MAX_COPY_NAME_RETRIES {
-        let exists = match scope {
+        let exists = match dest_scope {
             WorkspaceStorageScope::Personal { user_id } => {
                 folder_repo::find_by_name_in_parent(db, user_id, dest_parent_id, &dest_name)
                     .await?
@@ -316,13 +357,22 @@ pub(crate) async fn copy_folder_in_scope(
             continue;
         }
 
-        match copy_folder_tree_in_scope(state, scope, src_id, dest_parent_id, &dest_name).await {
+        match copy_folder_tree_between_scopes(
+            state,
+            source_scope,
+            dest_scope,
+            src_id,
+            dest_parent_id,
+            &dest_name,
+        )
+        .await
+        {
             Ok((copied, storage_delta)) => {
                 storage_change_service::publish(
                     state,
                     storage_change_service::StorageChangeEvent::new(
                         storage_change_service::StorageChangeKind::FolderCreated,
-                        scope,
+                        dest_scope,
                         vec![],
                         vec![copied.id],
                         vec![copied.parent_id],
@@ -330,7 +380,8 @@ pub(crate) async fn copy_folder_in_scope(
                     .with_storage_delta(storage_delta),
                 );
                 tracing::debug!(
-                    scope = ?scope,
+                    source_scope = ?source_scope,
+                    dest_scope = ?dest_scope,
                     src_folder_id = src_id,
                     copied_folder_id = copied.id,
                     parent_id = copied.parent_id,
@@ -350,6 +401,24 @@ pub(crate) async fn copy_folder_in_scope(
         "failed to allocate a unique copy name for '{}'",
         src.name
     )))
+}
+
+fn same_workspace_resource(left: WorkspaceStorageScope, right: WorkspaceStorageScope) -> bool {
+    match (left, right) {
+        (
+            WorkspaceStorageScope::Personal { user_id: left_id },
+            WorkspaceStorageScope::Personal { user_id: right_id },
+        ) => left_id == right_id,
+        (
+            WorkspaceStorageScope::Team {
+                team_id: left_id, ..
+            },
+            WorkspaceStorageScope::Team {
+                team_id: right_id, ..
+            },
+        ) => left_id == right_id,
+        _ => false,
+    }
 }
 
 /// 复制文件夹（递归复制所有文件和子文件夹）

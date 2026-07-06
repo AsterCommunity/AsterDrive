@@ -1,4 +1,10 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { cloneElement, isValidElement } from "react";
 import { MemoryRouter, useLocation } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -642,6 +648,36 @@ describe("AdminUsersPage", () => {
 			expect(mockState.update).toHaveBeenCalledWith(11, { role: "admin" });
 		});
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("user_updated");
+	});
+
+	it("does not reset the initial page offset from the keyword debounce effect", async () => {
+		vi.useFakeTimers();
+		try {
+			renderPage("/admin/users?keyword=alice&offset=20&pageSize=10");
+
+			await act(async () => {
+				await Promise.resolve();
+			});
+			expect(mockState.list).toHaveBeenCalledWith(
+				expect.objectContaining({
+					keyword: "alice",
+					offset: 20,
+				}),
+			);
+
+			act(() => {
+				vi.advanceTimersByTime(300);
+			});
+
+			expect(screen.getByTestId("location-search")).toHaveTextContent(
+				"keyword=alice",
+			);
+			expect(screen.getByTestId("location-search")).toHaveTextContent(
+				"offset=20",
+			);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("clears keyword and select filters from the url in one update", async () => {

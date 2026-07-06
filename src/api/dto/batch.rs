@@ -1,6 +1,6 @@
 //! `batch` API DTO 定义。
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 use validator::{Validate, ValidationError};
@@ -44,6 +44,30 @@ pub struct BatchCopyReq {
     pub target_folder_id: Option<i64>,
 }
 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum WorkspaceRef {
+    Personal,
+    Team { team_id: i64 },
+}
+
+/// Copy files and folders between workspaces.
+#[derive(Deserialize, Validate)]
+#[validate(schema(function = "validate_workspace_transfer_copy_req"))]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct WorkspaceTransferCopyReq {
+    pub source_workspace: WorkspaceRef,
+    #[serde(default)]
+    pub file_ids: Vec<i64>,
+    #[serde(default)]
+    pub folder_ids: Vec<i64>,
+    pub destination_workspace: WorkspaceRef,
+    /// Destination folder ID (`None` = destination root directory).
+    #[validate(range(min = 1, message = "target_folder_id must be greater than 0"))]
+    pub target_folder_id: Option<i64>,
+}
+
 /// Request an archive download ticket for the selected files and folders.
 #[derive(Debug, Deserialize, Validate)]
 #[validate(schema(function = "validate_archive_download_req"))]
@@ -82,6 +106,14 @@ fn validate_batch_copy_req(value: &BatchCopyReq) -> std::result::Result<(), Vali
     validate_batch_selection(&value.file_ids, &value.folder_ids)
 }
 
+fn validate_workspace_transfer_copy_req(
+    value: &WorkspaceTransferCopyReq,
+) -> std::result::Result<(), ValidationError> {
+    validate_workspace_ref(&value.source_workspace)?;
+    validate_workspace_ref(&value.destination_workspace)?;
+    validate_batch_selection(&value.file_ids, &value.folder_ids)
+}
+
 fn validate_archive_download_req(
     value: &ArchiveDownloadReq,
 ) -> std::result::Result<(), ValidationError> {
@@ -116,6 +148,16 @@ fn validate_positive_ids(
         ));
     }
     Ok(())
+}
+
+fn validate_workspace_ref(value: &WorkspaceRef) -> std::result::Result<(), ValidationError> {
+    match value {
+        WorkspaceRef::Personal => Ok(()),
+        WorkspaceRef::Team { team_id } if *team_id > 0 => Ok(()),
+        WorkspaceRef::Team { .. } => Err(crate::api::dto::validation::message_validation_error(
+            "team_id must be greater than 0",
+        )),
+    }
 }
 
 fn validate_archive_name(value: Option<&str>) -> std::result::Result<(), ValidationError> {

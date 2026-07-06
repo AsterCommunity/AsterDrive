@@ -25,19 +25,31 @@ pub(crate) async fn batch_copy_in_scope(
     folder_ids: &[i64],
     target_folder_id: Option<i64>,
 ) -> Result<BatchResult> {
+    batch_copy_between_scopes(state, scope, scope, file_ids, folder_ids, target_folder_id).await
+}
+
+pub(crate) async fn batch_copy_between_scopes(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+    target_folder_id: Option<i64>,
+) -> Result<BatchResult> {
     let mut result = BatchResult::new();
     let NormalizedSelection {
         file_ids: normalized_file_ids,
         folder_ids: normalized_folder_ids,
         file_map,
         folder_map: _,
-    } = load_normalized_selection_in_scope(state, scope, file_ids, folder_ids).await?;
-    let target_error = load_target_folder_in_scope(state, scope, target_folder_id)
+    } = load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
+    workspace_storage_service::require_scope_access(state, dest_scope).await?;
+    let target_error = load_target_folder_in_scope(state, dest_scope, target_folder_id)
         .await
         .err();
 
     let mut reserved_file_names: HashSet<String> = if target_error.is_none() {
-        workspace_storage_service::list_files_in_folder(state, scope, target_folder_id)
+        workspace_storage_service::list_files_in_folder(state, dest_scope, target_folder_id)
             .await?
             .into_iter()
             .map(|file| file.name)
@@ -47,7 +59,7 @@ pub(crate) async fn batch_copy_in_scope(
     };
 
     let (mut planned_storage_used, storage_quota) =
-        workspace_storage_service::load_storage_limits(state, scope).await?;
+        workspace_storage_service::load_storage_limits(state, dest_scope).await?;
     let mut file_copy_specs = Vec::new();
 
     for &id in &normalized_file_ids {
@@ -59,7 +71,7 @@ pub(crate) async fn batch_copy_in_scope(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_file_scope(file, scope) {
+        if let Err(err) = workspace_storage_service::ensure_active_file_scope(file, source_scope) {
             result.record_failure("file", id, err.to_string());
             continue;
         }
@@ -102,7 +114,7 @@ pub(crate) async fn batch_copy_in_scope(
         })?;
         let created_files = file_service::batch_duplicate_file_records_with_specs_in_scope(
             state,
-            scope,
+            dest_scope,
             &file_copy_specs,
             target_folder_id,
         )
@@ -111,7 +123,7 @@ pub(crate) async fn batch_copy_in_scope(
             state,
             storage_change_service::StorageChangeEvent::new(
                 storage_change_service::StorageChangeKind::FileCreated,
-                scope,
+                dest_scope,
                 created_files.into_iter().map(|file| file.id).collect(),
                 vec![],
                 vec![target_folder_id],
@@ -130,8 +142,14 @@ pub(crate) async fn batch_copy_in_scope(
     let mut folder_copy_results =
         stream::iter(normalized_folder_ids.iter().copied().enumerate().map(
             |(index, id)| async move {
-                let copy_result =
-                    folder_service::copy_folder_in_scope(state, scope, id, target_folder_id).await;
+                let copy_result = folder_service::copy_folder_between_scopes(
+                    state,
+                    source_scope,
+                    dest_scope,
+                    id,
+                    target_folder_id,
+                )
+                .await;
                 (index, id, copy_result)
             },
         ))

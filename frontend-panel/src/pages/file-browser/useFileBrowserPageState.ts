@@ -2,8 +2,11 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import type { TagManagerTarget } from "@/components/files/TagManagerDialog";
 import { handleApiError } from "@/hooks/useApiError";
+import { formatBatchToast } from "@/lib/formatBatchToast";
+import { workspaceEquals } from "@/lib/workspace";
 import {
 	BatchTargetFolderDialog,
 	RenameDialog,
@@ -19,8 +22,10 @@ import type {
 	FileBrowserShareTarget,
 	FileBrowserVersionTarget,
 } from "@/pages/file-browser/types";
+import { resolveCopyDispatch } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type {
 	EntityType,
 	FileInfo,
@@ -194,15 +199,38 @@ export function useFileBrowserPageState({
 	}, []);
 
 	const handleCopyConfirm = useCallback(
-		async (targetFolderId: number | null) => {
+		async ({
+			workspace: targetWorkspace,
+			folderId: targetFolderId,
+		}: BatchTargetFolderSelection) => {
 			if (!copyTarget) return;
 			try {
-				if (copyTarget.type === "file") {
+				const currentWorkspace = useWorkspaceStore.getState().workspace;
+				if (!workspaceEquals(currentWorkspace, targetWorkspace)) {
+					const result = await resolveCopyDispatch({
+						currentWorkspace,
+						targetWorkspace,
+						fileIds: copyTarget.type === "file" ? [copyTarget.id] : [],
+						folderIds: copyTarget.type === "folder" ? [copyTarget.id] : [],
+						targetFolderId,
+					});
+					const batchToast = formatBatchToast(t, "copy", result);
+					if (batchToast.variant === "error") {
+						toast.error(batchToast.title, {
+							description: batchToast.description,
+						});
+					} else {
+						toast.success(batchToast.title, {
+							description: batchToast.description,
+						});
+					}
+				} else if (copyTarget.type === "file") {
 					await fileService.copyFile(copyTarget.id, targetFolderId);
+					toast.success(t("copy_success"));
 				} else {
 					await fileService.copyFolder(copyTarget.id, targetFolderId);
+					toast.success(t("copy_success"));
 				}
-				toast.success(t("copy_success"));
 				setCopyTarget(null);
 				await refresh();
 			} catch (err) {

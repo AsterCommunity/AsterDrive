@@ -445,6 +445,12 @@ export type AdminTaskCleanupRequest =
 	components["schemas"]["AdminTaskCleanupReq"];
 export type AdminLockListQuery = OperationQuery<"list_locks">;
 export type ConfigActionType = components["schemas"]["ConfigActionType"];
+export type ConfigActionDescriptor =
+	components["schemas"]["ConfigActionDescriptor"];
+export type ConfigActionPresentation =
+	components["schemas"]["ConfigActionPresentation"];
+export type ConfigInvalidationTarget =
+	components["schemas"]["ConfigInvalidationTarget"];
 export type ConfigSchemaItem = components["schemas"]["ConfigSchemaItem"];
 export type ConfigSchemaOption = components["schemas"]["ConfigSchemaOption"];
 export type AdminConfigListQuery = OperationQuery<"list_config">;
@@ -531,6 +537,9 @@ export type TaskPage = components["schemas"]["OffsetPage_TaskInfo"];
 // Upload and batch
 export type BatchItemError = components["schemas"]["BatchItemError"];
 export type BatchResult = components["schemas"]["BatchResult"];
+export type WorkspaceRef = components["schemas"]["WorkspaceRef"];
+export type WorkspaceTransferCopyRequest =
+	components["schemas"]["WorkspaceTransferCopyReq"];
 export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type FileQuery = components["schemas"]["FileQuery"];

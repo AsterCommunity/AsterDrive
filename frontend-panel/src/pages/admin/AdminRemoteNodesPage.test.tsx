@@ -903,10 +903,8 @@ describe("AdminRemoteNodesPage", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "core:refresh" }));
 		await waitFor(() => {
-			expect(adminRemoteNodeServiceMocks.list).toHaveBeenCalled();
+			expect(mockState.reload).toHaveBeenCalled();
 		});
-		expect(mockState.setItems).toHaveBeenCalledWith([]);
-		expect(mockState.setTotal).toHaveBeenCalledWith(0);
 
 		fireEvent.click(screen.getByRole("button", { name: "enroll:7" }));
 		await screen.findByTestId("enrollment-dialog");

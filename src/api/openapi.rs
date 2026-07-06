@@ -142,6 +142,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::batch::archive_compress,
         crate::api::routes::batch::archive_download,
         crate::api::routes::batch::archive_download_stream,
+        crate::api::routes::workspace_transfer::copy_to_workspace,
 
         // shares：登录用户创建和维护个人文件/文件夹分享的接口。
         crate::api::routes::shares::create_share,
@@ -651,6 +652,9 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::admin::ExecuteConfigActionReq,
             crate::api::routes::admin::ExecuteConfigActionResp,
             crate::services::config_service::SystemConfig,
+            crate::services::config_service::ConfigActionDescriptor,
+            crate::services::config_service::ConfigActionPresentation,
+            crate::services::config_service::ConfigInvalidationTarget,
             crate::services::config_service::ConfigSchemaItem,
             crate::services::config_service::ConfigSchemaOption,
             crate::services::config_service::TemplateVariableItem,
@@ -772,6 +776,8 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::batch::BatchDeleteReq,
             crate::api::routes::batch::BatchMoveReq,
             crate::api::routes::batch::BatchCopyReq,
+            crate::api::routes::batch::WorkspaceRef,
+            crate::api::routes::batch::WorkspaceTransferCopyReq,
             crate::services::batch_service::BatchResult,
             crate::services::batch_service::BatchItemError,
         ),
