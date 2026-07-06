@@ -4,6 +4,7 @@ import {
 	buildWorkspacePath,
 	PERSONAL_WORKSPACE,
 	type Workspace,
+	workspaceEquals,
 } from "@/lib/workspace";
 import { api } from "@/services/http";
 import { bindWorkspaceService } from "@/stores/workspaceStore";
@@ -47,6 +48,47 @@ export function workspaceToTransferRef(workspace: Workspace): WorkspaceRef {
 	return workspace.kind === "team"
 		? { kind: "team", team_id: workspace.teamId }
 		: { kind: "personal" };
+}
+
+interface WorkspaceCopyDispatcher {
+	batchCopy: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	copyToWorkspace: (
+		destinationWorkspace: Workspace,
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+}
+
+interface ResolveCopyDispatchInput {
+	currentWorkspace: Workspace;
+	targetWorkspace: Workspace;
+	fileIds: number[];
+	folderIds: number[];
+	targetFolderId: number | null;
+	dispatcher?: WorkspaceCopyDispatcher;
+}
+
+export function resolveCopyDispatch({
+	currentWorkspace,
+	targetWorkspace,
+	fileIds,
+	folderIds,
+	targetFolderId,
+	dispatcher = batchService,
+}: ResolveCopyDispatchInput) {
+	return workspaceEquals(currentWorkspace, targetWorkspace)
+		? dispatcher.batchCopy(fileIds, folderIds, targetFolderId)
+		: dispatcher.copyToWorkspace(
+				targetWorkspace,
+				fileIds,
+				folderIds,
+				targetFolderId,
+			);
 }
 
 function buildArchiveDownloadUrl(

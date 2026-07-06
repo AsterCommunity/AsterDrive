@@ -147,6 +147,34 @@ vi.mock("@/services/batchService", () => ({
 		batchDelete: (...args: unknown[]) => mockState.batchDelete(...args),
 		copyToWorkspace: (...args: unknown[]) => mockState.copyToWorkspace(...args),
 	},
+	resolveCopyDispatch: ({
+		currentWorkspace,
+		fileIds,
+		folderIds,
+		targetFolderId,
+		targetWorkspace,
+	}: {
+		currentWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		fileIds: number[];
+		folderIds: number[];
+		targetFolderId: number | null;
+		targetWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+	}) => {
+		const sameWorkspace =
+			currentWorkspace.kind === targetWorkspace.kind &&
+			(currentWorkspace.kind !== "team" ||
+				(currentWorkspace.kind === "team" &&
+					targetWorkspace.kind === "team" &&
+					currentWorkspace.teamId === targetWorkspace.teamId));
+		return sameWorkspace
+			? mockState.batchCopy(fileIds, folderIds, targetFolderId)
+			: mockState.copyToWorkspace(
+					targetWorkspace,
+					fileIds,
+					folderIds,
+					targetFolderId,
+				);
+	},
 }));
 
 vi.mock("@/stores/authStore", () => ({

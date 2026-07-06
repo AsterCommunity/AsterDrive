@@ -1020,6 +1020,23 @@ vi.mock("@/services/batchService", () => ({
 		streamArchiveDownload: (...args: unknown[]) =>
 			mockState.streamArchiveDownload(...args),
 	},
+	resolveCopyDispatch: ({
+		fileIds,
+		folderIds,
+		targetFolderId,
+		targetWorkspace,
+	}: {
+		fileIds: number[];
+		folderIds: number[];
+		targetFolderId: number | null;
+		targetWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+	}) =>
+		mockState.copyToWorkspace(
+			targetWorkspace,
+			fileIds,
+			folderIds,
+			targetFolderId,
+		),
 }));
 
 vi.mock("@/services/fileService", () => ({
@@ -1283,11 +1300,20 @@ describe("FileBrowserPage", () => {
 		mockState.getArchivePreview.mockResolvedValue({ entries: [] });
 		mockState.createPreviewLink.mockResolvedValue("preview-link");
 		mockState.createWopiSession.mockResolvedValue({ session: "wopi" });
-		mockState.formatBatchToast.mockImplementation((_t, action: string) => ({
-			description: `${action}:desc`,
-			title: `${action}:ok`,
-			variant: "success",
-		}));
+		mockState.formatBatchToast.mockImplementation(
+			(_t, action: string, result?: { failed?: number }) =>
+				result?.failed
+					? {
+							description: `${action}:error-desc`,
+							title: `${action}:error`,
+							variant: "error",
+						}
+					: {
+							description: `${action}:desc`,
+							title: `${action}:ok`,
+							variant: "success",
+						},
+		);
 		mockState.refreshUser.mockResolvedValue(undefined);
 		mockState.readInternalDragData.mockReturnValue(null);
 
@@ -1824,7 +1850,57 @@ describe("FileBrowserPage", () => {
 			);
 		});
 		expect(mockState.copyFile).not.toHaveBeenCalled();
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("copy_success");
+		expect(mockState.formatBatchToast).toHaveBeenCalledWith(
+			expect.any(Function),
+			"copy",
+			expect.objectContaining({ succeeded: 1, failed: 0 }),
+		);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("copy:ok", {
+			description: "copy:desc",
+		});
+		expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("shows an error toast when single-item workspace transfer reports failures", async () => {
+		mockState.copyToWorkspace.mockResolvedValueOnce({
+			errors: [
+				{
+					entity_id: 9,
+					entity_type: "file",
+					message: "copy failed",
+				},
+			],
+			failed: 1,
+			succeeded: 0,
+		});
+
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "copy-file" }));
+		expect(await screen.findByText("batch-dialog:copy")).toBeInTheDocument();
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm-team-batch-dialog" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.copyToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 9 },
+				[9],
+				[],
+				21,
+			);
+		});
+		expect(mockState.formatBatchToast).toHaveBeenCalledWith(
+			expect.any(Function),
+			"copy",
+			expect.objectContaining({ failed: 1, succeeded: 0 }),
+		);
+		expect(mockState.toastError).toHaveBeenCalledWith("copy:error", {
+			description: "copy:error-desc",
+		});
+		expect(mockState.toastSuccess).not.toHaveBeenCalledWith("copy:ok", {
+			description: "copy:desc",
+		});
 		expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
 	});
 

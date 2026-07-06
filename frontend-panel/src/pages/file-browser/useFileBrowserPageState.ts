@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import type { TagManagerTarget } from "@/components/files/TagManagerDialog";
 import { handleApiError } from "@/hooks/useApiError";
+import { formatBatchToast } from "@/lib/formatBatchToast";
 import { workspaceEquals } from "@/lib/workspace";
 import {
 	BatchTargetFolderDialog,
@@ -21,7 +22,7 @@ import type {
 	FileBrowserShareTarget,
 	FileBrowserVersionTarget,
 } from "@/pages/file-browser/types";
-import { batchService } from "@/services/batchService";
+import { resolveCopyDispatch } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -206,18 +207,30 @@ export function useFileBrowserPageState({
 			try {
 				const currentWorkspace = useWorkspaceStore.getState().workspace;
 				if (!workspaceEquals(currentWorkspace, targetWorkspace)) {
-					await batchService.copyToWorkspace(
+					const result = await resolveCopyDispatch({
+						currentWorkspace,
 						targetWorkspace,
-						copyTarget.type === "file" ? [copyTarget.id] : [],
-						copyTarget.type === "folder" ? [copyTarget.id] : [],
+						fileIds: copyTarget.type === "file" ? [copyTarget.id] : [],
+						folderIds: copyTarget.type === "folder" ? [copyTarget.id] : [],
 						targetFolderId,
-					);
+					});
+					const batchToast = formatBatchToast(t, "copy", result);
+					if (batchToast.variant === "error") {
+						toast.error(batchToast.title, {
+							description: batchToast.description,
+						});
+					} else {
+						toast.success(batchToast.title, {
+							description: batchToast.description,
+						});
+					}
 				} else if (copyTarget.type === "file") {
 					await fileService.copyFile(copyTarget.id, targetFolderId);
+					toast.success(t("copy_success"));
 				} else {
 					await fileService.copyFolder(copyTarget.id, targetFolderId);
+					toast.success(t("copy_success"));
 				}
-				toast.success(t("copy_success"));
 				setCopyTarget(null);
 				await refresh();
 			} catch (err) {

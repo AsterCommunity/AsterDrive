@@ -17,8 +17,8 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
-import { type Workspace, workspaceEquals } from "@/lib/workspace";
-import { batchService } from "@/services/batchService";
+import type { Workspace } from "@/lib/workspace";
+import { batchService, resolveCopyDispatch } from "@/services/batchService";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { BatchResult, FileListItem, FolderListItem } from "@/types/api";
@@ -233,14 +233,13 @@ export function useFileBrowserBatchActions({
 								folderIds,
 								targetFolderId,
 							)
-						: workspaceEquals(currentWorkspace, targetWorkspace)
-							? await batchService.batchCopy(fileIds, folderIds, targetFolderId)
-							: await batchService.copyToWorkspace(
-									targetWorkspace,
-									fileIds,
-									folderIds,
-									targetFolderId,
-								);
+						: await resolveCopyDispatch({
+								currentWorkspace,
+								targetWorkspace,
+								fileIds,
+								folderIds,
+								targetFolderId,
+							});
 				const batchToast = formatBatchToast(t, targetDialogMode, result);
 				if (batchToast.variant === "error") {
 					toast.error(batchToast.title, {
