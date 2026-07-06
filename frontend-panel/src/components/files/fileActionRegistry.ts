@@ -93,10 +93,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "open_with_action",
 		presentation: { group: "open", order: 20 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder
-				? {}
-				: handlerAvailability("choose_open_method")(context),
+		availability: handlerAvailability("choose_open_method"),
 	},
 	{
 		id: "download",
@@ -104,8 +101,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "download",
 		presentation: { group: "transfer", order: 10 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder ? {} : handlerAvailability("download")(context),
+		availability: handlerAvailability("download"),
 	},
 	{
 		id: "archive_extract",
@@ -113,8 +109,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "tasks:archive_extract_action",
 		presentation: { group: "transfer", order: 20 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder ? {} : handlerAvailability("archive_extract")(context),
+		availability: handlerAvailability("archive_extract"),
 	},
 	{
 		id: "archive_compress",
@@ -130,8 +125,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "tasks:archive_download_action",
 		presentation: { group: "transfer", order: 40 },
 		scope: "folder",
-		availability: (context) =>
-			context.isFolder ? handlerAvailability("archive_download")(context) : {},
+		availability: handlerAvailability("archive_download"),
 	},
 	{
 		id: "share_page",
@@ -147,8 +141,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "share:share_direct_link_action",
 		presentation: { group: "transfer", order: 60 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder ? {} : handlerAvailability("share_direct")(context),
+		availability: handlerAvailability("share_direct"),
 	},
 	{
 		id: "copy",
@@ -172,8 +165,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "folder_policy",
 		presentation: { group: "organize", order: 30 },
 		scope: "folder",
-		availability: (context) =>
-			context.isFolder ? handlerAvailability("folder_policy")(context) : {},
+		availability: handlerAvailability("folder_policy"),
 	},
 	{
 		id: "go_to_location",
@@ -181,8 +173,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "go_to_file_location",
 		presentation: { group: "organize", order: 40 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder ? {} : handlerAvailability("go_to_location")(context),
+		availability: handlerAvailability("go_to_location"),
 	},
 	{
 		id: "rename",
@@ -206,8 +197,7 @@ const singleFileActions: FileActionDescriptor[] = [
 		labelKey: "versions",
 		presentation: { group: "organize", order: 70 },
 		scope: "file",
-		availability: (context) =>
-			context.isFolder ? {} : handlerAvailability("versions")(context),
+		availability: handlerAvailability("versions"),
 	},
 	{
 		id: "info",
@@ -315,12 +305,27 @@ function resolveDescriptorValue<T>(
 		: value;
 }
 
+function actionScopeMatchesContext(
+	scope: FileActionScope,
+	context: FileActionAvailabilityContext,
+) {
+	return (
+		scope === "mixed" ||
+		(scope === "folder" && context.isFolder) ||
+		(scope === "file" && !context.isFolder)
+	);
+}
+
 export function resolveFileActions(
 	descriptors: readonly FileActionDescriptor[],
 	context: FileActionAvailabilityContext,
 ): ResolvedFileAction[] {
 	return descriptors
 		.flatMap((descriptor) => {
+			if (!actionScopeMatchesContext(descriptor.scope, context)) {
+				return [];
+			}
+
 			const availability = descriptor.availability(context);
 			if (!availability.onClick) {
 				return [];

@@ -1,10 +1,4 @@
-import {
-	type FormEvent,
-	type SetStateAction,
-	useCallback,
-	useEffect,
-	useState,
-} from "react";
+import { type FormEvent, useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -26,7 +20,10 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -169,12 +166,12 @@ export default function AdminTeamsPage() {
 	});
 	const {
 		archived: showArchived,
-		keyword,
-		offset,
+		keyword: debouncedKeyword,
 		pageSize,
 		sortBy,
 		sortOrder,
 	} = query;
+	const [keyword, setKeyword] = useState(debouncedKeyword);
 	const [createDialogOpen, setCreateDialogOpen] = useState(false);
 	const [createForm, setCreateForm] =
 		useState<CreateTeamFormState>(EMPTY_CREATE_FORM);
@@ -185,14 +182,7 @@ export default function AdminTeamsPage() {
 	const [policyGroupsLoading, setPolicyGroupsLoading] = useState(
 		initialPolicyGroups == null,
 	);
-	const setOffset = (value: SetStateAction<number>) => {
-		setQuery((current) => ({
-			offset: Math.max(
-				0,
-				typeof value === "function" ? value(current.offset) : value,
-			),
-		}));
-	};
+	const setOffset = useManagedOffset(setQuery);
 
 	const {
 		currentPage,
@@ -204,7 +194,6 @@ export default function AdminTeamsPage() {
 		total,
 		totalPages,
 	} = useManagedAdminList<AdminTeamInfo, ManagedTeamQuery>({
-		deps: [keyword, offset, pageSize, showArchived, sortBy, sortOrder],
 		loadPage: (query) =>
 			adminTeamService.list({
 				archived: query.archived,
@@ -217,6 +206,22 @@ export default function AdminTeamsPage() {
 		query,
 		setOffset,
 	});
+
+	useEffect(() => {
+		if (keyword === debouncedKeyword) {
+			return;
+		}
+		const timer = window.setTimeout(() => {
+			setQuery({ keyword, offset: 0 });
+		}, 300);
+		return () => window.clearTimeout(timer);
+	}, [debouncedKeyword, keyword, setQuery]);
+
+	useEffect(() => {
+		setKeyword((current) =>
+			current === debouncedKeyword ? current : debouncedKeyword,
+		);
+	}, [debouncedKeyword]);
 
 	const loadPolicyGroups = useCallback(
 		async (options?: { force?: boolean }) => {
@@ -252,7 +257,7 @@ export default function AdminTeamsPage() {
 	const createPolicyGroupUnavailable =
 		!policyGroupsLoading && createPolicyGroupOptions.length === 0;
 	const activeFilterCount =
-		(keyword.trim().length > 0 ? 1 : 0) + (showArchived ? 1 : 0);
+		(debouncedKeyword.trim().length > 0 ? 1 : 0) + (showArchived ? 1 : 0);
 	const hasServerFilters = activeFilterCount > 0;
 	const pageSizeOptions = TEAM_PAGE_SIZE_OPTIONS.map((size) => ({
 		label: t("page_size_option", { count: size }),
@@ -331,6 +336,7 @@ export default function AdminTeamsPage() {
 			: null;
 
 	const resetFilters = () => {
+		setKeyword("");
 		setQuery({ archived: false, keyword: "", offset: 0 });
 	};
 
@@ -341,7 +347,7 @@ export default function AdminTeamsPage() {
 	};
 
 	const handleKeywordChange = (value: string) => {
-		setQuery({ keyword: value, offset: 0 });
+		setKeyword(value);
 	};
 
 	const handleSortChange = (

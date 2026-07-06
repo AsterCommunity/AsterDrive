@@ -145,6 +145,26 @@ fn config_schema_options(key: &str) -> Vec<ConfigSchemaOption> {
     }
 }
 
+fn media_processing_cli_action(
+    action: ConfigActionType,
+    label_i18n_key: &str,
+    order: i32,
+) -> ConfigActionDescriptor {
+    ConfigActionDescriptor {
+        action,
+        target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
+        label_i18n_key: label_i18n_key.to_string(),
+        presentation: ConfigActionPresentation {
+            category: "file_processing".to_string(),
+            subcategory: Some("media".to_string()),
+            group: "editor".to_string(),
+            order,
+        },
+        draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
+        value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
+    }
+}
+
 fn config_schema_actions(key: &str) -> Vec<ConfigActionDescriptor> {
     match key {
         MAIL_SMTP_HOST_KEY => vec![ConfigActionDescriptor {
@@ -174,45 +194,21 @@ fn config_schema_actions(key: &str) -> Vec<ConfigActionDescriptor> {
             value_source_key: Some(PREVIEW_APPS_CONFIG_KEY.to_string()),
         }],
         MEDIA_PROCESSING_REGISTRY_JSON_KEY => vec![
-            ConfigActionDescriptor {
-                action: ConfigActionType::TestVipsCli,
-                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
-                label_i18n_key: "media_processing_test_vips_cli".to_string(),
-                presentation: ConfigActionPresentation {
-                    category: "file_processing".to_string(),
-                    subcategory: Some("media".to_string()),
-                    group: "editor".to_string(),
-                    order: 10,
-                },
-                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
-                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
-            },
-            ConfigActionDescriptor {
-                action: ConfigActionType::TestFfmpegCli,
-                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
-                label_i18n_key: "media_processing_test_ffmpeg_cli".to_string(),
-                presentation: ConfigActionPresentation {
-                    category: "file_processing".to_string(),
-                    subcategory: Some("media".to_string()),
-                    group: "editor".to_string(),
-                    order: 20,
-                },
-                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
-                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
-            },
-            ConfigActionDescriptor {
-                action: ConfigActionType::TestFfprobeCli,
-                target_key: MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string(),
-                label_i18n_key: "media_processing_test_ffprobe_cli".to_string(),
-                presentation: ConfigActionPresentation {
-                    category: "file_processing".to_string(),
-                    subcategory: Some("media".to_string()),
-                    group: "editor".to_string(),
-                    order: 30,
-                },
-                draft_value_keys: vec![MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()],
-                value_source_key: Some(MEDIA_PROCESSING_REGISTRY_JSON_KEY.to_string()),
-            },
+            media_processing_cli_action(
+                ConfigActionType::TestVipsCli,
+                "media_processing_test_vips_cli",
+                10,
+            ),
+            media_processing_cli_action(
+                ConfigActionType::TestFfmpegCli,
+                "media_processing_test_ffmpeg_cli",
+                20,
+            ),
+            media_processing_cli_action(
+                ConfigActionType::TestFfprobeCli,
+                "media_processing_test_ffprobe_cli",
+                30,
+            ),
         ],
         OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY => vec![ConfigActionDescriptor {
             action: ConfigActionType::TestAria2Rpc,

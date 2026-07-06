@@ -115,7 +115,7 @@ function FileContextMenuActionItem({
 	item: typeof ContextMenuItem | typeof DropdownMenuItem;
 }) {
 	const { t } = useTranslation(["files", "share", "tasks"]);
-	const destructive = action.id === "delete";
+	const destructive = action.presentation.group === "danger";
 
 	return (
 		<Item

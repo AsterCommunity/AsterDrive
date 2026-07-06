@@ -6,7 +6,6 @@ import {
 	getEndpointValidationMessage,
 	getPolicyConnectionTestKey,
 	getS3CompatibleDriverPromotionTarget,
-	hasConnectionFieldChanges,
 } from "@/components/admin/storage-policy-dialog/connectionNormalization";
 import {
 	supportsObjectStorageConnection,
@@ -149,12 +148,12 @@ export function useStoragePolicyActionController({
 			currentStorageDriverDescriptor,
 		);
 	const cosCorsUsesDraftValues =
-		editingId === null ||
-		hasConnectionFieldChanges(
-			form,
+		selectStoragePolicyActionValueSource({
+			descriptor: currentStorageDriverDescriptor,
+			editingId,
 			editingPolicy,
-			currentStorageDriverDescriptor,
-		);
+			form,
+		}) === "draft";
 
 	const clearActionConfirms = () => {
 		setS3DriverPromotionConfirmOpen(false);

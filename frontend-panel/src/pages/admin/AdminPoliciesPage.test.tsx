@@ -1910,18 +1910,13 @@ describe("AdminPoliciesPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: /core:refresh/ }));
 
 		await waitFor(() => {
-			expect(mockState.listPolicies).toHaveBeenCalledWith({
-				limit: 20,
-				offset: 0,
-				sort_by: "created_at",
-				sort_order: "desc",
-			});
+			expect(mockState.reload).toHaveBeenCalled();
 		});
 		expect(mockState.listRemoteNodes).toHaveBeenCalled();
 		expect(screen.getByText("Refresh Me")).toBeInTheDocument();
 
 		const error = new Error("refresh failed");
-		mockState.listPolicies.mockRejectedValueOnce(error);
+		mockState.reload.mockRejectedValueOnce(error);
 		fireEvent.click(screen.getByRole("button", { name: /core:refresh/ }));
 
 		await waitFor(() => {

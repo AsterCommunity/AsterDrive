@@ -1,4 +1,3 @@
-import type { SetStateAction } from "react";
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -51,6 +50,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import {
 	useManagedAdminList,
 	useManagedAdminListDetailDialog,
+	useManagedOffset,
 } from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
@@ -646,16 +646,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 	const [fullMaintenanceAction, setFullMaintenanceAction] =
 		useState<BlobMaintenanceAction | null>(null);
 	const maintenanceLockRef = useRef(false);
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setFileQuery((current) => ({
-				offset: normalizeOffset(
-					typeof value === "function" ? value(current.offset) : value,
-				),
-			}));
-		},
-		[setFileQuery],
-	);
+	const setOffset = useManagedOffset(setFileQuery, normalizeOffset);
 	const activeFilterCount =
 		(text.trim() ? 1 : 0) +
 		(policyId != null ? 1 : 0) +
@@ -678,24 +669,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 		total,
 		totalPages,
 	} = useManagedAdminList<AdminFileInfo | AdminFileBlobInfo, ManagedFileQuery>({
-		deps: [
-			deleted,
-			isFiles,
-			offset,
-			ownerUserId,
-			pageSize,
-			policyId,
-			refCountMax,
-			refCountMin,
-			secondaryId,
-			sizeMax,
-			sizeMin,
-			sortBy,
-			sortOrder,
-			storagePath,
-			teamId,
-			text,
-		],
+		deps: [isFiles],
 		loadPage: (query) =>
 			isFiles
 				? adminFileService.listFiles({
@@ -1131,7 +1105,7 @@ function useAdminFilesPageContent(kind: AdminFilesPageKind) {
 				<AdminTableList
 					loading={loading}
 					items={items}
-					columns={isFiles ? 9 : 9}
+					columns={9}
 					rows={6}
 					emptyIcon={adminTableEmptyIcon}
 					emptyTitle={isFiles ? t("admin_no_files") : t("admin_no_blobs")}

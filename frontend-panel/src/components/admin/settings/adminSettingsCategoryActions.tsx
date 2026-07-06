@@ -1,8 +1,15 @@
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import type { ConfigActionDescriptor, ConfigSchemaItem } from "@/types/api";
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
+type CategoryActionRendererProps = {
+	action: ConfigActionDescriptor;
+	onOpenTestEmailDialog: () => void;
+	t: TranslationFn;
+};
+type CategoryActionRenderer = (props: CategoryActionRendererProps) => ReactNode;
 
 export function getAdminSettingsCategoryActions({
 	category,
@@ -34,16 +41,16 @@ function AdminSettingsCategoryActionButton({
 	action,
 	onOpenTestEmailDialog,
 	t,
-}: {
-	action: ConfigActionDescriptor;
-	onOpenTestEmailDialog: () => void;
-	t: TranslationFn;
-}) {
-	if (action.action !== "send_test_email") {
-		return null;
-	}
+}: CategoryActionRendererProps) {
+	const renderer = ADMIN_SETTINGS_CATEGORY_ACTION_RENDERERS[action.action];
+	return renderer?.({ action, onOpenTestEmailDialog, t }) ?? null;
+}
 
-	return (
+const ADMIN_SETTINGS_CATEGORY_ACTION_RENDERERS: Record<
+	string,
+	CategoryActionRenderer
+> = {
+	send_test_email: ({ action, onOpenTestEmailDialog, t }) => (
 		<div className="flex flex-col items-start gap-2 lg:items-end">
 			<Button variant="outline" size="sm" onClick={onOpenTestEmailDialog}>
 				<Icon name="EnvelopeSimple" className="size-4" />
@@ -53,8 +60,8 @@ function AdminSettingsCategoryActionButton({
 				{t("mail_send_test_email_hint")}
 			</p>
 		</div>
-	);
-}
+	),
+};
 
 export function AdminSettingsCategoryActions({
 	actions,

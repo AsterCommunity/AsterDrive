@@ -5,17 +5,15 @@ import { describe, expect, it, vi } from "vitest";
 import {
 	type ManagedListQuerySchema,
 	managedEnumQueryField,
+	managedOffsetQueryField,
 	managedOptionalNumberQueryField,
+	managedPageSizeQueryField,
+	managedSortByQueryField,
+	managedSortOrderQueryField,
 	managedStringQueryField,
 	useManagedListQueryState,
 } from "@/hooks/useManagedListQueryState";
-import {
-	parseOffsetSearchParam,
-	parsePageSizeSearchParam,
-	parseSortOrderSearchParam,
-	parseSortSearchParam,
-	type SortOrder,
-} from "@/lib/pagination";
+import type { SortOrder } from "@/lib/pagination";
 
 type TestQuery = {
 	offset: number;
@@ -44,43 +42,16 @@ const TEST_DEFAULTS = {
 } satisfies TestQuery;
 
 const TEST_SCHEMA: ManagedListQuerySchema<TestQuery> = {
-	offset: {
-		keys: ["offset"],
-		parse: (params) => parseOffsetSearchParam(params.get("offset")),
-		serialize: (value) => (value > 0 ? value : undefined),
-	},
-	pageSize: {
-		keys: ["pageSize"],
-		parse: (params) =>
-			parsePageSizeSearchParam(params.get("pageSize"), [20, 50], 20),
-		serialize: (value) => (value !== 20 ? value : undefined),
-	},
-	sortBy: {
-		keys: ["sortBy"],
-		parse: (params) =>
-			parseSortSearchParam(
-				params.get("sortBy"),
-				["created_at", "name"],
-				"created_at",
-			),
-		serialize: (value) => (value !== "created_at" ? value : undefined),
-	},
-	sortOrder: {
-		keys: ["sortOrder"],
-		parse: (params) =>
-			parseSortOrderSearchParam(params.get("sortOrder"), "desc"),
-		serialize: (value) => (value !== "desc" ? value : undefined),
-	},
+	offset: managedOffsetQueryField(),
+	pageSize: managedPageSizeQueryField([20, 50], 20),
+	sortBy: managedSortByQueryField(["created_at", "name"], "created_at"),
+	sortOrder: managedSortOrderQueryField("desc"),
 	status: {
 		keys: ["status"],
 		parse: (params) => (params.get("status") === "active" ? "active" : "all"),
 		serialize: (value) => (value !== "all" ? value : undefined),
 	},
-	text: {
-		keys: ["q"],
-		parse: (params) => params.get("q") ?? "",
-		serialize: (value) => ({ q: value.trim() || undefined }),
-	},
+	text: managedStringQueryField({ key: "q" }),
 };
 
 const FACTORY_DEFAULTS = {
@@ -297,5 +268,49 @@ describe("useManagedListQueryState", () => {
 		expect(setSearchParams).toHaveBeenCalledTimes(1);
 		const [nextParams] = setSearchParams.mock.calls[0];
 		expect(nextParams.get("mode")).toBe("all");
+	});
+
+	it("ignores serialized keys that are not declared by the field schema", () => {
+		const setSearchParams = vi.fn();
+		const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+		type GuardedQuery = { value: string };
+		const schema: ManagedListQuerySchema<GuardedQuery> = {
+			value: {
+				keys: ["value"],
+				parse: (params) => params.get("value") ?? "",
+				serialize: (value) => {
+					const params = new URLSearchParams();
+					params.set("value", value);
+					params.set("leaked", "unexpected");
+					return params;
+				},
+			},
+		};
+		const { result } = renderHook(() =>
+			useManagedListQueryState({
+				defaults: { value: "" },
+				schema,
+				searchParams: new URLSearchParams(),
+				setSearchParams,
+			}),
+		);
+		setSearchParams.mockClear();
+
+		act(() => {
+			result.current.setQuery({ value: "kept" });
+		});
+
+		const [nextParams] = setSearchParams.mock.calls[0];
+		expect(nextParams.get("value")).toBe("kept");
+		expect(nextParams.has("leaked")).toBe(false);
+		expect(warnSpy).toHaveBeenCalledWith(
+			"[AsterDrive]",
+			"Ignoring unmanaged query key from managed field",
+			{
+				key: "leaked",
+				managedKeys: ["value"],
+			},
+		);
+		warnSpy.mockRestore();
 	});
 });

@@ -1,5 +1,5 @@
 import type { TFunction } from "i18next";
-import type { FormEvent, ReactNode, SetStateAction } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { useReducer } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -20,7 +20,10 @@ import { AdminPageShell } from "@/components/layout/AdminPageShell";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -358,14 +361,7 @@ function useAdminTasksPageContent() {
 		detailDialogTaskId,
 		resumingStorageMigrationTaskId,
 	} = uiState;
-	const setOffset = (value: SetStateAction<number>) => {
-		setTaskQuery((current) => ({
-			offset: Math.max(
-				0,
-				typeof value === "function" ? value(current.offset) : value,
-			),
-		}));
-	};
+	const setOffset = useManagedOffset(setTaskQuery);
 
 	const {
 		currentPage,
@@ -377,7 +373,6 @@ function useAdminTasksPageContent() {
 		total,
 		totalPages,
 	} = useManagedAdminList<TaskInfo, ManagedTaskQuery>({
-		deps: [kindFilter, offset, pageSize, sortBy, sortOrder, statusFilter],
 		loadPage: (query) =>
 			adminTaskService.list({
 				limit: query.pageSize,

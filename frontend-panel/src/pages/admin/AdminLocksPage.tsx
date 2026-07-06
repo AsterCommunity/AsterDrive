@@ -1,4 +1,3 @@
-import { type SetStateAction, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -21,7 +20,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -106,22 +108,14 @@ export default function AdminLocksPage() {
 		searchParams,
 		setSearchParams,
 	});
-	const { offset, pageSize, sortBy, sortOrder } = query;
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: typeof value === "function" ? value(current.offset) : value,
-			}));
-		},
-		[setQuery],
-	);
+	const { sortBy, sortOrder } = query;
+	const setOffset = useManagedOffset(setQuery);
 	const {
 		items: locks,
 		setItems: setLocks,
 		loading,
 		reload,
 	} = useManagedAdminList<WebdavLock, ManagedLockQuery>({
-		deps: [offset, pageSize, sortBy, sortOrder],
 		loadPage: (query) =>
 			adminLockService.list({
 				limit: query.pageSize,

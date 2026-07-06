@@ -186,6 +186,17 @@ export function useStoragePolicyDescriptorController({
 		[t],
 	);
 
+	const resetRemoteStorageTargets = useCallback(() => {
+		remoteStorageTargetsRequestSerial.current += 1;
+		remoteStorageTargetDriverDescriptorsRequestSerial.current += 1;
+		setRemoteStorageTargets([]);
+		setRemoteStorageTargetsLoading(false);
+		setRemoteStorageTargetsError(null);
+		setRemoteStorageTargetDriverDescriptors([]);
+		setRemoteStorageTargetDriverDescriptorsLoading(false);
+		setRemoteStorageTargetDriverDescriptorsError(null);
+	}, []);
+
 	useEffect(() => {
 		const remoteNodeId = Number(form.remote_node_id);
 		const canLoadTargets =
@@ -194,14 +205,7 @@ export function useStoragePolicyDescriptorController({
 			Number.isSafeInteger(remoteNodeId) &&
 			remoteNodeId > 0;
 		if (!canLoadTargets) {
-			remoteStorageTargetsRequestSerial.current += 1;
-			remoteStorageTargetDriverDescriptorsRequestSerial.current += 1;
-			setRemoteStorageTargets([]);
-			setRemoteStorageTargetsLoading(false);
-			setRemoteStorageTargetsError(null);
-			setRemoteStorageTargetDriverDescriptors([]);
-			setRemoteStorageTargetDriverDescriptorsLoading(false);
-			setRemoteStorageTargetDriverDescriptorsError(null);
+			resetRemoteStorageTargets();
 			return;
 		}
 
@@ -213,6 +217,7 @@ export function useStoragePolicyDescriptorController({
 		form.remote_node_id,
 		loadRemoteStorageTargetDriverDescriptorsForPolicy,
 		loadRemoteStorageTargetsForPolicy,
+		resetRemoteStorageTargets,
 	]);
 
 	useEffect(() => {
@@ -312,17 +317,6 @@ export function useStoragePolicyDescriptorController({
 		},
 		[form.remote_node_id, loadRemoteStorageTargetsForPolicy, t],
 	);
-
-	const resetRemoteStorageTargets = useCallback(() => {
-		remoteStorageTargetsRequestSerial.current += 1;
-		remoteStorageTargetDriverDescriptorsRequestSerial.current += 1;
-		setRemoteStorageTargets([]);
-		setRemoteStorageTargetsLoading(false);
-		setRemoteStorageTargetsError(null);
-		setRemoteStorageTargetDriverDescriptors([]);
-		setRemoteStorageTargetDriverDescriptorsLoading(false);
-		setRemoteStorageTargetDriverDescriptorsError(null);
-	}, []);
 
 	return {
 		createRemoteStorageTargetForPolicy,

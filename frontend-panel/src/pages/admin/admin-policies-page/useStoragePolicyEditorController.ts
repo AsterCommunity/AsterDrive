@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useTranslation } from "react-i18next";
 import { toast } from "sonner";
 import { microsoftGraphCredentials } from "@/components/admin/storage-policy-dialog/applicationCredentials";
@@ -29,8 +30,8 @@ interface StoragePolicyEditorListBridge {
 	pageSize: number;
 	reload: () => Promise<unknown>;
 	setOffset: (updater: number | ((current: number) => number)) => void;
-	setPolicies: React.Dispatch<React.SetStateAction<StoragePolicy[]>>;
-	setTotal: React.Dispatch<React.SetStateAction<number>>;
+	setPolicies: Dispatch<SetStateAction<StoragePolicy[]>>;
+	setTotal: Dispatch<SetStateAction<number>>;
 	total: number;
 }
 
@@ -52,13 +53,13 @@ interface StoragePolicyEditorControllerInput {
 	list: StoragePolicyEditorListBridge;
 	loadPolicyCapacity: (policyId: number) => void;
 	onCloseDialog: () => void;
-	setCreateStep: React.Dispatch<React.SetStateAction<number>>;
-	setCreateStepTouched: React.Dispatch<React.SetStateAction<boolean>>;
-	setEditingId: React.Dispatch<React.SetStateAction<number | null>>;
-	setEditingPolicy: React.Dispatch<React.SetStateAction<StoragePolicy | null>>;
-	setForm: React.Dispatch<React.SetStateAction<PolicyFormData>>;
-	setSaveAnywayConfirmOpen: React.Dispatch<React.SetStateAction<boolean>>;
-	setSubmitting: React.Dispatch<React.SetStateAction<boolean>>;
+	setCreateStep: Dispatch<SetStateAction<number>>;
+	setCreateStepTouched: Dispatch<SetStateAction<boolean>>;
+	setEditingId: Dispatch<SetStateAction<number | null>>;
+	setEditingPolicy: Dispatch<SetStateAction<StoragePolicy | null>>;
+	setForm: Dispatch<SetStateAction<PolicyFormData>>;
+	setSaveAnywayConfirmOpen: Dispatch<SetStateAction<boolean>>;
+	setSubmitting: Dispatch<SetStateAction<boolean>>;
 	storageDriverDescriptors: StorageConnectorDescriptor[];
 	syncNormalizedPolicyForm: () => PolicyFormData;
 	submitting: boolean;

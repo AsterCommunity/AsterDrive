@@ -1,5 +1,6 @@
 import { type SetStateAction, useCallback, useEffect, useState } from "react";
 import { useApiList } from "@/hooks/useApiList";
+import type { ManagedListQueryUpdate } from "@/hooks/useManagedListQueryState";
 
 export type ManagedAdminListQuery = {
 	offset: number;
@@ -11,25 +12,54 @@ export type ManagedAdminListPage<Item> = {
 	total?: number;
 };
 
+type ManagedListQuerySetter<Query extends ManagedAdminListQuery> = (
+	updates: ManagedListQueryUpdate<Query>,
+) => void;
+
+function normalizeManagedOffset(offset: number) {
+	return Math.max(0, Math.floor(offset));
+}
+
+export function useManagedOffset<Query extends ManagedAdminListQuery>(
+	setQuery: ManagedListQuerySetter<Query>,
+	normalize: (offset: number) => number = normalizeManagedOffset,
+) {
+	return useCallback(
+		(value: SetStateAction<number>) => {
+			setQuery(
+				(current) =>
+					({
+						offset: normalize(
+							typeof value === "function" ? value(current.offset) : value,
+						),
+					}) as Partial<Query>,
+			);
+		},
+		[normalize, setQuery],
+	);
+}
+
 export function useManagedAdminList<Item, Query extends ManagedAdminListQuery>({
-	deps,
+	deps = [],
 	loadPage,
 	query,
 	setOffset,
 }: {
-	deps: unknown[];
+	// Extra dependencies for loadPage values that are not represented in query.
+	deps?: unknown[];
 	loadPage: (query: Query) => Promise<ManagedAdminListPage<Item>>;
 	query: Query;
 	setOffset: (value: SetStateAction<number>) => void;
 }) {
+	const reloadDeps = [...Object.values(query), ...deps];
 	const fetchPage = useCallback(
 		() => loadPage(query),
-		// biome-ignore lint/correctness/useExhaustiveDependencies: callers provide the managed query deps that should trigger a reload
-		deps,
+		// biome-ignore lint/correctness/useExhaustiveDependencies: managed query values plus explicit extra deps define reload boundaries
+		reloadDeps,
 	);
 	const { items, loading, reload, setItems, setTotal, total } = useApiList(
 		fetchPage,
-		deps,
+		reloadDeps,
 	);
 	const { offset, pageSize } = query;
 	const totalPages = Math.max(1, Math.ceil(total / pageSize));

@@ -1,4 +1,3 @@
-import type { SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
@@ -27,6 +26,7 @@ import {
 } from "@/components/admin/admin-external-auth-page/shared";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
+import { useManagedOffset } from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -372,17 +372,7 @@ export function useAdminExternalAuthPageController() {
 		total,
 	} = uiState;
 	const createDialogRequestRef = useRef(0);
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: Math.max(
-					0,
-					typeof value === "function" ? value(current.offset) : value,
-				),
-			}));
-		},
-		[setQuery],
-	);
+	const setOffset = useManagedOffset(setQuery);
 	const selectedKind = useMemo(
 		() =>
 			providerKinds.find((kind) => kind.kind === form.providerKind) ??

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo } from "react";
+import { logger } from "@/lib/logger";
 import {
 	parseOffsetSearchParam,
 	parsePageSizeSearchParam,
@@ -18,6 +19,8 @@ type SetSearchParams = (
 ) => void;
 
 export type ManagedListQueryField<Query extends object, Value> = {
+	// Every URL parameter emitted by serialize must be listed here so the hook
+	// can replace managed params without leaking stale values.
 	keys: readonly string[];
 	parse: (
 		searchParams: URLSearchParams,
@@ -110,7 +113,10 @@ export function managedStringQueryField<Query extends object>({
 }): ManagedListQueryField<Query, string> {
 	return {
 		keys: [key],
-		parse: (searchParams) => searchParams.get(key) ?? "",
+		parse: (searchParams) => {
+			const value = searchParams.get(key) ?? "";
+			return trimOnSerialize ? value.trim() : value;
+		},
 		serialize: (value) => {
 			const nextValue = trimOnSerialize ? value.trim() : value;
 			return nextValue || undefined;
@@ -166,16 +172,28 @@ function appendSerializedValue(
 	keys: readonly string[],
 	serialized: QueryParamRecord | QueryParamValue | URLSearchParams,
 ) {
+	const allowedKeys = new Set(keys);
+	const setSerializedParam = (key: string, value: string) => {
+		if (!allowedKeys.has(key)) {
+			logger.warn("Ignoring unmanaged query key from managed field", {
+				key,
+				managedKeys: keys,
+			});
+			return;
+		}
+		query.set(key, value);
+	};
+
 	if (serialized instanceof URLSearchParams) {
 		for (const [key, value] of serialized.entries()) {
-			query.set(key, value);
+			setSerializedParam(key, value);
 		}
 		return;
 	}
 
 	if (typeof serialized === "object" && serialized !== null) {
 		for (const [key, value] of buildQueryParams(serialized).entries()) {
-			query.set(key, value);
+			setSerializedParam(key, value);
 		}
 		return;
 	}

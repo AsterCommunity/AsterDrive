@@ -405,22 +405,15 @@ function useAdminPoliciesPageContent() {
 				)?.name ?? "")
 			: "";
 	const handleRefresh = async () => {
-		try {
-			const [policyPage] = await Promise.all([
-				adminPolicyService.list({
-					limit: policyList.pageSize,
-					offset: policyList.offset,
-					sort_by: policyList.sortBy,
-					sort_order: policyList.sortOrder,
-				}),
-				descriptorController.refreshLookups(),
-			]);
-			policyList.setPolicies(policyPage.items);
-			policyList.setTotal(policyPage.total);
-			invalidateAdminPolicyLookup();
-		} catch (error) {
-			handleApiError(error);
-		}
+		await Promise.all([
+			policyList
+				.reload()
+				.then(() => {
+					invalidateAdminPolicyLookup();
+				})
+				.catch(handleApiError),
+			descriptorController.refreshLookups().catch(handleApiError),
+		]);
 	};
 
 	return (

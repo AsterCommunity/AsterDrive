@@ -1,4 +1,4 @@
-import type { FormEvent, SetStateAction } from "react";
+import type { FormEvent } from "react";
 import { useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -22,7 +22,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -169,21 +172,17 @@ export default function AdminUsersPage() {
 	});
 	const [createdInvitation, setCreatedInvitation] =
 		useState<AdminUserInvitationInfo | null>(null);
-	const setOffset = (value: SetStateAction<number>) => {
-		setQuery((current) => ({
-			offset: Math.max(
-				0,
-				typeof value === "function" ? value(current.offset) : value,
-			),
-		}));
-	};
+	const setOffset = useManagedOffset(setQuery);
 
 	useEffect(() => {
+		if (keyword === debouncedKeyword) {
+			return;
+		}
 		const timer = window.setTimeout(() => {
 			setQuery({ keyword, offset: 0 });
 		}, 300);
 		return () => window.clearTimeout(timer);
-	}, [keyword, setQuery]);
+	}, [debouncedKeyword, keyword, setQuery]);
 
 	useEffect(() => {
 		setKeyword((current) =>
@@ -209,15 +208,6 @@ export default function AdminUsersPage() {
 		total,
 		totalPages,
 	} = useManagedAdminList<UserInfo, ManagedUserQuery>({
-		deps: [
-			debouncedKeyword,
-			offset,
-			pageSize,
-			roleFilter,
-			sortBy,
-			sortOrder,
-			statusFilter,
-		],
 		loadPage: (query) =>
 			adminUserService.list({
 				limit: query.pageSize,

@@ -1,4 +1,4 @@
-import { type SetStateAction, useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -13,7 +13,10 @@ import {
 } from "@/components/admin/remoteNodeDialogShared";
 import { getApiErrorMessage, handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -101,27 +104,18 @@ export function useAdminRemoteNodesPageController() {
 		setSearchParams,
 	});
 	const { offset, pageSize, sortBy, sortOrder } = query;
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: typeof value === "function" ? value(current.offset) : value,
-			}));
-		},
-		[setQuery],
-	);
+	const setOffset = useManagedOffset(setQuery);
 	const {
 		currentPage,
 		items: remoteNodes,
 		setItems: setRemoteNodes,
 		total,
 		totalPages,
-		setTotal,
 		loading,
 		reload,
 		nextPageDisabled,
 		prevPageDisabled,
 	} = useManagedAdminList<RemoteNodeInfo, ManagedRemoteNodeQuery>({
-		deps: [offset, pageSize, sortBy, sortOrder],
 		loadPage: (query) =>
 			adminRemoteNodeService.list({
 				limit: query.pageSize,
@@ -517,15 +511,8 @@ export function useAdminRemoteNodesPageController() {
 
 	const handleRefresh = async () => {
 		try {
-			const nodesPage = await adminRemoteNodeService.list({
-				limit: pageSize,
-				offset,
-				sort_by: sortBy,
-				sort_order: sortOrder,
-			});
-			setRemoteNodes(nodesPage.items);
-			setTotal(nodesPage.total);
 			invalidateAdminRemoteNodeLookup();
+			await reload();
 		} catch (error) {
 			handleApiError(error);
 		}

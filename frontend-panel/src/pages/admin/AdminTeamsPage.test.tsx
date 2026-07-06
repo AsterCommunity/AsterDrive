@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import AdminTeamsPage from "@/pages/admin/AdminTeamsPage";
@@ -355,6 +355,35 @@ describe("AdminTeamsPage", () => {
 		nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
 		expect((nextParams as URLSearchParams).has("offset")).toBe(false);
 		expect((nextParams as URLSearchParams).get("pageSize")).toBe("50");
+	});
+
+	it("debounces keyword updates before syncing them to the query", () => {
+		vi.useFakeTimers();
+		try {
+			render(<AdminTeamsPage />);
+
+			fireEvent.click(screen.getByText("show_filters"));
+			mockState.setSearchParams.mockClear();
+			fireEvent.change(screen.getByPlaceholderText("team_search_placeholder"), {
+				target: { value: "design" },
+			});
+
+			expect(mockState.setSearchParams).not.toHaveBeenCalledWith(
+				expect.any(URLSearchParams),
+				expect.anything(),
+			);
+
+			act(() => {
+				vi.advanceTimersByTime(300);
+			});
+
+			const nextParams = mockState.setSearchParams.mock.calls.at(-1)?.[0];
+			expect(nextParams).toBeInstanceOf(URLSearchParams);
+			expect((nextParams as URLSearchParams).get("keyword")).toBe("design");
+			expect((nextParams as URLSearchParams).has("offset")).toBe(false);
+		} finally {
+			vi.useRealTimers();
+		}
 	});
 
 	it("converts the create dialog team quota from MB to bytes", async () => {

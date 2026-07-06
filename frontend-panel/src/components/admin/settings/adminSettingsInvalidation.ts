@@ -39,17 +39,15 @@ export function collectAdminSettingsInvalidationTargets(
 ) {
 	const targets = new Set<AdminSettingsInvalidationTarget>();
 	const schemaInvalidatesByKey = new Map(
-		schemas?.map((schema) => [schema.key, schema.invalidates ?? []] as const),
+		schemas
+			?.filter((schema) => Object.hasOwn(schema, "invalidates"))
+			.map((schema) => [schema.key, schema.invalidates ?? []] as const),
 	);
-	const schemaHasInvalidationMetadata =
-		schemas?.some((schema) => Object.hasOwn(schema, "invalidates")) ?? false;
 
 	for (const config of changedConfigs) {
-		if (
-			schemaHasInvalidationMetadata &&
-			schemaInvalidatesByKey.has(config.key)
-		) {
-			for (const target of schemaInvalidatesByKey.get(config.key) ?? []) {
+		const schemaInvalidates = schemaInvalidatesByKey.get(config.key);
+		if (schemaInvalidates !== undefined) {
+			for (const target of schemaInvalidates) {
 				targets.add(target);
 			}
 			continue;

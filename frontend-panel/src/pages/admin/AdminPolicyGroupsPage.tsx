@@ -1,4 +1,4 @@
-import { type SetStateAction, useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -25,7 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -137,14 +140,7 @@ export default function AdminPolicyGroupsPage() {
 		setSearchParams,
 	});
 	const { offset, pageSize, sortBy, sortOrder } = query;
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: typeof value === "function" ? value(current.offset) : value,
-			}));
-		},
-		[setQuery],
-	);
+	const setOffset = useManagedOffset(setQuery);
 	const {
 		currentPage,
 		items: groups,
@@ -155,7 +151,6 @@ export default function AdminPolicyGroupsPage() {
 		nextPageDisabled,
 		prevPageDisabled,
 	} = useManagedAdminList<StoragePolicyGroup, ManagedPolicyGroupQuery>({
-		deps: [offset, pageSize, sortBy, sortOrder],
 		loadPage: (query) =>
 			adminPolicyGroupService.list({
 				limit: query.pageSize,

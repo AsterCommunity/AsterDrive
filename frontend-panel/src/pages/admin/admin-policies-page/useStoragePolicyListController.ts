@@ -1,11 +1,13 @@
-import { type SetStateAction, useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 import { PROTECTED_POLICY_ID } from "@/components/admin/admin-policies-page/policyPresentation";
 import { handleApiError } from "@/hooks/useApiError";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -78,14 +80,7 @@ export function useStoragePolicyListController() {
 		setSearchParams,
 	});
 	const { offset, pageSize, sortBy, sortOrder } = query;
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: typeof value === "function" ? value(current.offset) : value,
-			}));
-		},
-		[setQuery],
-	);
+	const setOffset = useManagedOffset(setQuery);
 	const {
 		currentPage,
 		items: policies,
@@ -98,7 +93,6 @@ export function useStoragePolicyListController() {
 		nextPageDisabled,
 		prevPageDisabled,
 	} = useManagedAdminList<StoragePolicy, ManagedPolicyQuery>({
-		deps: [offset, pageSize, sortBy, sortOrder],
 		loadPage: (query) =>
 			adminPolicyService.list({
 				limit: query.pageSize,

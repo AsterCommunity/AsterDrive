@@ -55,6 +55,18 @@ describe("adminSettingsInvalidation", () => {
 		).toEqual(["frontend_config"]);
 	});
 
+	it("mixes schema invalidation metadata with built-in fallbacks per key", () => {
+		expect(
+			targetsFor(
+				["custom.plugin_config", "public_site_url"],
+				[
+					schemaFor("custom.plugin_config", ["preview_apps"]),
+					schemaFor("public_site_url"),
+				],
+			),
+		).toEqual(["frontend_config", "preview_apps"]);
+	});
+
 	it("invalidates frontend config for public branding and image preview preferences", () => {
 		expect(
 			targetsFor([

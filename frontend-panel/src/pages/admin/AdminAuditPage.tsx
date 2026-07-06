@@ -1,5 +1,3 @@
-import type { SetStateAction } from "react";
-import { useCallback } from "react";
 import { useTranslation } from "react-i18next";
 import { useSearchParams } from "react-router-dom";
 import { AdminOffsetPagination } from "@/components/admin/AdminOffsetPagination";
@@ -29,7 +27,10 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from "@/components/ui/select";
-import { useManagedAdminList } from "@/hooks/useManagedAdminList";
+import {
+	useManagedAdminList,
+	useManagedOffset,
+} from "@/hooks/useManagedAdminList";
 import {
 	type ManagedListQuerySchema,
 	managedOffsetQueryField,
@@ -128,22 +129,11 @@ export default function AdminAuditPage() {
 	const {
 		action: actionFilter,
 		entityType: entityTypeFilter,
-		offset,
 		pageSize,
 		sortBy,
 		sortOrder,
 	} = query;
-	const setOffset = useCallback(
-		(value: SetStateAction<number>) => {
-			setQuery((current) => ({
-				offset: Math.max(
-					0,
-					typeof value === "function" ? value(current.offset) : value,
-				),
-			}));
-		},
-		[setQuery],
-	);
+	const setOffset = useManagedOffset(setQuery);
 
 	const {
 		currentPage,
@@ -155,7 +145,6 @@ export default function AdminAuditPage() {
 		total,
 		totalPages,
 	} = useManagedAdminList<AuditLogEntry, ManagedAuditQuery>({
-		deps: [actionFilter, entityTypeFilter, offset, pageSize, sortBy, sortOrder],
 		loadPage: (query) =>
 			auditService.list({
 				action: query.action.trim() || undefined,
