@@ -161,6 +161,7 @@ fn infer_storage_error_kind(message: &str) -> StorageErrorKind {
             "is disabled",
             "precondition failed",
             "master binding is disabled",
+            "host key",
         ],
     ) {
         return StorageErrorKind::Precondition;

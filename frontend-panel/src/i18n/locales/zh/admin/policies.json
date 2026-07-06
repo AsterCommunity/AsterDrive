@@ -89,6 +89,8 @@
 	"cos_endpoint_hint": "腾讯云 COS 请填写 bucket 域名，例如 https://<bucket-appid>.cos.<region>.myqcloud.com；bucket 请单独填写，例如 <bucket-appid>。",
 	"azure_blob_endpoint_hint": "填写 Azure Blob 服务 endpoint，例如 https://<account>.blob.core.windows.net；bucket 字段填写容器名称。",
 	"sftp_endpoint_hint": "填写 SFTP 服务器 endpoint，例如 sftp://example.com:22；远程根目录请填写在基础路径里。",
+	"sftp_host_key_fingerprint": "SSH 主机密钥指纹",
+	"sftp_host_key_fingerprint_hint": "先运行一次连接测试。若主机密钥未知，请确认错误信息里的 SHA256 指纹并填到这里再保存。",
 	"policy_wizard_endpoint_required": "必须填写端点。",
 	"s3_endpoint_protocol_required_error": "S3 endpoint 必须包含 http:// 或 https://。",
 	"azure_blob_endpoint_protocol_required_error": "Azure Blob endpoint 必须包含 http:// 或 https://。",

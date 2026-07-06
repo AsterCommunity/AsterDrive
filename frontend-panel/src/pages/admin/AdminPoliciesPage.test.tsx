@@ -84,6 +84,8 @@ const mockTranslate = vi.hoisted(
 				return "SSH Username";
 			case "sftp_password":
 				return "SSH Password";
+			case "sftp_host_key_fingerprint":
+				return "SSH Host Key Fingerprint";
 			case "access_key":
 				return "Access Key";
 			case "secret_key":
@@ -1043,6 +1045,12 @@ function createStorageDriverDescriptors() {
 					required: true,
 				}),
 				fieldDescriptor("base_path", "connection", "text"),
+				fieldDescriptor("sftp_host_key_fingerprint", "policy_options", "text", {
+					help_key: "sftp_host_key_fingerprint_hint",
+					label_key: "sftp_host_key_fingerprint",
+					placeholder: "SHA256:...",
+					trim_on_blur: true,
+				}),
 			],
 		}),
 		createStorageDriverDescriptor("tencent_cos", {
@@ -3077,6 +3085,9 @@ describe("AdminPoliciesPage", () => {
 		fireEvent.change(screen.getByLabelText("SSH Password"), {
 			target: { value: "SFTPSECRET" },
 		});
+		fireEvent.change(screen.getByLabelText("SSH Host Key Fingerprint"), {
+			target: { value: " SHA256:trusted-host-key " },
+		});
 
 		fireEvent.click(screen.getByRole("button", { name: /test_connection/i }));
 
@@ -3087,7 +3098,9 @@ describe("AdminPoliciesPage", () => {
 				bucket: undefined,
 				driver_type: "sftp",
 				endpoint: "sftp.example.com:2222",
-				options: {},
+				options: {
+					sftp_host_key_fingerprint: "SHA256:trusted-host-key",
+				},
 				remote_node_id: undefined,
 				secret_key: "SFTPSECRET",
 			});
@@ -3109,7 +3122,9 @@ describe("AdminPoliciesPage", () => {
 				is_default: false,
 				max_file_size: undefined,
 				name: "SFTP Archive",
-				options: {},
+				options: {
+					sftp_host_key_fingerprint: "SHA256:trusted-host-key",
+				},
 				remote_node_id: undefined,
 				secret_key: "SFTPSECRET",
 			});

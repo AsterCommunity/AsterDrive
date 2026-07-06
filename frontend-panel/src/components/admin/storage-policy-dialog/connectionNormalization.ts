@@ -183,6 +183,31 @@ function getComparableOneDrivePolicyOptions(
 	return buildPolicyOptions(getPolicyForm(policy));
 }
 
+function hasStaticSecretPolicyOptionConnectionChanges(
+	form: PolicyFormData,
+	editingPolicy: StoragePolicy,
+	descriptor?: StorageConnectorDescriptor | null,
+) {
+	const optionFields =
+		descriptor?.fields.filter(
+			(field) =>
+				field.scope === "policy_options" &&
+				(field.kind === "text" || field.kind === "secret"),
+		) ?? [];
+	if (optionFields.length === 0) {
+		return false;
+	}
+
+	const policyOptions = editingPolicy.options as Record<string, unknown>;
+	return optionFields.some((field) => {
+		const formValue = String(
+			form.policy_option_values?.[field.name] ?? "",
+		).trim();
+		const savedValue = String(policyOptions[field.name] ?? "").trim();
+		return formValue !== savedValue;
+	});
+}
+
 export function hasConnectionFieldChanges(
 	form: PolicyFormData,
 	editingPolicy: StoragePolicy | null,
@@ -200,7 +225,12 @@ export function hasConnectionFieldChanges(
 			normalizedForm.bucket !== editingPolicy.bucket ||
 			normalizedForm.base_path !== editingPolicy.base_path ||
 			normalizedForm.access_key !== "" ||
-			normalizedForm.secret_key !== ""
+			normalizedForm.secret_key !== "" ||
+			hasStaticSecretPolicyOptionConnectionChanges(
+				normalizedForm,
+				editingPolicy,
+				descriptor,
+			)
 		);
 	}
 

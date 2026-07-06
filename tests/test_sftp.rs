@@ -13,8 +13,24 @@ const SFTP_PORT: u16 = 22;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
 
-fn sftp_policy(endpoint: &str, base_path: &str) -> aster_drive::entities::storage_policy::Model {
+fn sftp_policy(
+    endpoint: &str,
+    base_path: &str,
+    host_key_fingerprint: Option<&str>,
+) -> aster_drive::entities::storage_policy::Model {
     use chrono::Utc;
+
+    let options = host_key_fingerprint
+        .map(|fingerprint| {
+            aster_drive::types::serialize_storage_policy_options(
+                &aster_drive::types::StoragePolicyOptions {
+                    sftp_host_key_fingerprint: Some(fingerprint.to_string()),
+                    ..Default::default()
+                },
+            )
+            .expect("serialize SFTP host key options")
+        })
+        .unwrap_or_else(aster_drive::types::StoredStoragePolicyOptions::empty);
 
     aster_drive::entities::storage_policy::Model {
         id: 997,
@@ -29,12 +45,53 @@ fn sftp_policy(endpoint: &str, base_path: &str) -> aster_drive::entities::storag
         remote_storage_target_key: None,
         max_file_size: 0,
         allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive::types::StoredStoragePolicyOptions::empty(),
+        options,
         is_default: false,
         chunk_size: 1024 * 1024,
         created_at: Utc::now(),
         updated_at: Utc::now(),
     }
+}
+
+fn extract_sftp_host_key_fingerprint(error: &aster_drive::errors::AsterError) -> String {
+    let message = error.message();
+    let marker = "Confirm fingerprint ";
+    let (_, rest) = message
+        .split_once(marker)
+        .expect("untrusted host key error should include fingerprint");
+    rest.split_whitespace()
+        .next()
+        .expect("fingerprint should be present")
+        .to_string()
+}
+
+async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
+    let mut last_error = None;
+    let fingerprint = tokio::time::timeout(Duration::from_secs(45), async {
+        loop {
+            match tokio::time::timeout(Duration::from_secs(5), driver.exists("readiness/probe.txt"))
+                .await
+            {
+                Ok(Ok(_)) => last_error = Some("untrusted host key was accepted".to_string()),
+                Ok(Err(error))
+                    if error.storage_error_kind() == Some(StorageErrorKind::Precondition) =>
+                {
+                    break extract_sftp_host_key_fingerprint(&error);
+                }
+                Ok(Err(error)) => last_error = Some(error.to_string()),
+                Err(_) => last_error = Some("host key probe attempt timed out".to_string()),
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    })
+    .await;
+
+    fingerprint.unwrap_or_else(|_| {
+        panic!(
+            "timed out waiting for SFTP host key fingerprint: {}",
+            last_error.unwrap_or_else(|| "unknown error".to_string())
+        )
+    })
 }
 
 async fn wait_for_sftp(driver: &SftpDriver) {
@@ -82,7 +139,18 @@ async fn test_sftp_driver_upload_download_round_trip() {
         .expect("resolve mapped sftp port");
     let endpoint = format!("sftp://127.0.0.1:{port}");
     let base_path = format!("/upload/asterdrive-itest-{}", uuid::Uuid::new_v4());
-    let driver = SftpDriver::new(&sftp_policy(&endpoint, &base_path)).expect("create SftpDriver");
+    let untrusted_driver =
+        SftpDriver::new(&sftp_policy(&endpoint, &base_path, None)).expect("create SftpDriver");
+    let host_key_fingerprint = wait_for_sftp_host_key_fingerprint(&untrusted_driver).await;
+    SftpDriver::validate_host_key_fingerprint(&host_key_fingerprint)
+        .expect("reported host key fingerprint should be valid");
+
+    let driver = SftpDriver::new(&sftp_policy(
+        &endpoint,
+        &base_path,
+        Some(&host_key_fingerprint),
+    ))
+    .expect("create SftpDriver");
     wait_for_sftp(&driver).await;
 
     let data = b"hello sftp world";

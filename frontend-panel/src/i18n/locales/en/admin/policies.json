@@ -89,6 +89,8 @@
 	"cos_endpoint_hint": "For Tencent COS, use the bucket domain such as https://<bucket-appid>.cos.<region>.myqcloud.com; enter the bucket separately, for example <bucket-appid>.",
 	"azure_blob_endpoint_hint": "Enter the Azure Blob service endpoint, for example https://<account>.blob.core.windows.net. Use the bucket field for the container name.",
 	"sftp_endpoint_hint": "Enter an SFTP server endpoint such as sftp://example.com:22. Put the remote root directory in base path.",
+	"sftp_host_key_fingerprint": "SSH Host Key Fingerprint",
+	"sftp_host_key_fingerprint_hint": "Run the connection test once. If the host key is unknown, confirm the reported SHA256 fingerprint here before saving.",
 	"policy_wizard_endpoint_required": "Endpoint is required.",
 	"s3_endpoint_protocol_required_error": "S3 endpoint must include http:// or https://.",
 	"azure_blob_endpoint_protocol_required_error": "Azure Blob endpoint must include http:// or https://.",

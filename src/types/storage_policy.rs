@@ -359,6 +359,8 @@ pub struct StoragePolicyOptions {
     pub onedrive_site_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub onedrive_group_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sftp_host_key_fingerprint: Option<String>,
 }
 
 impl StoragePolicyOptions {
@@ -421,6 +423,7 @@ impl StoragePolicyOptions {
         trim_empty_option_string(&mut self.onedrive_root_item_id);
         trim_empty_option_string(&mut self.onedrive_site_id);
         trim_empty_option_string(&mut self.onedrive_group_id);
+        trim_empty_option_string(&mut self.sftp_host_key_fingerprint);
     }
 
     pub fn normalized(mut self) -> Self {
@@ -1116,6 +1119,15 @@ mod tests {
         })
         .unwrap();
         assert_eq!(json, r#"{"s3_operation_timeout_secs":600}"#);
+
+        let json = String::from(
+            serialize_storage_policy_options(&StoragePolicyOptions {
+                sftp_host_key_fingerprint: Some("  SHA256:abc123  ".to_string()),
+                ..Default::default()
+            })
+            .unwrap(),
+        );
+        assert_eq!(json, r#"{"sftp_host_key_fingerprint":"SHA256:abc123"}"#);
     }
 
     #[test]

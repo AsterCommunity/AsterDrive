@@ -38,6 +38,10 @@ export function ObjectStorageConnectionFields({
 		pathStyleField,
 		form.driver_type,
 	);
+	const policyOptionTextFields = policyOptionTextFieldDescriptors(
+		storageDriverDescriptor,
+		form.driver_type,
+	);
 	const hasBucketField = bucketField != null;
 
 	return (
@@ -138,7 +142,56 @@ export function ObjectStorageConnectionFields({
 					/>
 				</div>
 			</div>
+			{policyOptionTextFields.map((field) => (
+				<PolicyOptionTextField
+					key={field.name}
+					field={field}
+					form={form}
+					t={t}
+					onFieldChange={onFieldChange}
+				/>
+			))}
 		</>
+	);
+}
+
+function PolicyOptionTextField({
+	field,
+	form,
+	onFieldChange,
+	t,
+}: SharedFieldProps & {
+	field: StorageConnectorFieldDescriptor;
+}) {
+	const optionValues = form.policy_option_values ?? {};
+	const setPolicyOptionValue = (value: string) => {
+		onFieldChange("policy_option_values", {
+			...optionValues,
+			[field.name]: value,
+		});
+	};
+
+	return (
+		<div className="space-y-2">
+			<Label htmlFor={field.name}>{t(fieldLabelKey(field, field.name))}</Label>
+			<Input
+				id={field.name}
+				type={field.kind === "secret" ? "password" : "text"}
+				value={optionValues[field.name] ?? ""}
+				onChange={(event) => setPolicyOptionValue(event.target.value)}
+				onBlur={(event) => {
+					if (field.trim_on_blur === true) {
+						setPolicyOptionValue(event.target.value.trim());
+					}
+				}}
+				autoComplete="off"
+				className={ADMIN_CONTROL_HEIGHT_CLASS}
+				placeholder={field.placeholder ?? undefined}
+			/>
+			{field.help_key ? (
+				<p className="text-xs text-muted-foreground">{t(field.help_key)}</p>
+			) : null}
+		</div>
 	);
 }
 
@@ -174,6 +227,20 @@ function fieldDescriptor(
 	name: string,
 ) {
 	return descriptor?.fields.find((field) => field.name === name) ?? null;
+}
+
+function policyOptionTextFieldDescriptors(
+	descriptor: StorageConnectorDescriptor | null | undefined,
+	driverType: string,
+) {
+	return (
+		descriptor?.fields.filter(
+			(field): field is StorageConnectorFieldDescriptor =>
+				field.scope === "policy_options" &&
+				(field.kind === "text" || field.kind === "secret") &&
+				isFieldVisibleForDriver(field, driverType),
+		) ?? []
+	);
 }
 
 function fieldLabelKey(

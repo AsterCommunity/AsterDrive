@@ -387,6 +387,11 @@ describe("storage policy dialog helper modules", () => {
 			onedrive_root_item_id: "",
 			onedrive_site_id: "",
 			onedrive_group_id: "",
+			policy_option_values: {
+				content_dedup: "true",
+				storage_native_processing_enabled: "true",
+				thumbnail_processor: "storage_native",
+			},
 			application_credentials: {
 				microsoft_graph: {
 					cloud: "global",
@@ -1361,6 +1366,33 @@ describe("storage policy dialog helper modules", () => {
 			object_storage_upload_strategy: "presigned",
 			object_storage_download_strategy: "presigned",
 		});
+
+		const sftpDescriptor = {
+			fields: [
+				{
+					name: "sftp_host_key_fingerprint",
+					kind: "text",
+					scope: "policy_options",
+				},
+			],
+		} as never;
+		expect(
+			buildCreatePolicyPayload(
+				{
+					...remoteForm,
+					driver_type: "sftp" as const,
+					endpoint: "sftp.example.com:22",
+					access_key: "aster",
+					secret_key: "secret",
+					policy_option_values: {
+						sftp_host_key_fingerprint: " SHA256:trusted ",
+					},
+				},
+				sftpDescriptor,
+			).options,
+		).toEqual({
+			sftp_host_key_fingerprint: "SHA256:trusted",
+		});
 	});
 
 	it("uses application credential descriptor fields for Microsoft Graph app config", () => {
@@ -1666,6 +1698,52 @@ describe("storage policy dialog helper modules", () => {
 				{ ...s3Form, secret_key: "SECRET" },
 				s3Policy,
 				s3Descriptor,
+			),
+		).toBe(true);
+
+		const sftpPolicy = {
+			...localPolicy,
+			id: 16,
+			name: "SFTP",
+			driver_type: "sftp",
+			endpoint: "sftp.example.com:22",
+			access_key: "aster",
+			secret_key: "",
+			base_path: "uploads",
+			options: {
+				sftp_host_key_fingerprint: "SHA256:old-key",
+			},
+		} as StoragePolicy;
+		const sftpForm = getPolicyForm(sftpPolicy);
+		const sftpDescriptor = {
+			credential_mode: "static_secret",
+			fields: [
+				{ name: "endpoint", scope: "connection" },
+				{ name: "access_key", scope: "connection" },
+				{ name: "secret_key", scope: "connection" },
+				{
+					name: "sftp_host_key_fingerprint",
+					kind: "text",
+					scope: "policy_options",
+				},
+			],
+			upload_workflows: {},
+		} as never;
+
+		expect(
+			hasConnectionFieldChanges(sftpForm, sftpPolicy, sftpDescriptor),
+		).toBe(false);
+		expect(
+			hasConnectionFieldChanges(
+				{
+					...sftpForm,
+					policy_option_values: {
+						...sftpForm.policy_option_values,
+						sftp_host_key_fingerprint: " SHA256:new-key ",
+					},
+				},
+				sftpPolicy,
+				sftpDescriptor,
 			),
 		).toBe(true);
 

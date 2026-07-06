@@ -194,6 +194,18 @@ pub(super) fn ensure_onedrive_options_absent(
     Ok(())
 }
 
+pub(super) fn ensure_sftp_options_absent(
+    options: &crate::types::StoragePolicyOptions,
+) -> Result<()> {
+    if options.sftp_host_key_fingerprint.is_some() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::BadRequest,
+            "SFTP host key options are only valid for SFTP storage policies",
+        ));
+    }
+    Ok(())
+}
+
 pub(super) fn validate_onedrive_options(
     options: &crate::types::StoragePolicyOptions,
 ) -> Result<()> {

@@ -129,7 +129,8 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
             Self::storage_connector_descriptor(),
             options,
         )?;
-        common::ensure_onedrive_options_absent(options)
+        common::ensure_onedrive_options_absent(options)?;
+        common::ensure_sftp_options_absent(options)
     }
 
     /// 持久化 provider application credential/config。

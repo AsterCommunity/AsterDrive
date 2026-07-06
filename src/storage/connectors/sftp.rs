@@ -119,6 +119,22 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                     false,
                     false,
                 ),
+                storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                    name: "sftp_host_key_fingerprint",
+                    scope: StorageConnectorFieldScope::PolicyOptions,
+                    kind: StorageConnectorFieldKind::Text,
+                    required: false,
+                    secret: false,
+                    label_key: "sftp_host_key_fingerprint",
+                    placeholder: Some("SHA256:..."),
+                    help_key: Some("sftp_host_key_fingerprint_hint"),
+                    required_message_key: None,
+                    invalid_protocol_message_key: None,
+                    allowed_endpoint_protocols: Vec::new(),
+                    allow_endpoint_without_protocol: false,
+                    trim_on_blur: true,
+                    visible_when_driver_types: Vec::new(),
+                }),
             ],
             actions: vec![
                 draft_connection_test_action_descriptor(),
@@ -161,7 +177,11 @@ impl StorageConnector for SftpConnector {
         options: &crate::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
-        ensure_onedrive_options_absent(options)
+        ensure_onedrive_options_absent(options)?;
+        if let Some(fingerprint) = options.sftp_host_key_fingerprint.as_deref() {
+            SftpDriver::validate_host_key_fingerprint(fingerprint)?;
+        }
+        Ok(())
     }
 
     async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(

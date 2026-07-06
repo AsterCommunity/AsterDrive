@@ -2,11 +2,12 @@
 
 use async_trait::async_trait;
 use russh::client::{self, Handler};
+use russh::keys::{HashAlg, PublicKey};
 use russh_sftp::client::{Config as SftpClientConfig, SftpSession, error::Error as SftpError};
 use russh_sftp::protocol::StatusCode;
 use std::io::SeekFrom;
 use std::pin::Pin;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
@@ -15,6 +16,7 @@ use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
+use crate::types::parse_storage_policy_options;
 
 const DEFAULT_SFTP_PORT: u16 = 22;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -32,18 +34,46 @@ pub struct SftpDriver {
     username: String,
     password: String,
     base_path: String,
+    host_key_fingerprint: Option<String>,
 }
 
-struct TrustServerKeyClient;
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HostKeyRejection {
+    MissingPin { actual: String },
+    Mismatch { expected: String, actual: String },
+}
+
+#[derive(Clone)]
+struct TrustServerKeyClient {
+    expected_fingerprint: Option<String>,
+    rejection: Arc<Mutex<Option<HostKeyRejection>>>,
+}
 
 impl Handler for TrustServerKeyClient {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &russh::keys::PublicKey,
+        server_public_key: &PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        Ok(true)
+        let actual = host_key_fingerprint(server_public_key);
+        let Some(expected) = self.expected_fingerprint.as_deref() else {
+            record_host_key_rejection(&self.rejection, HostKeyRejection::MissingPin { actual });
+            return Ok(false);
+        };
+
+        if host_key_fingerprint_matches(expected, &actual) {
+            return Ok(true);
+        }
+
+        record_host_key_rejection(
+            &self.rejection,
+            HostKeyRejection::Mismatch {
+                expected: normalize_host_key_fingerprint(expected),
+                actual,
+            },
+        );
+        Ok(false)
     }
 }
 
@@ -103,7 +133,20 @@ impl SftpDriver {
             username: policy.access_key.clone(),
             password: policy.secret_key.clone(),
             base_path: normalize_remote_base_path(&policy.base_path)?,
+            host_key_fingerprint: parse_storage_policy_options(policy.options.as_ref())
+                .sftp_host_key_fingerprint,
         })
+    }
+
+    pub fn validate_host_key_fingerprint(fingerprint: &str) -> Result<()> {
+        let normalized = normalize_host_key_fingerprint(fingerprint);
+        if !is_valid_host_key_fingerprint(&normalized) {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "SFTP host key fingerprint must use the SHA256:<base64> format",
+            ));
+        }
+        Ok(())
     }
 
     async fn connect(&self) -> Result<SftpConnection> {
@@ -113,13 +156,21 @@ impl SftpDriver {
         config.nodelay = true;
 
         let address = (self.endpoint.host.clone(), self.endpoint.port);
+        let host_key_rejection = Arc::new(Mutex::new(None));
+        let client = TrustServerKeyClient {
+            expected_fingerprint: self.host_key_fingerprint.clone(),
+            rejection: Arc::clone(&host_key_rejection),
+        };
         let mut ssh = timeout_io(
             "connect SFTP endpoint",
             CONNECT_TIMEOUT,
-            russh::client::connect(Arc::new(config), address, TrustServerKeyClient),
+            russh::client::connect(Arc::new(config), address, client),
         )
         .await?
-        .map_err(|error| map_ssh_error("connect SFTP endpoint failed", error))?;
+        .map_err(|error| {
+            host_key_rejection_error(&self.endpoint, &host_key_rejection)
+                .unwrap_or_else(|| map_ssh_error("connect SFTP endpoint failed", error))
+        })?;
 
         let auth = timeout_io(
             "SFTP authentication",
@@ -352,6 +403,65 @@ impl StreamUploadDriver for SftpDriver {
         self.put_reader(storage_path, Box::new(local_file), -1)
             .await
     }
+}
+
+fn host_key_fingerprint(public_key: &PublicKey) -> String {
+    public_key.fingerprint(HashAlg::Sha256).to_string()
+}
+
+fn normalize_host_key_fingerprint(fingerprint: &str) -> String {
+    let trimmed = fingerprint.trim();
+    trimmed
+        .strip_prefix("sha256:")
+        .map(|value| format!("SHA256:{value}"))
+        .unwrap_or_else(|| trimmed.to_string())
+}
+
+fn is_valid_host_key_fingerprint(fingerprint: &str) -> bool {
+    fingerprint
+        .strip_prefix("SHA256:")
+        .is_some_and(|value| !value.is_empty() && !value.chars().any(char::is_whitespace))
+}
+
+fn host_key_fingerprint_matches(expected: &str, actual: &str) -> bool {
+    normalize_host_key_fingerprint(expected) == normalize_host_key_fingerprint(actual)
+}
+
+fn record_host_key_rejection(
+    rejection: &Arc<Mutex<Option<HostKeyRejection>>>,
+    value: HostKeyRejection,
+) {
+    match rejection.lock() {
+        Ok(mut guard) => {
+            *guard = Some(value);
+        }
+        Err(error) => {
+            tracing::warn!("failed to record SFTP host key rejection: {error}");
+        }
+    }
+}
+
+fn host_key_rejection_error(
+    endpoint: &SftpEndpoint,
+    rejection: &Arc<Mutex<Option<HostKeyRejection>>>,
+) -> Option<AsterError> {
+    let rejection = rejection.lock().ok()?.clone()?;
+    Some(match rejection {
+        HostKeyRejection::MissingPin { actual } => storage_driver_error(
+            StorageErrorKind::Precondition,
+            format!(
+                "SFTP host key is not trusted for {}:{}. Confirm fingerprint {actual} and save it as sftp_host_key_fingerprint before testing again",
+                endpoint.host, endpoint.port
+            ),
+        ),
+        HostKeyRejection::Mismatch { expected, actual } => storage_driver_error(
+            StorageErrorKind::Precondition,
+            format!(
+                "SFTP host key mismatch for {}:{}. Expected {expected}, got {actual}. Verify the server identity before updating sftp_host_key_fingerprint",
+                endpoint.host, endpoint.port
+            ),
+        ),
+    })
 }
 
 async fn timeout_io<T, F>(context: &'static str, duration: Duration, future: F) -> Result<T>
@@ -659,8 +769,9 @@ fn is_sftp_not_found(error: &SftpError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_sftp_error, join_remote_path, normalize_remote_base_path, parse_sftp_endpoint,
-        sanitize_relative_storage_path,
+        classify_sftp_error, host_key_fingerprint_matches, is_valid_host_key_fingerprint,
+        join_remote_path, normalize_host_key_fingerprint, normalize_remote_base_path,
+        parse_sftp_endpoint, sanitize_relative_storage_path,
     };
     use crate::storage::error::StorageErrorKind;
     use crate::storage::{StorageDriver, StreamUploadDriver};
@@ -769,11 +880,26 @@ mod tests {
         );
     }
 
+    #[test]
+    fn validates_sftp_host_key_fingerprint_format() {
+        assert!(is_valid_host_key_fingerprint(
+            &normalize_host_key_fingerprint("SHA256:abc123+/=")
+        ));
+        assert!(host_key_fingerprint_matches(
+            "sha256:abc123+/=",
+            "SHA256:abc123+/="
+        ));
+        assert!(!is_valid_host_key_fingerprint("MD5:aa:bb"));
+        assert!(!is_valid_host_key_fingerprint("SHA256:"));
+        assert!(!is_valid_host_key_fingerprint("SHA256:abc def"));
+    }
+
     fn env_policy() -> Option<crate::entities::storage_policy::Model> {
         let endpoint = std::env::var("ASTER_SFTP_TEST_ENDPOINT").ok()?;
         let username = std::env::var("ASTER_SFTP_TEST_USERNAME").ok()?;
         let password = std::env::var("ASTER_SFTP_TEST_PASSWORD").ok()?;
         let base_path = std::env::var("ASTER_SFTP_TEST_BASE_PATH").ok()?;
+        let host_key_fingerprint = std::env::var("ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT").ok()?;
         Some(crate::entities::storage_policy::Model {
             id: 1,
             name: "sftp acceptance".to_string(),
@@ -787,7 +913,13 @@ mod tests {
             remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: crate::types::StoredStoragePolicyOptions::empty(),
+            options: crate::types::serialize_storage_policy_options(
+                &crate::types::StoragePolicyOptions {
+                    sftp_host_key_fingerprint: Some(host_key_fingerprint),
+                    ..Default::default()
+                },
+            )
+            .expect("serialize SFTP host key options"),
             is_default: false,
             chunk_size: 1024,
             created_at: Utc::now(),

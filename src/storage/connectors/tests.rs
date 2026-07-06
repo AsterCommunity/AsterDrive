@@ -482,6 +482,20 @@ fn sftp_connection_field_display_metadata_is_connector_owned() {
     assert_eq!(field(&sftp, "access_key").label_key, "sftp_username");
     assert!(field(&sftp, "access_key").trim_on_blur);
     assert_eq!(field(&sftp, "secret_key").label_key, "sftp_password");
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint").scope,
+        StorageConnectorFieldScope::PolicyOptions
+    );
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint").label_key,
+        "sftp_host_key_fingerprint"
+    );
+    assert_eq!(
+        field(&sftp, "sftp_host_key_fingerprint")
+            .help_key
+            .as_deref(),
+        Some("sftp_host_key_fingerprint_hint")
+    );
     assert!(sftp.fields.iter().all(|field| field.name != "bucket"));
     assert!(!sftp.upload_workflows.presigned_upload);
     assert!(!sftp.upload_workflows.object_multipart_upload);
@@ -822,6 +836,23 @@ fn onedrive_options_are_rejected_for_non_onedrive_connector() {
         error
             .to_string()
             .contains("OneDrive options are only valid for OneDrive")
+    );
+}
+
+#[test]
+fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
+    let options = StoragePolicyOptions {
+        sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
+        ..Default::default()
+    };
+
+    let error = common::ensure_sftp_options_absent(&options).unwrap_err();
+
+    assert_eq!(error.api_error_code(), ApiErrorCode::BadRequest);
+    assert!(
+        error
+            .to_string()
+            .contains("SFTP host key options are only valid for SFTP")
     );
 }
 
