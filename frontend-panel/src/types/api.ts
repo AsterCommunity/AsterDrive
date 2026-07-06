@@ -537,6 +537,9 @@ export type TaskPage = components["schemas"]["OffsetPage_TaskInfo"];
 // Upload and batch
 export type BatchItemError = components["schemas"]["BatchItemError"];
 export type BatchResult = components["schemas"]["BatchResult"];
+export type WorkspaceRef = components["schemas"]["WorkspaceRef"];
+export type WorkspaceTransferCopyRequest =
+	components["schemas"]["WorkspaceTransferCopyReq"];
 export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type FileQuery = components["schemas"]["FileQuery"];

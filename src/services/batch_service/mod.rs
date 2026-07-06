@@ -157,3 +157,60 @@ pub(crate) async fn batch_copy_in_scope_with_audit(
     .await;
     Ok(result)
 }
+
+pub(crate) async fn batch_copy_between_scopes_with_audit(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+    target_folder_id: Option<i64>,
+    audit_ctx: &AuditContext,
+) -> Result<BatchResult> {
+    validate_batch_ids(file_ids, folder_ids)?;
+    let result = copy::batch_copy_between_scopes(
+        state,
+        source_scope,
+        dest_scope,
+        file_ids,
+        folder_ids,
+        target_folder_id,
+    )
+    .await?;
+    audit_service::log_with_details(
+        state,
+        audit_ctx,
+        audit_service::AuditAction::BatchCopy,
+        audit_service::AuditEntityType::Batch,
+        None,
+        None,
+        || {
+            audit_service::details(audit_service::WorkspaceTransferCopyDetails {
+                source_workspace: scope_details(source_scope),
+                destination_workspace: scope_details(dest_scope),
+                file_ids,
+                folder_ids,
+                target_folder_id,
+                succeeded: result.succeeded,
+                failed: result.failed,
+            })
+        },
+    )
+    .await;
+    Ok(result)
+}
+
+fn scope_details(scope: WorkspaceStorageScope) -> audit_service::WorkspaceTransferScopeDetails {
+    match scope {
+        WorkspaceStorageScope::Personal { .. } => audit_service::WorkspaceTransferScopeDetails {
+            kind: "personal",
+            team_id: None,
+        },
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            audit_service::WorkspaceTransferScopeDetails {
+                kind: "team",
+                team_id: Some(team_id),
+            }
+        }
+    }
+}

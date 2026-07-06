@@ -21,6 +21,7 @@ pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseCon
             .service(routes::trash::routes(rl, network_trust))
             .service(routes::properties::routes(rl, network_trust))
             .service(routes::batch::routes(rl, network_trust))
+            .service(routes::workspace_transfer::routes(rl, network_trust))
             .service(routes::search::routes(rl, network_trust))
             .service(routes::tags::routes(rl, network_trust))
             .service(routes::tasks::routes(rl, network_trust))

@@ -17,6 +17,7 @@ import FileBrowserPage from "@/pages/FileBrowserPage";
 
 const mockState = vi.hoisted(() => ({
 	batchDelete: vi.fn(),
+	copyToWorkspace: vi.fn(),
 	createArchiveCompressTask: vi.fn(),
 	createArchiveExtractTask: vi.fn(),
 	copyFile: vi.fn(),
@@ -497,14 +498,36 @@ vi.mock("@/components/files/BatchTargetFolderDialog", () => ({
 	}: {
 		onOpenChange?: (open: boolean) => void;
 		mode: string;
-		onConfirm: (targetFolderId: number | null) => Promise<void>;
+		onConfirm: (selection: {
+			workspace: { kind: "personal" } | { kind: "team"; teamId: number };
+			folderId: number | null;
+		}) => Promise<void>;
 		open: boolean;
 	}) =>
 		open ? (
 			<div>
 				<div>{`batch-dialog:${mode}`}</div>
-				<button type="button" onClick={() => void onConfirm(20)}>
+				<button
+					type="button"
+					onClick={() =>
+						void onConfirm({
+							workspace: mockState.workspace,
+							folderId: 20,
+						})
+					}
+				>
 					confirm-batch-dialog
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						void onConfirm({
+							workspace: { kind: "team", teamId: 9 },
+							folderId: 21,
+						})
+					}
+				>
+					confirm-team-batch-dialog
 				</button>
 				<button type="button" onClick={() => onOpenChange?.(false)}>
 					{`close-batch-dialog:${mode}`}
@@ -991,6 +1014,7 @@ vi.mock("@/lib/utils", () => ({
 vi.mock("@/services/batchService", () => ({
 	batchService: {
 		batchDelete: (...args: unknown[]) => mockState.batchDelete(...args),
+		copyToWorkspace: (...args: unknown[]) => mockState.copyToWorkspace(...args),
 		createArchiveCompressTask: (...args: unknown[]) =>
 			mockState.createArchiveCompressTask(...args),
 		streamArchiveDownload: (...args: unknown[]) =>
@@ -1152,6 +1176,7 @@ describe("FileBrowserPage", () => {
 		mockState.createArchiveExtractTask.mockReset();
 		mockState.copyFile.mockReset();
 		mockState.copyFolder.mockReset();
+		mockState.copyToWorkspace.mockReset();
 		mockState.getArchivePreview.mockReset();
 		mockState.createPreviewLink.mockReset();
 		mockState.createWopiSession.mockReset();
@@ -1250,6 +1275,11 @@ describe("FileBrowserPage", () => {
 		});
 		mockState.copyFile.mockResolvedValue(undefined);
 		mockState.copyFolder.mockResolvedValue(undefined);
+		mockState.copyToWorkspace.mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 1,
+		});
 		mockState.getArchivePreview.mockResolvedValue({ entries: [] });
 		mockState.createPreviewLink.mockResolvedValue("preview-link");
 		mockState.createWopiSession.mockResolvedValue({ session: "wopi" });
@@ -1773,6 +1803,29 @@ describe("FileBrowserPage", () => {
 			expect(mockState.copyFolder).toHaveBeenCalledWith(10, 20);
 		});
 		expect(mockState.store.refresh).toHaveBeenCalledTimes(2);
+	});
+
+	it("copies a single item to another workspace through workspace transfer", async () => {
+		render(<FileBrowserPage />);
+
+		fireEvent.click(screen.getByRole("button", { name: "copy-file" }));
+		expect(await screen.findByText("batch-dialog:copy")).toBeInTheDocument();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm-team-batch-dialog" }),
+		);
+
+		await waitFor(() => {
+			expect(mockState.copyToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 9 },
+				[9],
+				[],
+				21,
+			);
+		});
+		expect(mockState.copyFile).not.toHaveBeenCalled();
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("copy_success");
+		expect(mockState.store.refresh).toHaveBeenCalledTimes(1);
 	});
 
 	it("opens the share dialog with the mode implied by the chosen menu entry", async () => {

@@ -12,6 +12,8 @@ const mockState = vi.hoisted(() => ({
 	batchCopy: vi.fn(),
 	batchDelete: vi.fn(),
 	clearSelection: vi.fn(),
+	copyToWorkspace: vi.fn(),
+	currentWorkspace: { kind: "personal" as const },
 	formatBatchToast: vi.fn(),
 	handleApiError: vi.fn(),
 	moveToFolder: vi.fn(),
@@ -78,13 +80,35 @@ vi.mock("@/components/files/BatchTargetFolderDialog", () => ({
 	}: {
 		mode: "copy" | "move";
 		open: boolean;
-		onConfirm: (targetFolderId: number | null) => void;
+		onConfirm: (selection: {
+			workspace: { kind: "personal" } | { kind: "team"; teamId: number };
+			folderId: number | null;
+		}) => void;
 	}) =>
 		open ? (
 			<div>
 				<div>{`target-dialog:${mode}`}</div>
-				<button type="button" onClick={() => onConfirm(99)}>
+				<button
+					type="button"
+					onClick={() =>
+						onConfirm({
+							workspace: mockState.currentWorkspace,
+							folderId: 99,
+						})
+					}
+				>
 					confirm-target
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						onConfirm({
+							workspace: { kind: "team", teamId: 9 },
+							folderId: 12,
+						})
+					}
+				>
+					confirm-team-target
 				</button>
 			</div>
 		) : null,
@@ -120,6 +144,7 @@ vi.mock("@/services/batchService", () => ({
 	batchService: {
 		batchCopy: (...args: unknown[]) => mockState.batchCopy(...args),
 		batchDelete: (...args: unknown[]) => mockState.batchDelete(...args),
+		copyToWorkspace: (...args: unknown[]) => mockState.copyToWorkspace(...args),
 	},
 }));
 
@@ -156,7 +181,7 @@ vi.mock("@/stores/fileStore", () => ({
 
 vi.mock("@/stores/workspaceStore", () => ({
 	useWorkspaceStore: {
-		getState: () => ({ workspace: { kind: "personal" } }),
+		getState: () => ({ workspace: mockState.currentWorkspace }),
 	},
 }));
 
@@ -169,6 +194,8 @@ describe("BatchActionBar", () => {
 		mockState.batchCopy.mockReset();
 		mockState.batchDelete.mockReset();
 		mockState.clearSelection.mockReset();
+		mockState.copyToWorkspace.mockReset();
+		mockState.currentWorkspace = { kind: "personal" };
 		mockState.formatBatchToast.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.moveToFolder.mockReset();
@@ -185,6 +212,11 @@ describe("BatchActionBar", () => {
 			succeeded: 3,
 		});
 		mockState.batchDelete.mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 3,
+		});
+		mockState.copyToWorkspace.mockResolvedValue({
 			errors: [],
 			failed: 0,
 			succeeded: 3,
@@ -298,7 +330,27 @@ describe("BatchActionBar", () => {
 
 		await waitFor(() => {
 			expect(mockState.batchCopy).toHaveBeenCalledWith([1, 2], [5], 99);
+			expect(mockState.copyToWorkspace).not.toHaveBeenCalled();
 		});
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("copies selected items to another workspace through workspace transfer", async () => {
+		render(<BatchActionBar />);
+
+		fireEvent.click(screen.getByText("copy_to"));
+		fireEvent.click(screen.getByText("confirm-team-target"));
+
+		await waitFor(() => {
+			expect(mockState.copyToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 9 },
+				[1, 2],
+				[5],
+				12,
+			);
+		});
+		expect(mockState.batchCopy).not.toHaveBeenCalled();
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
 	});

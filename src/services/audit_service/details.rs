@@ -141,6 +141,24 @@ pub struct BatchTransferDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct WorkspaceTransferScopeDetails {
+    pub kind: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub team_id: Option<i64>,
+}
+
+#[derive(Serialize)]
+pub struct WorkspaceTransferCopyDetails<'a> {
+    pub source_workspace: WorkspaceTransferScopeDetails,
+    pub destination_workspace: WorkspaceTransferScopeDetails,
+    pub file_ids: &'a [i64],
+    pub folder_ids: &'a [i64],
+    pub target_folder_id: Option<i64>,
+    pub succeeded: u32,
+    pub failed: u32,
+}
+
+#[derive(Serialize)]
 pub struct ArchiveSelectionAuditDetails<'a> {
     pub file_ids: &'a [i64],
     pub folder_ids: &'a [i64],

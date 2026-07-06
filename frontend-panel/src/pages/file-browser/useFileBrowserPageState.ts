@@ -2,8 +2,10 @@ import type { TFunction } from "i18next";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { toast } from "sonner";
+import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import type { TagManagerTarget } from "@/components/files/TagManagerDialog";
 import { handleApiError } from "@/hooks/useApiError";
+import { workspaceEquals } from "@/lib/workspace";
 import {
 	BatchTargetFolderDialog,
 	RenameDialog,
@@ -19,8 +21,10 @@ import type {
 	FileBrowserShareTarget,
 	FileBrowserVersionTarget,
 } from "@/pages/file-browser/types";
+import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type {
 	EntityType,
 	FileInfo,
@@ -194,10 +198,21 @@ export function useFileBrowserPageState({
 	}, []);
 
 	const handleCopyConfirm = useCallback(
-		async (targetFolderId: number | null) => {
+		async ({
+			workspace: targetWorkspace,
+			folderId: targetFolderId,
+		}: BatchTargetFolderSelection) => {
 			if (!copyTarget) return;
 			try {
-				if (copyTarget.type === "file") {
+				const currentWorkspace = useWorkspaceStore.getState().workspace;
+				if (!workspaceEquals(currentWorkspace, targetWorkspace)) {
+					await batchService.copyToWorkspace(
+						targetWorkspace,
+						copyTarget.type === "file" ? [copyTarget.id] : [],
+						copyTarget.type === "folder" ? [copyTarget.id] : [],
+						targetFolderId,
+					);
+				} else if (copyTarget.type === "file") {
 					await fileService.copyFile(copyTarget.id, targetFolderId);
 				} else {
 					await fileService.copyFolder(copyTarget.id, targetFolderId);

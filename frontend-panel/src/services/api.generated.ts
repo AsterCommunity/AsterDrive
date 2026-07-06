@@ -4126,6 +4126,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workspace-transfer/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["workspace_transfer_copy"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/health": {
         parameters: {
             query?: never;
@@ -8484,6 +8500,27 @@ export interface components {
         WopiLockOwnerInfo: {
             app_key: string;
             lock: string;
+        };
+        WorkspaceRef: {
+            /** @enum {string} */
+            kind: "personal";
+        } | {
+            /** @enum {string} */
+            kind: "team";
+            /** Format: int64 */
+            team_id: number;
+        };
+        /** @description Copy files and folders between workspaces. */
+        WorkspaceTransferCopyReq: {
+            destination_workspace: components["schemas"]["WorkspaceRef"];
+            file_ids?: number[];
+            folder_ids?: number[];
+            source_workspace: components["schemas"]["WorkspaceRef"];
+            /**
+             * Format: int64
+             * @description Destination folder ID (`None` = destination root directory).
+             */
+            target_folder_id?: number | null;
         };
     };
     responses: never;
@@ -26924,6 +26961,62 @@ export interface operations {
         responses: {
             /** @description WOPI CheckFileInfo response */
             200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    workspace_transfer_copy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceTransferCopyReq"];
+            };
+        };
+        responses: {
+            /** @description Workspace transfer copy result */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            errors: components["schemas"]["BatchItemError"][];
+                            /** Format: int32 */
+                            failed: number;
+                            /** Format: int32 */
+                            succeeded: number;
+                        };
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Invalid request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Unauthorized */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Forbidden */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };

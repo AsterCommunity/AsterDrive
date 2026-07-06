@@ -10,6 +10,8 @@ const mockState = vi.hoisted(() => ({
 	batchCopy: vi.fn(),
 	batchDelete: vi.fn(),
 	clearSelection: vi.fn(),
+	copyToWorkspace: vi.fn(),
+	currentWorkspace: { kind: "personal" as const },
 	formatBatchToast: vi.fn(),
 	handleApiError: vi.fn(),
 	moveToFolder: vi.fn(),
@@ -69,13 +71,37 @@ vi.mock("@/components/files/BatchTargetFolderDialog", () => ({
 		open,
 	}: {
 		mode: "move" | "copy";
-		onConfirm: (targetFolderId: number | null) => Promise<void>;
+		onConfirm: (selection: {
+			workspace: { kind: "personal" } | { kind: "team"; teamId: number };
+			folderId: number | null;
+		}) => Promise<void>;
 		open: boolean;
 	}) =>
 		open ? (
-			<button type="button" onClick={() => void onConfirm(99)}>
-				{`confirm-target:${mode}`}
-			</button>
+			<div>
+				<button
+					type="button"
+					onClick={() =>
+						void onConfirm({
+							workspace: mockState.currentWorkspace,
+							folderId: 99,
+						})
+					}
+				>
+					{`confirm-target:${mode}`}
+				</button>
+				<button
+					type="button"
+					onClick={() =>
+						void onConfirm({
+							workspace: { kind: "team", teamId: 11 },
+							folderId: 22,
+						})
+					}
+				>
+					{`confirm-team-target:${mode}`}
+				</button>
+			</div>
 		) : null,
 }));
 
@@ -119,6 +145,7 @@ vi.mock("@/services/batchService", () => ({
 	batchService: {
 		batchCopy: (...args: unknown[]) => mockState.batchCopy(...args),
 		batchDelete: (...args: unknown[]) => mockState.batchDelete(...args),
+		copyToWorkspace: (...args: unknown[]) => mockState.copyToWorkspace(...args),
 	},
 }));
 
@@ -140,7 +167,7 @@ vi.mock("@/stores/workspaceStore", () => ({
 		factory: (workspace: { kind: "personal" }) => unknown,
 	) => factory({ kind: "personal" }),
 	useWorkspaceStore: {
-		getState: () => ({ workspace: { kind: "personal" } }),
+		getState: () => ({ workspace: mockState.currentWorkspace }),
 	},
 }));
 
@@ -249,6 +276,8 @@ describe("useFileBrowserBatchActions", () => {
 		mockState.batchCopy.mockReset();
 		mockState.batchDelete.mockReset();
 		mockState.clearSelection.mockReset();
+		mockState.copyToWorkspace.mockReset();
+		mockState.currentWorkspace = { kind: "personal" };
 		mockState.formatBatchToast.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.moveToFolder.mockReset();
@@ -267,6 +296,11 @@ describe("useFileBrowserBatchActions", () => {
 			succeeded: 3,
 		});
 		mockState.batchDelete.mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 3,
+		});
+		mockState.copyToWorkspace.mockResolvedValue({
 			errors: [],
 			failed: 0,
 			succeeded: 3,
@@ -473,6 +507,31 @@ describe("useFileBrowserBatchActions", () => {
 		await waitFor(() => {
 			expect(mockState.batchCopy).toHaveBeenCalledWith([1, 2], [5], 99);
 		});
+		expect(mockState.copyToWorkspace).not.toHaveBeenCalled();
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("copies selected items to a different workspace through workspace transfer", async () => {
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness />);
+
+		fireEvent.click(screen.getByText("copy-selected"));
+		fireEvent.click(screen.getByText("confirm-team-target:copy"));
+
+		await waitFor(() => {
+			expect(mockState.copyToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 11 },
+				[1, 2],
+				[5],
+				22,
+			);
+		});
+		expect(mockState.batchCopy).not.toHaveBeenCalled();
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
 	});

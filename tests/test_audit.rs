@@ -646,6 +646,54 @@ async fn test_audit_log_recorded_on_batch_actions_after_refactor() {
 }
 
 #[actix_web::test]
+async fn test_audit_log_records_workspace_transfer_copy_scopes() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let file_id = upload_test_file_named!(app, token, "workspace-transfer-audit.txt");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/teams")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Workspace Transfer Audit Team" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let team_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/workspace-transfer/copy")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "source_workspace": { "kind": "personal" },
+            "file_ids": [file_id],
+            "folder_ids": [],
+            "destination_workspace": { "kind": "team", "team_id": team_id },
+            "target_folder_id": null
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let items = fetch_audit_items!(app, token);
+    let entry = assert_action_present(&items, "batch_copy");
+    let details: Value = serde_json::from_str(entry["details"].as_str().unwrap()).unwrap();
+    assert_eq!(details["source_workspace"]["kind"], "personal");
+    assert!(details["source_workspace"].get("team_id").is_none());
+    assert_eq!(details["destination_workspace"]["kind"], "team");
+    assert_eq!(details["destination_workspace"]["team_id"], team_id);
+    assert_eq!(details["file_ids"], serde_json::json!([file_id]));
+    assert_eq!(details["folder_ids"], serde_json::json!([]));
+    assert!(details["target_folder_id"].is_null());
+    assert_eq!(details["succeeded"], 1);
+    assert_eq!(details["failed"], 0);
+}
+
+#[actix_web::test]
 async fn test_audit_log_recorded_on_share_config_and_admin_user_actions_after_refactor() {
     let state = common::setup().await;
     let app = create_test_app!(state);

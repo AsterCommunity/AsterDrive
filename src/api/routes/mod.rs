@@ -22,6 +22,7 @@ pub mod teams;
 pub mod trash;
 pub mod webdav_accounts;
 pub mod wopi;
+pub mod workspace_transfer;
 
 pub(crate) fn team_scope(team_id: i64, user_id: i64) -> WorkspaceStorageScope {
     WorkspaceStorageScope::Team {

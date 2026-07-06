@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import { FilePreview } from "@/components/files/FilePreview";
 import type { ImagePreviewNavigation } from "@/components/files/preview/navigation/imagePreviewNavigation";
 import type { FilePreviewResources } from "@/components/files/preview/resources/filePreviewResources";
@@ -51,7 +52,7 @@ interface FileBrowserDialogsProps {
 		filenameEncoding?: ArchiveFilenameEncoding,
 	) => Promise<void>;
 	onCopyClose: () => void;
-	onCopyConfirm: (targetFolderId: number | null) => Promise<void>;
+	onCopyConfirm: (selection: BatchTargetFolderSelection) => Promise<void>;
 	onCreateFileOpenChange: (open: boolean) => void;
 	onCreateFolderOpenChange: (open: boolean) => void;
 	onFolderPolicyClose: () => void;
@@ -279,7 +280,7 @@ export function FileBrowserDialogs({
 					}}
 					onOpenChangeComplete={handleMoveOpenChangeComplete}
 					mode="move"
-					onConfirm={onMoveConfirm}
+					onConfirm={({ folderId }) => onMoveConfirm(folderId)}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={retainedMoveTarget?.folderIds ?? []}
