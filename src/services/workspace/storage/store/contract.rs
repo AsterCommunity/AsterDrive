@@ -56,18 +56,7 @@ impl VerifiedTempStoreBlob {
                 },
             }),
             TempBlobPlan::Preuploaded(prepared) => {
-                if prepared.size() != size {
-                    return Err(AsterError::validation_error(format!(
-                        "preuploaded blob size {} does not match verified temp store size {size}",
-                        prepared.size(),
-                    )));
-                }
-                if prepared.policy_id() != policy_id {
-                    return Err(AsterError::validation_error(format!(
-                        "preuploaded blob policy {} does not match verified temp store policy {policy_id}",
-                        prepared.policy_id(),
-                    )));
-                }
+                prepared.ensure_matches(size, policy_id, "verified temp store")?;
                 Ok(Self {
                     size,
                     policy_id,

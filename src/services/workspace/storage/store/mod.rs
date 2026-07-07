@@ -1,6 +1,7 @@
 //! 工作空间存储服务子模块：`store`。
 
 pub(crate) mod from_temp;
+mod preuploaded_contract;
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -18,6 +19,9 @@ use super::{
     create_new_file_from_blob_with_actor_username, local_content_dedup_enabled,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
     update_storage_used, verify_file_access, verify_folder_access,
+};
+use preuploaded_contract::{
+    VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
 };
 
 #[derive(Clone, Copy)]
@@ -79,173 +83,6 @@ pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub policy: &'a crate::entities::storage_policy::Model,
     pub preuploaded_blob: PreparedNonDedupBlobUpload,
     pub actor_username: Option<&'a str>,
-}
-
-#[derive(Debug)]
-struct VerifiedPreuploadedNondedupStoreBlob {
-    size: i64,
-    policy_id: i64,
-    storage_path: String,
-    prepared: PreparedNonDedupBlobUpload,
-}
-
-impl VerifiedPreuploadedNondedupStoreBlob {
-    fn new(size: i64, policy_id: i64, prepared: PreparedNonDedupBlobUpload) -> Result<Self> {
-        if size < 0 {
-            return Err(AsterError::validation_error(format!(
-                "verified preuploaded store blob size must be non-negative, got {size}",
-            )));
-        }
-        if prepared.size() != size {
-            return Err(AsterError::validation_error(format!(
-                "preuploaded blob size {} does not match verified store size {size}",
-                prepared.size(),
-            )));
-        }
-        if prepared.policy_id() != policy_id {
-            return Err(AsterError::validation_error(format!(
-                "preuploaded blob policy {} does not match verified store policy {policy_id}",
-                prepared.policy_id(),
-            )));
-        }
-
-        Ok(Self {
-            size,
-            policy_id,
-            storage_path: prepared.storage_path().to_string(),
-            prepared,
-        })
-    }
-
-    fn size(&self) -> i64 {
-        self.size
-    }
-
-    fn policy_id(&self) -> i64 {
-        self.policy_id
-    }
-
-    fn storage_path(&self) -> &str {
-        &self.storage_path
-    }
-
-    fn prepared(&self) -> &PreparedNonDedupBlobUpload {
-        &self.prepared
-    }
-}
-
-async fn cleanup_verified_preuploaded_nondedup_store_blob(
-    driver: &dyn crate::storage::StorageDriver,
-    verified_blob: &VerifiedPreuploadedNondedupStoreBlob,
-    reason: &str,
-) {
-    cleanup_preuploaded_blob_upload(driver, verified_blob.prepared(), reason).await;
-}
-
-#[cfg(test)]
-mod preuploaded_contract_tests {
-    use super::{
-        PreparedNonDedupBlobUpload, VerifiedPreuploadedNondedupStoreBlob,
-        cleanup_verified_preuploaded_nondedup_store_blob,
-    };
-    use crate::errors::Result;
-    use crate::storage::{BlobMetadata, StorageDriver};
-    use async_trait::async_trait;
-    use std::sync::Mutex;
-    use tokio::io::AsyncRead;
-
-    #[derive(Default)]
-    struct RecordingDeleteDriver {
-        deleted_paths: Mutex<Vec<String>>,
-    }
-
-    #[async_trait]
-    impl StorageDriver for RecordingDeleteDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
-            unreachable!()
-        }
-
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
-            unreachable!()
-        }
-
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
-            unreachable!()
-        }
-
-        async fn delete(&self, path: &str) -> Result<()> {
-            self.deleted_paths
-                .lock()
-                .expect("deleted paths lock should not be poisoned")
-                .push(path.to_string());
-            Ok(())
-        }
-
-        async fn exists(&self, _path: &str) -> Result<bool> {
-            unreachable!()
-        }
-
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
-            unreachable!()
-        }
-
-        async fn copy_object(&self, _src_path: &str, _dest_path: &str) -> Result<String> {
-            unreachable!()
-        }
-    }
-
-    fn opaque_preupload(size: i64, policy_id: i64) -> PreparedNonDedupBlobUpload {
-        PreparedNonDedupBlobUpload::Opaque {
-            upload_id: "opaque-id".to_string(),
-            hash_prefix: "s3",
-            storage_path: "files/opaque-id".to_string(),
-            size,
-            policy_id,
-        }
-    }
-
-    #[test]
-    fn verified_preuploaded_store_blob_carries_size_policy_and_storage_path() {
-        let verified = VerifiedPreuploadedNondedupStoreBlob::new(33, 9, opaque_preupload(33, 9))
-            .expect("verified preupload should be accepted");
-
-        assert_eq!(verified.size(), 33);
-        assert_eq!(verified.policy_id(), 9);
-        assert_eq!(verified.storage_path(), "files/opaque-id");
-        assert_eq!(verified.prepared().storage_path(), "files/opaque-id");
-    }
-
-    #[test]
-    fn verified_preuploaded_store_blob_rejects_invalid_contract() {
-        let negative = VerifiedPreuploadedNondedupStoreBlob::new(-1, 9, opaque_preupload(33, 9))
-            .expect_err("negative size should be rejected");
-        assert!(negative.to_string().contains("non-negative"));
-
-        let size_error = VerifiedPreuploadedNondedupStoreBlob::new(34, 9, opaque_preupload(33, 9))
-            .expect_err("size mismatch should be rejected");
-        assert!(size_error.to_string().contains("size"));
-
-        let policy_error =
-            VerifiedPreuploadedNondedupStoreBlob::new(33, 10, opaque_preupload(33, 9))
-                .expect_err("policy mismatch should be rejected");
-        assert!(policy_error.to_string().contains("policy"));
-    }
-
-    #[tokio::test]
-    async fn cleanup_verified_preuploaded_store_blob_deletes_opaque_object() {
-        let verified = VerifiedPreuploadedNondedupStoreBlob::new(33, 9, opaque_preupload(33, 9))
-            .expect("verified preupload should be accepted");
-        let driver = RecordingDeleteDriver::default();
-
-        cleanup_verified_preuploaded_nondedup_store_blob(&driver, &verified, "test cleanup").await;
-
-        let deleted_paths = driver
-            .deleted_paths
-            .lock()
-            .expect("deleted paths lock should not be poisoned")
-            .clone();
-        assert_eq!(deleted_paths, vec!["files/opaque-id"]);
-    }
 }
 
 pub(crate) async fn store_from_temp_with_hints(

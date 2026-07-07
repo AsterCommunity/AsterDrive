@@ -51,8 +51,26 @@ pub(super) async fn persist_temp_store(
         &operation_context,
     )
     .await?;
-    let verified_blob =
-        VerifiedTempStoreBlob::from_staged_plan(&blob_plan, size, policy.id, staged_dedup_target)?;
+    let verified_blob = match VerifiedTempStoreBlob::from_staged_plan(
+        &blob_plan,
+        size,
+        policy.id,
+        staged_dedup_target,
+    ) {
+        Ok(verified_blob) => verified_blob,
+        Err(error) => {
+            cleanup_staged_blob_plan_after_contract_failure(
+                state,
+                &blob_plan,
+                staged_dedup_target,
+                driver.as_ref(),
+                policy.id,
+                "verified temp store contract failure",
+            )
+            .await;
+            return Err(error);
+        }
+    };
     if let Err(error) = operation_context.checkpoint() {
         cleanup_verified_temp_blob_after_db_failure(
             state,
@@ -132,6 +150,32 @@ async fn stage_temp_blob_before_transaction(
             .created(),
         ),
         TempBlobPlan::Preuploaded(_) => Ok(false),
+    }
+}
+
+async fn cleanup_staged_blob_plan_after_contract_failure(
+    state: &PrimaryAppState,
+    blob_plan: &TempBlobPlan,
+    staged_dedup_target: bool,
+    driver: &dyn crate::storage::StorageDriver,
+    policy_id: i64,
+    reason: &str,
+) {
+    match blob_plan {
+        TempBlobPlan::Dedup(target) if staged_dedup_target => {
+            rollback_staged_dedup_blob(
+                state,
+                &target.file_hash,
+                &target.storage_path,
+                driver,
+                policy_id,
+            )
+            .await;
+        }
+        TempBlobPlan::Dedup(_) => {}
+        TempBlobPlan::Preuploaded(preuploaded_blob) => {
+            cleanup_preuploaded_blob_upload(driver, preuploaded_blob, reason).await;
+        }
     }
 }
 

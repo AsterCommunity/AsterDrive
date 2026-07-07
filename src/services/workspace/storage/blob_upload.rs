@@ -45,6 +45,27 @@ impl PreparedNonDedupBlobUpload {
             Self::Local { policy_id, .. } | Self::Opaque { policy_id, .. } => *policy_id,
         }
     }
+
+    pub(crate) fn ensure_matches(&self, size: i64, policy_id: i64, context: &str) -> Result<()> {
+        if size < 0 {
+            return Err(AsterError::validation_error(format!(
+                "{context} size must be non-negative, got {size}",
+            )));
+        }
+        if self.size() != size {
+            return Err(AsterError::validation_error(format!(
+                "preuploaded blob size {} does not match {context} size {size}",
+                self.size(),
+            )));
+        }
+        if self.policy_id() != policy_id {
+            return Err(AsterError::validation_error(format!(
+                "preuploaded blob policy {} does not match {context} policy {policy_id}",
+                self.policy_id(),
+            )));
+        }
+        Ok(())
+    }
 }
 
 pub(crate) fn prepare_non_dedup_blob_upload(
