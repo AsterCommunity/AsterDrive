@@ -1,6 +1,7 @@
 //! 工作空间存储服务子模块：`store`。
 
 pub(crate) mod from_temp;
+mod preuploaded_contract;
 
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
@@ -18,6 +19,9 @@ use super::{
     create_new_file_from_blob_with_actor_username, local_content_dedup_enabled,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
     update_storage_used, verify_file_access, verify_folder_access,
+};
+use preuploaded_contract::{
+    VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
 };
 
 #[derive(Clone, Copy)]
@@ -208,17 +212,34 @@ pub(crate) async fn store_preuploaded_nondedup(
     let filename = crate::utils::normalize_validate_name(filename)?;
 
     let driver = state.driver_registry().get_driver(policy)?;
+    let verified_blob = match VerifiedPreuploadedNondedupStoreBlob::new(
+        size,
+        policy.id,
+        preuploaded_blob.clone(),
+    ) {
+        Ok(verified_blob) => verified_blob,
+        Err(error) => {
+            cleanup_preuploaded_blob_upload(
+                driver.as_ref(),
+                &preuploaded_blob,
+                "preuploaded contract validation failure",
+            )
+            .await;
+            return Err(error);
+        }
+    };
 
-    if policy.max_file_size > 0 && size > policy.max_file_size {
-        cleanup_preuploaded_blob_upload(
+    if policy.max_file_size > 0 && verified_blob.size() > policy.max_file_size {
+        cleanup_verified_preuploaded_nondedup_store_blob(
             driver.as_ref(),
-            &preuploaded_blob,
+            &verified_blob,
             "size validation failure",
         )
         .await;
         return Err(AsterError::file_too_large(format!(
             "file size {} exceeds limit {}",
-            size, policy.max_file_size
+            verified_blob.size(),
+            policy.max_file_size
         )));
     }
 
@@ -227,9 +248,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     let overwrite_ctx = if let Some(existing_id) = existing_file_id {
         let old_file = verify_file_access(state, scope, existing_id).await?;
         if old_file.is_locked && !skip_lock_check {
-            cleanup_preuploaded_blob_upload(
+            cleanup_verified_preuploaded_nondedup_store_blob(
                 driver.as_ref(),
-                &preuploaded_blob,
+                &verified_blob,
                 "lock check failure",
             )
             .await;
@@ -245,7 +266,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     } else {
         None
     };
-    let storage_delta = overwrite_ctx.as_ref().map_or(size, |_| size);
+    let storage_delta = overwrite_ctx
+        .as_ref()
+        .map_or(verified_blob.size(), |_| verified_blob.size());
 
     let mime = mime_guess::from_path(&filename)
         .first_or_octet_stream()
@@ -257,7 +280,10 @@ pub(crate) async fn store_preuploaded_nondedup(
             check_quota(&txn, scope, storage_delta).await?;
         }
 
-        let blob = persist_preuploaded_blob(&txn, &preuploaded_blob).await?;
+        let blob = persist_preuploaded_blob(&txn, verified_blob.prepared()).await?;
+        debug_assert_eq!(blob.size, verified_blob.size());
+        debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
+        debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
 
         let result = if let Some((old_file, old_blob)) = overwrite_ctx {
             let current_file =
@@ -325,9 +351,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     let result = match create_result {
         Ok(result) => result,
         Err(error) => {
-            cleanup_preuploaded_blob_upload(
+            cleanup_verified_preuploaded_nondedup_store_blob(
                 driver.as_ref(),
-                &preuploaded_blob,
+                &verified_blob,
                 "DB error after direct upload",
             )
             .await;

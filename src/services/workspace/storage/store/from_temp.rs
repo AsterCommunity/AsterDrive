@@ -2,6 +2,8 @@ use super::*;
 
 use sea_orm::ConnectionTrait;
 
+#[path = "contract.rs"]
+mod contract;
 #[path = "persist.rs"]
 mod persist;
 #[path = "prepare.rs"]

@@ -15,6 +15,8 @@ use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipar
 use crate::types::UploadSessionStatus;
 use crate::utils::numbers::u64_to_i64;
 
+use super::contract::{VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure};
+
 pub(super) async fn complete_presigned_upload(
     state: &PrimaryAppState,
     session: upload_session::Model,
@@ -56,43 +58,34 @@ pub(super) async fn complete_presigned_upload(
         UploadSessionStatus::Presigned,
         "completed presigned upload session",
         async {
-            let (final_key, actual_size) =
-                copy_presigned_object_to_final_key(
-                    driver.as_ref(),
-                    temp_key,
-                    session.total_size,
-                    actual_size,
-                )
-                .await?;
-            let file = match finalize_opaque_upload_session(
+            let (final_key, actual_size) = copy_presigned_object_to_final_key(
+                driver.as_ref(),
+                temp_key,
+                session.total_size,
+                actual_size,
+            )
+            .await?;
+            let verified = VerifiedUploadedBlob::copied_opaque_object(
+                actual_size,
+                policy.id,
+                final_key,
+                opaque_upload_file_hash(&policy, &session)?,
+            )?;
+            let file = finalize_verified_opaque_upload_session(
                 state,
                 &session,
-                &policy,
-                &final_key,
-                actual_size,
+                driver.as_ref(),
+                &verified,
                 actor_username,
             )
-            .await
-            {
-                Ok(file) => file,
-                Err(error) => {
-                    if let Err(cleanup_error) = driver.delete(&final_key).await {
-                        tracing::warn!(
-                            upload_id = %session.id,
-                            final_key = %final_key,
-                            "failed to delete copied presigned object after DB finalize error: {cleanup_error}"
-                        );
-                    }
-                    return Err(error);
-                }
-            };
-            if final_key != temp_key
+            .await?;
+            if verified.storage_path() != temp_key
                 && let Err(error) = driver.delete(temp_key).await
             {
                 tracing::warn!(
                     upload_id = %session.id,
                     temp_key = %temp_key,
-                    final_key = %final_key,
+                    final_key = %verified.storage_path(),
                     "failed to delete presigned temp object after final copy: {error}"
                 );
             }
@@ -211,29 +204,54 @@ async fn ensure_uploaded_object_size(
     Ok(actual_size)
 }
 
-async fn finalize_opaque_upload_session(
+async fn finalize_verified_opaque_upload_session(
     state: &PrimaryAppState,
     session: &upload_session::Model,
-    policy: &storage_policy::Model,
-    storage_path: &str,
-    size: i64,
+    driver: &dyn StorageDriver,
+    verified: &VerifiedUploadedBlob,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     // 直传模式不会经过本地 assembled 文件，complete 阶段只负责把已经存在的对象
     // 记成 blob + file，并原子更新配额和 session 状态。
-    storage::finalize_upload_session_file(
+    let file_hash = verified.file_hash().ok_or_else(|| {
+        upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "verified opaque upload is missing blob hash",
+        )
+    })?;
+    let result = storage::finalize_upload_session_file(
         state,
         storage::FinalizeUploadSessionFileParams {
             session,
-            file_hash: &format!("{}-{}", opaque_blob_hash_prefix(policy)?, session.id),
-            size,
-            policy_id: policy.id,
-            storage_path,
+            file_hash,
+            size: verified.size(),
+            policy_id: verified.policy_id(),
+            storage_path: verified.storage_path(),
             now: Utc::now(),
             actor_username,
         },
     )
-    .await
+    .await;
+    if result.is_err() {
+        cleanup_verified_upload_after_db_failure(
+            driver,
+            verified,
+            "opaque upload DB finalize error",
+        )
+        .await;
+    }
+    result
+}
+
+fn opaque_upload_file_hash(
+    policy: &storage_policy::Model,
+    session: &upload_session::Model,
+) -> Result<String> {
+    Ok(format!(
+        "{}-{}",
+        opaque_blob_hash_prefix(policy)?,
+        session.id
+    ))
 }
 
 fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> Result<&'static str> {
@@ -384,12 +402,17 @@ async fn complete_object_multipart_upload_session(
                     )
                     .await
                 {
-                    return finalize_opaque_upload_session(
+                    let verified = VerifiedUploadedBlob::completed_multipart_object(
+                        actual_size,
+                        policy.id,
+                        temp_key.to_string(),
+                        opaque_upload_file_hash(&policy, &session)?,
+                    )?;
+                    return finalize_verified_opaque_upload_session(
                         state,
                         &session,
-                        &policy,
-                        temp_key,
-                        actual_size,
+                        driver_ref,
+                        &verified,
                         actor_username,
                     )
                     .await;
@@ -405,12 +428,17 @@ async fn complete_object_multipart_upload_session(
             )
             .await?;
 
-            finalize_opaque_upload_session(
+            let verified = VerifiedUploadedBlob::completed_multipart_object(
+                actual_size,
+                policy.id,
+                temp_key.to_string(),
+                opaque_upload_file_hash(&policy, &session)?,
+            )?;
+            finalize_verified_opaque_upload_session(
                 state,
                 &session,
-                &policy,
-                temp_key,
-                actual_size,
+                driver_ref,
+                &verified,
                 actor_username,
             )
             .await
@@ -562,8 +590,9 @@ fn workspace_scope_from_session(session: &upload_session::Model) -> WorkspaceSto
 #[cfg(test)]
 mod tests {
     use super::{
-        copy_presigned_object_to_final_key, should_abort_multipart_after_preflight_error,
-        sum_uploaded_part_sizes, validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
+        copy_presigned_object_to_final_key, ensure_uploaded_object_size,
+        should_abort_multipart_after_preflight_error, sum_uploaded_part_sizes,
+        validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::entities::upload_session;
@@ -578,6 +607,11 @@ mod tests {
     #[derive(Default)]
     struct CountingCopyDriver {
         metadata_paths: Mutex<Vec<String>>,
+    }
+
+    struct SizeMismatchDriver {
+        size: u64,
+        deleted_paths: Mutex<Vec<String>>,
     }
 
     #[async_trait]
@@ -615,6 +649,44 @@ mod tests {
 
         async fn copy_object(&self, _src_path: &str, dest_path: &str) -> Result<String> {
             Ok(dest_path.to_string())
+        }
+    }
+
+    #[async_trait]
+    impl StorageDriver for SizeMismatchDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unreachable!()
+        }
+
+        async fn delete(&self, path: &str) -> Result<()> {
+            self.deleted_paths
+                .lock()
+                .expect("deleted paths lock should not be poisoned")
+                .push(path.to_string());
+            Ok(())
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            unreachable!("metadata succeeds in this test")
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+            Ok(BlobMetadata {
+                size: self.size,
+                content_type: None,
+            })
+        }
+
+        async fn copy_object(&self, _src_path: &str, _dest_path: &str) -> Result<String> {
+            unreachable!()
         }
     }
 
@@ -691,6 +763,29 @@ mod tests {
             vec![final_key],
             "temp object metadata should be reused instead of fetched again"
         );
+    }
+
+    #[tokio::test]
+    async fn ensure_uploaded_object_size_rejects_mismatch_and_deletes_temp_object() {
+        let driver = SizeMismatchDriver {
+            size: 7,
+            deleted_paths: Mutex::new(Vec::new()),
+        };
+
+        let error = ensure_uploaded_object_size(&driver, "temp/object", 12, "missing object")
+            .await
+            .expect_err("metadata size mismatch should fail");
+
+        assert_eq!(
+            error.api_error_code_override(),
+            Some(ApiErrorCode::UploadTempObjectSizeMismatch)
+        );
+        let deleted_paths = driver
+            .deleted_paths
+            .lock()
+            .expect("deleted paths lock should not be poisoned")
+            .clone();
+        assert_eq!(deleted_paths, vec!["temp/object"]);
     }
 
     fn test_session(total_size: i64, total_chunks: i32) -> upload_session::Model {

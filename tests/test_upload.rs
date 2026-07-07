@@ -2219,7 +2219,7 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
 
 #[actix_web::test]
 async fn test_complete_upload_is_idempotent_after_completion() {
-    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::db::repository::{upload_session_repo, user_repo};
     use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
@@ -2246,13 +2246,24 @@ async fn test_complete_upload_is_idempotent_after_completion() {
     let first = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
+    let user_after_first = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
     let second = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .unwrap();
+    let user_after_second = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
 
     assert_eq!(second.id, first.id);
     assert_eq!(second.blob_id, first.blob_id);
     assert_eq!(second.name, "idempotent.txt");
+    assert_eq!(user_after_first.storage_used, 10_485_760);
+    assert_eq!(
+        user_after_second.storage_used, user_after_first.storage_used,
+        "completed retry must not charge quota twice"
+    );
 
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
         .await
@@ -2262,6 +2273,66 @@ async fn test_complete_upload_is_idempotent_after_completion() {
         aster_drive::types::UploadSessionStatus::Completed
     );
     assert_eq!(session.file_id, Some(first.id));
+}
+
+#[actix_web::test]
+async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or_charge_quota() {
+    use aster_drive::db::repository::{upload_session_repo, user_repo};
+    use aster_drive::entities::user;
+    use aster_drive::services::{auth::local, files::upload};
+    use aster_drive::types::UploadSessionStatus;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let state = common::setup().await;
+    let user = local::register(&state, "quotaend", "quota-complete@test.com", "password123")
+        .await
+        .unwrap();
+
+    let init = upload::init_upload(
+        &state,
+        user.id,
+        "quota-finalize.txt",
+        10_485_760,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.total_chunks, Some(2));
+
+    let upload_id = init.upload_id.unwrap();
+    let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
+    let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
+        .await
+        .unwrap();
+    upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
+        .await
+        .unwrap();
+
+    let mut active: user::ActiveModel = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap()
+        .into();
+    active.storage_quota = Set(1);
+    active.update(state.writer_db()).await.unwrap();
+
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .unwrap_err();
+    assert_eq!(err.code(), "E032");
+
+    let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+        .await
+        .unwrap();
+    assert_eq!(session.status, UploadSessionStatus::Failed);
+    assert_eq!(session.file_id, None);
+
+    let user_after = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
+    assert_eq!(user_after.storage_used, 0);
 }
 
 #[actix_web::test]

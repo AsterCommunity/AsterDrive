@@ -10,6 +10,7 @@
 
 mod audit;
 mod chunked;
+mod contract;
 mod object_multipart;
 mod plan;
 #[cfg(test)]
