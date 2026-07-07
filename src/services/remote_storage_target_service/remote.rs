@@ -25,7 +25,7 @@ pub async fn list_remote_driver_descriptors<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
 ) -> Result<Vec<RemoteStorageTargetDriverDescriptor>> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    Ok(remote_capability_resolver(&node).managed_ingress_driver_descriptors())
+    Ok(remote_capability_resolver(&node).remote_storage_target_driver_descriptors())
 }
 
 pub async fn create_remote<S: RemoteProtocolRuntimeState>(
@@ -96,7 +96,7 @@ fn ensure_remote_storage_target_driver_supported(
     node: &managed_follower::Model,
     driver_type: DriverType,
 ) -> Result<()> {
-    remote_capability_resolver(node).ensure_managed_ingress_driver_supported(driver_type)
+    remote_capability_resolver(node).ensure_remote_storage_target_driver_supported(driver_type)
 }
 
 fn remote_capability_resolver(node: &managed_follower::Model) -> RemoteCapabilityResolver {

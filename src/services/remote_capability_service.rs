@@ -88,15 +88,20 @@ impl RemoteCapabilityResolver {
         Ok(())
     }
 
-    pub fn managed_ingress_driver_descriptors(&self) -> Vec<RemoteStorageTargetDriverDescriptor> {
-        self.supported_registered_managed_ingress_driver_types()
+    pub fn remote_storage_target_driver_descriptors(
+        &self,
+    ) -> Vec<RemoteStorageTargetDriverDescriptor> {
+        self.supported_registered_remote_storage_target_driver_types()
             .into_iter()
             .filter_map(|driver_type| remote_storage_target_driver_descriptor(driver_type).ok())
             .collect()
     }
 
-    pub fn ensure_managed_ingress_driver_supported(&self, driver_type: DriverType) -> Result<()> {
-        if self.supports_managed_ingress_driver(driver_type) {
+    pub fn ensure_remote_storage_target_driver_supported(
+        &self,
+        driver_type: DriverType,
+    ) -> Result<()> {
+        if self.supports_remote_storage_target_driver(driver_type) {
             return Ok(());
         }
 
@@ -110,8 +115,8 @@ impl RemoteCapabilityResolver {
         ))
     }
 
-    pub fn supports_managed_ingress_driver(&self, driver_type: DriverType) -> bool {
-        self.effective_managed_ingress()
+    pub fn supports_remote_storage_target_driver(&self, driver_type: DriverType) -> bool {
+        self.effective_remote_storage_target_capabilities()
             .supports_known_driver(driver_type)
             && remote_storage_target_driver_descriptor(driver_type).is_ok()
     }
@@ -121,8 +126,8 @@ impl RemoteCapabilityResolver {
             || options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned
     }
 
-    fn effective_managed_ingress(&self) -> RemoteStorageTargetCapabilities {
-        if let Some(capabilities) = &self.capabilities.managed_ingress {
+    fn effective_remote_storage_target_capabilities(&self) -> RemoteStorageTargetCapabilities {
+        if let Some(capabilities) = &self.capabilities.remote_storage_target {
             return capabilities.clone();
         }
 
@@ -138,15 +143,15 @@ impl RemoteCapabilityResolver {
         RemoteStorageTargetCapabilities::default()
     }
 
-    fn supported_registered_managed_ingress_driver_types(&self) -> Vec<DriverType> {
-        let managed_ingress = self.effective_managed_ingress();
-        if !managed_ingress.enabled {
+    fn supported_registered_remote_storage_target_driver_types(&self) -> Vec<DriverType> {
+        let remote_storage_target = self.effective_remote_storage_target_capabilities();
+        if !remote_storage_target.enabled {
             return Vec::new();
         }
 
         registered_remote_storage_target_driver_types()
             .into_iter()
-            .filter(|driver_type| managed_ingress.supports_known_driver(*driver_type))
+            .filter(|driver_type| remote_storage_target.supports_known_driver(*driver_type))
             .filter(|driver_type| remote_storage_target_driver_descriptor(*driver_type).is_ok())
             .collect()
     }
@@ -291,9 +296,13 @@ mod tests {
     fn resolver_treats_empty_cached_capabilities_conservatively() {
         let resolver = RemoteCapabilityResolver::from_last_capabilities(42, "");
 
-        assert!(resolver.managed_ingress_driver_descriptors().is_empty());
+        assert!(
+            resolver
+                .remote_storage_target_driver_descriptors()
+                .is_empty()
+        );
         let error = resolver
-            .ensure_managed_ingress_driver_supported(DriverType::Local)
+            .ensure_remote_storage_target_driver_supported(DriverType::Local)
             .unwrap_err();
         assert_eq!(
             error.api_error_code_override(),
@@ -305,9 +314,13 @@ mod tests {
     fn resolver_treats_unknown_cached_capabilities_conservatively() {
         let resolver = RemoteCapabilityResolver::from_last_capabilities(42, "{}");
 
-        assert!(resolver.managed_ingress_driver_descriptors().is_empty());
+        assert!(
+            resolver
+                .remote_storage_target_driver_descriptors()
+                .is_empty()
+        );
         let error = resolver
-            .ensure_managed_ingress_driver_supported(DriverType::Local)
+            .ensure_remote_storage_target_driver_supported(DriverType::Local)
             .unwrap_err();
         assert_eq!(
             error.api_error_code_override(),
@@ -316,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_filters_unknown_future_managed_ingress_driver_ids() {
+    fn resolver_filters_unknown_future_remote_storage_target_driver_ids() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v5",
             "min_supported_protocol_version": "v4",
@@ -328,7 +341,7 @@ mod tests {
         .to_string();
 
         let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .managed_ingress_driver_descriptors();
+            .remote_storage_target_driver_descriptors();
 
         assert_eq!(
             descriptors
@@ -352,7 +365,7 @@ mod tests {
         .to_string();
 
         let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .managed_ingress_driver_descriptors();
+            .remote_storage_target_driver_descriptors();
 
         assert_eq!(
             descriptors
@@ -364,7 +377,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_rejects_managed_ingress_driver_missing_from_cached_capabilities() {
+    fn resolver_rejects_remote_storage_target_driver_missing_from_cached_capabilities() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v5",
             "min_supported_protocol_version": "v4",
@@ -376,7 +389,7 @@ mod tests {
         .to_string();
 
         let error = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .ensure_managed_ingress_driver_supported(DriverType::S3)
+            .ensure_remote_storage_target_driver_supported(DriverType::S3)
             .unwrap_err();
 
         assert_eq!(
@@ -389,7 +402,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_keeps_v4_fallback_for_missing_managed_ingress() {
+    fn resolver_keeps_v4_fallback_for_missing_remote_storage_target_capabilities() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v4",
             "min_supported_protocol_version": "v4"
@@ -397,7 +410,7 @@ mod tests {
         .to_string();
 
         let descriptors = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities)
-            .managed_ingress_driver_descriptors();
+            .remote_storage_target_driver_descriptors();
 
         assert_eq!(
             descriptors
@@ -409,7 +422,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_does_not_apply_v4_fallback_to_v5_missing_managed_ingress() {
+    fn resolver_does_not_apply_v4_fallback_to_v5_missing_remote_storage_target_capabilities() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v5",
             "min_supported_protocol_version": "v4"
@@ -418,13 +431,17 @@ mod tests {
 
         let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
 
-        assert!(resolver.managed_ingress_driver_descriptors().is_empty());
-        assert!(!resolver.supports_managed_ingress_driver(DriverType::Local));
-        assert!(!resolver.supports_managed_ingress_driver(DriverType::S3));
+        assert!(
+            resolver
+                .remote_storage_target_driver_descriptors()
+                .is_empty()
+        );
+        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
+        assert!(!resolver.supports_remote_storage_target_driver(DriverType::S3));
     }
 
     #[test]
-    fn resolver_honors_explicit_disabled_managed_ingress_on_v4() {
+    fn resolver_honors_explicit_disabled_remote_storage_target_capabilities_on_v4() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v4",
             "min_supported_protocol_version": "v4",
@@ -437,12 +454,16 @@ mod tests {
 
         let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
 
-        assert!(resolver.managed_ingress_driver_descriptors().is_empty());
-        assert!(!resolver.supports_managed_ingress_driver(DriverType::Local));
+        assert!(
+            resolver
+                .remote_storage_target_driver_descriptors()
+                .is_empty()
+        );
+        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
     }
 
     #[test]
-    fn resolver_honors_unknown_only_managed_ingress_driver_ids() {
+    fn resolver_honors_unknown_only_remote_storage_target_driver_ids() {
         let last_capabilities = serde_json::json!({
             "protocol_version": "v5",
             "min_supported_protocol_version": "v4",
@@ -455,8 +476,12 @@ mod tests {
 
         let resolver = RemoteCapabilityResolver::from_last_capabilities(42, &last_capabilities);
 
-        assert!(resolver.managed_ingress_driver_descriptors().is_empty());
-        assert!(!resolver.supports_managed_ingress_driver(DriverType::Local));
+        assert!(
+            resolver
+                .remote_storage_target_driver_descriptors()
+                .is_empty()
+        );
+        assert!(!resolver.supports_remote_storage_target_driver(DriverType::Local));
     }
 
     #[test]
@@ -473,14 +498,14 @@ mod tests {
     }
 
     #[test]
-    fn resolver_exposes_current_v5_managed_ingress_driver_descriptors() {
+    fn resolver_exposes_current_v5_remote_storage_target_driver_descriptors() {
         let capabilities = RemoteStorageCapabilities::current()
             .with_remote_storage_target_driver_types(vec![DriverType::Local, DriverType::S3]);
         let resolver = RemoteCapabilityResolver::from_capabilities(42, capabilities);
 
         assert_eq!(
             resolver
-                .managed_ingress_driver_descriptors()
+                .remote_storage_target_driver_descriptors()
                 .iter()
                 .map(|descriptor| descriptor.driver_type)
                 .collect::<Vec<_>>(),

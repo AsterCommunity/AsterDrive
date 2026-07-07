@@ -58,7 +58,7 @@ impl TryFrom<StorageDescriptorFieldKind> for RemoteStorageTargetDriverFieldKind 
             StorageDescriptorFieldKind::Boolean => Ok(Self::Boolean),
             StorageDescriptorFieldKind::Number => Ok(Self::Number),
             StorageDescriptorFieldKind::Select => {
-                Err("managed ingress target descriptors do not support select fields")
+                Err("remote storage target descriptors do not support select fields")
             }
         }
     }
@@ -68,7 +68,9 @@ fn remote_storage_target_field_kind(
     kind: StorageDescriptorFieldKind,
 ) -> Result<RemoteStorageTargetDriverFieldKind> {
     RemoteStorageTargetDriverFieldKind::try_from(kind).map_err(|message| {
-        AsterError::internal_error(format!("build managed ingress descriptor field: {message}"))
+        AsterError::internal_error(format!(
+            "build remote storage target descriptor field: {message}"
+        ))
     })
 }
 

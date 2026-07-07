@@ -407,7 +407,7 @@ fn normalize_update_input_resets_driver_specific_fields_when_driver_changes() {
 }
 
 #[test]
-fn managed_ingress_driver_registry_contains_supported_builtin_drivers() {
+fn remote_storage_target_driver_registry_contains_supported_builtin_drivers() {
     assert_eq!(
         registered_remote_storage_target_driver_types(),
         vec![DriverType::Local, DriverType::S3]
@@ -423,7 +423,7 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
     let local = descriptors
         .iter()
         .find(|descriptor| descriptor.driver_type == DriverType::Local)
-        .expect("local managed ingress descriptor should be registered");
+        .expect("local remote storage target descriptor should be registered");
     assert_eq!(
         local
             .fields
@@ -448,7 +448,7 @@ fn remote_storage_target_driver_descriptors_cover_builtin_profile_fields() {
     let s3 = descriptors
         .iter()
         .find(|descriptor| descriptor.driver_type == DriverType::S3)
-        .expect("s3 managed ingress descriptor should be registered");
+        .expect("s3 remote storage target descriptor should be registered");
     assert_eq!(
         s3.fields
             .iter()
