@@ -6,7 +6,7 @@ use tokio::io::{AsyncWriteExt, BufWriter};
 use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::workspace_storage_service::{
+use crate::services::workspace::storage::{
     StoreFromTempHints, StoreFromTempParams, create_empty, local_content_dedup_enabled,
     store_from_temp_with_hints,
 };

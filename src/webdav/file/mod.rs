@@ -11,7 +11,7 @@ use crate::db::repository::file_repo;
 use crate::errors::Result as AsterResult;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::storage::StorageDriver;
 use crate::utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
 use crate::webdav::dav::{DavFile, DavMetaData, FsError, FsFuture};
@@ -80,7 +80,7 @@ enum FileMode {
         declared_size: i64,
         policy: crate::entities::storage_policy::Model,
         driver: Arc<dyn StorageDriver>,
-        prepared_upload: Option<workspace_storage_service::PreparedNonDedupBlobUpload>,
+        prepared_upload: Option<storage::PreparedNonDedupBlobUpload>,
         writer: Option<tokio::io::DuplexStream>,
         upload_task: Option<tokio::task::JoinHandle<AsterResult<String>>>,
         written: u64,
@@ -125,7 +125,7 @@ impl AsterDavFile {
     ) -> Result<Self, FsError> {
         let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
         let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
-            let policy = workspace_storage_service::resolve_policy_for_size(
+            let policy = storage::resolve_policy_for_size(
                 &state, scope, folder_id, size_hint,
             )
             .await
@@ -144,7 +144,7 @@ impl AsterDavFile {
                 let file = tokio::fs::File::create(&staging_path)
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                let hasher = workspace_storage_service::local_content_dedup_enabled(&policy)
+                let hasher = storage::local_content_dedup_enabled(&policy)
                     .then(Sha256::new);
 
                 (
@@ -153,7 +153,7 @@ impl AsterDavFile {
                     Some(policy),
                     hasher,
                 )
-            } else if workspace_storage_service::streaming_direct_upload_eligible(
+            } else if storage::streaming_direct_upload_eligible(
                 &policy, size_hint,
             )
             .map_err(|error| {
@@ -168,7 +168,7 @@ impl AsterDavFile {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }
-                workspace_storage_service::check_quota(state.writer_db(), scope, size_hint)
+                storage::check_quota(state.writer_db(), scope, size_hint)
                     .await
                     .map_err(|error| match error {
                         crate::errors::AsterError::StorageQuotaExceeded(_) => {
@@ -183,7 +183,7 @@ impl AsterDavFile {
                     .map_err(|_| FsError::GeneralFailure)?;
                 let _stream_driver = driver.as_stream_upload().ok_or(FsError::GeneralFailure)?;
                 let prepared_upload =
-                    workspace_storage_service::prepare_non_dedup_blob_upload(&policy, size_hint)
+                    storage::prepare_non_dedup_blob_upload(&policy, size_hint)
                         .map_err(|error| {
                             tracing::warn!(
                                 policy_id = policy.id,
@@ -323,7 +323,7 @@ impl Drop for AsterDavFile {
                 let driver = driver.clone();
                 tokio::spawn(async move {
                     let _ = upload_task.await;
-                    workspace_storage_service::cleanup_preuploaded_blob_upload(
+                    storage::cleanup_preuploaded_blob_upload(
                         driver.as_ref(),
                         &prepared_upload,
                         "dropped WebDAV direct upload",
@@ -511,9 +511,9 @@ impl DavFile for AsterDavFile {
                     } else {
                         audit_service::AuditAction::FileUpload
                     };
-                    let stored = workspace_storage_service::store_from_temp_with_hints(
+                    let stored = storage::store_from_temp_with_hints(
                         state,
-                        workspace_storage_service::StoreFromTempParams {
+                        storage::StoreFromTempParams {
                             scope: *scope,
                             folder_id: *folder_id,
                             filename,
@@ -522,7 +522,7 @@ impl DavFile for AsterDavFile {
                             existing_file_id: *existing_file_id,
                             skip_lock_check: true, // WebDAV: handler 已验证 lock token
                         },
-                        workspace_storage_service::StoreFromTempHints {
+                        storage::StoreFromTempHints {
                             resolved_policy: resolved_policy_hint,
                             precomputed_hash: precomputed_hash.as_deref(),
                             actor_username: None,
@@ -578,7 +578,7 @@ impl DavFile for AsterDavFile {
                         .map_err(|_| FsError::GeneralFailure)?;
                     if let Err(error) = upload_result {
                         if let Some(prepared_upload) = prepared_upload.take() {
-                            workspace_storage_service::cleanup_preuploaded_blob_upload(
+                            storage::cleanup_preuploaded_blob_upload(
                                 driver.as_ref(),
                                 &prepared_upload,
                                 "WebDAV direct upload error",
@@ -590,7 +590,7 @@ impl DavFile for AsterDavFile {
 
                     if *written != declared_size_u64(*declared_size)? {
                         if let Some(prepared_upload) = prepared_upload.take() {
-                            workspace_storage_service::cleanup_preuploaded_blob_upload(
+                            storage::cleanup_preuploaded_blob_upload(
                                 driver.as_ref(),
                                 &prepared_upload,
                                 "WebDAV direct upload size mismatch",
@@ -606,9 +606,9 @@ impl DavFile for AsterDavFile {
                     } else {
                         audit_service::AuditAction::FileUpload
                     };
-                    let stored = workspace_storage_service::store_preuploaded_nondedup(
+                    let stored = storage::store_preuploaded_nondedup(
                         state,
-                        workspace_storage_service::StorePreuploadedNondedupParams {
+                        storage::StorePreuploadedNondedupParams {
                             scope: *scope,
                             folder_id: *folder_id,
                             filename,

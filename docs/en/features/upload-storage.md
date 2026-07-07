@@ -25,7 +25,7 @@ Uploads and storage turn a file sent by a browser or client into a database file
 | Module | Owns |
 | --- | --- |
 | `upload_service` | Upload sessions, chunks, progress, status transitions |
-| `workspace_storage_core` | Blob dedupe, file records, quota, policy choice, finalization |
+| `workspace::storage_core` | Blob dedupe, file records, quota, policy choice, finalization |
 | `policy_service` | Storage policies, policy groups, rules |
 | `storage::traits`, `storage::drivers`, `storage::connectors` | `StorageDriver` and `StorageConnector` abstractions, local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `storage::remote_protocol` | Primary/follower internal remote storage protocol |

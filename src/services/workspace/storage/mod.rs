@@ -11,9 +11,9 @@ mod store;
 #[cfg(test)]
 mod tests;
 
-// 调用方只需要依赖 `workspace_storage_service`，不必同时了解 scope helper
+// 调用方只需要依赖 `workspace::storage`，不必同时了解 scope helper
 // 和底层核心实现分别散落在哪个文件里。
-pub(crate) use crate::services::workspace_scope_service::{
+pub(crate) use crate::services::workspace::scope::{
     WorkspaceResourceScope, WorkspaceStorageScope, ensure_active_file_scope,
     ensure_active_folder_scope, ensure_file_resource_scope, ensure_file_scope,
     ensure_folder_resource_scope, ensure_folder_scope, ensure_personal_file_scope,
@@ -24,7 +24,7 @@ pub(crate) use crate::services::workspace_scope_service::{
     verify_file_access, verify_file_access_for_read, verify_folder_access,
     verify_folder_access_for_read,
 };
-pub(crate) use crate::services::workspace_storage_core::{
+pub(crate) use crate::services::workspace::storage_core::{
     FinalizeUploadSessionFileParams, VerifiedFolderPolicyHint, check_quota,
     create_exact_file_from_blob, create_exact_file_from_blob_with_actor_username,
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
@@ -37,7 +37,7 @@ pub(crate) use crate::services::workspace_storage_core::{
     update_storage_used_for_resource_scope,
 };
 
-pub(crate) use crate::services::workspace_scope_service::load_scope_actor_username_cached;
+pub(crate) use crate::services::workspace::scope::load_scope_actor_username_cached;
 pub(crate) use crate::storage::connectors::{
     StorageConnectorUploadTransport as PolicyUploadTransport, resolve_policy_upload_transport,
     streaming_direct_upload_eligible,

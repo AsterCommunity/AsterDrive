@@ -3,7 +3,7 @@
 use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
 use super::spec::{self, TrashPurgeAllTask, decode_payload_as};
 use super::steps::{
@@ -20,7 +20,7 @@ pub(crate) async fn create_trash_purge_all_task_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
 ) -> Result<TaskInfo> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let payload = TrashPurgeAllTaskPayload {};
     let task = create_typed_task_record::<TrashPurgeAllTask>(state, scope, "Empty trash", &payload)

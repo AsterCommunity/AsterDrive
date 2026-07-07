@@ -6,7 +6,7 @@
 //! - presigned object multipart 完成
 //! - relay object multipart 完成
 //!
-//! 目标都是在最后统一落到 `workspace_storage_service` 的文件创建语义上。
+//! 目标都是在最后统一落到 `workspace::storage` 的文件创建语义上。
 
 mod audit;
 mod chunked;
@@ -23,7 +23,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditContext;
 use crate::services::upload_service::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::upload_service::shared::find_file_by_session;
-use crate::services::{workspace_models::FileInfo, workspace_storage_service};
+use crate::services::{workspace::models::FileInfo, workspace::storage};
 use crate::types::UploadSessionStatus;
 
 use self::audit::{
@@ -118,10 +118,10 @@ fn upload_mode_label_from_completion_plan(plan: &CompletionPlan) -> &'static str
 
 async fn load_upload_actor_username_best_effort(
     state: &PrimaryAppState,
-    scope: crate::services::workspace_storage_service::WorkspaceStorageScope,
+    scope: crate::services::workspace::storage::WorkspaceStorageScope,
     upload_id: &str,
 ) -> String {
-    match workspace_storage_service::load_scope_actor_username_cached(state, scope).await {
+    match storage::load_scope_actor_username_cached(state, scope).await {
         Ok(username) => username,
         Err(error) => {
             tracing::warn!(

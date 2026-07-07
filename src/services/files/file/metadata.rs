@@ -9,8 +9,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     storage_change_service, tag_service,
-    workspace_models::FileInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::models::FileInfo,
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::NullablePatch;
 
@@ -19,7 +19,7 @@ pub(crate) async fn get_info_in_scope(
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<file::Model> {
-    workspace_storage_service::verify_file_access_for_read(state, scope, id).await
+    storage::verify_file_access_for_read(state, scope, id).await
 }
 
 pub(crate) async fn get_info_with_storage_used_in_scope(
@@ -57,7 +57,7 @@ pub(crate) async fn update_in_scope(
         folder_patch = ?folder_id,
         "updating file metadata"
     );
-    let f = workspace_storage_service::verify_file_access(state, scope, id).await?;
+    let f = storage::verify_file_access(state, scope, id).await?;
     if f.is_locked {
         return Err(AsterError::resource_locked("file is locked"));
     }
@@ -68,7 +68,7 @@ pub(crate) async fn update_in_scope(
         NullablePatch::Value(fid) => Some(fid),
     };
     if let NullablePatch::Value(fid) = folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, fid).await?;
+        storage::verify_folder_access(state, scope, fid).await?;
     }
 
     let name = match name {

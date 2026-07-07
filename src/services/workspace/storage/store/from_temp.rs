@@ -81,7 +81,7 @@ pub(super) async fn revalidate_overwrite_target<C: ConnectionTrait>(
     skip_lock_check: bool,
 ) -> Result<file::Model> {
     let current_file = file_repo::lock_by_id(txn, old_file.id).await?;
-    crate::services::workspace_storage_service::ensure_active_file_scope(&current_file, scope)?;
+    crate::services::workspace::storage::ensure_active_file_scope(&current_file, scope)?;
 
     if current_file.blob_id != old_file.blob_id {
         return Err(precondition_failed_with_code(

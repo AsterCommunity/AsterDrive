@@ -15,7 +15,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::file as file_ops,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::utils::numbers::u64_to_i64;
 
@@ -346,7 +346,7 @@ pub(crate) async fn store_relative_target_from_stream(
     } = params;
     let resolved_policy_hint = match declared_size {
         Some(size) => Some(
-            workspace_storage_service::resolve_policy_for_size(state, scope, folder_id, size)
+            storage::resolve_policy_for_size(state, scope, folder_id, size)
                 .await?,
         ),
         None => None,
@@ -366,9 +366,9 @@ pub(crate) async fn store_relative_target_from_stream(
     } = streamed;
 
     let result = if exact_name {
-        workspace_storage_service::store_from_temp_exact_name_with_hints(
+        storage::store_from_temp_exact_name_with_hints(
             state,
-            workspace_storage_service::StoreFromTempParams {
+            storage::StoreFromTempParams {
                 scope,
                 folder_id,
                 filename,
@@ -377,7 +377,7 @@ pub(crate) async fn store_relative_target_from_stream(
                 existing_file_id,
                 skip_lock_check: existing_file_id.is_some(),
             },
-            workspace_storage_service::StoreFromTempHints {
+            storage::StoreFromTempHints {
                 resolved_policy,
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: None,
@@ -386,9 +386,9 @@ pub(crate) async fn store_relative_target_from_stream(
         )
         .await
     } else {
-        workspace_storage_service::store_from_temp_with_hints(
+        storage::store_from_temp_with_hints(
             state,
-            workspace_storage_service::StoreFromTempParams {
+            storage::StoreFromTempParams {
                 scope,
                 folder_id,
                 filename,
@@ -397,7 +397,7 @@ pub(crate) async fn store_relative_target_from_stream(
                 existing_file_id,
                 skip_lock_check: existing_file_id.is_some(),
             },
-            workspace_storage_service::StoreFromTempHints {
+            storage::StoreFromTempHints {
                 resolved_policy,
                 precomputed_hash: precomputed_hash.as_deref(),
                 actor_username: None,

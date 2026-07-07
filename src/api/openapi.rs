@@ -484,8 +484,8 @@ use utoipa::{Modify, OpenApi};
             // services::files::folder / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
             crate::services::files::folder::FolderContents,
             crate::services::files::folder::FolderAncestorItem,
-            crate::services::workspace_models::FileInfo,
-            crate::services::workspace_models::FolderInfo,
+            crate::services::workspace::models::FileInfo,
+            crate::services::workspace::models::FolderInfo,
             crate::entities::file::Model,
             crate::entities::folder::Model,
             crate::entities::file_version::Model,

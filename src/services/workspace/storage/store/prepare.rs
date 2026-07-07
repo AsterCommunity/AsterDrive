@@ -9,8 +9,8 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::HASH_BUF_SIZE;
-use crate::services::workspace_storage_service::{
+use crate::services::workspace::storage::HASH_BUF_SIZE;
+use crate::services::workspace::storage::{
     StorageOperationContext, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
     check_quota, local_content_dedup_enabled, prepare_non_dedup_blob_upload,
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
@@ -144,7 +144,7 @@ pub(super) async fn prepare_store_from_temp(
             upload_temp_file_to_prepared_blob(driver.as_ref(), preuploaded_blob, temp_path).await?;
         }
         if let Err(error) = operation_context.checkpoint() {
-            crate::services::workspace_storage_service::cleanup_preuploaded_blob_upload(
+            crate::services::workspace::storage::cleanup_preuploaded_blob_upload(
                 driver.as_ref(),
                 preuploaded_blob,
                 "cancellation after temp preupload",

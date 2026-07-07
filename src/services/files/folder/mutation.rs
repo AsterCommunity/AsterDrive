@@ -17,8 +17,8 @@ use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     storage_change_service,
-    workspace_models::FolderInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
+    workspace::models::FolderInfo,
+    workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::types::NullablePatch;
 use crate::utils::numbers::u64_to_usize;
@@ -172,7 +172,7 @@ pub(crate) async fn create_in_scope(
         actor_user_id,
     } = scope
     {
-        workspace_storage_service::require_team_access_with_db(
+        storage::require_team_access_with_db(
             state,
             state.writer_db(),
             team_id,
@@ -312,7 +312,7 @@ pub(crate) async fn get_info_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<folder::Model> {
-    workspace_storage_service::verify_folder_access_for_read(state, scope, folder_id).await
+    storage::verify_folder_access_for_read(state, scope, folder_id).await
 }
 
 pub(crate) async fn get_info_with_storage_used_in_scope(
@@ -481,7 +481,7 @@ pub(crate) async fn admin_set_policy(
         }
         if let Some(policy_id) = policy_id {
             let policy = policy_repo::find_by_id(txn, policy_id).await?;
-            workspace_storage_service::ensure_policy_available_for_folder_binding(state, &policy)?;
+            storage::ensure_policy_available_for_folder_binding(state, &policy)?;
         }
 
         let previous_policy_id = current.policy_id;
@@ -497,7 +497,7 @@ pub(crate) async fn admin_set_policy(
         state,
         storage_change_service::StorageChangeEvent::new_for_resource_scope(
             storage_change_service::StorageChangeKind::FolderUpdated,
-            workspace_storage_service::WorkspaceResourceScope::from_folder_model(&updated)?,
+            storage::WorkspaceResourceScope::from_folder_model(&updated)?,
             vec![],
             vec![updated.id],
             vec![updated.parent_id],
@@ -649,7 +649,7 @@ pub(crate) async fn set_lock_in_scope(
         locked,
         "setting folder lock state"
     );
-    workspace_storage_service::verify_folder_access(state, scope, folder_id).await?;
+    storage::verify_folder_access(state, scope, folder_id).await?;
 
     if locked {
         lock_service::lock(
@@ -665,7 +665,7 @@ pub(crate) async fn set_lock_in_scope(
         lock_service::unlock(state, EntityType::Folder, folder_id, scope.actor_user_id()).await?;
     }
 
-    let folder = workspace_storage_service::verify_folder_access(state, scope, folder_id).await?;
+    let folder = storage::verify_folder_access(state, scope, folder_id).await?;
     publish_folder_lock_change(state, scope, &folder, locked);
     tracing::debug!(
         scope = ?scope,

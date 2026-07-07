@@ -8,7 +8,7 @@ use crate::db::repository::{file_repo, media_metadata_repo};
 use crate::entities::{blob_media_metadata, file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::{
     FileCategory, MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus, MediaProcessorKind,
     StoredMediaMetadataPayload, VideoMediaMetadata,

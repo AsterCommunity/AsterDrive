@@ -196,7 +196,7 @@ They should:
 
 They should not:
 
-- Bypass `workspace_storage_service` / `workspace_storage_core` with a separate file finalization path
+- Bypass `workspace::storage` / `workspace::storage_core` with a separate file finalization path
 - Bypass `file` / `folder` for blob references, versions, and trash semantics
 - Push WOPI/WebDAV-specific error formats into the generic service error model
 
@@ -249,7 +249,7 @@ Should stay:
 Should move down or continue to converge:
 
 - The finalization contract for trusted size, actual size, hash, blob, file version, quota charge, and cleanup must stay reviewable in one shape
-- Different completion paths should converge toward the same `workspace_storage_service` finalization shape
+- Different completion paths should converge toward the same `workspace::storage` finalization shape
 - Remote and object multipart details should remain in focused init/complete submodules, not flow back into the facade
 
 Side effects that must be explicit:
@@ -261,7 +261,7 @@ Side effects that must be explicit:
 - Audit
 - Storage change and cache invalidation when the path creates or updates a file
 
-### `workspace_storage_service`
+### `workspace::storage`
 
 Current responsibilities:
 
@@ -290,7 +290,7 @@ Side effects that must be explicit:
 - Storage change emission
 - Actor attribution supplied by audit callers
 
-### `workspace_storage_core`
+### `workspace::storage_core`
 
 Current responsibilities:
 
@@ -470,7 +470,7 @@ Current responsibilities:
 - Personal and team file-level use cases
 - Audit wrappers
 - Download outcome construction: stream, range, conditional request, presigned redirect, and inline sandboxing
-- Shared file writes and scope validation through `workspace_storage_service`
+- Shared file writes and scope validation through `workspace::storage`
 
 Should stay:
 
@@ -506,13 +506,13 @@ Current responsibilities:
 
 - `src/webdav/*` handles WebDAV / DeltaV protocol behavior, Basic Auth, path resolution, locks, properties, and transfer
 - `src/services/webdav_service.rs` exposes product actions needed by protocol code, such as folder tree soft delete, purge, and copy
-- WebDAV file writes use the unified `workspace_storage_service` path
+- WebDAV file writes use the unified `workspace::storage` path
 
 Should stay:
 
 - WebDAV-specific auth, path resolution, locks, properties, Depth, Range, and DeltaV behavior
 - Adaptation from protocol semantics to AsterDrive workspace/file/folder semantics
-- Reuse of `file`, `folder`, and `workspace_storage_service`
+- Reuse of `file`, `folder`, and `workspace::storage`
 
 Should not own:
 
@@ -531,7 +531,7 @@ Current responsibilities:
 
 - `src/api/routes/wopi.rs` handles WOPI HTTP method/header/status compatibility
 - `src/services/wopi_service/*` handles discovery, sessions, proof validation, locks, targets, and operations
-- WOPI file reads and writes reuse `file` / `workspace_storage_service`
+- WOPI file reads and writes reuse `file` / `workspace::storage`
 
 Should stay:
 

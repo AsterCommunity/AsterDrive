@@ -15,7 +15,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext};
 use crate::services::files::batch;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub use access::{
     PasswordVerified, ShareCookieBinding, check_share_password_cookie, get_share_avatar_bytes,

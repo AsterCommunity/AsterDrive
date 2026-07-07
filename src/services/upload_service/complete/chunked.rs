@@ -9,7 +9,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::upload_service::shared::{
     cleanup_upload_temp_dir, run_upload_completion_stage,
 };
-use crate::services::workspace_storage_service::{self, PreparedNonDedupBlobUpload};
+use crate::services::workspace::storage::{self, PreparedNonDedupBlobUpload};
 use crate::storage::StorageDriver;
 use crate::storage::connectors::{
     StorageConnectorChunkedCompletion, resolve_policy_upload_transport,
@@ -89,7 +89,7 @@ async fn finalize_chunked_upload_session(
     let assembled = assemble_local_chunks_to_temp_file(
         state,
         session,
-        workspace_storage_service::local_content_dedup_enabled(policy),
+        storage::local_content_dedup_enabled(policy),
     )
     .await?;
     let assemble_elapsed_ms = assemble_started_at.elapsed().as_millis();
@@ -133,7 +133,7 @@ async fn finalize_stream_relay_chunked_upload_session(
     const CHUNK_RELAY_BUFFER_SIZE: usize = 64 * 1024;
 
     let prepared =
-        workspace_storage_service::prepare_non_dedup_blob_upload(policy, session.total_size)?;
+        storage::prepare_non_dedup_blob_upload(policy, session.total_size)?;
     let (writer, reader) = tokio::io::duplex(CHUNK_RELAY_BUFFER_SIZE);
     let relay_task = tokio::spawn(stream_local_chunks_into_writer(
         state.config().server.upload_temp_dir.clone(),
@@ -143,7 +143,7 @@ async fn finalize_stream_relay_chunked_upload_session(
     ));
 
     let upload_started_at = Instant::now();
-    let upload_result = workspace_storage_service::upload_reader_to_prepared_blob(
+    let upload_result = storage::upload_reader_to_prepared_blob(
         driver,
         &prepared,
         Box::new(reader),
@@ -160,7 +160,7 @@ async fn finalize_stream_relay_chunked_upload_session(
     })?;
 
     if let Err(error) = upload_result {
-        workspace_storage_service::cleanup_preuploaded_blob_upload(
+        storage::cleanup_preuploaded_blob_upload(
             driver,
             &prepared,
             "chunked upload storage write error",
@@ -169,7 +169,7 @@ async fn finalize_stream_relay_chunked_upload_session(
         return Err(error);
     }
     if let Err(error) = relay_result {
-        workspace_storage_service::cleanup_preuploaded_blob_upload(
+        storage::cleanup_preuploaded_blob_upload(
             driver,
             &prepared,
             "chunked upload relay error",
@@ -348,8 +348,8 @@ async fn stage_assembled_blob_upload(
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 assembled 文件传上去。
     // 失败只会留下孤儿 storage 对象，由 blob GC 自然回收。
-    let preuploaded = workspace_storage_service::prepare_non_dedup_blob_upload(policy, size)?;
-    workspace_storage_service::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path)
+    let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size)?;
+    storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path)
         .await?;
     Ok(AssembledBlobPlan::Preuploaded(preuploaded))
 }
@@ -378,11 +378,11 @@ async fn persist_assembled_upload(
                 blob.model
             }
             AssembledBlobPlan::Preuploaded(preuploaded) => {
-                workspace_storage_service::persist_preuploaded_blob(&txn, preuploaded).await?
+                storage::persist_preuploaded_blob(&txn, preuploaded).await?
             }
         };
 
-        let created = workspace_storage_service::finalize_upload_session_blob_with_actor_username(
+        let created = storage::finalize_upload_session_blob_with_actor_username(
             &txn,
             session,
             &blob,
@@ -400,7 +400,7 @@ async fn persist_assembled_upload(
         Ok(created) => Ok(created),
         Err(error) => {
             if let AssembledBlobPlan::Preuploaded(preuploaded) = blob_plan {
-                workspace_storage_service::cleanup_preuploaded_blob_upload(
+                storage::cleanup_preuploaded_blob_upload(
                     driver,
                     preuploaded,
                     "chunked upload DB error after storing assembled blob",
@@ -424,8 +424,8 @@ async fn persist_preuploaded_chunked_upload(
     let now = Utc::now();
     let create_result = async {
         let txn = crate::db::transaction::begin(state.writer_db()).await?;
-        let blob = workspace_storage_service::persist_preuploaded_blob(&txn, prepared).await?;
-        let created = workspace_storage_service::finalize_upload_session_blob_with_actor_username(
+        let blob = storage::persist_preuploaded_blob(&txn, prepared).await?;
+        let created = storage::finalize_upload_session_blob_with_actor_username(
             &txn,
             session,
             &blob,
@@ -441,7 +441,7 @@ async fn persist_preuploaded_chunked_upload(
     match create_result {
         Ok(created) => Ok(created),
         Err(error) => {
-            workspace_storage_service::cleanup_preuploaded_blob_upload(
+            storage::cleanup_preuploaded_blob_upload(
                 driver,
                 prepared,
                 "chunked upload DB error after streaming preuploaded blob",

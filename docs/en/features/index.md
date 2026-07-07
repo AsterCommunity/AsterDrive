@@ -24,7 +24,7 @@ If you are a regular user, start with the [User Manual](/en/guide/user-guide) an
 | --- | --- | --- |
 | `auth_service`, `mfa_service`, `passkey_service`, `external_auth_service` | Identity and Access | Local login, security verification, external identity binding |
 | `file`, `folder`, `team_service`, `share_service`, `trash_service`, `version_service` | Files and Workspaces | File chain, team spaces, shares, trash, versions |
-| `upload_service`, `workspace_storage_service`, `policy_service`, `storage::*` | Uploads and Storage | Upload sessions, storage policy selection, blob writes, driver abstraction |
+| `upload_service`, `workspace::storage`, `policy_service`, `storage::*` | Uploads and Storage | Upload sessions, storage policy selection, blob writes, driver abstraction |
 | `thumbnail`, `media_processing_service`, `media_metadata_service`, `archive_preview_service`, `wopi_service` | Preview and Processing | Derived file results, online opening, preview capabilities |
 | `config_service`, `task_service`, `mail::sender`, `audit_service`, `health_service`, `readiness_service` | System and Operations | Hot config, background tasks, mail, audit, health checks |
 

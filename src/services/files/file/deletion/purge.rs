@@ -8,7 +8,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     share_service, storage_change_service,
-    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{i64_to_i32, usize_to_u32};
 
@@ -28,11 +28,11 @@ pub(crate) async fn purge_in_scope(
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<()> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
 
     let file = file_repo::find_by_id(state.writer_db(), id).await?;
-    workspace_storage_service::ensure_file_scope(&file, scope)?;
+    storage::ensure_file_scope(&file, scope)?;
 
     batch_purge_in_scope(state, scope, vec![file]).await?;
     Ok(())
@@ -92,7 +92,7 @@ async fn batch_purge_in_resource_scope_internal(
     );
 
     for file in &files {
-        workspace_storage_service::ensure_file_resource_scope(file, scope)?;
+        storage::ensure_file_resource_scope(file, scope)?;
     }
 
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
@@ -147,7 +147,7 @@ async fn batch_purge_in_resource_scope_internal(
     }
     file_repo::decrement_blob_ref_counts_by(&txn, &ref_count_decrements).await?;
 
-    workspace_storage_service::update_storage_used_for_resource_scope(
+    storage::update_storage_used_for_resource_scope(
         &txn,
         scope,
         -total_freed_bytes,

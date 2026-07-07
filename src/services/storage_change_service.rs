@@ -16,7 +16,7 @@ use crate::cache::CacheBackend;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
-use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
+use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
 
 pub const STORAGE_CHANGE_CHANNEL_CAPACITY: usize = 1024;
 const CACHE_INVALIDATION_COALESCE_DELAY: StdDuration = StdDuration::from_millis(25);
@@ -414,7 +414,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{StorageChangeEvent, StorageChangeKind, StorageChangeWorkspace};
-    use crate::services::workspace_storage_service::WorkspaceStorageScope;
+    use crate::services::workspace::storage::WorkspaceStorageScope;
 
     #[test]
     fn storage_change_event_normalizes_ids_and_root_flag() {

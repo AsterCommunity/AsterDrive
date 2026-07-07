@@ -31,7 +31,7 @@ use crate::services::{
         },
         update_task_progress_db,
     },
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 const EMIT_ARCHIVE_STORAGE_EVENT: bool = true;
@@ -116,7 +116,7 @@ pub(super) async fn process_archive_compress_task(
         )
         .await?;
         if let Some(target_folder_id) = payload.target_folder_id {
-            workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+            storage::verify_folder_access(state, scope, target_folder_id).await?;
         }
 
         let selection = batch::load_normalized_selection_in_scope(
@@ -134,7 +134,7 @@ pub(super) async fn process_archive_compress_task(
         let total_bytes = collected.total_source_bytes();
         let estimated_output_bytes = collected.estimated_output_bytes();
         if estimated_output_bytes > 0 {
-            workspace_storage_service::check_quota(
+            storage::check_quota(
                 state.writer_db(),
                 scope,
                 estimated_output_bytes,
@@ -258,20 +258,20 @@ pub(super) async fn process_archive_compress_task(
             &steps,
         )
         .await?;
-        let stored = workspace_storage_service::store_from_temp_internal(
+        let stored = storage::store_from_temp_internal(
             state,
-            workspace_storage_service::StoreFromTempParams::new(
+            storage::StoreFromTempParams::new(
                 scope,
                 payload.target_folder_id,
                 &payload.archive_name,
                 &archive_temp_path_string,
                 archive_size,
             ),
-            workspace_storage_service::StoreFromTempHints {
+            storage::StoreFromTempHints {
                 operation_context: context.storage_operation_context(),
                 ..Default::default()
             },
-            workspace_storage_service::NewFileMode::ResolveUnique,
+            storage::NewFileMode::ResolveUnique,
             EMIT_ARCHIVE_STORAGE_EVENT,
         )
         .await?;

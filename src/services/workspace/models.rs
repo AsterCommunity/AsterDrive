@@ -1,4 +1,4 @@
-//! 服务模块：`workspace_models`。
+//! 服务模块：`workspace::models`。
 
 use chrono::{DateTime, Utc};
 use serde::Serialize;

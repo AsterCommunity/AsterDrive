@@ -4,8 +4,8 @@ use crate::entities::file;
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
-    lock_service, storage_change_service, workspace_models::FileInfo,
-    workspace_storage_service::WorkspaceStorageScope,
+    lock_service, storage_change_service, workspace::models::FileInfo,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
 
@@ -21,7 +21,7 @@ pub(crate) async fn set_lock_in_scope(
         locked,
         "setting file lock state"
     );
-    crate::services::workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    crate::services::workspace::storage::verify_file_access(state, scope, file_id).await?;
 
     if locked {
         lock_service::lock(
@@ -38,7 +38,7 @@ pub(crate) async fn set_lock_in_scope(
     }
 
     let file =
-        crate::services::workspace_storage_service::verify_file_access(state, scope, file_id)
+        crate::services::workspace::storage::verify_file_access(state, scope, file_id)
             .await?;
     publish_file_lock_change(state, scope, &file, locked).await?;
     tracing::debug!(

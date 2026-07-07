@@ -11,7 +11,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     storage_change_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 use super::shared::{load_folder_ancestor_ids_in_scope, load_target_folder_in_scope};
@@ -141,7 +141,7 @@ pub(crate) async fn batch_move_in_scope(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_file_scope(file, scope) {
+        if let Err(err) = storage::ensure_active_file_scope(file, scope) {
             result.record_failure("file", id, err.to_string());
             continue;
         }
@@ -188,7 +188,7 @@ pub(crate) async fn batch_move_in_scope(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_folder_scope(folder, scope) {
+        if let Err(err) = storage::ensure_active_folder_scope(folder, scope) {
             result.record_failure("folder", id, err.to_string());
             continue;
         }
@@ -307,7 +307,7 @@ async fn revalidate_batch_folder_move<C: ConnectionTrait>(
     let target_chain = load_folder_chain_in_scope(db, scope, target_folder_id).await?;
     for &folder_id in folder_ids_to_move {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
-        workspace_storage_service::ensure_active_folder_scope(&folder, scope)?;
+        storage::ensure_active_folder_scope(&folder, scope)?;
         if folder.is_locked {
             return Err(AsterError::resource_locked("folder is locked"));
         }
@@ -336,7 +336,7 @@ async fn load_folder_chain_in_scope<C: ConnectionTrait>(
             ));
         }
         let folder = folder_repo::find_by_id(db, folder_id).await?;
-        workspace_storage_service::ensure_active_folder_scope(&folder, scope)?;
+        storage::ensure_active_folder_scope(&folder, scope)?;
         cursor = folder.parent_id;
         chain.push(folder);
     }

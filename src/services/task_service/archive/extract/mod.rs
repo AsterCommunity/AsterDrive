@@ -32,7 +32,7 @@ use crate::services::{
             TaskInfo,
         },
     },
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::BackgroundTaskStatus;
 use import::materialize_archive_extract_stage;
@@ -47,14 +47,14 @@ pub(crate) async fn create_archive_extract_task_in_scope(
     file_id: i64,
     params: CreateArchiveExtractTaskParams,
 ) -> Result<TaskInfo> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
-    let source_file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
-    workspace_storage_service::ensure_active_file_scope(&source_file, scope)?;
+    let source_file = storage::verify_file_access(state, scope, file_id).await?;
+    storage::ensure_active_file_scope(&source_file, scope)?;
     ensure_extract_source_supported(&source_file)?;
 
     if let Some(target_folder_id) = params.target_folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+        storage::verify_folder_access(state, scope, target_folder_id).await?;
     }
 
     let payload = ArchiveExtractTaskPayload {
@@ -92,11 +92,11 @@ pub(super) async fn process_archive_extract_task(
             None,
         )?;
         let source_file =
-            workspace_storage_service::verify_file_access(state, scope, payload.file_id).await?;
-        workspace_storage_service::ensure_active_file_scope(&source_file, scope)?;
+            storage::verify_file_access(state, scope, payload.file_id).await?;
+        storage::ensure_active_file_scope(&source_file, scope)?;
         let archive_format = ensure_extract_source_supported(&source_file)?;
         if let Some(target_folder_id) = payload.target_folder_id {
-            workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+            storage::verify_folder_access(state, scope, target_folder_id).await?;
         }
         let max_staging_bytes =
             operations::archive_extract_max_staging_bytes(state.runtime_config());
@@ -459,7 +459,7 @@ async fn resolve_archive_extract_policy_resolver(
             team_id,
             actor_user_id,
         } => {
-            let policy_group_id = workspace_storage_service::require_team_policy_group_id(
+            let policy_group_id = storage::require_team_policy_group_id(
                 state,
                 team_id,
                 actor_user_id,

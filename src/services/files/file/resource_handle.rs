@@ -10,7 +10,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{media_processing_service, workspace_storage_service::WorkspaceStorageScope};
+use crate::services::{media_processing_service, workspace::storage::WorkspaceStorageScope};
 use crate::storage::PresignedDownloadOptions;
 
 use super::{DownloadDisposition, get_info_in_scope, requires_inline_sandbox};

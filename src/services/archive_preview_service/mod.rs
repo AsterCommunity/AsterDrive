@@ -14,8 +14,8 @@ use crate::errors::{
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::archive_service::format::{ArchiveFormat, detect_supported_archive_format};
 use crate::services::archive_service::scan::ArchiveScanLimits;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
-use crate::services::{share_service, task_service, workspace_storage_service};
+use crate::services::workspace::storage::WorkspaceStorageScope;
+use crate::services::{share_service, task_service, workspace::storage};
 use crate::types::ArchiveFilenameEncoding;
 
 mod cache;
@@ -89,10 +89,10 @@ pub(crate) async fn preview_file_in_scope(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_user_preview_enabled(state)?;
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
     let source_file =
-        workspace_storage_service::verify_file_access_for_read(state, scope, file_id).await?;
-    workspace_storage_service::ensure_active_file_scope(&source_file, scope)?;
+        storage::verify_file_access_for_read(state, scope, file_id).await?;
+    storage::ensure_active_file_scope(&source_file, scope)?;
     preview_verified_file(state, &source_file, filename_encoding).await
 }
 

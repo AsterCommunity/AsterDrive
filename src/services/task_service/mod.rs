@@ -66,7 +66,7 @@ use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     profile_service, user_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
 use crate::utils::numbers::{i64_to_i32, i64_to_u64};
@@ -268,8 +268,8 @@ impl TaskExecutionContext {
 
     pub(super) fn storage_operation_context(
         &self,
-    ) -> workspace_storage_service::StorageOperationContext {
-        workspace_storage_service::StorageOperationContext::new(TaskStorageCancellationCheck {
+    ) -> storage::StorageOperationContext {
+        storage::StorageOperationContext::new(TaskStorageCancellationCheck {
             context: self.clone(),
         })
     }
@@ -295,7 +295,7 @@ struct TaskStorageCancellationCheck {
     context: TaskExecutionContext,
 }
 
-impl workspace_storage_service::StorageCancellationCheck for TaskStorageCancellationCheck {
+impl storage::StorageCancellationCheck for TaskStorageCancellationCheck {
     fn checkpoint(&self) -> Result<()> {
         self.context.ensure_active()
     }
@@ -307,7 +307,7 @@ pub(crate) async fn list_tasks_paginated_in_scope(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<TaskInfo>> {
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
 
     let limit = limit.clamp(1, operations::task_list_max_limit(state.runtime_config()));
     let (tasks, total) = match scope {
@@ -374,7 +374,7 @@ pub(crate) async fn get_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
@@ -386,7 +386,7 @@ pub(crate) async fn retry_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
@@ -1223,7 +1223,7 @@ mod tests {
         RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
         RuntimeTaskResult, TaskPresentationCode, TaskResult,
     };
-    use crate::services::workspace_storage_service::WorkspaceStorageScope;
+    use crate::services::workspace::storage::WorkspaceStorageScope;
     use crate::types::{
         BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
         StoredTaskRuntime,

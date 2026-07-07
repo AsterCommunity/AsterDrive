@@ -48,10 +48,10 @@ async fn seed_nested_file(
     user_id: i64,
     root_parent_id: Option<i64>,
 ) -> (
-    aster_drive::services::workspace_models::FolderInfo,
-    aster_drive::services::workspace_models::FolderInfo,
-    aster_drive::services::workspace_models::FolderInfo,
-    aster_drive::services::workspace_models::FileInfo,
+    aster_drive::services::workspace::models::FolderInfo,
+    aster_drive::services::workspace::models::FolderInfo,
+    aster_drive::services::workspace::models::FolderInfo,
+    aster_drive::services::workspace::models::FileInfo,
     String,
 ) {
     use aster_drive::services::{files::file, files::folder};

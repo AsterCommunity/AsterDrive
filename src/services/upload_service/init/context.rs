@@ -9,14 +9,14 @@ use crate::services::upload_service::responses::InitUploadResponse;
 use crate::services::upload_service::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::storage::MultipartStorageDriver;
 use crate::types::{UploadMode, UploadSessionStatus};
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
     pub(super) folder_id: Option<i64>,
-    pub(super) folder: Option<workspace_storage_service::VerifiedFolderPolicyHint>,
+    pub(super) folder: Option<storage::VerifiedFolderPolicyHint>,
     pub(super) filename: String,
 }
 
@@ -105,7 +105,7 @@ async fn resolve_upload_target(
         Some(path) => {
             // 目录上传会把 `relative_path` 拆成“父目录链 + 最终文件名”。
             // 这里就把目录路径补齐，后续模式选择和 session 记录都只看解析后的最终目标。
-            let parsed = workspace_storage_service::parse_relative_upload_path(
+            let parsed = storage::parse_relative_upload_path(
                 state, scope, folder_id, path,
             )
             .await?;
@@ -113,11 +113,11 @@ async fn resolve_upload_target(
                 None
             } else {
                 Some(
-                    workspace_storage_service::load_scope_actor_username_cached(state, scope)
+                    storage::load_scope_actor_username_cached(state, scope)
                         .await?,
                 )
             };
-            let resolved_parent = workspace_storage_service::ensure_upload_parent_path(
+            let resolved_parent = storage::ensure_upload_parent_path(
                 state,
                 scope,
                 &parsed,
@@ -135,10 +135,10 @@ async fn resolve_upload_target(
             let folder = match folder_id {
                 Some(folder_id) => {
                     let folder =
-                        workspace_storage_service::verify_folder_access(state, scope, folder_id)
+                        storage::verify_folder_access(state, scope, folder_id)
                             .await?;
                     Some(
-                        workspace_storage_service::resolve_verified_folder_policy_hint(
+                        storage::resolve_verified_folder_policy_hint(
                             state, scope, folder,
                         )
                         .await?,
@@ -158,7 +158,7 @@ async fn resolve_upload_target(
 async fn resolve_init_upload_policy(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    folder: Option<workspace_storage_service::VerifiedFolderPolicyHint>,
+    folder: Option<storage::VerifiedFolderPolicyHint>,
     total_size: i64,
 ) -> Result<storage_policy::Model> {
     if total_size < 0 {
@@ -168,12 +168,12 @@ async fn resolve_init_upload_policy(
     }
 
     // upload 模式协商建立在“最终会写到哪条策略”之上，而不是客户端自己传 mode。
-    let policy = workspace_storage_service::resolve_policy_for_size_with_verified_folder(
+    let policy = storage::resolve_policy_for_size_with_verified_folder(
         state, scope, folder, total_size,
     )
     .await?;
     validate_policy_upload_size(&policy, total_size)?;
-    workspace_storage_service::check_quota(state.writer_db(), scope, total_size).await?;
+    storage::check_quota(state.writer_db(), scope, total_size).await?;
     Ok(policy)
 }
 

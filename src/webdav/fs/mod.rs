@@ -12,7 +12,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     files::{file as file_ops, folder},
     property_service, storage_change_service, webdav_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
 use crate::utils::numbers::i64_to_u64;
@@ -319,7 +319,7 @@ impl DavFileSystem for AsterDavFs {
             let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
 
             let folders_started_at = Instant::now();
-            let folders = crate::services::workspace_storage_service::list_folders_in_parent(
+            let folders = crate::services::workspace::storage::list_folders_in_parent(
                 &self.state,
                 self.scope,
                 folder_id,
@@ -329,7 +329,7 @@ impl DavFileSystem for AsterDavFs {
             let folders_elapsed_ms = folders_started_at.elapsed().as_millis();
 
             let files_started_at = Instant::now();
-            let files = crate::services::workspace_storage_service::list_files_in_folder(
+            let files = crate::services::workspace::storage::list_files_in_folder(
                 &self.state,
                 self.scope,
                 folder_id,

@@ -16,7 +16,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     params(("id" = i64, Path, description = "Folder ID")),
     request_body = SetFolderPolicyReq,
     responses(
-        (status = 200, description = "Folder policy binding updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Folder policy binding updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder or policy not found"),

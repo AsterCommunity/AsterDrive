@@ -12,7 +12,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::file::{self as file_ops, ResolvedDownloadRange},
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{u64_to_usize, usize_to_u64};
 
@@ -31,7 +31,7 @@ pub(crate) async fn create_token_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<DirectLinkTokenInfo> {
-    let file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let file = storage::verify_file_access(state, scope, file_id).await?;
     let token = build_token(&file, &state.config().auth.direct_link_secret)?;
     Ok(DirectLinkTokenInfo { token })
 }
@@ -164,7 +164,7 @@ async fn validate_file_scope(state: &impl SharedRuntimeState, file: &file::Model
             Err(error) => return Err(error),
         }
     } else {
-        workspace_storage_service::ensure_personal_file_scope(file)?;
+        storage::ensure_personal_file_scope(file)?;
     }
 
     Ok(())

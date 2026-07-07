@@ -13,7 +13,7 @@ use crate::services::{
     auth::local::Claims,
     files::{direct_link, file, preview_link},
     media_metadata_service, media_processing_service, wopi_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -42,7 +42,7 @@ pub(crate) fn download_disposition_from_query(
     operation_id = "get_file",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "File info", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "File info", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -375,7 +375,7 @@ pub async fn get_image_preview(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "Team file info", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Team file info", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),

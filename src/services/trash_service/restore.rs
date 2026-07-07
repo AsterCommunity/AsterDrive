@@ -8,7 +8,7 @@ use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
     files::folder as folder_ops, storage_change_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 
 use super::common::{

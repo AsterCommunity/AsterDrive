@@ -12,8 +12,8 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     storage_change_service,
-    workspace_models::{FileInfo, FileVersion},
-    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::models::{FileInfo, FileVersion},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 
 async fn load_version_for_file(
@@ -120,7 +120,7 @@ async fn restore_version_inner(
         )?;
     }
     if reclaimed_bytes != 0 {
-        workspace_storage_service::update_storage_used(&txn, scope, -reclaimed_bytes).await?;
+        storage::update_storage_used(&txn, scope, -reclaimed_bytes).await?;
     }
 
     crate::db::transaction::commit(txn).await?;
@@ -180,7 +180,7 @@ async fn delete_version_inner(
     version_repo::delete_by_id(&txn, version_id).await?;
     version_repo::decrement_versions_after(&txn, file_id, version_number).await?;
     if size != 0 {
-        workspace_storage_service::update_storage_used(&txn, scope, -size).await?;
+        storage::update_storage_used(&txn, scope, -size).await?;
     }
     crate::db::transaction::commit(txn).await?;
     storage_change_service::publish(
@@ -212,7 +212,7 @@ async fn list_versions_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<Vec<file_version::Model>> {
-    workspace_storage_service::verify_file_access_for_read(state, scope, file_id).await?;
+    storage::verify_file_access_for_read(state, scope, file_id).await?;
     version_repo::find_by_file_id(state.reader_db(), file_id).await
 }
 
@@ -222,13 +222,13 @@ async fn restore_version_in_scope(
     file_id: i64,
     version_id: i64,
 ) -> Result<crate::entities::file::Model> {
-    let file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let file = storage::verify_file_access(state, scope, file_id).await?;
     if let WorkspaceStorageScope::Team {
         team_id,
         actor_user_id,
     } = scope
     {
-        workspace_storage_service::require_team_management_access(state, team_id, actor_user_id)
+        storage::require_team_management_access(state, team_id, actor_user_id)
             .await?;
     }
     let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
@@ -241,13 +241,13 @@ async fn delete_version_in_scope(
     file_id: i64,
     version_id: i64,
 ) -> Result<()> {
-    let file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let file = storage::verify_file_access(state, scope, file_id).await?;
     if let WorkspaceStorageScope::Team {
         team_id,
         actor_user_id,
     } = scope
     {
-        workspace_storage_service::require_team_management_access(state, team_id, actor_user_id)
+        storage::require_team_management_access(state, team_id, actor_user_id)
             .await?;
     }
     let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
@@ -386,7 +386,7 @@ pub async fn delete_version_with_audit(
     user_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
-    let file = workspace_storage_service::verify_file_access(
+    let file = storage::verify_file_access(
         state,
         WorkspaceStorageScope::Personal { user_id },
         file_id,
@@ -434,7 +434,7 @@ pub async fn delete_version_for_team_with_audit(
     user_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
-    let file = workspace_storage_service::verify_file_access(
+    let file = storage::verify_file_access(
         state,
         WorkspaceStorageScope::Team {
             team_id,
@@ -478,7 +478,7 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
             version_repo::delete_by_id(&txn, oldest.id).await?;
             version_repo::decrement_versions_after(&txn, file_id, oldest.version).await?;
             if oldest.size != 0 {
-                workspace_storage_service::update_storage_used_for_resource_scope(
+                storage::update_storage_used_for_resource_scope(
                     &txn,
                     scope,
                     -oldest.size,
@@ -540,7 +540,7 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let blob_ids = version_repo::delete_all_by_file_id(&txn, file_id).await?;
     if reclaimed_bytes != 0 {
-        workspace_storage_service::update_storage_used_for_resource_scope(
+        storage::update_storage_used_for_resource_scope(
             &txn,
             scope,
             -reclaimed_bytes,

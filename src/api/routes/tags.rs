@@ -20,7 +20,7 @@ use crate::services::{
     audit_service,
     auth::local::Claims,
     tag_service::{self, EntityTags, MinimalTagInfo},
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
 use actix_governor::Governor;

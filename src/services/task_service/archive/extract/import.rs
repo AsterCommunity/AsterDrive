@@ -14,8 +14,8 @@ use crate::services::{
         steps::{TASK_STEP_IMPORT_RESULT, set_task_step_active},
         types::TaskStepInfo,
     },
-    workspace_storage_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage,
+    workspace::storage::WorkspaceStorageScope,
 };
 
 #[derive(Debug, Default)]
@@ -98,16 +98,16 @@ pub(super) async fn materialize_archive_extract_stage(
         let size = i64::try_from(metadata.len()).map_aster_err_with(|| {
             AsterError::internal_error("extracted file size exceeds i64 range")
         })?;
-        let created = workspace_storage_service::store_from_temp_exact_name_silent_with_hints(
+        let created = storage::store_from_temp_exact_name_silent_with_hints(
             state,
-            workspace_storage_service::StoreFromTempParams::new(
+            storage::StoreFromTempParams::new(
                 scope,
                 Some(parent_id),
                 name,
                 &temp_path.to_string_lossy(),
                 size,
             ),
-            workspace_storage_service::StoreFromTempHints {
+            storage::StoreFromTempHints {
                 operation_context: context.storage_operation_context(),
                 ..Default::default()
             },

@@ -11,7 +11,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::{file as file_ops, folder as folder_ops},
     storage_change_service,
-    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::types::EntityType;
 
@@ -109,7 +109,7 @@ pub(super) fn parent_restore_target_unavailable(
     scope: WorkspaceStorageScope,
 ) -> Result<bool> {
     match parent_result {
-        Ok(parent) => match workspace_storage_service::ensure_folder_scope(parent, scope) {
+        Ok(parent) => match storage::ensure_folder_scope(parent, scope) {
             Ok(()) => Ok(parent.deleted_at.is_some()),
             Err(AsterError::AuthForbidden(_))
             | Err(AsterError::RecordNotFound(_))
@@ -130,10 +130,10 @@ pub(super) async fn verify_file_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<file::Model> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
-    workspace_storage_service::ensure_file_scope(&file, scope)?;
+    storage::ensure_file_scope(&file, scope)?;
     if file.deleted_at.is_none() {
         return Err(AsterError::validation_error("file is not in trash"));
     }
@@ -145,10 +145,10 @@ pub(super) async fn verify_folder_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<folder::Model> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let folder = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
-    workspace_storage_service::ensure_folder_scope(&folder, scope)?;
+    storage::ensure_folder_scope(&folder, scope)?;
     if folder.deleted_at.is_none() {
         return Err(AsterError::validation_error("folder is not in trash"));
     }

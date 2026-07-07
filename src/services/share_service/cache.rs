@@ -9,7 +9,7 @@ use crate::db::repository::share_repo;
 use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
+use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
 use crate::utils::hash;
 
 const ACTIVE_SHARE_TARGET_CACHE_TTL: u64 = 60;

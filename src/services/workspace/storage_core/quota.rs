@@ -2,7 +2,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{team_repo, user_repo};
 use crate::errors::Result;
-use crate::services::workspace_scope_service::{WorkspaceResourceScope, WorkspaceStorageScope};
+use crate::services::workspace::scope::{WorkspaceResourceScope, WorkspaceStorageScope};
 
 pub(crate) async fn check_quota<C: ConnectionTrait>(
     db: &C,

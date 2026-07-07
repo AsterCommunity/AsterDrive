@@ -14,7 +14,7 @@ use crate::services::upload_service::responses::{
 use crate::services::upload_service::scope::{
     load_upload_session, load_upload_session_for_read, personal_scope, team_scope,
 };
-use crate::services::workspace_storage_service::{self, resolve_policy_upload_transport};
+use crate::services::workspace::storage::{self, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use crate::utils::paths;
 use futures::{StreamExt, stream};
@@ -193,7 +193,7 @@ pub async fn list_recoverable_sessions_for_team(
     user_id: i64,
     frontend_client_id: Option<&str>,
 ) -> Result<Vec<RecoverableUploadSessionResponse>> {
-    workspace_storage_service::require_team_access(state, team_id, user_id).await?;
+    storage::require_team_access(state, team_id, user_id).await?;
     list_recoverable_sessions_impl(state, user_id, Some(team_id), frontend_client_id).await
 }
 

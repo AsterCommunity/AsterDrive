@@ -26,7 +26,7 @@ use crate::services::{
         types::TaskStepInfo,
         update_task_progress_db,
     },
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::storage::PolicySnapshot;
 use crate::types::ArchiveFilenameEncoding;
@@ -461,7 +461,7 @@ fn prepare_archive_staging_after_preflight(
     }
     if total_bytes > 0 {
         handle.block_on(async {
-            workspace_storage_service::check_quota(db, options.scope, total_bytes).await
+            storage::check_quota(db, options.scope, total_bytes).await
         })?;
     }
     let total_progress = total_bytes

@@ -13,7 +13,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::task_service::TaskExecutionContext;
 use crate::services::{
     files::folder as folder_ops,
-    workspace_storage_service::{WorkspaceStorageScope, load_scope_actor_username},
+    workspace::storage::{WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::storage::{DriverRegistry, PolicySnapshot};
 

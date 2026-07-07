@@ -4,7 +4,7 @@ use crate::db::repository::file_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    media_processing_service, task_service, workspace_storage_service::WorkspaceStorageScope,
+    media_processing_service, task_service, workspace::storage::WorkspaceStorageScope,
 };
 use bytes::Bytes;
 

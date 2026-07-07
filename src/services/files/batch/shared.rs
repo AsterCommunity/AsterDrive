@@ -6,7 +6,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result, display_error};
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
 use super::MAX_BATCH_ITEMS;
 
@@ -168,7 +168,7 @@ pub(crate) async fn load_normalized_selection_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<NormalizedSelection> {
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
     validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map = build_file_map(find_files_by_ids_in_scope(state, scope, file_ids).await?);
@@ -206,7 +206,7 @@ pub(super) async fn load_target_folder_in_scope(
         return Ok(None);
     };
 
-    workspace_storage_service::verify_folder_access(state, scope, folder_id)
+    storage::verify_folder_access(state, scope, folder_id)
         .await
         .map(Some)
         .map_err(display_error)
@@ -221,7 +221,7 @@ pub(super) async fn load_folder_ancestor_ids_in_scope(
     let mut current = target_folder.cloned();
 
     while let Some(folder) = current {
-        workspace_storage_service::ensure_active_folder_scope(&folder, scope)?;
+        storage::ensure_active_folder_scope(&folder, scope)?;
         ancestors.insert(folder.id);
         current = match folder.parent_id {
             Some(parent_id) => Some(folder_repo::find_by_id(state.writer_db(), parent_id).await?),

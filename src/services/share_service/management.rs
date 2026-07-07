@@ -16,7 +16,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::batch,
     profile_service, user_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::utils::{hash, id};
 
@@ -51,7 +51,7 @@ pub(crate) async fn create_share_in_scope(
         max_downloads,
         "creating share"
     );
-    workspace_storage_service::require_scope_access_with_db(state, db, scope).await?;
+    storage::require_scope_access_with_db(state, db, scope).await?;
 
     validate_max_downloads(max_downloads)?;
 
@@ -143,7 +143,7 @@ pub(crate) async fn list_shares_paginated_in_scope(
         offset,
         "listing paginated shares"
     );
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
         let (shares, total) = match scope {
@@ -253,7 +253,7 @@ pub(crate) async fn batch_delete_shares_in_scope(
         share_count = share_ids.len(),
         "batch deleting shares"
     );
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
     let mut result = batch::BatchResult {
         succeeded: 0,
         failed: 0,

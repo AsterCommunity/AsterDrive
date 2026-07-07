@@ -34,7 +34,7 @@
 | 数据怎么查怎么写 | `src/db/repository/**` | repo 层封装数据库访问和跨库兼容细节 |
 | 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `src/storage/**` | connector descriptor、驱动抽象、具体驱动和远端协议都在这里 |
 | WebDAV 为什么和 REST 不一样 | `src/webdav/**` | 这是单独的协议接入层 |
-| 团队空间为什么复用个人空间语义 | `src/services/workspace_scope_service.rs`、`src/services/workspace_storage_service/`、`src/services/workspace_storage_core.rs`、`src/services/workspace_storage_core/`、`src/services/files/folder/`、`src/services/files/file/` | scope 切换、上传编排和统一存储核心链路都在这里 |
+| 团队空间为什么复用个人空间语义 | `src/services/workspace/scope/`、`src/services/workspace/storage/`、`src/services/workspace/models.rs`、`src/services/workspace/storage_core/`、`src/services/files/folder/`、`src/services/files/file/` | scope 切换、上传编排和统一存储核心链路都在这里 |
 | 表结构怎么演进 | `migration/`、`src/entities/**` | migration 和 entity 必须一起看 |
 
 追一个具体功能时，最省时间的路径通常是：

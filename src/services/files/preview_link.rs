@@ -17,7 +17,7 @@ use crate::services::{
         file::{self as file_ops, ResolvedDownloadRange},
     },
     share_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 const PREVIEW_LINK_TTL_SECS: i64 = 5 * 60;
@@ -64,7 +64,7 @@ pub(crate) async fn create_token_for_file_in_scope_for_origin(
     file_id: i64,
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
-    let file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let file = storage::verify_file_access(state, scope, file_id).await?;
     let payload = build_payload(PreviewSubject::File { file_id: file.id });
     build_link_for_file(state, &file, &payload, Some(request_origin)).await
 }

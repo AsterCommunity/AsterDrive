@@ -14,8 +14,8 @@ use crate::entities::{file, wopi_session};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    auth::local, preview_app_service, workspace_storage_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    auth::local, preview_app_service, workspace::storage,
+    workspace::storage::WorkspaceStorageScope,
 };
 
 use super::discovery::{
@@ -102,7 +102,7 @@ pub(crate) async fn create_launch_session_in_scope(
 ) -> Result<WopiLaunchSession> {
     // launch 阶段做的是“把内部 file 访问权翻译成外部 WOPI app 可用的 action_url +
     // access_token”，并不是立刻打开文档。
-    let file = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let file = storage::verify_file_access(state, scope, file_id).await?;
     let auth_snapshot = local::get_auth_snapshot(state, scope.actor_user_id()).await?;
     let app = preview_app_service::get_public_preview_apps(state)
         .apps
@@ -287,7 +287,7 @@ pub(crate) async fn resolve_access_token(
 
     // 最终仍回到统一文件 scope 校验：WOPI 只是另一个接入层，不应绕开个人/团队边界。
     let file =
-        workspace_storage_service::verify_file_access(state, scope_from_payload(&payload), file_id)
+        storage::verify_file_access(state, scope_from_payload(&payload), file_id)
             .await?;
 
     Ok(ResolvedWopiAccess { file, payload })

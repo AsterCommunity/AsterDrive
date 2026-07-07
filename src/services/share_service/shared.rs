@@ -17,7 +17,7 @@ use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::{file, folder},
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::EntityType;
 
@@ -69,12 +69,12 @@ pub(super) async fn lock_share_resource_in_scope<C: sea_orm::ConnectionTrait>(
     // 最终写出多条针对同一资源的活跃 share。
     if let Some(file_id) = file_id {
         let file = file_repo::lock_by_id(db, file_id).await?;
-        workspace_storage_service::ensure_active_file_scope(&file, scope)?;
+        storage::ensure_active_file_scope(&file, scope)?;
     }
 
     if let Some(folder_id) = folder_id {
         let folder = folder_repo::lock_by_id(db, folder_id).await?;
-        workspace_storage_service::ensure_active_folder_scope(&folder, scope)?;
+        storage::ensure_active_folder_scope(&folder, scope)?;
     }
 
     Ok(())
@@ -85,7 +85,7 @@ pub(super) async fn load_share_in_scope(
     scope: WorkspaceStorageScope,
     share_id: i64,
 ) -> Result<share::Model> {
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
     let share = share_repo::find_by_id(state.writer_db(), share_id).await?;
     ensure_share_scope(&share, scope)?;
     Ok(share)

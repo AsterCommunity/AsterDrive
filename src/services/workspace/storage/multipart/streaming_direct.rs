@@ -6,7 +6,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::{
+use crate::services::workspace::storage::{
     StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
 };

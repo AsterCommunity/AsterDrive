@@ -1,7 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, file_upload_error_with_code, validation_error_with_code};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 #[derive(Clone, Copy)]
 pub(super) struct DirectUploadParams<'a> {

@@ -14,8 +14,8 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::folder::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
     share_service, tag_service,
-    workspace_storage_service::WorkspaceResourceScope,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::WorkspaceResourceScope,
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::FileCategory;
 use crate::utils::file_classification::{parse_extension_filters, parse_file_category};
@@ -305,7 +305,7 @@ pub(crate) async fn search_in_scope(
 ) -> Result<SearchResults> {
     validate_search_params(params)?;
     let file_filters = normalize_file_filters(params)?;
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
 
     let limit = params.limit.unwrap_or(50).clamp(1, 100);
     let offset = params.offset.unwrap_or(0);

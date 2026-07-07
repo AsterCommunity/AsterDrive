@@ -20,10 +20,10 @@
 
 对应代码主要在：
 
-- `src/services/workspace_scope_service.rs`
-- `src/services/workspace_storage_service/`
-- `src/services/workspace_storage_core.rs`
-- `src/services/workspace_storage_core/`
+- `src/services/workspace/scope/`
+- `src/services/workspace/storage/`
+- `src/services/workspace/models.rs`
+- `src/services/workspace/storage_core/`
 - `src/services/files/file/*`
 - `src/services/files/folder/*`
 
@@ -63,11 +63,11 @@
 
 统一存储链路目前按三层拆开：
 
-1. `workspace_scope_service`
+1. `workspace::scope`
    负责 scope 访问校验，以及“某个 file/folder 是否属于这个空间”
-2. `workspace_storage_service`
+2. `workspace::storage`
    负责把上传、落盘、预上传 blob、multipart 等入口拼成统一工作流
-3. `workspace_storage_core`
+3. `workspace::storage_core`
    负责策略解析、配额读写、blob / 文件记录创建等较稳定的核心动作
 
 这样拆的原因不是“按文件大小切模块”，而是为了把三类变化频率不同的逻辑分开：

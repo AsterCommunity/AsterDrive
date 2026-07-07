@@ -10,7 +10,7 @@ use crate::db::transaction;
 use crate::entities::{background_task, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::StorageDriver;
 
 const BLOB_MAINTENANCE_BATCH_SIZE: u64 = 1_000;

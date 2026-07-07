@@ -14,7 +14,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "list_versions",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace_models::FileVersion>>)),
+        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -38,7 +38,7 @@ pub async fn list_versions(
         ("version_id" = i64, Path, description = "Version ID"),
     ),
     responses(
-        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Version not found"),
     ),
@@ -106,7 +106,7 @@ pub async fn delete_version(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace_models::FileVersion>>)),
+        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -135,7 +135,7 @@ pub(crate) async fn team_list_versions(
         ("version_id" = i64, Path, description = "Version ID"),
     ),
     responses(
-        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Version not found"),

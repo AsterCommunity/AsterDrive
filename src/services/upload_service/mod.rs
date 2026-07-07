@@ -18,8 +18,8 @@ use std::time::Instant;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_models::FileInfo;
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::models::FileInfo;
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
 pub use chunk::{
     upload_chunk, upload_chunk_bytes, upload_chunk_bytes_for_team, upload_chunk_for_team,
@@ -63,15 +63,15 @@ pub(crate) async fn upload_in_scope_with_audit(
 ) -> Result<FileInfo> {
     let upload_started_at = Instant::now();
     let actor_username =
-        workspace_storage_service::load_scope_actor_username_cached(state, params.scope).await?;
-    let file = workspace_storage_service::upload_with_hints(
+        storage::load_scope_actor_username_cached(state, params.scope).await?;
+    let file = storage::upload_with_hints(
         state,
         params.scope,
         payload,
         params.folder_id,
         params.relative_path,
         params.declared_size,
-        workspace_storage_service::WorkspaceUploadHints {
+        storage::WorkspaceUploadHints {
             actor_username: Some(&actor_username),
         },
     )

@@ -13,8 +13,8 @@ use crate::errors::{
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     policy_service::StoragePolicy,
-    workspace_models::FileInfo,
-    workspace_storage_service::{
+    workspace::models::FileInfo,
+    workspace::storage::{
         self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
         WorkspaceUploadHints,
     },
@@ -69,7 +69,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
         }
         (
             staging_path.to_string_lossy().into_owned(),
-            workspace_storage_service::local_content_dedup_enabled(policy),
+            storage::local_content_dedup_enabled(policy),
         )
     } else {
         let temp_dir = &state.config().server.temp_dir;
@@ -200,7 +200,7 @@ pub async fn store_from_temp(
     user_id: i64,
     request: StoreFromTempRequest<'_>,
 ) -> Result<FileInfo> {
-    workspace_storage_service::store_from_temp_internal(
+    storage::store_from_temp_internal(
         state,
         StoreFromTempParams {
             scope: WorkspaceStorageScope::Personal { user_id },
@@ -228,7 +228,7 @@ pub async fn upload(
     relative_path: Option<&str>,
     declared_size: Option<i64>,
 ) -> Result<FileInfo> {
-    workspace_storage_service::upload_with_hints(
+    storage::upload_with_hints(
         state,
         WorkspaceStorageScope::Personal { user_id },
         payload,
@@ -256,7 +256,7 @@ pub(crate) async fn update_content_in_scope(
         has_if_match = if_match.is_some(),
         "updating file content"
     );
-    let f = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let f = storage::verify_file_access(state, scope, file_id).await?;
 
     if f.is_locked {
         let lock = crate::db::repository::lock_repo::find_by_entity(
@@ -287,9 +287,9 @@ pub(crate) async fn update_content_in_scope(
 
     let size = usize_to_i64(body.len(), "body length")?;
     let resolved_policy =
-        workspace_storage_service::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
+        storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
     let result = if resolved_policy.driver_type == crate::types::DriverType::Local {
-        let should_dedup = workspace_storage_service::local_content_dedup_enabled(&resolved_policy);
+        let should_dedup = storage::local_content_dedup_enabled(&resolved_policy);
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
         let staging_path =
             crate::storage::drivers::local::upload_staging_path(&resolved_policy, &staging_token)
@@ -312,7 +312,7 @@ pub(crate) async fn update_content_in_scope(
             crate::utils::hash::sha256_digest_to_hex(&hasher.finalize())
         });
         let staging_path = staging_path.to_string_lossy().into_owned();
-        let result = workspace_storage_service::store_from_temp_with_hints(
+        let result = storage::store_from_temp_with_hints(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &staging_path, size)
                 .overwrite(file_id)
@@ -341,7 +341,7 @@ pub(crate) async fn update_content_in_scope(
             .await
             .map_aster_err(AsterError::storage_driver_error)?;
 
-        let result = workspace_storage_service::store_from_temp_internal(
+        let result = storage::store_from_temp_internal(
             state,
             StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
                 .overwrite(file_id)
@@ -383,7 +383,7 @@ pub(crate) async fn update_content_stream_in_scope(
         has_if_match = if_match.is_some(),
         "streaming file content update"
     );
-    let f = workspace_storage_service::verify_file_access(state, scope, file_id).await?;
+    let f = storage::verify_file_access(state, scope, file_id).await?;
 
     if f.is_locked {
         let lock = crate::db::repository::lock_repo::find_by_entity(
@@ -414,7 +414,7 @@ pub(crate) async fn update_content_stream_in_scope(
 
     let resolved_policy_hint = match declared_size {
         Some(size) => Some(
-            workspace_storage_service::resolve_policy_for_size(state, scope, f.folder_id, size)
+            storage::resolve_policy_for_size(state, scope, f.folder_id, size)
                 .await?,
         ),
         None => None,
@@ -429,7 +429,7 @@ pub(crate) async fn update_content_stream_in_scope(
         precomputed_hash,
     } = streamed;
 
-    let result = workspace_storage_service::store_from_temp_with_hints(
+    let result = storage::store_from_temp_with_hints(
         state,
         StoreFromTempParams::new(scope, f.folder_id, &f.name, &temp_path, size)
             .overwrite(file_id)
@@ -484,7 +484,7 @@ pub async fn resolve_policy_for_size(
     folder_id: Option<i64>,
     file_size: i64,
 ) -> Result<StoragePolicy> {
-    workspace_storage_service::resolve_policy_for_size(
+    storage::resolve_policy_for_size(
         state,
         WorkspaceStorageScope::Personal { user_id },
         folder_id,
@@ -507,7 +507,7 @@ pub async fn create_empty(
     folder_id: Option<i64>,
     filename: &str,
 ) -> Result<FileInfo> {
-    workspace_storage_service::create_empty(
+    storage::create_empty(
         state,
         WorkspaceStorageScope::Personal { user_id },
         folder_id,

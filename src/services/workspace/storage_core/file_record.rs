@@ -4,7 +4,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
-use crate::services::workspace_scope_service::{WorkspaceStorageScope, load_scope_actor_username};
+use crate::services::workspace::scope::{WorkspaceStorageScope, load_scope_actor_username};
 
 const MAX_AUTO_NAME_RETRIES: usize = 32;
 

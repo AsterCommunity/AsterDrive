@@ -4,7 +4,7 @@ use crate::db::repository::upload_session_repo;
 use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use sea_orm::ConnectionTrait;
 
 pub(super) fn personal_scope(user_id: i64) -> WorkspaceStorageScope {
@@ -53,7 +53,7 @@ async fn load_upload_session_with_db<C: ConnectionTrait>(
     // 配额并不会在 init 时预占——只在 complete 时写入，所以这里不会泄漏配额。
     crate::utils::verify_owner(session.user_id, scope.actor_user_id(), "upload session")?;
     if let Some(team_id) = scope.team_id() {
-        workspace_storage_service::require_team_access_with_db(
+        storage::require_team_access_with_db(
             state,
             db,
             team_id,

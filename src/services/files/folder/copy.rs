@@ -11,8 +11,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     storage_change_service,
-    workspace_models::FolderInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
+    workspace::models::FolderInfo,
+    workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 
 use super::ensure_folder_model_in_scope;
@@ -317,10 +317,10 @@ pub(crate) async fn copy_folder_between_scopes(
         dest_parent_id,
         "copying folder tree"
     );
-    let src = workspace_storage_service::verify_folder_access(state, source_scope, src_id).await?;
+    let src = storage::verify_folder_access(state, source_scope, src_id).await?;
 
     if let Some(parent_id) = dest_parent_id {
-        workspace_storage_service::verify_folder_access(state, dest_scope, parent_id).await?;
+        storage::verify_folder_access(state, dest_scope, parent_id).await?;
 
         if same_workspace_resource(source_scope, dest_scope) {
             let mut cursor = Some(parent_id);

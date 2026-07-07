@@ -8,8 +8,8 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::upload_service::shared::{
     run_upload_completion_stage, upload_completion_error_is_retryable,
 };
-use crate::services::workspace_scope_service::WorkspaceStorageScope;
-use crate::services::workspace_storage_service;
+use crate::services::workspace::scope::WorkspaceStorageScope;
+use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
 use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use crate::types::UploadSessionStatus;
@@ -221,9 +221,9 @@ async fn finalize_opaque_upload_session(
 ) -> Result<file::Model> {
     // 直传模式不会经过本地 assembled 文件，complete 阶段只负责把已经存在的对象
     // 记成 blob + file，并原子更新配额和 session 状态。
-    workspace_storage_service::finalize_upload_session_file(
+    storage::finalize_upload_session_file(
         state,
-        workspace_storage_service::FinalizeUploadSessionFileParams {
+        storage::FinalizeUploadSessionFileParams {
             session,
             file_hash: &format!("{}-{}", opaque_blob_hash_prefix(policy)?, session.id),
             size,
@@ -237,7 +237,7 @@ async fn finalize_opaque_upload_session(
 }
 
 fn opaque_blob_hash_prefix(policy: &storage_policy::Model) -> Result<&'static str> {
-    workspace_storage_service::resolve_policy_upload_transport(policy)?
+    storage::resolve_policy_upload_transport(policy)?
         .opaque_blob_hash_prefix()
         .ok_or_else(|| {
             upload_assembly_error_with_code(
@@ -352,7 +352,7 @@ async fn complete_object_multipart_upload_session(
                 }
             };
 
-            if let Err(error) = workspace_storage_service::check_quota(
+            if let Err(error) = storage::check_quota(
                 db,
                 workspace_scope_from_session(&session),
                 actual_part_size,

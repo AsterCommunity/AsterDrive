@@ -18,7 +18,7 @@ use crate::services::{
         },
         types::{ArchivePreviewTaskPayload, ArchivePreviewTaskResult},
     },
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 

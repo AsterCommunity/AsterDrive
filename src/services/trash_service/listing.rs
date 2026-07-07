@@ -3,7 +3,7 @@
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::utils::numbers::usize_to_u64;
 
 use super::common::{
@@ -36,7 +36,7 @@ async fn list_trash_in_scope(
         has_file_cursor = file_cursor.is_some(),
         "listing trash contents"
     );
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
     let retention_days = load_retention_days(state);
 
     let (raw_folders, folders_total) = match scope {

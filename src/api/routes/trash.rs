@@ -11,7 +11,7 @@ use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service, auth::local::Claims, files::file, files::folder, task_service, trash_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
 use actix_governor::Governor;

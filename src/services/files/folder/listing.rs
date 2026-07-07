@@ -9,7 +9,7 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     share_service, tag_service,
-    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::usize_to_u64;
 
@@ -112,11 +112,11 @@ pub(crate) async fn list_in_scope(
         actor_user_id,
     } = scope
     {
-        workspace_storage_service::require_team_access(state, team_id, actor_user_id).await?;
+        storage::require_team_access(state, team_id, actor_user_id).await?;
     }
 
     if let Some(parent_id) = parent_id {
-        workspace_storage_service::verify_folder_access_for_read(state, scope, parent_id).await?;
+        storage::verify_folder_access_for_read(state, scope, parent_id).await?;
     }
 
     // 目录和文件分开查询，是因为它们的分页策略不同：

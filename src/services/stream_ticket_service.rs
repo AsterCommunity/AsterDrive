@@ -12,7 +12,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     task_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 const STREAM_TICKET_TTL_SECS: i64 = 5 * 60;
@@ -125,7 +125,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
     }
 
     ensure_scope_matches_ticket(scope, &payload)?;
-    workspace_storage_service::require_scope_access(state, scope).await?;
+    storage::require_scope_access(state, scope).await?;
 
     match payload.kind {
         StreamTicketKind::ArchiveDownload {

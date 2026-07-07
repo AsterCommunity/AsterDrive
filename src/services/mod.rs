@@ -37,7 +37,4 @@ pub mod version_service;
 pub mod webdav_account_service;
 pub mod webdav_service;
 pub mod wopi_service;
-pub mod workspace_models;
-pub mod workspace_scope_service;
-pub mod workspace_storage_core;
-pub mod workspace_storage_service;
+pub mod workspace;

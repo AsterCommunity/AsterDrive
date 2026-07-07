@@ -8,7 +8,7 @@ use crate::db::repository::folder_repo;
 use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
 use super::{FolderAncestorItem, cache, ensure_folder_model_in_scope};
 
@@ -200,7 +200,7 @@ pub(crate) async fn get_ancestors_in_scope(
     folder_id: i64,
 ) -> Result<Vec<FolderAncestorItem>> {
     let folder =
-        workspace_storage_service::verify_folder_access_for_read(state, scope, folder_id).await?;
+        storage::verify_folder_access_for_read(state, scope, folder_id).await?;
     ensure_folder_model_in_scope(&folder, scope)?;
 
     let ancestors = match scope {

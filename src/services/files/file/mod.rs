@@ -18,8 +18,8 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_models::FileInfo;
-use crate::services::workspace_storage_service::{self, WorkspaceStorageScope};
+use crate::services::workspace::models::FileInfo;
+use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::types::NullablePatch;
 
 pub(crate) use crate::services::download_headers::DownloadDisposition;
@@ -75,7 +75,7 @@ pub(crate) async fn create_empty_in_scope_with_audit(
     name: &str,
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
-    let file = workspace_storage_service::create_empty(state, scope, folder_id, name).await?;
+    let file = storage::create_empty(state, scope, folder_id, name).await?;
     let details = audit_location_details_for_model(state, scope, &file).await;
     audit_service::log_with_details(
         state,

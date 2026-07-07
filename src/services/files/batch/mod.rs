@@ -12,7 +12,7 @@ use utoipa::ToSchema;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub use copy::{batch_copy, batch_copy_team};
 pub use delete::{batch_delete, batch_delete_team};

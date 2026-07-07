@@ -10,7 +10,7 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::Result;
-use crate::services::workspace_storage_service::{WorkspaceResourceScope, WorkspaceStorageScope};
+use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
 
 fn file_matches_scope(file: &file::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {

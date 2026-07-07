@@ -10,7 +10,7 @@ use crate::entities::{team, upload_session};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
 
 const DEFAULT_TEAM_ARCHIVE_RETENTION_DAYS: i64 = 7;
@@ -256,7 +256,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
     if deleted_shares > 0 {
         crate::services::share_service::invalidate_active_share_target_cache_for_scope(
             state,
-            crate::services::workspace_storage_service::WorkspaceStorageScope::Team {
+            crate::services::workspace::storage::WorkspaceStorageScope::Team {
                 team_id,
                 actor_user_id: team.created_by,
             },

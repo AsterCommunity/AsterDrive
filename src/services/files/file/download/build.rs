@@ -8,7 +8,7 @@ use crate::services::files::file::{
     DownloadDisposition, ensure_personal_file_scope, get_info_in_scope, if_none_match_matches,
     inline_sandbox_csp, requires_inline_sandbox,
 };
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::PresignedDownloadOptions;
 use crate::utils::numbers;
 

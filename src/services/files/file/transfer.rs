@@ -11,8 +11,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     storage_change_service,
-    workspace_models::FileInfo,
-    workspace_storage_service::{self, WorkspaceStorageScope, load_scope_actor_username},
+    workspace::models::FileInfo,
+    workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
 
 const MAX_COPY_NAME_RETRIES: usize = 32;
@@ -46,14 +46,14 @@ pub(crate) async fn copy_file_in_scope(
         dest_folder_id,
         "copying file"
     );
-    let src = workspace_storage_service::verify_file_access(state, scope, src_id).await?;
+    let src = storage::verify_file_access(state, scope, src_id).await?;
 
     if let Some(folder_id) = dest_folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, folder_id).await?;
+        storage::verify_folder_access(state, scope, folder_id).await?;
     }
 
     let blob = file_repo::find_blob_by_id(db, src.blob_id).await?;
-    workspace_storage_service::check_quota(db, scope, blob.size).await?;
+    storage::check_quota(db, scope, blob.size).await?;
 
     let copy_name = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
@@ -161,7 +161,7 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
 
     // 原子性地增加配额（CAS 语义：如果 quota > 0 且 used + total_size > quota，则失败）
     // 这避免了并发场景下的 TOCTOU 问题
-    workspace_storage_service::update_storage_used(&txn, scope, total_size).await?;
+    storage::update_storage_used(&txn, scope, total_size).await?;
 
     let blob_counts = collect_blob_ref_count_increments(
         copy_specs.iter().map(|spec| spec.src.blob_id),
@@ -233,7 +233,7 @@ pub(crate) async fn duplicate_file_record_in_scope(
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
-    workspace_storage_service::check_quota(&txn, scope, blob_size).await?;
+    storage::check_quota(&txn, scope, blob_size).await?;
 
     file_repo::increment_blob_ref_count(&txn, blob.id).await?;
     let classification =
@@ -260,7 +260,7 @@ pub(crate) async fn duplicate_file_record_in_scope(
     .await
     .map_err(|err| file_repo::map_name_db_err(err, dest_name))?;
 
-    workspace_storage_service::update_storage_used(&txn, scope, blob_size).await?;
+    storage::update_storage_used(&txn, scope, blob_size).await?;
 
     crate::db::transaction::commit(txn).await?;
 
@@ -340,11 +340,11 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     })?;
     let now = chrono::Utc::now();
 
-    workspace_storage_service::check_quota(state.writer_db(), scope, total_size).await?;
+    storage::check_quota(state.writer_db(), scope, total_size).await?;
 
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
-    workspace_storage_service::check_quota(&txn, scope, total_size).await?;
+    storage::check_quota(&txn, scope, total_size).await?;
 
     let blob_counts = collect_blob_ref_count_increments(
         copy_specs.iter().map(|spec| spec.src.blob_id),
@@ -380,7 +380,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
         .collect();
     file_repo::create_many(&txn, models).await?;
 
-    workspace_storage_service::update_storage_used(&txn, scope, total_size).await?;
+    storage::update_storage_used(&txn, scope, total_size).await?;
 
     crate::db::transaction::commit(txn).await?;
     Ok(total_size)

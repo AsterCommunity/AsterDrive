@@ -12,7 +12,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     storage_change_service,
-    workspace_storage_service::{
+    workspace::storage::{
         WorkspaceResourceScope, WorkspaceStorageScope, require_scope_access,
         require_team_management_access, verify_file_access_for_read, verify_folder_access_for_read,
     },

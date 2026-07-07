@@ -9,7 +9,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::{file, folder},
     storage_change_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 use super::shared::load_target_folder_in_scope;
@@ -44,13 +44,13 @@ pub(crate) async fn batch_copy_between_scopes(
         file_map,
         folder_map: _,
     } = load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
-    workspace_storage_service::require_scope_access(state, dest_scope).await?;
+    storage::require_scope_access(state, dest_scope).await?;
     let target_error = load_target_folder_in_scope(state, dest_scope, target_folder_id)
         .await
         .err();
 
     let mut reserved_file_names: HashSet<String> = if target_error.is_none() {
-        workspace_storage_service::list_files_in_folder(state, dest_scope, target_folder_id)
+        storage::list_files_in_folder(state, dest_scope, target_folder_id)
             .await?
             .into_iter()
             .map(|file| file.name)
@@ -60,7 +60,7 @@ pub(crate) async fn batch_copy_between_scopes(
     };
 
     let (mut planned_storage_used, storage_quota) =
-        workspace_storage_service::load_storage_limits(state, dest_scope).await?;
+        storage::load_storage_limits(state, dest_scope).await?;
     let mut file_copy_specs = Vec::new();
 
     for &id in &normalized_file_ids {
@@ -72,7 +72,7 @@ pub(crate) async fn batch_copy_between_scopes(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_file_scope(file, source_scope) {
+        if let Err(err) = storage::ensure_active_file_scope(file, source_scope) {
             result.record_failure("file", id, err.to_string());
             continue;
         }

@@ -4,8 +4,8 @@ use crate::entities::upload_session;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_models::FileInfo;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::models::FileInfo;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::UploadSessionStatus;
 
 use super::complete_upload_impl_with_hints;

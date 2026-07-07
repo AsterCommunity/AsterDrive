@@ -136,7 +136,7 @@ async fn store_test_file(
     user_id: i64,
     filename: &str,
     bytes: &[u8],
-) -> aster_drive::services::workspace_models::FileInfo {
+) -> aster_drive::services::workspace::models::FileInfo {
     let temp_path = aster_drive::utils::paths::temp_file_path(
         &state.config.server.temp_dir,
         &uuid::Uuid::new_v4().to_string(),

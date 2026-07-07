@@ -5,7 +5,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::{
     audit_service::{self, AuditContext, AuditEntityType},
     files::file as file_ops,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::utils::hash;
 
@@ -144,7 +144,7 @@ mod tests {
         request_fingerprint,
     };
     use crate::services::{
-        audit_service::AuditContext, workspace_storage_service::WorkspaceStorageScope,
+        audit_service::AuditContext, workspace::storage::WorkspaceStorageScope,
     };
 
     fn audit_ctx() -> AuditContext {

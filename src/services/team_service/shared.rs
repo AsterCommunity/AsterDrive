@@ -524,7 +524,7 @@ pub(super) async fn create_team_record(
     )
     .await?;
     crate::db::transaction::commit(txn).await?;
-    crate::services::workspace_storage_service::invalidate_team_access_cache_for_member(
+    crate::services::workspace::storage::invalidate_team_access_cache_for_member(
         state,
         created_team.id,
         initial_member_user_id,
@@ -566,7 +566,7 @@ pub(super) async fn update_team_record(
     active.updated_at = Set(Utc::now());
 
     let updated = team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace_storage_service::invalidate_team_access_cache_for_team(
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
         state, updated.id,
     )
     .await;
@@ -590,7 +590,7 @@ pub(super) async fn archive_team_record(
     active.archived_at = Set(Some(now));
     active.updated_at = Set(now);
     team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace_storage_service::invalidate_team_access_cache_for_team(
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
         state, team_id,
     )
     .await;
@@ -620,7 +620,7 @@ pub(super) async fn restore_team_record(
     active.archived_at = Set(None);
     active.updated_at = Set(now);
     let restored = team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace_storage_service::invalidate_team_access_cache_for_team(
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
         state,
         restored.id,
     )

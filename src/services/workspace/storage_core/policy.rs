@@ -3,7 +3,7 @@ use crate::db::repository::{folder_repo, team_repo, user_repo};
 use crate::entities::folder;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::workspace_scope_service::{
+use crate::services::workspace::scope::{
     WorkspaceStorageScope, require_team_policy_group_id, verify_folder_access,
 };
 use crate::types::{DriverType, parse_storage_policy_options};

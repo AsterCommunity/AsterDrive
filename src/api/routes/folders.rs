@@ -12,7 +12,7 @@ use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::AuditContext, auth::local::Claims, files::folder,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::{api::api_error_code::ApiErrorCode, types::NullablePatch};
 use actix_governor::Governor;
@@ -60,7 +60,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "create_folder",
     request_body = CreateFolderReq,
     responses(
-        (status = 201, description = "Folder created", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 201, description = "Folder created", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -148,7 +148,7 @@ pub async fn list_folder(
     operation_id = "get_folder_info",
     params(("id" = i64, Path, description = "Folder ID")),
     responses(
-        (status = 200, description = "Folder info", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Folder info", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Folder not found"),
     ),
@@ -236,7 +236,7 @@ pub async fn delete_folder(
     params(("id" = i64, Path, description = "Folder ID")),
     request_body = PatchFolderReq,
     responses(
-        (status = 200, description = "Folder updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Folder updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Folder not found"),
     ),
@@ -272,7 +272,7 @@ pub async fn patch_folder(
     params(("id" = i64, Path, description = "Folder ID")),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Folder not found"),
     ),
@@ -308,7 +308,7 @@ pub async fn set_lock(
     params(("id" = i64, Path, description = "Source folder ID")),
     request_body = CopyFolderReq,
     responses(
-        (status = 201, description = "Folder copied", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 201, description = "Folder copied", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Folder not found"),
     ),
@@ -373,7 +373,7 @@ pub(crate) async fn team_list_root(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateFolderReq,
     responses(
-        (status = 201, description = "Team folder created", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 201, description = "Team folder created", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -440,7 +440,7 @@ pub(crate) async fn team_list_folder(
         ("id" = i64, Path, description = "Folder ID")
     ),
     responses(
-        (status = 200, description = "Team folder info", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Team folder info", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -537,7 +537,7 @@ pub(crate) async fn team_delete_folder(
     ),
     request_body = PatchFolderReq,
     responses(
-        (status = 200, description = "Team folder updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Team folder updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -574,7 +574,7 @@ pub(crate) async fn team_patch_folder(
     ),
     request_body = CopyFolderReq,
     responses(
-        (status = 201, description = "Team folder copied", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 201, description = "Team folder copied", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),
@@ -611,7 +611,7 @@ pub(crate) async fn team_copy_folder(
     ),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder not found"),

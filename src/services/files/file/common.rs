@@ -2,7 +2,7 @@
 
 use crate::entities::file;
 use crate::errors::Result;
-use crate::services::workspace_storage_service;
+use crate::services::workspace::storage;
 use crate::utils::http_validators;
 
 const INLINE_SANDBOX_CSP: &str = "sandbox";
@@ -26,7 +26,7 @@ pub(crate) fn requires_inline_sandbox(mime_type: &str) -> bool {
 }
 
 pub(crate) fn ensure_personal_file_scope(file: &file::Model) -> Result<()> {
-    workspace_storage_service::ensure_personal_file_scope(file)
+    storage::ensure_personal_file_scope(file)
 }
 
 pub(crate) fn if_none_match_matches_value(if_none_match: &str, etag_value: &str) -> bool {

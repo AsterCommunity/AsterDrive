@@ -11,7 +11,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::file,
     storage_change_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 /// 永久删除单个文件
@@ -100,7 +100,7 @@ pub(crate) async fn purge_all_in_scope_silent(
     scope: WorkspaceStorageScope,
 ) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let mut summary = PurgeAllSummary::default();
 

@@ -8,7 +8,7 @@ use crate::entities::{file, file_blob, upload_session};
 use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_change_service;
-use crate::services::workspace_scope_service::WorkspaceStorageScope;
+use crate::services::workspace::scope::WorkspaceStorageScope;
 
 use super::file_record::{
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,

@@ -22,7 +22,7 @@ use crate::services::{
     files::{batch, folder as folder_ops},
     share_service,
     task_service::types::CreateArchiveTaskParams,
-    workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 
 pub(crate) struct PreparedArchiveDownload {
@@ -340,7 +340,7 @@ async fn ensure_archive_selection_request_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<()> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     batch::validate_batch_ids(file_ids, folder_ids)?;
 
@@ -353,7 +353,7 @@ async fn ensure_archive_selection_request_in_scope(
         let file = file_map
             .get(&file_id)
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
-        workspace_storage_service::ensure_active_file_scope(file, scope)?;
+        storage::ensure_active_file_scope(file, scope)?;
     }
 
     let folder_map: HashMap<i64, folder::Model> =
@@ -366,7 +366,7 @@ async fn ensure_archive_selection_request_in_scope(
         let folder = folder_map
             .get(&folder_id)
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
-        workspace_storage_service::ensure_active_folder_scope(folder, scope)?;
+        storage::ensure_active_folder_scope(folder, scope)?;
     }
 
     Ok(())
@@ -427,7 +427,7 @@ async fn ensure_shared_file_in_scope(
     file: &file::Model,
     verified_folder_ids: &mut HashSet<i64>,
 ) -> Result<()> {
-    workspace_storage_service::ensure_file_resource_scope(file, scope)?;
+    storage::ensure_file_resource_scope(file, scope)?;
     if file.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "file #{} is in trash",
@@ -451,7 +451,7 @@ async fn ensure_shared_folder_in_scope(
     root_folder_id: i64,
     folder: &folder::Model,
 ) -> Result<()> {
-    workspace_storage_service::ensure_folder_resource_scope(folder, scope)?;
+    storage::ensure_folder_resource_scope(folder, scope)?;
     if folder.deleted_at.is_some() {
         return Err(AsterError::folder_not_found(format!(
             "folder #{} is in trash",
@@ -470,7 +470,7 @@ pub(super) fn ensure_archive_selection_active(
             .file_map
             .get(&file_id)
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
-        workspace_storage_service::ensure_active_file_scope(file, scope)?;
+        storage::ensure_active_file_scope(file, scope)?;
     }
 
     for &folder_id in &selection.folder_ids {
@@ -478,7 +478,7 @@ pub(super) fn ensure_archive_selection_active(
             .folder_map
             .get(&folder_id)
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
-        workspace_storage_service::ensure_active_folder_scope(folder, scope)?;
+        storage::ensure_active_folder_scope(folder, scope)?;
     }
 
     Ok(())
@@ -589,7 +589,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .file_map
             .get(&file_id)
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
-        workspace_storage_service::ensure_active_file_scope(file, scope)?;
+        storage::ensure_active_file_scope(file, scope)?;
         let entry_path = batch::reserve_unique_name(&mut reserved_root_names, &file.name);
         record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
@@ -603,7 +603,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .folder_map
             .get(&folder_id)
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
-        workspace_storage_service::ensure_active_folder_scope(folder, scope)?;
+        storage::ensure_active_folder_scope(folder, scope)?;
         let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
         let (tree_files, tree_folder_ids) =
@@ -720,7 +720,7 @@ pub(super) async fn resolve_archive_compress_target_folder_id(
     requested_target_folder_id: Option<i64>,
 ) -> Result<Option<i64>> {
     if let Some(target_folder_id) = requested_target_folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+        storage::verify_folder_access(state, scope, target_folder_id).await?;
         return Ok(Some(target_folder_id));
     }
 

@@ -15,7 +15,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::{
     profile_service,
     user_service::{self, UserSummary},
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::utils::hash;
 
@@ -123,7 +123,7 @@ pub async fn create_for_team(
     password: Option<&str>,
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
-    crate::services::workspace_storage_service::require_team_access(state, team_id, actor_user_id)
+    crate::services::workspace::storage::require_team_access(state, team_id, actor_user_id)
         .await?;
     create_in_scope(
         state,
@@ -145,7 +145,7 @@ async fn create_in_scope(
     password: Option<&str>,
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
-    crate::services::workspace_storage_service::require_scope_access(state, scope).await?;
+    crate::services::workspace::storage::require_scope_access(state, scope).await?;
 
     // 检查用户名是否已存在
     if webdav_account_repo::find_by_username(state.writer_db(), username)
@@ -166,7 +166,7 @@ async fn create_in_scope(
 
     // 如果指定了 root_folder_id，验证文件夹属于账号所在工作空间。
     let root_folder_path = if let Some(fid) = root_folder_id {
-        crate::services::workspace_storage_service::verify_folder_access(state, scope, fid).await?;
+        crate::services::workspace::storage::verify_folder_access(state, scope, fid).await?;
         crate::services::files::folder::build_folder_paths_cached(state, &[fid])
             .await?
             .remove(&fid)
@@ -213,7 +213,7 @@ pub async fn list_for_team(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<Vec<WebdavAccountInfo>> {
-    let role = crate::services::workspace_storage_service::load_team_member_role(
+    let role = crate::services::workspace::storage::load_team_member_role(
         state,
         team_id,
         actor_user_id,
@@ -251,7 +251,7 @@ pub async fn list_team_paginated(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<WebdavAccountInfo>> {
-    let role = crate::services::workspace_storage_service::load_team_member_role(
+    let role = crate::services::workspace::storage::load_team_member_role(
         state,
         team_id,
         actor_user_id,
@@ -342,7 +342,7 @@ pub async fn delete_for_team(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<()> {
-    let role = crate::services::workspace_storage_service::load_team_member_role(
+    let role = crate::services::workspace::storage::load_team_member_role(
         state,
         team_id,
         actor_user_id,
@@ -402,7 +402,7 @@ pub async fn toggle_team_active(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<WebdavAccount> {
-    let role = crate::services::workspace_storage_service::load_team_member_role(
+    let role = crate::services::workspace::storage::load_team_member_role(
         state,
         team_id,
         actor_user_id,
@@ -456,7 +456,7 @@ pub async fn test_credentials(
     }
 
     if let Some(team_id) = account.team_id {
-        crate::services::workspace_storage_service::require_team_access(
+        crate::services::workspace::storage::require_team_access(
             state,
             team_id,
             account.user_id,

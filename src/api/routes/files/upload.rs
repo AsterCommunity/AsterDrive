@@ -7,8 +7,8 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth::local::Claims, upload_service, workspace_models::FileInfo,
-    workspace_storage_service::WorkspaceStorageScope,
+    audit_service::AuditContext, auth::local::Claims, upload_service, workspace::models::FileInfo,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -34,7 +34,7 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
     params(FileQuery),
     request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
     responses(
-        (status = 201, description = "File uploaded", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -165,7 +165,7 @@ pub async fn upload_chunk(
     params(("upload_id" = String, Path, description = "Upload session ID")),
     request_body(content = CompleteUploadReq, description = "Multipart completion data (optional, only for presigned_multipart mode)", content_type = "application/json"),
     responses(
-        (status = 201, description = "File created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Session not found"),
     ),
@@ -302,7 +302,7 @@ pub async fn presign_parts(
     ),
     request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
     responses(
-        (status = 201, description = "Team file uploaded", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -447,7 +447,7 @@ pub(crate) async fn team_upload_chunk(
     ),
     request_body(content = CompleteUploadReq, description = "Multipart completion data (optional, only for presigned_multipart mode)", content_type = "application/json"),
     responses(
-        (status = 201, description = "Team file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Session not found"),

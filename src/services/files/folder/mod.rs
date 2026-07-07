@@ -22,8 +22,8 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_models::FolderInfo;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::models::FolderInfo;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::NullablePatch;
 use serde_json::json;
 

@@ -425,7 +425,7 @@ pub async fn force_delete(
     if share_count > 0 {
         crate::services::share_service::invalidate_active_share_target_cache_for_scope(
             state,
-            crate::services::workspace_storage_service::WorkspaceStorageScope::Personal {
+            crate::services::workspace::storage::WorkspaceStorageScope::Personal {
                 user_id: target_user_id,
             },
         )

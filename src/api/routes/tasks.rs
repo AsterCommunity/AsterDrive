@@ -14,7 +14,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
     task_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;

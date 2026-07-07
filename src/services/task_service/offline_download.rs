@@ -25,7 +25,7 @@ use crate::services::{
             TaskInfo,
         },
     },
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 const OFFLINE_DOWNLOAD_TEMP_FILE_NAME: &str = "source";
@@ -64,7 +64,7 @@ pub(crate) async fn create_offline_download_task_in_scope(
     scope: WorkspaceStorageScope,
     params: CreateOfflineDownloadTaskParams,
 ) -> Result<TaskInfo> {
-    workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
+    storage::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
     let request = normalize_offline_download_request(params)?;
     if operations::offline_download_enabled_engines(state.runtime_config()).is_empty() {
@@ -73,7 +73,7 @@ pub(crate) async fn create_offline_download_task_in_scope(
         ));
     }
     if let Some(target_folder_id) = request.target_folder_id {
-        workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+        storage::verify_folder_access(state, scope, target_folder_id).await?;
     }
 
     let payload = OfflineDownloadTaskPayload {
@@ -128,7 +128,7 @@ pub(super) async fn process_offline_download_task(
         .await?;
 
         if let Some(target_folder_id) = payload.target_folder_id {
-            workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
+            storage::verify_folder_access(state, scope, target_folder_id).await?;
         }
         let source_url = parse_and_validate_source_url(&payload.url)?;
         let source_display_url = payload
@@ -249,21 +249,21 @@ pub(super) async fn process_offline_download_task(
         )
         .await?;
 
-        let stored = workspace_storage_service::store_from_temp_internal(
+        let stored = storage::store_from_temp_internal(
             state,
-            workspace_storage_service::StoreFromTempParams::new(
+            storage::StoreFromTempParams::new(
                 scope,
                 payload.target_folder_id,
                 &filename,
                 &temp_path.to_string_lossy(),
                 downloaded.bytes_written,
             ),
-            workspace_storage_service::StoreFromTempHints {
+            storage::StoreFromTempHints {
                 precomputed_hash: Some(&downloaded.sha256),
                 operation_context: context.storage_operation_context(),
                 ..Default::default()
             },
-            workspace_storage_service::NewFileMode::ResolveUnique,
+            storage::NewFileMode::ResolveUnique,
             true,
         )
         .await?;

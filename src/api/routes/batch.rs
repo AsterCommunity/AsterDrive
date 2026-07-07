@@ -16,7 +16,7 @@ use crate::services::{
     auth::local::Claims,
     files::batch,
     stream_ticket_service, task_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;

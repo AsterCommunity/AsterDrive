@@ -8,7 +8,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{files::file as file_ops, workspace_storage_service::WorkspaceResourceScope};
+use crate::services::{files::file as file_ops, workspace::storage::WorkspaceResourceScope};
 
 use super::common::{load_retention_days, purge_folder_tree_in_resource_scope};
 

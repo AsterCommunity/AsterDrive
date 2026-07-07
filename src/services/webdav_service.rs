@@ -9,8 +9,8 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeSt
 use crate::services::{
     files::{file, folder as folder_ops},
     storage_change_service,
-    workspace_models::FileInfo,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::models::FileInfo,
+    workspace::storage::WorkspaceStorageScope,
 };
 
 /// 递归收集文件夹树内的所有文件和子文件夹 ID
@@ -174,7 +174,7 @@ pub async fn copy_folder_tree(
 ) -> Result<folder::Model> {
     copy_folder_tree_in_scope(
         state,
-        crate::services::workspace_storage_service::WorkspaceStorageScope::Personal { user_id },
+        crate::services::workspace::storage::WorkspaceStorageScope::Personal { user_id },
         src_folder_id,
         dest_parent_id,
         dest_name,

@@ -3,7 +3,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::workspace_storage_service::{
+use crate::services::workspace::storage::{
     WorkspaceStorageScope, create_exact_file_from_blob,
     create_exact_file_from_blob_with_actor_username, create_new_file_from_blob,
     create_new_file_from_blob_with_actor_username, update_storage_used,

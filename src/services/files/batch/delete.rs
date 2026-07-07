@@ -10,7 +10,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::folder,
     storage_change_service,
-    workspace_storage_service::{self, WorkspaceStorageScope},
+    workspace::storage::{self, WorkspaceStorageScope},
 };
 
 use super::{BatchResult, NormalizedSelection, load_normalized_selection_in_scope};
@@ -48,7 +48,7 @@ pub(crate) async fn batch_delete_in_scope(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_file_scope(file, scope) {
+        if let Err(err) = storage::ensure_active_file_scope(file, scope) {
             result.record_failure("file", id, err.to_string());
             continue;
         }
@@ -73,7 +73,7 @@ pub(crate) async fn batch_delete_in_scope(
             );
             continue;
         };
-        if let Err(err) = workspace_storage_service::ensure_active_folder_scope(folder, scope) {
+        if let Err(err) = storage::ensure_active_folder_scope(folder, scope) {
             result.record_failure("folder", id, err.to_string());
             continue;
         }

@@ -511,7 +511,7 @@ mod tests {
         storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
     };
     use crate::runtime::PrimaryAppState;
-    use crate::services::workspace_scope_service::SharedRuntimeState;
+    use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{

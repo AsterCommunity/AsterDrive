@@ -197,7 +197,7 @@ WebDAV 和 WOPI 是协议入口，不是 REST 文件接口的普通变体。
 
 它们不应该：
 
-- 绕过 `workspace_storage_service` / `workspace_storage_core` 自己写一套文件落账
+- 绕过 `workspace::storage` / `workspace::storage_core` 自己写一套文件落账
 - 绕过 `file` / `folder` 自己维护 blob 引用、版本、回收站语义
 - 把 WOPI/WebDAV 专用错误格式塞回通用 service 错误模型
 
@@ -250,7 +250,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 应该下沉或继续收口：
 
 - finalization contract：trusted size、actual size、hash、blob、file version、quota charge、cleanup 必须形成可审查的统一契约
-- 不同 completion path 对 `workspace_storage_service` 的调用差异，后续应尽量收敛到同一 finalization shape
+- 不同 completion path 对 `workspace::storage` 的调用差异，后续应尽量收敛到同一 finalization shape
 - remote / object multipart 细节应留在 `init/remote.rs`、`complete/object_multipart.rs` 等子模块，不回流到 facade
 
 必须显式的副作用：
@@ -262,7 +262,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - audit
 - storage change / cache invalidation，如果某条上传路径触发文件变更
 
-### `workspace_storage_service`
+### `workspace::storage`
 
 当前职责：
 
@@ -291,7 +291,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - storage change
 - audit 调用方传入的 actor attribution
 
-### `workspace_storage_core`
+### `workspace::storage_core`
 
 当前职责：
 
@@ -471,7 +471,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - 个人空间和团队空间的 file-level use case
 - audit wrapper
 - 下载 outcome 构建：stream、range、conditional request、presigned redirect、inline sandbox
-- 与 `workspace_storage_service` 共享文件写入和 scope 校验
+- 与 `workspace::storage` 共享文件写入和 scope 校验
 
 应该保留：
 
@@ -507,13 +507,13 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 - `src/webdav/*` 处理 WebDAV / DeltaV 协议、Basic Auth、path resolver、lock、property、transfer
 - `src/services/webdav_service.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
-- WebDAV 文件写入通过 `workspace_storage_service` 的统一链路落账
+- WebDAV 文件写入通过 `workspace::storage` 的统一链路落账
 
 应该保留：
 
 - WebDAV 专用鉴权、路径解析、锁、属性、Depth、Range、DeltaV 行为
 - 协议到 AsterDrive workspace/file/folder 语义的适配
-- 对 `file` / `folder` / `workspace_storage_service` 的复用
+- 对 `file` / `folder` / `workspace::storage` 的复用
 
 不应该承担：
 
@@ -532,7 +532,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 - `src/api/routes/wopi.rs` 处理 WOPI HTTP method/header/status 兼容
 - `src/services/wopi_service/*` 处理 discovery、session、proof、lock、target、operations
-- WOPI 文件读写复用 `file` / `workspace_storage_service`
+- WOPI 文件读写复用 `file` / `workspace::storage`
 
 应该保留：
 

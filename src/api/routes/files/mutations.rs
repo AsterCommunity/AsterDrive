@@ -10,7 +10,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
     files::file,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -21,7 +21,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "create_empty_file",
     request_body(content = CreateEmptyRequest, content_type = "application/json"),
     responses(
-        (status = 201, description = "Empty file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Empty file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 400, description = "Invalid name"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -119,7 +119,7 @@ pub async fn delete_file(
     params(("id" = i64, Path, description = "File ID")),
     request_body = PatchFileReq,
     responses(
-        (status = 200, description = "File updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "File updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -153,7 +153,7 @@ pub async fn patch_file(
     params(("id" = i64, Path, description = "File ID")),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
         (status = 412, description = "Precondition failed (ETag mismatch)"),
@@ -189,7 +189,7 @@ pub async fn update_content(
     params(("id" = i64, Path, description = "File ID")),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -223,7 +223,7 @@ pub async fn set_lock(
     params(("id" = i64, Path, description = "Source file ID")),
     request_body = CopyFileReq,
     responses(
-        (status = 201, description = "File copied", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File copied", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -257,7 +257,7 @@ pub async fn copy_file(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateEmptyRequest,
     responses(
-        (status = 201, description = "Empty team file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Empty team file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -291,7 +291,7 @@ pub(crate) async fn team_create_empty(
     ),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -368,7 +368,7 @@ pub(crate) async fn team_extract_archive(
     ),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -405,7 +405,7 @@ pub(crate) async fn team_set_lock(
     ),
     request_body = PatchFileReq,
     responses(
-        (status = 200, description = "Team file updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Team file updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -442,7 +442,7 @@ pub(crate) async fn team_patch_file(
     ),
     request_body = CopyFileReq,
     responses(
-        (status = 201, description = "Team file copied", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file copied", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),

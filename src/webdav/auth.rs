@@ -10,7 +10,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{user_repo, webdav_account_repo};
 use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::utils::hash;
 
 /// WebDAV 认证结果
@@ -158,7 +158,7 @@ async fn authenticate_basic(
 
     let scope = match account.team_id {
         Some(team_id) => {
-            crate::services::workspace_storage_service::require_team_access(
+            crate::services::workspace::storage::require_team_access(
                 state,
                 team_id,
                 account.user_id,

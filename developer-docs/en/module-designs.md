@@ -20,10 +20,10 @@ If you only want to know where requests enter and which layer to modify, start w
 
 Main code paths:
 
-- `src/services/workspace_scope_service.rs`
-- `src/services/workspace_storage_service/`
-- `src/services/workspace_storage_core.rs`
-- `src/services/workspace_storage_core/`
+- `src/services/workspace/scope/`
+- `src/services/workspace/storage/`
+- `src/services/workspace/models.rs`
+- `src/services/workspace/storage_core/`
 - `src/services/files/file/*`
 - `src/services/files/folder/*`
 
@@ -63,11 +63,11 @@ So a function that accepts only `scope` already receives the minimum complete co
 
 The unified storage pipeline is currently split into three layers:
 
-1. `workspace_scope_service`
+1. `workspace::scope`
    Handles scope access checks and whether a file/folder belongs to that workspace
-2. `workspace_storage_service`
+2. `workspace::storage`
    Assembles upload, persistence, pre-upload blob, and multipart entry points into one workflow
-3. `workspace_storage_core`
+3. `workspace::storage_core`
    Handles more stable core actions such as policy resolution, quota read/write, and blob / file-record creation
 
 The point of this split is not file size. It is to separate logic with different change rates:

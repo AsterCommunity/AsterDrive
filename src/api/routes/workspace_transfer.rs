@@ -10,7 +10,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::AuditContext, auth::local::Claims, files::batch,
-    workspace_storage_service::WorkspaceStorageScope,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;

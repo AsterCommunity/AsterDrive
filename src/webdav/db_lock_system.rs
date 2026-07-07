@@ -13,7 +13,7 @@ use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
 use crate::entities::resource_lock;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
 use crate::webdav::dav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
@@ -287,7 +287,7 @@ impl DavLockSystem for DbLockSystem {
                     path: sea_orm::Set(path_str.clone()),
                     // WebDAV 协议层用 token 判定持锁者；业务存储层用 owner_id
                     // 区分“自己的锁”和“其他用户的锁”，否则 Finder 持锁 PUT 会被
-                    // workspace_storage_service 误判为被其他用户锁定。
+                    // workspace::storage 误判为被其他用户锁定。
                     owner_id: sea_orm::Set(Some(self.scope.actor_user_id())),
                     owner_info: sea_orm::Set(
                         crate::services::lock_service::serialize_resource_lock_owner_info(
