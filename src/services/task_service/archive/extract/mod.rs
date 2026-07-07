@@ -334,7 +334,7 @@ async fn cleanup_created_extract_root(
     scope: WorkspaceStorageScope,
     root_folder_id: i64,
 ) {
-    match crate::services::folder_service::collect_folder_tree_in_scope(
+    match crate::services::files::folder::collect_folder_tree_in_scope(
         state.writer_db(),
         scope,
         root_folder_id,
@@ -344,7 +344,7 @@ async fn cleanup_created_extract_root(
     {
         Ok((files, folder_ids)) => {
             if let Err(error) =
-                crate::services::file_service::batch_purge_in_scope(state, scope, files).await
+                crate::services::files::file::batch_purge_in_scope(state, scope, files).await
             {
                 tracing::warn!(
                     root_folder_id,
@@ -374,7 +374,7 @@ async fn cleanup_created_extract_root(
                     "failed to delete partially imported archive shares: {error}"
                 );
             }
-            crate::services::folder_service::invalidate_folder_path_cache_for_ids(
+            crate::services::files::folder::invalidate_folder_path_cache_for_ids(
                 state,
                 &folder_ids,
             )

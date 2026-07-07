@@ -198,7 +198,7 @@ WebDAV 和 WOPI 是协议入口，不是 REST 文件接口的普通变体。
 它们不应该：
 
 - 绕过 `workspace_storage_service` / `workspace_storage_core` 自己写一套文件落账
-- 绕过 `file_service` / `folder_service` 自己维护 blob 引用、版本、回收站语义
+- 绕过 `file` / `folder` 自己维护 blob 引用、版本、回收站语义
 - 把 WOPI/WebDAV 专用错误格式塞回通用 service 错误模型
 
 ## 什么时候必须拆模块
@@ -463,7 +463,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - driver registry reload
 - disabled binding / missing ingress target 的 precondition 错误
 
-### `file_service`
+### `file`
 
 当前职责：
 
@@ -513,7 +513,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 - WebDAV 专用鉴权、路径解析、锁、属性、Depth、Range、DeltaV 行为
 - 协议到 AsterDrive workspace/file/folder 语义的适配
-- 对 `file_service` / `folder_service` / `workspace_storage_service` 的复用
+- 对 `file` / `folder` / `workspace_storage_service` 的复用
 
 不应该承担：
 
@@ -532,7 +532,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 - `src/api/routes/wopi.rs` 处理 WOPI HTTP method/header/status 兼容
 - `src/services/wopi_service/*` 处理 discovery、session、proof、lock、target、operations
-- WOPI 文件读写复用 `file_service` / `workspace_storage_service`
+- WOPI 文件读写复用 `file` / `workspace_storage_service`
 
 应该保留：
 

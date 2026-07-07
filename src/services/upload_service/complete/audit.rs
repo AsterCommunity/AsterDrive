@@ -41,7 +41,7 @@ pub(super) async fn complete_upload_impl_with_audit(
             },
         };
         let details =
-            crate::services::file_service::audit_location_details_for_model(state, scope, &file)
+            crate::services::files::file::audit_location_details_for_model(state, scope, &file)
                 .await;
         audit_service::log_with_details(
             state,

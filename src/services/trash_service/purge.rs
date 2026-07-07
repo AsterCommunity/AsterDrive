@@ -9,7 +9,8 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    file_service, storage_change_service,
+    files::file,
+    storage_change_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 
@@ -18,7 +19,7 @@ pub async fn purge_file(state: &PrimaryAppState, id: i64, user_id: i64) -> Resul
     let scope = WorkspaceStorageScope::Personal { user_id };
     tracing::debug!(scope = ?scope, file_id = id, "purging file from trash");
     let file = verify_file_in_trash_in_scope(state, scope, id).await?;
-    file_service::batch_purge_in_scope(state, scope, vec![file]).await?;
+    file::batch_purge_in_scope(state, scope, vec![file]).await?;
     tracing::debug!(scope = ?scope, file_id = id, "purged file from trash");
     Ok(())
 }
@@ -35,7 +36,7 @@ pub async fn purge_team_file(
     };
     tracing::debug!(scope = ?scope, file_id = id, "purging file from trash");
     let file = verify_file_in_trash_in_scope(state, scope, id).await?;
-    file_service::batch_purge_in_scope(state, scope, vec![file]).await?;
+    file::batch_purge_in_scope(state, scope, vec![file]).await?;
     tracing::debug!(scope = ?scope, file_id = id, "purged file from trash");
     Ok(())
 }
@@ -88,7 +89,7 @@ impl PurgeAllSummary {
         self.freed_bytes += summary.freed_bytes;
     }
 
-    fn add_file_summary(&mut self, summary: file_service::BatchPurgeSummary) {
+    fn add_file_summary(&mut self, summary: file::BatchPurgeSummary) {
         self.purged += summary.purged;
         self.freed_bytes += summary.freed_bytes;
     }
@@ -179,9 +180,7 @@ pub(crate) async fn purge_all_in_scope_silent(
         let next_file_cursor = top_files
             .last()
             .and_then(|file| file.deleted_at.map(|deleted_at| (deleted_at, file.id)));
-        match file_service::batch_purge_in_resource_scope_silent(state, scope.into(), top_files)
-            .await
-        {
+        match file::batch_purge_in_resource_scope_silent(state, scope.into(), top_files).await {
             Ok(file_summary) => {
                 summary.add_file_summary(file_summary);
                 file_cursor = next_file_cursor;

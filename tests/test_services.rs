@@ -4,7 +4,7 @@
 mod common;
 
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::file_service::StoreFromTempRequest;
+use aster_drive::services::files::file::StoreFromTempRequest;
 use std::collections::BTreeSet;
 #[cfg(unix)]
 use std::os::unix::fs::PermissionsExt;
@@ -100,7 +100,7 @@ async fn store_service_file(
     contents: &str,
 ) -> i64 {
     let path = write_service_fixture(name, contents);
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         state,
         user_id,
         StoreFromTempRequest::new(folder_id, name, &path, contents.len() as i64),
@@ -314,7 +314,7 @@ async fn test_file_service_get_info() {
     let temp_path = format!("{}/test.txt", temp_dir);
     std::fs::write(&temp_path, "hello service test").unwrap();
 
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "service_test.txt", &temp_path, 18),
@@ -323,7 +323,7 @@ async fn test_file_service_get_info() {
     .unwrap();
 
     // get_info
-    let info = aster_drive::services::file_service::get_info(&state, file.id, user.id)
+    let info = aster_drive::services::files::file::get_info(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(info.name, "service_test.txt");
@@ -336,7 +336,7 @@ async fn test_file_service_get_info() {
         aster_drive::services::auth::local::register(&state, "user2", "u2@example.com", "pass1234")
             .await
             .unwrap();
-    let err = aster_drive::services::file_service::get_info(&state, file.id, user2.id).await;
+    let err = aster_drive::services::files::file::get_info(&state, file.id, user2.id).await;
     assert!(err.is_err());
 }
 
@@ -414,7 +414,7 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_respects_deleted_visibility() {
-    use aster_drive::services::{auth::local, folder_service, webdav_service};
+    use aster_drive::services::{auth::local, files::folder, webdav_service};
 
     let state = common::setup().await;
     let user = local::register(
@@ -426,17 +426,15 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
     .await
     .unwrap();
 
-    let root = folder_service::create(&state, user.id, "root", None)
+    let root = folder::create(&state, user.id, "root", None).await.unwrap();
+    let active_child = folder::create(&state, user.id, "active", Some(root.id))
         .await
         .unwrap();
-    let active_child = folder_service::create(&state, user.id, "active", Some(root.id))
-        .await
-        .unwrap();
-    let deleted_child = folder_service::create(&state, user.id, "deleted", Some(root.id))
+    let deleted_child = folder::create(&state, user.id, "deleted", Some(root.id))
         .await
         .unwrap();
     let deleted_grandchild =
-        folder_service::create(&state, user.id, "deleted-leaf", Some(deleted_child.id))
+        folder::create(&state, user.id, "deleted-leaf", Some(deleted_child.id))
             .await
             .unwrap();
 
@@ -466,7 +464,7 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
     )
     .await;
 
-    folder_service::delete(&state, deleted_child.id, user.id)
+    folder::delete(&state, deleted_child.id, user.id)
         .await
         .unwrap();
 
@@ -525,16 +523,14 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_handles_empty_leaf_folder() {
-    use aster_drive::services::{auth::local, folder_service, webdav_service};
+    use aster_drive::services::{auth::local, files::folder, webdav_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "treeleaf", "treeleaf@example.com", "password123")
         .await
         .unwrap();
 
-    let leaf = folder_service::create(&state, user.id, "leaf", None)
-        .await
-        .unwrap();
+    let leaf = folder::create(&state, user.id, "leaf", None).await.unwrap();
 
     let (visible_files, visible_folder_ids) =
         webdav_service::collect_folder_tree(&state, user.id, leaf.id, false)
@@ -553,7 +549,7 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
 
 #[actix_web::test]
 async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
-    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
 
     let state = common::setup().await;
     let user = local::register(
@@ -565,25 +561,21 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
     .await
     .unwrap();
 
-    let projects = folder_service::create(&state, user.id, "Projects", None)
+    let projects = folder::create(&state, user.id, "Projects", None)
         .await
         .unwrap();
-    let reports = folder_service::create(&state, user.id, "Reports", Some(projects.id))
+    let reports = folder::create(&state, user.id, "Reports", Some(projects.id))
         .await
         .unwrap();
-    let archive = folder_service::create(&state, user.id, "Archive", Some(projects.id))
+    let archive = folder::create(&state, user.id, "Archive", Some(projects.id))
         .await
         .unwrap();
 
     let file_id =
         store_service_file(&state, user.id, Some(reports.id), "report.txt", "report").await;
 
-    file_service::delete(&state, file_id, user.id)
-        .await
-        .unwrap();
-    folder_service::delete(&state, archive.id, user.id)
-        .await
-        .unwrap();
+    file::delete(&state, file_id, user.id).await.unwrap();
+    folder::delete(&state, archive.id, user.id).await.unwrap();
 
     let trash = trash_service::list_trash(&state, user.id, 10, 0, 10, None)
         .await
@@ -601,26 +593,26 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
 
 #[actix_web::test]
 async fn test_list_trash_handles_root_and_shared_parent_paths() {
-    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashmix", "trashmix@example.com", "password123")
         .await
         .unwrap();
 
-    let shared = folder_service::create(&state, user.id, "Shared", None)
+    let shared = folder::create(&state, user.id, "Shared", None)
         .await
         .unwrap();
-    let docs = folder_service::create(&state, user.id, "Docs", Some(shared.id))
+    let docs = folder::create(&state, user.id, "Docs", Some(shared.id))
         .await
         .unwrap();
-    let nested_folder_a = folder_service::create(&state, user.id, "Archive-A", Some(shared.id))
+    let nested_folder_a = folder::create(&state, user.id, "Archive-A", Some(shared.id))
         .await
         .unwrap();
-    let nested_folder_b = folder_service::create(&state, user.id, "Archive-B", Some(shared.id))
+    let nested_folder_b = folder::create(&state, user.id, "Archive-B", Some(shared.id))
         .await
         .unwrap();
-    let root_folder = folder_service::create(&state, user.id, "RootTrash", None)
+    let root_folder = folder::create(&state, user.id, "RootTrash", None)
         .await
         .unwrap();
 
@@ -631,14 +623,10 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
     let root_file = store_service_file(&state, user.id, None, "root.txt", "root").await;
 
     for file_id in [nested_file_a, nested_file_b, root_file] {
-        file_service::delete(&state, file_id, user.id)
-            .await
-            .unwrap();
+        file::delete(&state, file_id, user.id).await.unwrap();
     }
     for folder_id in [nested_folder_a.id, nested_folder_b.id, root_folder.id] {
-        folder_service::delete(&state, folder_id, user.id)
-            .await
-            .unwrap();
+        folder::delete(&state, folder_id, user.id).await.unwrap();
     }
 
     let trash = trash_service::list_trash(&state, user.id, 10, 0, 10, None)
@@ -681,24 +669,22 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
 
 #[actix_web::test]
 async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
-    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashzero", "trashzero@example.com", "password123")
         .await
         .unwrap();
 
-    let root_folder = folder_service::create(&state, user.id, "ZeroFolder", None)
+    let root_folder = folder::create(&state, user.id, "ZeroFolder", None)
         .await
         .unwrap();
     let root_file = store_service_file(&state, user.id, None, "zero.txt", "zero").await;
 
-    folder_service::delete(&state, root_folder.id, user.id)
+    folder::delete(&state, root_folder.id, user.id)
         .await
         .unwrap();
-    file_service::delete(&state, root_file, user.id)
-        .await
-        .unwrap();
+    file::delete(&state, root_file, user.id).await.unwrap();
 
     let trash = trash_service::list_trash(&state, user.id, 0, 0, 0, None)
         .await
@@ -727,7 +713,7 @@ async fn test_lock_service_lock_unlock() {
     .unwrap();
 
     // 创建文件夹来锁
-    let folder = aster_drive::services::folder_service::create(&state, user.id, "LockTest", None)
+    let folder = aster_drive::services::files::folder::create(&state, user.id, "LockTest", None)
         .await
         .unwrap();
     assert!(!folder.is_locked);
@@ -764,7 +750,7 @@ async fn test_lock_service_lock_unlock() {
     assert!(err.is_err());
 
     // 删除应失败（is_locked=true）
-    let err = aster_drive::services::folder_service::delete(&state, folder.id, user.id).await;
+    let err = aster_drive::services::files::folder::delete(&state, folder.id, user.id).await;
     assert!(err.is_err());
 
     // 解锁
@@ -784,7 +770,7 @@ async fn test_lock_service_lock_unlock() {
     assert!(!f.is_locked);
 
     // 删除成功
-    aster_drive::services::folder_service::delete(&state, folder.id, user.id)
+    aster_drive::services::files::folder::delete(&state, folder.id, user.id)
         .await
         .unwrap();
 }
@@ -802,7 +788,7 @@ async fn test_lock_service_force_unlock() {
     .await
     .unwrap();
 
-    let folder = aster_drive::services::folder_service::create(&state, user.id, "ForceTest", None)
+    let folder = aster_drive::services::files::folder::create(&state, user.id, "ForceTest", None)
         .await
         .unwrap();
 
@@ -831,7 +817,7 @@ async fn test_lock_service_force_unlock() {
 #[actix_web::test]
 async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, file_service, lock_service};
+    use aster_drive::services::{auth::local, files::file, lock_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "tokunlock", "tokunlock@example.com", "pass1234")
@@ -843,7 +829,7 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
     let temp_path = format!("{temp_dir}/locked.txt");
     std::fs::write(&temp_path, "lock by token").unwrap();
 
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "locked.txt", &temp_path, "lock by token".len() as i64),
@@ -886,7 +872,7 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
 #[actix_web::test]
 async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth::local, folder_service, lock_service};
+    use aster_drive::services::{auth::local, files::folder, lock_service};
     use chrono::Duration;
 
     let state = common::setup().await;
@@ -894,10 +880,10 @@ async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
         .await
         .unwrap();
 
-    let expired_folder = folder_service::create(&state, user.id, "ExpiredLock", None)
+    let expired_folder = folder::create(&state, user.id, "ExpiredLock", None)
         .await
         .unwrap();
-    let active_folder = folder_service::create(&state, user.id, "ActiveLock", None)
+    let active_folder = folder::create(&state, user.id, "ActiveLock", None)
         .await
         .unwrap();
 
@@ -968,7 +954,7 @@ async fn test_version_service_list_delete() {
     let temp1 = format!("{}/v1.txt", temp_dir);
     std::fs::write(&temp1, "version 1").unwrap();
 
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "versioned.txt", &temp1, 9),
@@ -986,7 +972,7 @@ async fn test_version_service_list_delete() {
     let temp2 = format!("{}/v2.txt", temp_dir);
     std::fs::write(&temp2, "version 2 content").unwrap();
 
-    let _ = aster_drive::services::file_service::store_from_temp(
+    let _ = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "versioned.txt", &temp2, 17).overwrite(file.id),
@@ -1031,7 +1017,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .unwrap();
 
     let temp1 = write_service_fixture("dense-v1.txt", "1111");
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "dense-versioned.txt", &temp1, 4),
@@ -1040,7 +1026,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .unwrap();
 
     let temp2 = write_service_fixture("dense-v2.txt", "2222");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "dense-versioned.txt", &temp2, 4).overwrite(file.id),
@@ -1049,7 +1035,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .unwrap();
 
     let temp3 = write_service_fixture("dense-v3.txt", "3333");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "dense-versioned.txt", &temp3, 4).overwrite(file.id),
@@ -1084,7 +1070,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     assert_eq!(versions[0].version, 1);
 
     let temp4 = write_service_fixture("dense-v4.txt", "4444");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "dense-versioned.txt", &temp4, 4).overwrite(file.id),
@@ -1118,7 +1104,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     .unwrap();
 
     let temp1 = write_service_fixture("quota-v1.txt", "1111");
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "quota-versioned.txt", &temp1, 4),
@@ -1128,7 +1114,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     assert_eq!(user_storage_used(&state, user.id).await, 4);
 
     let temp2 = write_service_fixture("quota-v2.txt", "222222");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "quota-versioned.txt", &temp2, 6).overwrite(file.id),
@@ -1138,7 +1124,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     assert_eq!(user_storage_used(&state, user.id).await, 10);
 
     let temp3 = write_service_fixture("quota-v3.txt", "33333333");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "quota-versioned.txt", &temp3, 8).overwrite(file.id),
@@ -1212,7 +1198,7 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     state.runtime_config.apply(max_versions);
 
     let temp1 = write_service_fixture("limit-v1.txt", "1111");
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "limit-versioned.txt", &temp1, 4),
@@ -1222,7 +1208,7 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     assert_eq!(user_storage_used(&state, user.id).await, 4);
 
     let temp2 = write_service_fixture("limit-v2.txt", "222222");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "limit-versioned.txt", &temp2, 6).overwrite(file.id),
@@ -1232,7 +1218,7 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     assert_eq!(user_storage_used(&state, user.id).await, 10);
 
     let temp3 = write_service_fixture("limit-v3.txt", "33333333");
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "limit-versioned.txt", &temp3, 8).overwrite(file.id),
@@ -1267,7 +1253,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 
     let temp1 = format!("{}/v1.txt", temp_dir);
     std::fs::write(&temp1, "version 1").unwrap();
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "restore.txt", &temp1, 9),
@@ -1277,7 +1263,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 
     let temp2 = format!("{}/v2.txt", temp_dir);
     std::fs::write(&temp2, "version 2").unwrap();
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "restore.txt", &temp2, 9).overwrite(file.id),
@@ -1287,7 +1273,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 
     let temp3 = format!("{}/v3.txt", temp_dir);
     std::fs::write(&temp3, "version 3").unwrap();
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "restore.txt", &temp3, 9).overwrite(file.id),
@@ -1297,7 +1283,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 
     let temp4 = format!("{}/v4.txt", temp_dir);
     std::fs::write(&temp4, "version 4").unwrap();
-    let latest = aster_drive::services::file_service::store_from_temp(
+    let latest = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "restore.txt", &temp4, 9).overwrite(file.id),
@@ -1358,7 +1344,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 
     let temp5 = format!("{}/v5.txt", temp_dir);
     std::fs::write(&temp5, "version 5").unwrap();
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "restore.txt", &temp5, 9).overwrite(file.id),
@@ -1395,7 +1381,7 @@ async fn test_copy_file_naming() {
     let temp = format!("{}/f.txt", temp_dir);
     std::fs::write(&temp, "copy me").unwrap();
 
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         &state,
         user.id,
         StoreFromTempRequest::new(None, "doc.txt", &temp, 7),
@@ -1404,13 +1390,13 @@ async fn test_copy_file_naming() {
     .unwrap();
 
     // 复制 1 → "doc (1).txt"
-    let copy1 = aster_drive::services::file_service::copy_file(&state, file.id, user.id, None)
+    let copy1 = aster_drive::services::files::file::copy_file(&state, file.id, user.id, None)
         .await
         .unwrap();
     assert_eq!(copy1.name, "doc (1).txt");
 
     // 复制 2 → "doc (2).txt"
-    let copy2 = aster_drive::services::file_service::copy_file(&state, file.id, user.id, None)
+    let copy2 = aster_drive::services::files::file::copy_file(&state, file.id, user.id, None)
         .await
         .unwrap();
     assert_eq!(copy2.name, "doc (2).txt");
@@ -1427,15 +1413,15 @@ async fn test_folder_service_cycle_detection() {
             .await
             .unwrap();
 
-    let a = aster_drive::services::folder_service::create(&state, user.id, "A", None)
+    let a = aster_drive::services::files::folder::create(&state, user.id, "A", None)
         .await
         .unwrap();
-    let b = aster_drive::services::folder_service::create(&state, user.id, "B", Some(a.id))
+    let b = aster_drive::services::files::folder::create(&state, user.id, "B", Some(a.id))
         .await
         .unwrap();
 
     // 把 A 移到 B 下面 → 循环，应失败
-    let err = aster_drive::services::folder_service::update(
+    let err = aster_drive::services::files::folder::update(
         &state,
         a.id,
         user.id,
@@ -1447,10 +1433,10 @@ async fn test_folder_service_cycle_detection() {
     assert!(err.is_err());
 
     // 正常移动应该 OK
-    let c = aster_drive::services::folder_service::create(&state, user.id, "C", None)
+    let c = aster_drive::services::files::folder::create(&state, user.id, "C", None)
         .await
         .unwrap();
-    let result = aster_drive::services::folder_service::update(
+    let result = aster_drive::services::files::folder::update(
         &state,
         b.id,
         user.id,
@@ -1475,18 +1461,18 @@ async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
     .await
     .unwrap();
 
-    let root = aster_drive::services::folder_service::create(&state, user.id, "Tree", None)
+    let root = aster_drive::services::files::folder::create(&state, user.id, "Tree", None)
         .await
         .unwrap();
     let child_a =
-        aster_drive::services::folder_service::create(&state, user.id, "ChildA", Some(root.id))
+        aster_drive::services::files::folder::create(&state, user.id, "ChildA", Some(root.id))
             .await
             .unwrap();
     let child_b =
-        aster_drive::services::folder_service::create(&state, user.id, "ChildB", Some(root.id))
+        aster_drive::services::files::folder::create(&state, user.id, "ChildB", Some(root.id))
             .await
             .unwrap();
-    let grandchild = aster_drive::services::folder_service::create(
+    let grandchild = aster_drive::services::files::folder::create(
         &state,
         user.id,
         "Grandchild",
@@ -1510,7 +1496,7 @@ async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
     .await;
 
     let storage_before_copy = user_storage_used(&state, user.id).await;
-    let copied = aster_drive::services::folder_service::copy_folder(&state, root.id, user.id, None)
+    let copied = aster_drive::services::files::folder::copy_folder(&state, root.id, user.id, None)
         .await
         .unwrap();
     assert_eq!(copied.name, "Tree (1)");
@@ -1629,11 +1615,11 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
     .await
     .unwrap();
 
-    let root = aster_drive::services::folder_service::create(&state, user.id, "QuotaTree", None)
+    let root = aster_drive::services::files::folder::create(&state, user.id, "QuotaTree", None)
         .await
         .unwrap();
     let nested =
-        aster_drive::services::folder_service::create(&state, user.id, "Nested", Some(root.id))
+        aster_drive::services::files::folder::create(&state, user.id, "Nested", Some(root.id))
             .await
             .unwrap();
 
@@ -1657,7 +1643,7 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
     user_active.storage_quota = Set(storage_before_copy);
     user_active.update(&db).await.unwrap();
 
-    let err = aster_drive::services::folder_service::copy_folder(&state, root.id, user.id, None)
+    let err = aster_drive::services::files::folder::copy_folder(&state, root.id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E032");
@@ -1741,7 +1727,7 @@ async fn test_property_service_dav_readonly() {
     .await
     .unwrap();
 
-    let folder = aster_drive::services::folder_service::create(&state, user.id, "PropTest", None)
+    let folder = aster_drive::services::files::folder::create(&state, user.id, "PropTest", None)
         .await
         .unwrap();
 
@@ -1822,7 +1808,7 @@ async fn test_driver_registry_invalidate_on_policy_update() {
 #[actix_web::test]
 async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
     let state = common::setup().await;
-    let oversized = vec![1_i64; aster_drive::services::batch_service::MAX_BATCH_ITEMS + 1];
+    let oversized = vec![1_i64; aster_drive::services::files::batch::MAX_BATCH_ITEMS + 1];
 
     let err =
         match aster_drive::services::share_service::batch_delete_shares(&state, 999, &[]).await {
@@ -2007,10 +1993,9 @@ async fn test_share_target_check_constraint_rejects_zero_or_multiple_targets() {
     .unwrap();
 
     let file_id = store_service_file(&state, user.id, None, "check.txt", "check-body").await;
-    let folder =
-        aster_drive::services::folder_service::create(&state, user.id, "CheckFolder", None)
-            .await
-            .unwrap();
+    let folder = aster_drive::services::files::folder::create(&state, user.id, "CheckFolder", None)
+        .await
+        .unwrap();
     let now = chrono::Utc::now();
 
     let err = aster_drive::entities::share::ActiveModel {

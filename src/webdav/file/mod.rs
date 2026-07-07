@@ -531,7 +531,7 @@ impl DavFile for AsterDavFile {
                     )
                     .await
                     .map_err(map_store_error)?;
-                    let details = crate::services::file_service::audit_location_details_for_model(
+                    let details = crate::services::files::file::audit_location_details_for_model(
                         state, *scope, &stored,
                     )
                     .await;
@@ -622,7 +622,7 @@ impl DavFile for AsterDavFile {
                     )
                     .await
                     .map_err(map_store_error)?;
-                    let details = crate::services::file_service::audit_location_details_for_model(
+                    let details = crate::services::files::file::audit_location_details_for_model(
                         state, *scope, &stored,
                     )
                     .await;

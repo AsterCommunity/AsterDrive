@@ -146,10 +146,10 @@ async fn store_test_file(
         .unwrap();
     tokio::fs::write(&temp_path, bytes).await.unwrap();
 
-    aster_drive::services::file_service::store_from_temp(
+    aster_drive::services::files::file::store_from_temp(
         state,
         user_id,
-        aster_drive::services::file_service::StoreFromTempRequest::new(
+        aster_drive::services::files::file::StoreFromTempRequest::new(
             None,
             filename,
             &temp_path,
@@ -827,7 +827,7 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
 #[actix_web::test]
 async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_retries() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, file_service, maintenance_service};
+    use aster_drive::services::{auth::local, files::file, maintenance_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser4", "maint4@test.com", "password123")
@@ -848,7 +848,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
         .to_path_buf();
     let _guard = DirModeGuard::set_read_only(object_parent);
 
-    file_service::purge(&state, file.id, user.id).await.unwrap();
+    file::purge(&state, file.id, user.id).await.unwrap();
 
     assert!(
         file_repo::find_by_id(state.writer_db(), file.id)
@@ -879,7 +879,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
 #[actix_web::test]
 async fn test_purge_releases_all_versioned_storage_used() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintquota1", "maintquota1@test.com", "password123")
@@ -890,7 +890,7 @@ async fn test_purge_releases_all_versioned_storage_used() {
     let updated_bytes = b"second-version-kept";
     let file = store_test_file(&state, user.id, "quota-purge.txt", initial_bytes).await;
 
-    file_service::update_content(
+    file::update_content(
         &state,
         file.id,
         user.id,
@@ -908,7 +908,7 @@ async fn test_purge_releases_all_versioned_storage_used() {
         initial_bytes.len() as i64 + updated_bytes.len() as i64
     );
 
-    file_service::purge(&state, file.id, user.id).await.unwrap();
+    file::purge(&state, file.id, user.id).await.unwrap();
 
     let after_purge = user_repo::find_by_id(state.writer_db(), user.id)
         .await
@@ -919,7 +919,7 @@ async fn test_purge_releases_all_versioned_storage_used() {
 #[actix_web::test]
 async fn test_batch_purge_releases_all_versioned_storage_used() {
     use aster_drive::db::repository::{file_repo, user_repo};
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintquota2", "maintquota2@test.com", "password123")
@@ -934,7 +934,7 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
     let file_a = store_test_file(&state, user.id, "quota-a.txt", file_a_v1).await;
     let file_b = store_test_file(&state, user.id, "quota-b.txt", file_b_v1).await;
 
-    file_service::update_content(
+    file::update_content(
         &state,
         file_a.id,
         user.id,
@@ -943,7 +943,7 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
     )
     .await
     .unwrap();
-    file_service::update_content(
+    file::update_content(
         &state,
         file_b.id,
         user.id,
@@ -964,9 +964,7 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
     let files = file_repo::find_by_ids(state.writer_db(), &[file_a.id, file_b.id])
         .await
         .unwrap();
-    let purged = file_service::batch_purge(&state, files, user.id)
-        .await
-        .unwrap();
+    let purged = file::batch_purge(&state, files, user.id).await.unwrap();
     assert_eq!(purged, 2);
 
     let after_purge = user_repo::find_by_id(state.writer_db(), user.id)

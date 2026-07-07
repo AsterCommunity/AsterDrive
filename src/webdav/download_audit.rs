@@ -4,7 +4,7 @@ use crate::entities::file;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     audit_service::{self, AuditContext, AuditEntityType},
-    file_service,
+    files::file as file_ops,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::utils::hash;
@@ -50,7 +50,7 @@ pub(crate) async fn record_download<S>(
         return;
     }
 
-    let details = file_service::audit_location_details_for_model(state, identity.scope, file).await;
+    let details = file_ops::audit_location_details_for_model(state, identity.scope, file).await;
     audit_service::log_with_details(
         state,
         audit_ctx,

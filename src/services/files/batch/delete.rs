@@ -8,7 +8,8 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    folder_service, storage_change_service,
+    files::folder,
+    storage_change_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 
@@ -106,7 +107,7 @@ pub(crate) async fn batch_delete_in_scope(
         })
         .collect();
     if !root_folder_ids_to_delete.is_empty() {
-        let (tree_files, tree_folder_ids) = folder_service::collect_folder_forest_in_scope(
+        let (tree_files, tree_folder_ids) = folder::collect_folder_forest_in_scope(
             state.writer_db(),
             scope,
             &root_folder_ids_to_delete,

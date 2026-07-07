@@ -780,7 +780,7 @@ async fn test_restore_folder_moves_to_root_when_parent_is_deleted() {
 #[actix_web::test]
 async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config() {
     use aster_drive::db::repository::{config_repo, file_repo, folder_repo};
-    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -795,10 +795,10 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     .unwrap();
 
     let root_path = write_temp_fixture("expired-root.txt", "expired root file");
-    let root_file = file_service::store_from_temp(
+    let root_file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "expired-root.txt",
             &root_path,
@@ -808,14 +808,14 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     .await
     .unwrap();
 
-    let folder = folder_service::create(&state, user.id, "expired-folder", None)
+    let folder = folder::create(&state, user.id, "expired-folder", None)
         .await
         .unwrap();
     let nested_path = write_temp_fixture("expired-nested.txt", "expired nested file");
-    let nested_file = file_service::store_from_temp(
+    let nested_file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(folder.id),
             "expired-nested.txt",
             &nested_path,
@@ -825,12 +825,8 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     .await
     .unwrap();
 
-    file_service::delete(&state, root_file.id, user.id)
-        .await
-        .unwrap();
-    folder_service::delete(&state, folder.id, user.id)
-        .await
-        .unwrap();
+    file::delete(&state, root_file.id, user.id).await.unwrap();
+    folder::delete(&state, folder.id, user.id).await.unwrap();
 
     config_repo::upsert(
         state.writer_db(),
@@ -889,7 +885,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
 #[actix_web::test]
 async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
     use aster_drive::db::repository::folder_repo;
-    use aster_drive::services::{auth::local, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::folder, trash_service};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -898,16 +894,14 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
         .await
         .unwrap();
 
-    let parent = folder_service::create(&state, user.id, "expired-parent", None)
+    let parent = folder::create(&state, user.id, "expired-parent", None)
         .await
         .unwrap();
-    let child = folder_service::create(&state, user.id, "expired-child", Some(parent.id))
+    let child = folder::create(&state, user.id, "expired-child", Some(parent.id))
         .await
         .unwrap();
 
-    folder_service::delete(&state, parent.id, user.id)
-        .await
-        .unwrap();
+    folder::delete(&state, parent.id, user.id).await.unwrap();
 
     let expired_at = Utc::now() - Duration::days(8);
     for folder_id in [parent.id, child.id] {
@@ -940,7 +934,7 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
 #[actix_web::test]
 async fn test_cleanup_expired_keeps_recently_deleted_items() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, file_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, trash_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashrecent", "trashrecent@example.com", "pass1234")
@@ -948,10 +942,10 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
         .unwrap();
 
     let temp_path = write_temp_fixture("recent-trash.txt", "recent trash");
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "recent-trash.txt",
             &temp_path,
@@ -961,9 +955,7 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
     .await
     .unwrap();
 
-    file_service::delete(&state, file.id, user.id)
-        .await
-        .unwrap();
+    file::delete(&state, file.id, user.id).await.unwrap();
 
     let purged = trash_service::cleanup_expired(&state).await.unwrap();
     assert_eq!(purged, 0);
@@ -976,7 +968,7 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_file_batches() {
-    use aster_drive::services::{auth::local, file_service, trash_service};
+    use aster_drive::services::{auth::local, files::file, trash_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "tbfiles", "trashbatchfiles@example.com", "pass1234")
@@ -984,12 +976,10 @@ async fn test_purge_all_processes_multiple_file_batches() {
         .unwrap();
 
     for idx in 0..120 {
-        let file = file_service::create_empty(&state, user.id, None, &format!("batch-{idx}.txt"))
+        let file = file::create_empty(&state, user.id, None, &format!("batch-{idx}.txt"))
             .await
             .unwrap();
-        file_service::delete(&state, file.id, user.id)
-            .await
-            .unwrap();
+        file::delete(&state, file.id, user.id).await.unwrap();
     }
 
     let purged = trash_service::purge_all(&state, user.id).await.unwrap();
@@ -1004,7 +994,7 @@ async fn test_purge_all_processes_multiple_file_batches() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_folder_batches() {
-    use aster_drive::services::{auth::local, folder_service, trash_service};
+    use aster_drive::services::{auth::local, files::folder, trash_service};
 
     let state = common::setup().await;
     let user = local::register(
@@ -1017,12 +1007,10 @@ async fn test_purge_all_processes_multiple_folder_batches() {
     .unwrap();
 
     for idx in 0..120 {
-        let folder = folder_service::create(&state, user.id, &format!("batch-folder-{idx}"), None)
+        let folder = folder::create(&state, user.id, &format!("batch-folder-{idx}"), None)
             .await
             .unwrap();
-        folder_service::delete(&state, folder.id, user.id)
-            .await
-            .unwrap();
+        folder::delete(&state, folder.id, user.id).await.unwrap();
     }
 
     let purged = trash_service::purge_all(&state, user.id).await.unwrap();

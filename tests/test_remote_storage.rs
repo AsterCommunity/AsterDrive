@@ -19,7 +19,7 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth::local, file_service, folder_service, policy_service, remote::master_binding,
+    auth::local, files::file, files::folder, policy_service, remote::master_binding,
     remote::remote_node, remote::storage_target, upload_service,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
@@ -1176,10 +1176,10 @@ fn build_test_png() -> Vec<u8> {
 }
 
 async fn collect_download_body(
-    outcome: aster_drive::services::file_service::DownloadOutcome,
+    outcome: aster_drive::services::files::file::DownloadOutcome,
 ) -> Vec<u8> {
     match outcome {
-        aster_drive::services::file_service::DownloadOutcome::Stream(streamed) => streamed
+        aster_drive::services::files::file::DownloadOutcome::Stream(streamed) => streamed
             .body
             .try_fold(Vec::new(), |mut acc, chunk| async move {
                 acc.extend_from_slice(&chunk);
@@ -1510,7 +1510,7 @@ async fn setup_browser_presigned_cors_fixture(
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(&consumer_state, user.id, &format!("{label}-folder"), None)
+    let folder = folder::create(&consumer_state, user.id, &format!("{label}-folder"), None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -2993,7 +2993,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .await
     .expect("consumer test user should be created");
 
-    let folder = folder_service::create(&consumer_state, user.id, "remote-folder", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-folder", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -3007,10 +3007,10 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     .await;
     let upload_path_string = upload_path.to_string_lossy().into_owned();
 
-    let created = file_service::store_from_temp(
+    let created = file::store_from_temp(
         &consumer_state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(folder.id),
             "remote.txt",
             &upload_path_string,
@@ -3066,17 +3066,17 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     assert_eq!(provider_uploaded_bytes, upload_bytes);
 
     let downloaded_bytes = collect_download_body(
-        file_service::download(&consumer_state, created_file.id, user.id, None)
+        file::download(&consumer_state, created_file.id, user.id, None)
             .await
             .expect("remote file download should succeed"),
     )
     .await;
     assert_eq!(downloaded_bytes, upload_bytes);
 
-    file_service::delete(&consumer_state, created_file.id, user.id)
+    file::delete(&consumer_state, created_file.id, user.id)
         .await
         .expect("remote file soft delete should succeed");
-    file_service::purge(&consumer_state, created_file.id, user.id)
+    file::purge(&consumer_state, created_file.id, user.id)
         .await
         .expect("remote file purge should succeed");
 
@@ -3091,7 +3091,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         "provider-side object should be deleted after purge"
     );
 
-    let empty_file = file_service::create_empty(
+    let empty_file = file::create_empty(
         &consumer_state,
         user.id,
         Some(folder.id),
@@ -3127,7 +3127,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
         .expect("provider-side empty object should exist");
     assert_eq!(empty_meta.len(), 0);
 
-    file_service::purge(&consumer_state, empty_file.id, user.id)
+    file::purge(&consumer_state, empty_file.id, user.id)
         .await
         .expect("empty remote file purge should succeed");
     assert!(
@@ -4605,10 +4605,9 @@ async fn test_remote_presigned_download_redirects_to_follower() {
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder =
-        folder_service::create(&consumer_state, user.id, "remote-presigned-download", None)
-            .await
-            .expect("remote folder should be created");
+    let folder = folder::create(&consumer_state, user.id, "remote-presigned-download", None)
+        .await
+        .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"hello remote presigned download".to_vec();
@@ -4619,10 +4618,10 @@ async fn test_remote_presigned_download_redirects_to_follower() {
     )
     .await;
     let upload_path_string = upload_path.to_string_lossy().into_owned();
-    let created = file_service::store_from_temp(
+    let created = file::store_from_temp(
         &consumer_state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(folder.id),
             "presigned-download.txt",
             &upload_path_string,
@@ -5349,7 +5348,7 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
         .expect("test user lookup should succeed")
         .expect("test user should exist");
 
-    let folder = folder_service::create(&consumer_state, user.id, "remote-thumbs", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-thumbs", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -5362,10 +5361,10 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     )
     .await;
     let upload_path_string = upload_path.to_string_lossy().into_owned();
-    let created = file_service::store_from_temp(
+    let created = file::store_from_temp(
         &consumer_state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(folder.id),
             "thumb-source.png",
             &upload_path_string,
@@ -5483,7 +5482,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(&consumer_state, user.id, "remote-presigned", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-presigned", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -5668,7 +5667,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(&consumer_state, user.id, "late-remote-presigned", None)
+    let folder = folder::create(&consumer_state, user.id, "late-remote-presigned", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -5839,7 +5838,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     )
     .await
     .expect("consumer test user should be created");
-    let folder = folder_service::create(&consumer_state, user.id, "remote-relay-direct", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-relay-direct", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -5992,7 +5991,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(&consumer_state, user.id, "remote-browser-cors", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-browser-cors", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -6220,7 +6219,7 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(
+    let folder = folder::create(
         &consumer_state,
         user.id,
         "remote-browser-download-cors",
@@ -6241,10 +6240,10 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     )
     .await;
     let upload_path_string = upload_path.to_string_lossy().into_owned();
-    let created = file_service::store_from_temp(
+    let created = file::store_from_temp(
         &consumer_state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(folder.id),
             "presigned-browser-download.txt",
             &upload_path_string,
@@ -6255,13 +6254,11 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     .expect("remote file upload should succeed");
     aster_drive::utils::cleanup_temp_file(&upload_path_string).await;
 
-    let download_result = file_service::download(&consumer_state, created.id, user.id, None)
+    let download_result = file::download(&consumer_state, created.id, user.id, None)
         .await
         .expect("remote presigned download should resolve");
     let presigned_path = match download_result {
-        file_service::DownloadOutcome::PresignedRedirect { url, .. } => {
-            path_and_query_from_url(&url)
-        }
+        file::DownloadOutcome::PresignedRedirect { url, .. } => path_and_query_from_url(&url),
         other => panic!("expected remote presigned download, got {other:?}"),
     };
 
@@ -6516,7 +6513,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         .expect("consumer test user should log in");
     let login = common::expect_authenticated_login(login);
     common::seed_csrf_token(&login.access_token);
-    let folder = folder_service::create(&consumer_state, user.id, "remote-relay-chunked", None)
+    let folder = folder::create(&consumer_state, user.id, "remote-relay-chunked", None)
         .await
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
@@ -6808,10 +6805,9 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder =
-        folder_service::create(&consumer_state, user.id, "remote-browser-origin-path", None)
-            .await
-            .expect("remote folder should be created");
+    let folder = folder::create(&consumer_state, user.id, "remote-browser-origin-path", None)
+        .await
+        .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let init = upload_service::init_upload(
@@ -6927,7 +6923,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder = folder_service::create(
+    let folder = folder::create(
         &consumer_state,
         user.id,
         "remote-browser-disabled-binding",
@@ -7366,10 +7362,9 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         .await
         .expect("test user lookup should succeed")
         .expect("test user should exist");
-    let folder =
-        folder_service::create(&consumer_state, user.id, "remote-presigned-multipart", None)
-            .await
-            .expect("remote folder should be created");
+    let folder = folder::create(&consumer_state, user.id, "remote-presigned-multipart", None)
+        .await
+        .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"multipart-remote-upload".to_vec();

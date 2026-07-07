@@ -1,4 +1,4 @@
-//! 服务模块：`direct_link_service`。
+//! 服务模块：`direct_link`。
 
 use base64::Engine;
 use serde::Serialize;
@@ -10,9 +10,8 @@ use crate::db::repository::{file_repo, team_repo};
 use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
-    file_service,
+    files::file::{self as file_ops, ResolvedDownloadRange},
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{u64_to_usize, usize_to_u64};
@@ -72,16 +71,16 @@ pub(crate) async fn download_file(
     force_download: bool,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     let file = resolve_file_for_download(state, token, requested_name).await?;
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
     let disposition = if force_download {
-        file_service::DownloadDisposition::Attachment
+        file_ops::DownloadDisposition::Attachment
     } else {
-        file_service::DownloadDisposition::Inline
+        file_ops::DownloadDisposition::Inline
     };
 
-    file_service::build_download_outcome_with_disposition_and_range(
+    file_ops::build_download_outcome_with_disposition_and_range(
         state,
         &file,
         &blob,

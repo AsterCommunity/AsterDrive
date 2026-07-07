@@ -7,7 +7,8 @@ use crate::entities::{file, folder};
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
-    folder_service, storage_change_service, workspace_storage_service::WorkspaceStorageScope,
+    files::folder as folder_ops, storage_change_service,
+    workspace_storage_service::WorkspaceStorageScope,
 };
 
 use super::common::{
@@ -77,7 +78,7 @@ async fn restore_folder_in_scope(
     let mut restored_parent_id = folder.parent_id;
     let mut restore_to_root = false;
     let (files, folder_ids) =
-        folder_service::collect_folder_tree_in_scope(state.writer_db(), scope, id, true).await?;
+        folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, id, true).await?;
     let child_folder_ids: Vec<i64> = folder_ids.into_iter().filter(|&fid| fid != id).collect();
 
     if let Some(parent_id) = folder.parent_id {

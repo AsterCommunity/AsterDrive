@@ -9,7 +9,8 @@ use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    file_service, folder_service, storage_change_service,
+    files::{file as file_ops, folder as folder_ops},
+    storage_change_service,
     workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::types::EntityType;
@@ -47,7 +48,7 @@ pub(super) async fn build_trash_path_cache<C: ConnectionTrait>(
         .into_iter()
         .collect();
 
-    folder_service::build_folder_paths(db, &folder_ids).await
+    folder_ops::build_folder_paths(db, &folder_ids).await
 }
 
 pub(super) fn build_trash_file_item(
@@ -249,7 +250,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
         .iter()
         .map(|folder_id| root_parent_ids.get(folder_id).copied().flatten())
         .collect();
-    let (all_files, all_folder_ids) = folder_service::collect_folder_forest_in_resource_scope(
+    let (all_files, all_folder_ids) = folder_ops::collect_folder_forest_in_resource_scope(
         state.writer_db(),
         scope,
         folder_ids,
@@ -259,7 +260,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
     let file_count = all_files.len();
     let folder_count = all_folder_ids.len();
     let file_summary =
-        file_service::batch_purge_in_resource_scope_silent(state, scope, all_files).await?;
+        file_ops::batch_purge_in_resource_scope_silent(state, scope, all_files).await?;
     property_repo::delete_all_for_entities(state.writer_db(), EntityType::Folder, &all_folder_ids)
         .await?;
     let deleted_shares =
@@ -271,7 +272,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
         .await;
         crate::services::share_service::invalidate_all_share_token_record_cache(state).await;
     }
-    crate::services::folder_service::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
+    crate::services::files::folder::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
         .await;
     folder_repo::delete_many(state.writer_db(), &all_folder_ids).await?;
     if emit_storage_event {

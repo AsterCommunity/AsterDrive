@@ -1,17 +1,13 @@
 //! 服务层模块导出。
 
-pub mod admin_file_service;
 pub mod admin_service;
 pub mod archive_preview_service;
 pub(crate) mod archive_service;
 pub mod audit_service;
 pub mod auth;
-pub mod batch_service;
 pub mod config_service;
-pub mod direct_link_service;
 pub(crate) mod download_headers;
-pub mod file_service;
-pub mod folder_service;
+pub mod files;
 pub mod health_service;
 pub mod integrity_service;
 pub mod lock_service;
@@ -24,7 +20,6 @@ pub mod media_metadata_service;
 pub mod media_processing_service;
 pub mod policy_service;
 pub mod preview_app_service;
-pub mod preview_link_service;
 pub mod profile_service;
 pub mod property_service;
 pub mod remote;
@@ -37,7 +32,6 @@ pub mod stream_ticket_service;
 pub mod tag_service;
 pub mod task_service;
 pub mod team_service;
-pub mod thumbnail_service;
 pub mod trash_service;
 pub mod upload_service;
 pub mod user_invitation_service;

@@ -12,7 +12,7 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::task_service::TaskExecutionContext;
 use crate::services::{
-    folder_service,
+    files::folder as folder_ops,
     workspace_storage_service::{WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -66,7 +66,7 @@ pub(super) async fn build_folder_display_path(
     db: &DatabaseConnection,
     folder_id: i64,
 ) -> Result<String> {
-    let mut paths = folder_service::build_folder_paths(db, &[folder_id]).await?;
+    let mut paths = folder_ops::build_folder_paths(db, &[folder_id]).await?;
     paths
         .remove(&folder_id)
         .ok_or_else(|| AsterError::record_not_found(format!("folder #{folder_id} path")))

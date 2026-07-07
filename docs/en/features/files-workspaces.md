@@ -23,7 +23,7 @@ Files and workspaces are the main business path in AsterDrive. This area connect
 | Module | Owns |
 | --- | --- |
 | `workspace_scope_service`, `workspace_models` | Personal/team workspace scope |
-| `file_service`, `folder_service` | Files, folders, paths, listings, access checks |
+| `file`, `folder` | Files, folders, paths, listings, access checks |
 | `workspace_storage_core`, `workspace_storage_service` | File records, blobs, quota, storage-policy finalization |
 | `team_service` | Teams, members, roles, archive |
 | `share_service`, `share_public` routes | Share creation, public access, share scope |

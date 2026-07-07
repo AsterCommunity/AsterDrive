@@ -19,7 +19,7 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 #[actix_web::test]
 async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delete() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth::local, file_service, folder_service};
+    use aster_drive::services::{auth::local, files::file, files::folder};
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
     use xmltree::Element;
@@ -29,17 +29,17 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
         .await
         .unwrap();
 
-    let projects = folder_service::create(&state, user.id, "projects", None)
+    let projects = folder::create(&state, user.id, "projects", None)
         .await
         .unwrap();
-    let docs = folder_service::create(&state, user.id, "docs", Some(projects.id))
+    let docs = folder::create(&state, user.id, "docs", Some(projects.id))
         .await
         .unwrap();
     let temp_path = write_temp_fixture("note.txt", "deep lock content");
-    file_service::store_from_temp(
+    file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(docs.id),
             "note.txt",
             &temp_path,
@@ -140,7 +140,7 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
 #[actix_web::test]
 async fn test_db_lock_system_rejects_unrepresentable_timeout() {
     use aster_drive::db::repository::lock_repo;
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
 
@@ -154,10 +154,10 @@ async fn test_db_lock_system_rejects_unrepresentable_timeout() {
     .await
     .unwrap();
     let temp_path = write_temp_fixture("timeout.txt", "timeout content");
-    file_service::store_from_temp(
+    file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "timeout.txt",
             &temp_path,
@@ -196,7 +196,7 @@ async fn test_db_lock_system_rejects_unrepresentable_timeout() {
 #[actix_web::test]
 async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, file_service, lock_service};
+    use aster_drive::services::{auth::local, files::file, lock_service};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
@@ -208,10 +208,10 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
         .unwrap();
 
     let temp_path = write_temp_fixture("expired.txt", "expired lock content");
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "expired.txt",
             &temp_path,
@@ -322,7 +322,7 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
 #[actix_web::test]
 async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unlock() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
@@ -333,10 +333,10 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
         .unwrap();
 
     let temp_path = write_temp_fixture("shared.txt", "shared lock content");
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "shared.txt",
             &temp_path,
@@ -418,7 +418,7 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
 
 #[actix_web::test]
 async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
 
@@ -433,10 +433,10 @@ async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
     .unwrap();
 
     let temp_path = write_temp_fixture("exclusive.txt", "exclusive lock content");
-    file_service::store_from_temp(
+    file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "exclusive.txt",
             &temp_path,

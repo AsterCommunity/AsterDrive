@@ -11,8 +11,8 @@ use crate::services::{
     archive_preview_service,
     audit_service::{self, AuditContext},
     auth::local::Claims,
-    direct_link_service, file_service, media_metadata_service, media_processing_service,
-    preview_link_service, wopi_service,
+    files::{direct_link, file, preview_link},
+    media_metadata_service, media_processing_service, wopi_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_web::http::header;
@@ -25,10 +25,10 @@ fn request_origin_parts(req: &HttpRequest) -> (String, String) {
 
 pub(crate) fn download_disposition_from_query(
     query: &DownloadQuery,
-) -> Result<file_service::DownloadDisposition> {
+) -> Result<file::DownloadDisposition> {
     match query.disposition.as_deref() {
-        None | Some("") | Some("attachment") => Ok(file_service::DownloadDisposition::Attachment),
-        Some("inline") => Ok(file_service::DownloadDisposition::Inline),
+        None | Some("") | Some("attachment") => Ok(file::DownloadDisposition::Attachment),
+        Some("inline") => Ok(file::DownloadDisposition::Inline),
         Some(value) => Err(crate::errors::AsterError::validation_error(format!(
             "unsupported download disposition '{value}', expected inline or attachment"
         ))),
@@ -106,7 +106,7 @@ pub async fn get_archive_preview(
     operation_id = "get_file_direct_link",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "Direct link token", body = inline(ApiResponse<crate::services::direct_link_service::DirectLinkTokenInfo>)),
+        (status = 200, description = "Direct link token", body = inline(ApiResponse<crate::services::files::direct_link::DirectLinkTokenInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -137,7 +137,7 @@ pub async fn get_direct_link(
     operation_id = "create_file_preview_link",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -188,7 +188,7 @@ pub async fn resolve_resource_handle(
             user_id: claims.user_id,
         },
         *path,
-        file_service::FileResourcePathSet {
+        file::FileResourcePathSet {
             download: format!("/files/{}/download", *path),
             image_preview: format!("/files/{}/image-preview", *path),
             thumbnail: format!("/files/{}/thumbnail", *path),
@@ -445,7 +445,7 @@ pub(crate) async fn team_get_archive_preview(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "Team file direct link token", body = inline(ApiResponse<crate::services::direct_link_service::DirectLinkTokenInfo>)),
+        (status = 200, description = "Team file direct link token", body = inline(ApiResponse<crate::services::files::direct_link::DirectLinkTokenInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -479,7 +479,7 @@ pub(crate) async fn team_get_direct_link(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "Team file preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Team file preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -533,7 +533,7 @@ pub(crate) async fn team_resolve_resource_handle(
         state.get_ref(),
         team_scope(team_id, claims.user_id),
         file_id,
-        file_service::FileResourcePathSet {
+        file::FileResourcePathSet {
             download: format!("/teams/{team_id}/files/{file_id}/download"),
             image_preview: format!("/teams/{team_id}/files/{file_id}/image-preview"),
             thumbnail: format!("/teams/{team_id}/files/{file_id}/thumbnail"),
@@ -731,7 +731,7 @@ pub(crate) async fn get_file_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file_service::get_info_with_storage_used_in_scope(state, scope, file_id).await?;
+    let file = file::get_info_with_storage_used_in_scope(state, scope, file_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
@@ -739,11 +739,10 @@ pub(crate) async fn resource_handle_response(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     file_id: i64,
-    paths: file_service::FileResourcePathSet,
+    paths: file::FileResourcePathSet,
     request: &FileResourceHandleRequest,
 ) -> Result<HttpResponse> {
-    let handle =
-        file_service::resolve_file_resource_handle(state, scope, file_id, paths, request).await?;
+    let handle = file::resolve_file_resource_handle(state, scope, file_id, paths, request).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(handle)))
 }
 
@@ -792,7 +791,7 @@ pub(crate) fn archive_preview_manifest_response(
     let etag = format!("\"{etag_value}\"");
 
     if let Some(if_none_match) = if_none_match
-        && file_service::if_none_match_matches_value(if_none_match, &etag_value)
+        && file::if_none_match_matches_value(if_none_match, &etag_value)
     {
         return Ok(HttpResponse::NotModified()
             .insert_header((header::ETAG, etag))
@@ -813,8 +812,8 @@ pub(crate) async fn direct_link_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
-    let token = direct_link_service::create_token_in_scope(state, scope, file_id).await?;
+    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let token = direct_link::create_token_in_scope(state, scope, file_id).await?;
     let ctx = AuditContext::from_request(req, claims);
     audit_service::log_with_details(
         state,
@@ -841,13 +840,13 @@ pub(crate) async fn preview_link_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
+    let file = file::get_info_in_scope(state, scope, file_id).await?;
     let (scheme, host) = request_origin_parts(req);
-    let link = preview_link_service::create_token_for_file_in_scope_for_origin(
+    let link = preview_link::create_token_for_file_in_scope_for_origin(
         state,
         scope,
         file_id,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -880,7 +879,7 @@ pub(crate) async fn open_wopi_response(
     file_id: i64,
     app_key: &str,
 ) -> Result<HttpResponse> {
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
+    let file = file::get_info_in_scope(state, scope, file_id).await?;
     let (scheme, host) = request_origin_parts(req);
     let session = wopi_service::create_launch_session_in_scope(
         state,
@@ -918,16 +917,16 @@ pub(crate) async fn download_response(
     req: &HttpRequest,
     scope: WorkspaceStorageScope,
     file_id: i64,
-    disposition: file_service::DownloadDisposition,
+    disposition: file::DownloadDisposition,
 ) -> Result<HttpResponse> {
     let if_none_match = req
         .headers()
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
-    let file = file_service::get_info_in_scope(state, scope, file_id).await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file = file::get_info_in_scope(state, scope, file_id).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let ctx = AuditContext::from_request(req, claims);
-    let outcome = file_service::download_in_scope_with_file_and_audit(
+    let outcome = file::download_in_scope_with_file_and_audit(
         state,
         scope,
         file,
@@ -937,7 +936,7 @@ pub(crate) async fn download_response(
         &ctx,
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 pub(crate) async fn get_thumbnail_response(
@@ -951,7 +950,7 @@ pub(crate) async fn get_thumbnail_response(
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
 
-    match file_service::get_thumbnail_data_in_scope(state, scope, file_id).await? {
+    match file::get_thumbnail_data_in_scope(state, scope, file_id).await? {
         Some(result) => Ok(thumbnail_response(
             result,
             if_none_match,
@@ -973,7 +972,7 @@ pub(crate) async fn get_image_preview_response(
         .headers()
         .get("If-None-Match")
         .and_then(|value| value.to_str().ok());
-    let result = file_service::get_image_preview_data_in_scope(state, scope, file_id).await?;
+    let result = file::get_image_preview_data_in_scope(state, scope, file_id).await?;
     match result {
         Some(result) => Ok(image_preview_response(
             result,
@@ -1002,7 +1001,7 @@ pub(crate) async fn get_media_metadata_response(
 }
 
 pub(crate) fn image_preview_response(
-    result: file_service::ImagePreviewResult,
+    result: file::ImagePreviewResult,
     if_none_match: Option<&str>,
     cache_control: String,
 ) -> HttpResponse {
@@ -1013,7 +1012,7 @@ pub(crate) fn image_preview_response(
     );
     let etag = format!("\"{etag_value}\"");
     if let Some(if_none_match) = if_none_match
-        && file_service::if_none_match_matches_value(if_none_match, &etag_value)
+        && file::if_none_match_matches_value(if_none_match, &etag_value)
     {
         return HttpResponse::NotModified()
             .insert_header(("ETag", etag))
@@ -1029,7 +1028,7 @@ pub(crate) fn image_preview_response(
 }
 
 pub(crate) fn thumbnail_response(
-    result: file_service::ThumbnailResult,
+    result: file::ThumbnailResult,
     if_none_match: Option<&str>,
     cache_control: String,
 ) -> HttpResponse {
@@ -1040,7 +1039,7 @@ pub(crate) fn thumbnail_response(
     );
     let etag = format!("\"{etag_value}\"");
     if let Some(if_none_match) = if_none_match
-        && file_service::if_none_match_matches_value(if_none_match, &etag_value)
+        && file::if_none_match_matches_value(if_none_match, &etag_value)
     {
         return HttpResponse::NotModified()
             .insert_header(("ETag", etag))
@@ -1068,7 +1067,7 @@ mod tests {
     use crate::db::repository::{background_task_repo, file_repo};
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-    use crate::services::file_service::{ImagePreviewResult, ThumbnailResult};
+    use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail_service, media_processing_service};
     use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
@@ -1562,7 +1561,7 @@ mod tests {
         )
         .await;
 
-        let info = crate::services::file_service::get_info(&state, file.id, user.id)
+        let info = crate::services::files::file::get_info(&state, file.id, user.id)
             .await
             .expect("image preview route file info should load");
         assert_eq!(response.status(), StatusCode::ACCEPTED);
@@ -1589,7 +1588,7 @@ mod tests {
     async fn get_image_preview_route_returns_cached_webp_and_honors_if_none_match() {
         let (state, user, file) = build_image_preview_route_state().await;
         let token = access_token_for(&state, &user).await;
-        let info = crate::services::file_service::get_info(&state, file.id, user.id)
+        let info = crate::services::files::file::get_info(&state, file.id, user.id)
             .await
             .expect("image preview route file info should load");
         let blob = file_repo::find_blob_by_id(state.writer_db(), info.blob_id)
@@ -1644,8 +1643,8 @@ mod tests {
             "\"{}\"",
             media_processing_service::image_preview_etag_value_for(
                 &image_preview_blob_hash(),
-                crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
-                crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
             )
         );
         assert_eq!(etag, expected_etag);

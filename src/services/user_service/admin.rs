@@ -435,7 +435,7 @@ pub async fn force_delete(
 
     let all_files = file_repo::find_all_by_user(db, target_user_id).await?;
     let file_count = all_files.len();
-    crate::services::file_service::batch_purge(state, all_files, target_user_id).await?;
+    crate::services::files::file::batch_purge(state, all_files, target_user_id).await?;
 
     let all_folders = folder_repo::find_all_by_user(db, target_user_id).await?;
     let folder_count = all_folders.len();
@@ -447,7 +447,7 @@ pub async fn force_delete(
     )
     .await?;
     folder_repo::delete_many(db, &folder_ids).await?;
-    crate::services::folder_service::invalidate_folder_path_cache(state).await;
+    crate::services::files::folder::invalidate_folder_path_cache(state).await;
 
     crate::webdav::auth::invalidate_webdav_auth_for_user(state, target_user_id).await?;
     let webdav_account_count = webdav_account_repo::delete_all_by_user(db, target_user_id).await?;

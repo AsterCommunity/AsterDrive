@@ -15,7 +15,11 @@ use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    direct_link_service, file_service, file_service::ResolvedDownloadRange, share_service,
+    files::{
+        direct_link,
+        file::{self as file_ops, ResolvedDownloadRange},
+    },
+    share_service,
 };
 use crate::utils::numbers::u64_to_i64;
 
@@ -67,7 +71,7 @@ enum ResolvedShareStreamTarget {
 pub(crate) async fn create_session_for_shared_file_for_origin(
     state: &impl SharedRuntimeState,
     share_token: &str,
-    request_origin: crate::services::preview_link_service::RequestOrigin<'_>,
+    request_origin: crate::services::files::preview_link::RequestOrigin<'_>,
 ) -> Result<ShareStreamSessionInfo> {
     let (share, file) = share_service::load_preview_shared_file(state, share_token).await?;
     let payload = build_payload(
@@ -83,7 +87,7 @@ pub(crate) async fn create_session_for_shared_folder_file_for_origin(
     state: &impl SharedRuntimeState,
     share_token: &str,
     file_id: i64,
-    request_origin: crate::services::preview_link_service::RequestOrigin<'_>,
+    request_origin: crate::services::files::preview_link::RequestOrigin<'_>,
 ) -> Result<ShareStreamSessionInfo> {
     let (share, file) =
         share_service::load_preview_shared_folder_file(state, share_token, file_id).await?;
@@ -108,7 +112,7 @@ pub(crate) async fn resolve_file_for_stream(
         ResolvedShareStreamTarget::Fresh { file, .. }
         | ResolvedShareStreamTarget::Marked { file, .. } => file,
     };
-    direct_link_service::validate_public_file_name(&file, requested_name)?;
+    direct_link::validate_public_file_name(&file, requested_name)?;
     Ok(file)
 }
 
@@ -118,13 +122,13 @@ pub(crate) async fn stream_file(
     session_token: &str,
     requested_name: &str,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     let (payload, target) = resolve_session_target(state, share_token, session_token).await?;
     let (share, file) = match target {
         ResolvedShareStreamTarget::Fresh { share, file }
         | ResolvedShareStreamTarget::Marked { share, file } => (share, file),
     };
-    direct_link_service::validate_public_file_name(&file, requested_name)?;
+    direct_link::validate_public_file_name(&file, requested_name)?;
 
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
     let count_reservation = ensure_counted_once(state, session_token, &payload).await?;
@@ -150,11 +154,11 @@ pub(crate) async fn stream_file(
         }
     }
 
-    match file_service::build_stream_outcome_with_disposition_and_range(
+    match file_ops::build_stream_outcome_with_disposition_and_range(
         state,
         &file,
         &blob,
-        file_service::DownloadDisposition::Inline,
+        file_ops::DownloadDisposition::Inline,
         None,
         range,
     )
@@ -200,7 +204,7 @@ fn build_session_for_shared_file(
     share: &share::Model,
     file: &file::Model,
     payload: &ShareStreamSessionPayload,
-    request_origin: Option<crate::services::preview_link_service::RequestOrigin<'_>>,
+    request_origin: Option<crate::services::files::preview_link::RequestOrigin<'_>>,
 ) -> Result<ShareStreamSessionInfo> {
     let token = encode_shared_session(
         share,
@@ -225,7 +229,7 @@ fn stream_path(
     share_token: &str,
     session_token: &str,
     file_name: &str,
-    request_origin: Option<crate::services::preview_link_service::RequestOrigin<'_>>,
+    request_origin: Option<crate::services::files::preview_link::RequestOrigin<'_>>,
 ) -> String {
     let path = format!(
         "/api/v1/s/{share_token}/stream/{session_token}/{}",

@@ -2,7 +2,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
-use crate::services::folder_service;
+use crate::services::files::folder;
 use crate::types::EntityType;
 
 /// 从 entity 反查 WebDAV 路径
@@ -16,8 +16,7 @@ pub async fn resolve_entity_path<C: ConnectionTrait>(
             let f = file_repo::find_by_id(db, entity_id).await?;
             let folder_path = match f.folder_id {
                 Some(folder_id) => {
-                    let mut folder_paths =
-                        folder_service::build_folder_paths(db, &[folder_id]).await?;
+                    let mut folder_paths = folder::build_folder_paths(db, &[folder_id]).await?;
                     let path = folder_paths.remove(&folder_id).ok_or_else(|| {
                         AsterError::record_not_found(format!("folder #{folder_id}"))
                     })?;
@@ -43,7 +42,7 @@ pub async fn resolve_entity_path<C: ConnectionTrait>(
         }
         EntityType::Folder => {
             let f = folder_repo::find_by_id(db, entity_id).await?;
-            let path = folder_service::build_folder_paths(db, &[f.id])
+            let path = folder::build_folder_paths(db, &[f.id])
                 .await?
                 .remove(&f.id)
                 .ok_or_else(|| AsterError::record_not_found(format!("folder #{}", f.id)))?;

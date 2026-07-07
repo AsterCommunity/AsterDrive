@@ -132,7 +132,7 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
 async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     use aster_drive::db::repository::property_repo;
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavFileSystem, DavPath, DavProp};
     use aster_drive::webdav::fs::AsterDavFs;
@@ -145,15 +145,10 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 
     let content = "quota props";
     let temp_path = write_temp_fixture("quota-props.txt", content);
-    file_service::store_from_temp(
+    file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
-            None,
-            "quota-props.txt",
-            &temp_path,
-            content.len() as i64,
-        ),
+        file::StoreFromTempRequest::new(None, "quota-props.txt", &temp_path, content.len() as i64),
     )
     .await
     .unwrap();
@@ -276,7 +271,7 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::webdav::dav::DavPath;
     use aster_drive::webdav::fs::AsterDavFs;
 
@@ -287,10 +282,10 @@ async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
 
     let content = "buffered read fallback";
     let temp_path = write_temp_fixture("read-fallback.txt", content);
-    file_service::store_from_temp(
+    file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "read-fallback.txt",
             &temp_path,

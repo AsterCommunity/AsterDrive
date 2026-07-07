@@ -197,7 +197,7 @@ They should:
 They should not:
 
 - Bypass `workspace_storage_service` / `workspace_storage_core` with a separate file finalization path
-- Bypass `file_service` / `folder_service` for blob references, versions, and trash semantics
+- Bypass `file` / `folder` for blob references, versions, and trash semantics
 - Push WOPI/WebDAV-specific error formats into the generic service error model
 
 ## When To Split A Module
@@ -462,7 +462,7 @@ Side effects that must be explicit:
 - Driver registry reload
 - Precondition errors for disabled bindings and missing ingress targets
 
-### `file_service`
+### `file`
 
 Current responsibilities:
 
@@ -512,7 +512,7 @@ Should stay:
 
 - WebDAV-specific auth, path resolution, locks, properties, Depth, Range, and DeltaV behavior
 - Adaptation from protocol semantics to AsterDrive workspace/file/folder semantics
-- Reuse of `file_service`, `folder_service`, and `workspace_storage_service`
+- Reuse of `file`, `folder`, and `workspace_storage_service`
 
 Should not own:
 
@@ -531,7 +531,7 @@ Current responsibilities:
 
 - `src/api/routes/wopi.rs` handles WOPI HTTP method/header/status compatibility
 - `src/services/wopi_service/*` handles discovery, sessions, proof validation, locks, targets, and operations
-- WOPI file reads and writes reuse `file_service` / `workspace_storage_service`
+- WOPI file reads and writes reuse `file` / `workspace_storage_service`
 
 Should stay:
 

@@ -20,7 +20,7 @@ use crate::entities::{
     folder::{self, Entity as Folder},
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::{media_processing_service, thumbnail_service};
+use crate::services::{files::thumbnail, media_processing_service};
 use crate::storage::{DriverRegistry, StoragePathVisitor};
 
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
@@ -131,7 +131,7 @@ impl StoragePathVisitor for StorageAuditVisitor<'_> {
         {
             return Ok(());
         }
-        if thumbnail_service::is_thumbnail_path(&path) {
+        if thumbnail::is_thumbnail_path(&path) {
             self.report.orphan_thumbnails.push(ThumbnailIssue {
                 policy_id: self.policy_id,
                 path,

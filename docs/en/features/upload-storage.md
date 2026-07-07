@@ -29,7 +29,7 @@ Uploads and storage turn a file sent by a browser or client into a database file
 | `policy_service` | Storage policies, policy groups, rules |
 | `storage::traits`, `storage::drivers`, `storage::connectors` | `StorageDriver` and `StorageConnector` abstractions, local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `storage::remote_protocol` | Primary/follower internal remote storage protocol |
-| `managed_follower_service`, `managed_ingress_profile_service` | Follower nodes and ingress targets |
+| `remote::remote_node`, `managed_ingress_profile_service` | Follower nodes and ingress targets |
 | `task_service::storage_migration` | Storage migration tasks |
 
 ## Key Boundaries

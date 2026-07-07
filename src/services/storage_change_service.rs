@@ -336,14 +336,14 @@ fn cache_invalidation_targets(event: &StorageChangeEvent) -> CacheInvalidationTa
         if event.kind == StorageChangeKind::SyncRequired {
             targets
                 .prefixes
-                .push(crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX.to_string());
+                .push(crate::services::files::folder::FOLDER_PATH_CACHE_PREFIX.to_string());
         } else {
             targets.keys.extend(
                 event
                     .folder_ids
                     .iter()
                     .copied()
-                    .map(crate::services::folder_service::folder_path_cache_key),
+                    .map(crate::services::files::folder::folder_path_cache_key),
             );
         }
     }
@@ -530,8 +530,8 @@ mod tests {
         assert_eq!(
             targets.keys,
             vec![
-                crate::services::folder_service::folder_path_cache_key(7),
-                crate::services::folder_service::folder_path_cache_key(9),
+                crate::services::files::folder::folder_path_cache_key(7),
+                crate::services::files::folder::folder_path_cache_key(9),
             ]
         );
     }
@@ -546,7 +546,7 @@ mod tests {
             vec![
                 crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
                 crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
-                crate::services::folder_service::FOLDER_PATH_CACHE_PREFIX.to_string(),
+                crate::services::files::folder::FOLDER_PATH_CACHE_PREFIX.to_string(),
             ]
         );
         assert!(targets.keys.is_empty());

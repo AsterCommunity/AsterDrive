@@ -14,7 +14,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    file_service,
+    files::file as file_ops,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 use crate::utils::numbers::u64_to_i64;
@@ -351,14 +351,14 @@ pub(crate) async fn store_relative_target_from_stream(
         ),
         None => None,
     };
-    let streamed = file_service::stream_request_body_to_temp_upload(
+    let streamed = file_ops::stream_request_body_to_temp_upload(
         state,
         payload,
         resolved_policy_hint,
         declared_size,
     )
     .await?;
-    let file_service::StreamedTempUpload {
+    let file_ops::StreamedTempUpload {
         temp_path,
         size,
         resolved_policy,

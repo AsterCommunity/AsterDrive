@@ -16,10 +16,11 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
-use crate::services::file_service::ResolvedDownloadRange;
+use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
-    archive_preview_service, direct_link_service, file_service, media_metadata_service,
-    preview_link_service, profile_service, share_service, share_stream_service,
+    archive_preview_service,
+    files::{direct_link, file, preview_link},
+    media_metadata_service, profile_service, share_service, share_stream_service,
     stream_ticket_service, task_service,
 };
 use actix_governor::Governor;
@@ -128,7 +129,7 @@ async fn shared_file_range(
         return Ok(None);
     }
     let (_, file) = share_service::load_preview_shared_file(state, token).await?;
-    file_service::parse_range_header(req.headers().get(header::RANGE), file.size)
+    file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
 async fn shared_folder_file_range(
@@ -141,7 +142,7 @@ async fn shared_folder_file_range(
         return Ok(None);
     }
     let (_, file) = share_service::load_preview_shared_folder_file(state, token, file_id).await?;
-    file_service::parse_range_header(req.headers().get(header::RANGE), file.size)
+    file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
 /// Extension methods for `DirectLinkQuery`.
@@ -310,7 +311,7 @@ pub async fn verify_password(
     operation_id = "create_shared_file_preview_link",
     params(("token" = String, Path, description = "Share token")),
     responses(
-        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 403, description = "Password required"),
         (status = 404, description = "Share not found"),
     ),
@@ -324,10 +325,10 @@ pub async fn create_preview_link(
     check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let link = preview_link_service::create_token_for_shared_file_for_origin(
+    let link = preview_link::create_token_for_shared_file_for_origin(
         state.get_ref(),
         &token,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -478,7 +479,7 @@ pub async fn create_stream_session(
     let session = share_stream_service::create_session_for_shared_file_for_origin(
         state.get_ref(),
         &token,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -520,7 +521,7 @@ pub async fn download_shared(
     let range = shared_file_range(state.get_ref(), path.as_str(), &req).await?;
     let has_range = range.is_some();
 
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
@@ -535,7 +536,7 @@ pub async fn download_shared(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 pub async fn download_direct(
@@ -545,15 +546,14 @@ pub async fn download_direct(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file =
-        direct_link_service::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file = direct_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "direct_link",
         has_range,
-        direct_link_service::download_file(
+        direct_link::download_file(
             state.get_ref(),
             &token,
             &filename,
@@ -565,7 +565,7 @@ pub async fn download_direct(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 pub async fn download_preview(
@@ -574,15 +574,14 @@ pub async fn download_preview(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file =
-        preview_link_service::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file = preview_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "preview_link",
         has_range,
-        preview_link_service::download_file(
+        preview_link::download_file(
             state.get_ref(),
             &token,
             &filename,
@@ -593,7 +592,7 @@ pub async fn download_preview(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -627,9 +626,9 @@ pub async fn stream_shared_video(
         &filename,
     )
     .await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share_stream",
         has_range,
@@ -642,7 +641,7 @@ pub async fn stream_shared_video(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -673,7 +672,7 @@ pub async fn download_shared_folder_file_handler(
     let range = shared_folder_file_range(state.get_ref(), &token, file_id, &req).await?;
     let has_range = range.is_some();
 
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
@@ -689,7 +688,7 @@ pub async fn download_shared_folder_file_handler(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -702,7 +701,7 @@ pub async fn download_shared_folder_file_handler(
         ("file_id" = i64, Path, description = "File ID inside shared folder")
     ),
     responses(
-        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 403, description = "Password required or file outside shared folder"),
         (status = 404, description = "Share or file not found"),
     )
@@ -716,11 +715,11 @@ pub async fn create_folder_file_preview_link(
     check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let link = preview_link_service::create_token_for_shared_folder_file_for_origin(
+    let link = preview_link::create_token_for_shared_folder_file_for_origin(
         state.get_ref(),
         &token,
         file_id,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -808,7 +807,7 @@ pub async fn create_folder_file_stream_session(
         state.get_ref(),
         &token,
         file_id,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -824,7 +823,7 @@ pub async fn create_folder_file_stream_session(
     operation_id = "list_shared_content",
     params(("token" = String, Path, description = "Share token"), FolderListQuery),
     responses(
-        (status = 200, description = "Folder contents", body = inline(ApiResponse<crate::services::folder_service::FolderContents>)),
+        (status = 200, description = "Folder contents", body = inline(ApiResponse<crate::services::files::folder::FolderContents>)),
         (status = 403, description = "Password required"),
         (status = 404, description = "Share not found"),
     ),
@@ -837,7 +836,7 @@ pub async fn list_shared_content(
 ) -> Result<HttpResponse> {
     check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
 
-    let params = crate::services::folder_service::FolderListParams::from(&query.0);
+    let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents = share_service::list_shared_folder(state.get_ref(), &path, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
@@ -853,7 +852,7 @@ pub async fn list_shared_content(
         FolderListQuery,
     ),
     responses(
-        (status = 200, description = "Subfolder contents", body = inline(ApiResponse<crate::services::folder_service::FolderContents>)),
+        (status = 200, description = "Subfolder contents", body = inline(ApiResponse<crate::services::files::folder::FolderContents>)),
         (status = 403, description = "Password required or folder outside shared scope"),
         (status = 404, description = "Share or folder not found"),
     )
@@ -867,7 +866,7 @@ pub async fn list_shared_subfolder_content(
     let (token, folder_id) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let params = crate::services::folder_service::FolderListParams::from(&query.0);
+    let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents =
         share_service::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
@@ -1501,8 +1500,8 @@ mod tests {
             "\"{}\"",
             media_processing_service::image_preview_etag_value_for(
                 &image_preview_blob_hash(),
-                crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
-                crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
             )
         );
         assert_eq!(etag, expected_etag);

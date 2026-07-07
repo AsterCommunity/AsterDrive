@@ -16,7 +16,7 @@ use crate::entities::share;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    file_service, folder_service,
+    files::{file, folder},
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 use crate::types::EntityType;
@@ -140,7 +140,7 @@ pub(super) fn ensure_share_matches_file(
             ));
         }
     } else {
-        file_service::ensure_personal_file_scope(file)?;
+        file::ensure_personal_file_scope(file)?;
         crate::utils::verify_optional_owner(file.owner_user_id, share.user_id, "file")?;
     }
     Ok(())
@@ -158,7 +158,7 @@ pub(super) fn ensure_share_matches_folder(
             ));
         }
     } else {
-        folder_service::ensure_personal_folder_scope(folder)?;
+        folder::ensure_personal_folder_scope(folder)?;
         crate::utils::verify_optional_owner(folder.owner_user_id, share.user_id, "folder")?;
     }
     Ok(())
@@ -259,8 +259,7 @@ pub(super) async fn load_shared_folder_file_target(
             "file is outside shared folder scope",
         )
     })?;
-    folder_service::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id)
-        .await?;
+    folder::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id).await?;
     Ok((share, file))
 }
 
@@ -284,8 +283,7 @@ pub(crate) async fn load_shared_folder_file_target_ignoring_download_limit(
             "file is outside shared folder scope",
         )
     })?;
-    folder_service::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id)
-        .await?;
+    folder::verify_folder_in_scope(state.reader_db(), file_folder_id, root_folder_id).await?;
     Ok((share, file))
 }
 
@@ -302,7 +300,7 @@ pub(super) async fn load_shared_subfolder_target(
             "folder #{folder_id} is in trash"
         )));
     }
-    folder_service::verify_folder_in_scope(state.reader_db(), folder_id, root_folder_id).await?;
+    folder::verify_folder_in_scope(state.reader_db(), folder_id, root_folder_id).await?;
     Ok((share, target))
 }
 

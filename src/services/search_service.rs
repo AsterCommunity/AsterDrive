@@ -12,7 +12,7 @@ use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    folder_service::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
+    files::folder::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
     share_service, tag_service,
     workspace_storage_service::WorkspaceResourceScope,
     workspace_storage_service::{self, WorkspaceStorageScope},

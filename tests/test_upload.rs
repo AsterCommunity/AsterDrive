@@ -65,7 +65,7 @@ async fn upload_same_content_direct_and_chunked(
     aster_drive::entities::file_blob::Model,
 ) {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{file_service, upload_service};
+    use aster_drive::services::{files::file, upload_service};
 
     let pattern = b"same content across direct and chunked upload paths\n";
     let content = pattern.repeat((10_485_760 / pattern.len()) + 1);
@@ -79,15 +79,10 @@ async fn upload_same_content_direct_and_chunked(
         .unwrap();
     tokio::fs::write(&temp_path, content).await.unwrap();
 
-    let direct_file = file_service::store_from_temp(
+    let direct_file = file::store_from_temp(
         state,
         user_id,
-        file_service::StoreFromTempRequest::new(
-            None,
-            "same-direct.txt",
-            &temp_path,
-            content.len() as i64,
-        ),
+        file::StoreFromTempRequest::new(None, "same-direct.txt", &temp_path, content.len() as i64),
     )
     .await
     .unwrap();
@@ -731,10 +726,10 @@ async fn store_temp_file_in_personal_space(
         .await
         .unwrap();
     tokio::fs::write(&temp_path, data).await.unwrap();
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         state,
         user_id,
-        aster_drive::services::file_service::StoreFromTempRequest::new(
+        aster_drive::services::files::file::StoreFromTempRequest::new(
             None,
             filename,
             &temp_path,
@@ -750,7 +745,7 @@ async fn store_temp_file_in_personal_space(
 #[tokio::test]
 async fn test_concurrent_store_from_temp_same_name_auto_renames() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use std::sync::Arc;
 
     let state = Arc::new(common::setup().await);
@@ -794,10 +789,10 @@ async fn test_concurrent_store_from_temp_same_name_auto_renames() {
     let (first, second) = tokio::join!(
         async move {
             barrier_1.wait().await;
-            file_service::store_from_temp(
+            file::store_from_temp(
                 &state_1,
                 user.id,
-                file_service::StoreFromTempRequest::new(
+                file::StoreFromTempRequest::new(
                     None,
                     &name_1,
                     &path_1,
@@ -808,10 +803,10 @@ async fn test_concurrent_store_from_temp_same_name_auto_renames() {
         },
         async move {
             barrier_2.wait().await;
-            file_service::store_from_temp(
+            file::store_from_temp(
                 &state_2,
                 user.id,
-                file_service::StoreFromTempRequest::new(
+                file::StoreFromTempRequest::new(
                     None,
                     &name_2,
                     &path_2,
@@ -3364,7 +3359,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
     use aster_drive::services::{
-        auth::local, folder_service, policy_service, task_service, upload_service,
+        auth::local, files::folder, policy_service, task_service, upload_service,
     };
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -3401,7 +3396,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         5_242_880,
     )
     .await;
-    let folder = folder_service::create(&state, user.id, "late-s3-presigned", None)
+    let folder = folder::create(&state, user.id, "late-s3-presigned", None)
         .await
         .unwrap();
     common::bind_policy_to_folder(&state, folder.id, policy.id).await;

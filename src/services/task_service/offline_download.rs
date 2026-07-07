@@ -8,7 +8,7 @@ use crate::entities::{background_task, file};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    folder_service,
+    files::folder,
     task_service::{
         TaskExecutionContext, cleanup_task_temp_dir_for_task_in_root, create_typed_task_record,
         get_task_in_scope, is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
@@ -345,7 +345,7 @@ async fn build_download_result_path(
     let Some(folder_id) = file.folder_id else {
         return Ok(format!("/{}", file.name));
     };
-    let paths = folder_service::build_folder_paths(state.writer_db(), &[folder_id]).await?;
+    let paths = folder::build_folder_paths(state.writer_db(), &[folder_id]).await?;
     let folder_path = paths.get(&folder_id).cloned().unwrap_or_default();
     if folder_path.is_empty() || folder_path == "/" {
         Ok(format!("/{}", file.name))

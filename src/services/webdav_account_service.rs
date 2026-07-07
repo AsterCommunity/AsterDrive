@@ -167,7 +167,7 @@ async fn create_in_scope(
     // 如果指定了 root_folder_id，验证文件夹属于账号所在工作空间。
     let root_folder_path = if let Some(fid) = root_folder_id {
         crate::services::workspace_storage_service::verify_folder_access(state, scope, fid).await?;
-        crate::services::folder_service::build_folder_paths_cached(state, &[fid])
+        crate::services::files::folder::build_folder_paths_cached(state, &[fid])
             .await?
             .remove(&fid)
     } else {
@@ -286,7 +286,7 @@ async fn build_account_infos(
         .filter_map(|acc| acc.root_folder_id)
         .collect();
     let paths =
-        crate::services::folder_service::build_folder_paths_cached(state, &folder_ids).await?;
+        crate::services::files::folder::build_folder_paths_cached(state, &folder_ids).await?;
     let user_ids: Vec<i64> = accounts.iter().map(|acc| acc.user_id).collect();
     let users = user_service::user_summaries_by_ids(
         state,

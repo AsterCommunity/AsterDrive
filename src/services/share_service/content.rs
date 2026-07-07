@@ -5,9 +5,10 @@ use crate::entities::{file, share};
 use crate::errors::{AsterError, Result};
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
-use crate::services::file_service::ResolvedDownloadRange;
+use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
-    file_service, folder_service, media_metadata_service, media_processing_service, task_service,
+    files::{file as file_ops, folder},
+    media_metadata_service, media_processing_service, task_service,
 };
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -303,11 +304,11 @@ pub async fn download_shared_file_with_range(
     token: &str,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     download_shared_file_with_disposition_and_range(
         state,
         token,
-        file_service::DownloadDisposition::Attachment,
+        file_ops::DownloadDisposition::Attachment,
         if_none_match,
         range,
     )
@@ -317,10 +318,10 @@ pub async fn download_shared_file_with_range(
 pub(crate) async fn download_shared_file_with_disposition_and_range(
     state: &PrimaryAppState,
     token: &str,
-    disposition: file_service::DownloadDisposition,
+    disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     let share = load_valid_share(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
     download_share_resource_with_disposition(
@@ -340,12 +341,12 @@ pub async fn download_shared_folder_file_with_range(
     file_id: i64,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     download_shared_folder_file_with_disposition_and_range(
         state,
         token,
         file_id,
-        file_service::DownloadDisposition::Attachment,
+        file_ops::DownloadDisposition::Attachment,
         if_none_match,
         range,
     )
@@ -356,10 +357,10 @@ pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
-    disposition: file_service::DownloadDisposition,
+    disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     let (share, file) = load_shared_folder_file_target(state, token, file_id).await?;
     download_share_resource_with_disposition(
         state,
@@ -375,8 +376,8 @@ pub(crate) async fn download_shared_folder_file_with_disposition_and_range(
 pub async fn list_shared_folder(
     state: &impl SharedRuntimeState,
     token: &str,
-    params: &folder_service::FolderListParams,
-) -> Result<folder_service::FolderContents> {
+    params: &folder::FolderListParams,
+) -> Result<folder::FolderContents> {
     let (_, folder_id) = load_valid_folder_share_root(state, token).await?;
     tracing::debug!(
         folder_id,
@@ -389,7 +390,7 @@ pub async fn list_shared_folder(
         "listing shared folder root"
     );
 
-    let contents = folder_service::list_shared(state, folder_id, params).await?;
+    let contents = folder::list_shared(state, folder_id, params).await?;
     tracing::debug!(
         folder_id,
         folders_total = contents.folders_total,
@@ -404,7 +405,7 @@ pub async fn list_shared_folder(
 async fn load_or_enqueue_thumbnail(
     state: &PrimaryAppState,
     file: &file::Model,
-) -> Result<Option<file_service::ThumbnailResult>> {
+) -> Result<Option<file_ops::ThumbnailResult>> {
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
     let thumbnail = media_processing_service::load_thumbnail_if_exists(
         state,
@@ -416,7 +417,7 @@ async fn load_or_enqueue_thumbnail(
     .map_err(media_processing_service::map_thumbnail_request_error)?;
 
     match thumbnail {
-        Some(thumbnail) => Ok(Some(file_service::ThumbnailResult {
+        Some(thumbnail) => Ok(Some(file_ops::ThumbnailResult {
             data: thumbnail.data,
             blob_hash: blob.hash,
             thumbnail_processor: Some(thumbnail.thumbnail_processor),
@@ -439,7 +440,7 @@ async fn load_or_enqueue_thumbnail(
 pub async fn get_shared_thumbnail(
     state: &PrimaryAppState,
     token: &str,
-) -> Result<Option<file_service::ThumbnailResult>> {
+) -> Result<Option<file_ops::ThumbnailResult>> {
     let share = load_valid_share(state, token).await?;
     tracing::debug!(share_id = share.id, "loading shared thumbnail");
     let file = load_share_file_resource(state, &share).await?;
@@ -456,11 +457,11 @@ pub async fn get_shared_thumbnail(
 pub async fn get_shared_image_preview(
     state: &PrimaryAppState,
     token: &str,
-) -> Result<Option<file_service::ImagePreviewResult>> {
+) -> Result<Option<file_ops::ImagePreviewResult>> {
     let share = load_valid_share(state, token).await?;
     tracing::debug!(share_id = share.id, "loading shared image preview");
     let file = load_share_file_resource(state, &share).await?;
-    file_service::image_preview_for_file(state, &file).await
+    file_ops::image_preview_for_file(state, &file).await
 }
 
 pub async fn get_shared_media_metadata(
@@ -487,7 +488,7 @@ pub async fn get_shared_folder_file_thumbnail(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
-) -> Result<Option<file_service::ThumbnailResult>> {
+) -> Result<Option<file_ops::ThumbnailResult>> {
     let (_, file) = load_shared_folder_file_target(state, token, file_id).await?;
     tracing::debug!(file_id = file.id, "loading shared folder file thumbnail");
 
@@ -504,13 +505,13 @@ pub async fn get_shared_folder_file_image_preview(
     state: &PrimaryAppState,
     token: &str,
     file_id: i64,
-) -> Result<Option<file_service::ImagePreviewResult>> {
+) -> Result<Option<file_ops::ImagePreviewResult>> {
     let (_, file) = load_shared_folder_file_target(state, token, file_id).await?;
     tracing::debug!(
         file_id = file.id,
         "loading shared folder file image preview"
     );
-    file_service::image_preview_for_file(state, &file).await
+    file_ops::image_preview_for_file(state, &file).await
 }
 
 pub async fn get_shared_folder_file_media_metadata(
@@ -573,8 +574,8 @@ pub async fn list_shared_subfolder(
     state: &impl SharedRuntimeState,
     token: &str,
     folder_id: i64,
-    params: &folder_service::FolderListParams,
-) -> Result<folder_service::FolderContents> {
+    params: &folder::FolderListParams,
+) -> Result<folder::FolderContents> {
     let (_, target) = load_shared_subfolder_target(state, token, folder_id).await?;
     tracing::debug!(
         folder_id = target.id,
@@ -587,7 +588,7 @@ pub async fn list_shared_subfolder(
         "listing shared subfolder"
     );
 
-    let contents = folder_service::list_shared(state, target.id, params).await?;
+    let contents = folder::list_shared(state, target.id, params).await?;
     tracing::debug!(
         folder_id = target.id,
         folders_total = contents.folders_total,
@@ -603,10 +604,10 @@ async fn download_share_resource_with_disposition(
     state: &PrimaryAppState,
     share: &share::Model,
     file: &crate::entities::file::Model,
-    disposition: file_service::DownloadDisposition,
+    disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     tracing::debug!(
         share_id = share.id,
         file_id = file.id,
@@ -617,14 +618,14 @@ async fn download_share_resource_with_disposition(
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
 
     if let Some(if_none_match) = if_none_match
-        && file_service::if_none_match_matches(if_none_match, &blob.hash)
+        && file_ops::if_none_match_matches(if_none_match, &blob.hash)
     {
         tracing::debug!(
             share_id = share.id,
             file_id = file.id,
             "shared file download satisfied by ETag"
         );
-        return file_service::build_download_outcome_with_disposition_and_range(
+        return file_ops::build_download_outcome_with_disposition_and_range(
             state,
             file,
             &blob,
@@ -637,7 +638,7 @@ async fn download_share_resource_with_disposition(
 
     reserve_share_download_count(state, share).await?;
 
-    match file_service::build_download_outcome_with_disposition_and_range(
+    match file_ops::build_download_outcome_with_disposition_and_range(
         state,
         file,
         &blob,
@@ -651,7 +652,7 @@ async fn download_share_resource_with_disposition(
             // 如果是流式响应，挂一个 abort hook：客户端中途断连导致 body 未读到 EOF 就 drop 时，
             // 回滚刚才的 increment，避免 `download_count` 虚增、提前触碰 `max_downloads`。
             // NotModified/PresignedRedirect 一次性响应不需要挂 hook。
-            if let file_service::DownloadOutcome::Stream(ref mut s) = outcome {
+            if let file_ops::DownloadOutcome::Stream(ref mut s) = outcome {
                 let queue = state.share_download_rollback().clone();
                 let share_id = share.id;
                 s.on_abort = Some(Box::new(move || {

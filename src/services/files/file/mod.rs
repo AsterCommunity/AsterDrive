@@ -331,8 +331,7 @@ async fn folder_path_for_audit(
         return Ok("/".to_string());
     };
     let mut paths =
-        crate::services::folder_service::build_folder_paths(state.reader_db(), &[folder_id])
-            .await?;
+        crate::services::files::folder::build_folder_paths(state.reader_db(), &[folder_id]).await?;
     paths
         .remove(&folder_id)
         .ok_or_else(|| AsterError::record_not_found(format!("folder #{folder_id} audit path")))

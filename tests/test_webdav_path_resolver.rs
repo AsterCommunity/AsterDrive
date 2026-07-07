@@ -54,24 +54,24 @@ async fn seed_nested_file(
     aster_drive::services::workspace_models::FileInfo,
     String,
 ) {
-    use aster_drive::services::{file_service, folder_service};
+    use aster_drive::services::{files::file, files::folder};
 
-    let projects = folder_service::create(state, user_id, "projects", root_parent_id)
+    let projects = folder::create(state, user_id, "projects", root_parent_id)
         .await
         .unwrap();
-    let docs = folder_service::create(state, user_id, "docs", Some(projects.id))
+    let docs = folder::create(state, user_id, "docs", Some(projects.id))
         .await
         .unwrap();
-    let reports = folder_service::create(state, user_id, "reports", Some(docs.id))
+    let reports = folder::create(state, user_id, "reports", Some(docs.id))
         .await
         .unwrap();
 
     let contents = "deep path contents".to_string();
     let temp_path = write_temp_fixture("q1.txt", &contents);
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         state,
         user_id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             Some(reports.id),
             "q1.txt",
             &temp_path,
@@ -169,7 +169,7 @@ async fn test_path_resolver_uses_canonical_dav_path_segments() {
 
 #[actix_web::test]
 async fn test_path_resolver_honors_scoped_root_semantics() {
-    use aster_drive::services::{auth::local, folder_service};
+    use aster_drive::services::{auth::local, files::folder};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
@@ -182,7 +182,7 @@ async fn test_path_resolver_honors_scoped_root_semantics() {
     .await
     .unwrap();
 
-    let scoped_root = folder_service::create(&state, user.id, "scoped-root", None)
+    let scoped_root = folder::create(&state, user.id, "scoped-root", None)
         .await
         .unwrap();
     let (_projects, _docs, _reports, file, _contents) =
@@ -236,7 +236,7 @@ async fn test_path_resolver_honors_scoped_root_semantics() {
 
 #[actix_web::test]
 async fn test_path_resolver_handles_root_level_and_missing_path_boundaries() {
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
@@ -251,15 +251,10 @@ async fn test_path_resolver_handles_root_level_and_missing_path_boundaries() {
 
     let contents = "root level file";
     let temp_path = write_temp_fixture("root.txt", contents);
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
-            None,
-            "root.txt",
-            &temp_path,
-            contents.len() as i64,
-        ),
+        file::StoreFromTempRequest::new(None, "root.txt", &temp_path, contents.len() as i64),
     )
     .await
     .unwrap();
@@ -333,7 +328,7 @@ async fn test_path_resolver_handles_root_level_and_missing_path_boundaries() {
 
 #[actix_web::test]
 async fn test_path_resolver_prefers_folder_when_file_and_folder_share_name() {
-    use aster_drive::services::{auth::local, file_service, folder_service};
+    use aster_drive::services::{auth::local, files::file, files::folder};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
@@ -346,14 +341,14 @@ async fn test_path_resolver_prefers_folder_when_file_and_folder_share_name() {
     .await
     .unwrap();
 
-    let folder = folder_service::create(&state, user.id, "shared-name", None)
+    let folder = folder::create(&state, user.id, "shared-name", None)
         .await
         .unwrap();
     let temp_path = write_temp_fixture("shared-name", "same name as folder");
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(None, "shared-name", &temp_path, 19),
+        file::StoreFromTempRequest::new(None, "shared-name", &temp_path, 19),
     )
     .await
     .unwrap();
@@ -428,7 +423,7 @@ async fn test_path_resolver_hides_deleted_intermediate_folders() {
 
 #[actix_web::test]
 async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
-    use aster_drive::services::{auth::local, folder_service};
+    use aster_drive::services::{auth::local, files::folder};
     use aster_drive::types::NullablePatch;
     use aster_drive::webdav::path_resolver::{
         ResolvedNode, resolve_parent_cached, resolve_path_cached,
@@ -444,7 +439,8 @@ async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
     .await
     .unwrap();
 
-    let (_projects, docs, reports, file, _contents) = seed_nested_file(&state, user.id, None).await;
+    let (_projects, docs, reports, file, _contents) =
+        seed_nested_file(&state, user.id, None).await;
     let file_path = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
     let new_file_path = DavPath::new("/projects/manuals/reports/q1.txt").unwrap();
     let pending_create_path = DavPath::new("/projects/docs/reports/new.txt").unwrap();
@@ -463,7 +459,7 @@ async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
     assert_eq!(cached_parent_id, Some(reports.id));
     assert_eq!(cached_leaf, "new.txt");
 
-    folder_service::update(
+    folder::update(
         &state,
         docs.id,
         user.id,
@@ -494,7 +490,7 @@ async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
-    use aster_drive::services::{auth::local, folder_service};
+    use aster_drive::services::{auth::local, files::folder};
     use aster_drive::webdav::fs::AsterDavFs;
 
     let state = common::setup().await;
@@ -502,7 +498,7 @@ async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
         .await
         .unwrap();
 
-    let scoped_root = folder_service::create(&state, user.id, "scoped-root", None)
+    let scoped_root = folder::create(&state, user.id, "scoped-root", None)
         .await
         .unwrap();
     let (_projects, _docs, _reports, _file, contents) =
@@ -543,7 +539,7 @@ async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
 #[actix_web::test]
 async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, folder_service};
+    use aster_drive::services::{auth::local, files::folder};
     use aster_drive::webdav::fs::AsterDavFs;
 
     let state = common::setup().await;
@@ -556,7 +552,7 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
     .await
     .unwrap();
 
-    let scoped_root = folder_service::create(&state, user.id, "scoped-root", None)
+    let scoped_root = folder::create(&state, user.id, "scoped-root", None)
         .await
         .unwrap();
     let (projects, docs, reports, _file, _contents) =

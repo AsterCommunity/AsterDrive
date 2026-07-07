@@ -35,11 +35,11 @@ pub(super) async fn render_thumbnail_bytes(
                 processor = "images",
                 "rendering thumbnail via built-in images pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
-            crate::services::thumbnail_service::render_thumbnail_bytes(
+            crate::services::files::thumbnail::render_thumbnail_bytes(
                 driver.as_ref(),
                 blob,
                 &state.config().server.temp_dir,
@@ -55,7 +55,7 @@ pub(super) async fn render_thumbnail_bytes(
                 command,
                 "rendering thumbnail via vips CLI pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
@@ -78,7 +78,7 @@ pub(super) async fn render_thumbnail_bytes(
                 command,
                 "rendering thumbnail via ffmpeg CLI pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
@@ -99,7 +99,7 @@ pub(super) async fn render_thumbnail_bytes(
                 processor = "lofty",
                 "rendering thumbnail from embedded audio artwork"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
@@ -189,7 +189,7 @@ fn render_audio_artwork_thumbnail_from_path(path: &Path, max_dim: u32) -> Result
     let picture = tag
         .and_then(|tag| tag.pictures().first())
         .ok_or_else(|| AsterError::validation_error("audio file has no embedded artwork"))?;
-    crate::services::thumbnail_service::render_webp_derivative_from_image_bytes(
+    crate::services::files::thumbnail::render_webp_derivative_from_image_bytes(
         Cursor::new(picture.data()),
         max_dim,
     )
@@ -210,11 +210,11 @@ pub(super) async fn render_image_preview_bytes(
                 processor = "images",
                 "rendering image preview via built-in images pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
-            crate::services::thumbnail_service::render_webp_derivative_bytes(
+            crate::services::files::thumbnail::render_webp_derivative_bytes(
                 driver.as_ref(),
                 blob,
                 &state.config().server.temp_dir,
@@ -230,7 +230,7 @@ pub(super) async fn render_image_preview_bytes(
                 command,
                 "rendering image preview via vips CLI pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;
@@ -267,7 +267,7 @@ pub(super) async fn render_image_preview_bytes(
                 command,
                 "rendering image preview via ffmpeg CLI pipeline"
             );
-            crate::services::thumbnail_service::ensure_source_size_supported(
+            crate::services::files::thumbnail::ensure_source_size_supported(
                 blob,
                 operations::thumbnail_max_source_bytes(state.runtime_config()),
             )?;

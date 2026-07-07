@@ -14,7 +14,8 @@ use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    batch_service, profile_service, user_service,
+    files::batch,
+    profile_service, user_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 use crate::utils::{hash, id};
@@ -246,14 +247,14 @@ pub(crate) async fn batch_delete_shares_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     share_ids: &[i64],
-) -> Result<batch_service::BatchResult> {
+) -> Result<batch::BatchResult> {
     tracing::debug!(
         scope = ?scope,
         share_count = share_ids.len(),
         "batch deleting shares"
     );
     workspace_storage_service::require_scope_access(state, scope).await?;
-    let mut result = batch_service::BatchResult {
+    let mut result = batch::BatchResult {
         succeeded: 0,
         failed: 0,
         errors: vec![],
@@ -280,7 +281,7 @@ pub(crate) async fn batch_delete_shares_in_scope(
             ids_to_delete.push(id);
         } else {
             result.failed += 1;
-            result.errors.push(batch_service::BatchItemError {
+            result.errors.push(batch::BatchItemError {
                 entity_type: "share".to_string(),
                 entity_id: id,
                 error: AsterError::share_not_found(format!("share #{id}")).to_string(),
@@ -418,10 +419,10 @@ pub fn validate_batch_share_ids(share_ids: &[i64]) -> Result<()> {
             "at least one share ID is required",
         ));
     }
-    if share_ids.len() > batch_service::MAX_BATCH_ITEMS {
+    if share_ids.len() > batch::MAX_BATCH_ITEMS {
         return Err(AsterError::validation_error(format!(
             "batch size cannot exceed {} items",
-            batch_service::MAX_BATCH_ITEMS
+            batch::MAX_BATCH_ITEMS
         )));
     }
     Ok(())
@@ -431,7 +432,7 @@ pub async fn batch_delete_shares(
     state: &impl SharedRuntimeState,
     user_id: i64,
     share_ids: &[i64],
-) -> Result<batch_service::BatchResult> {
+) -> Result<batch::BatchResult> {
     validate_batch_share_ids(share_ids)?;
     batch_delete_shares_in_scope(
         state,
@@ -446,7 +447,7 @@ pub async fn batch_delete_team_shares(
     team_id: i64,
     user_id: i64,
     share_ids: &[i64],
-) -> Result<batch_service::BatchResult> {
+) -> Result<batch::BatchResult> {
     validate_batch_share_ids(share_ids)?;
     batch_delete_shares_in_scope(
         state,

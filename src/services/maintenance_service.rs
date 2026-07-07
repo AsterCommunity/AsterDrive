@@ -151,7 +151,7 @@ pub async fn reconcile_blob_state(state: &PrimaryAppState) -> Result<BlobMainten
                 stats.ref_count_fixed += 1;
             }
             if reconciled.actual_refs == 0
-                && crate::services::file_service::cleanup_unreferenced_blob(state, &reconciled.blob)
+                && crate::services::files::file::cleanup_unreferenced_blob(state, &reconciled.blob)
                     .await
             {
                 stats.orphan_blobs_deleted += 1;

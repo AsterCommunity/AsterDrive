@@ -390,7 +390,7 @@ async fn create_policy_upload_session(
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
-    use aster_drive::services::{auth::local, file_service, policy_service, user_service};
+    use aster_drive::services::{auth::local, files::file, policy_service, user_service};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -403,7 +403,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    let initial_policy = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let initial_policy = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
 
@@ -476,7 +476,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
         Some(alternate_policy.id)
     );
 
-    let resolved_after_switch = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let resolved_after_switch = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
     assert_eq!(resolved_after_switch.id, alternate_policy.id);
@@ -1293,7 +1293,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
 #[actix_web::test]
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
-    use aster_drive::services::{file_service, policy_service, user_service};
+    use aster_drive::services::{files::file, policy_service, user_service};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -1377,10 +1377,10 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     tokio::fs::write(&temp_path, b"blob reference")
         .await
         .unwrap();
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "blob-reference.txt",
             &temp_path,
@@ -2478,7 +2478,7 @@ async fn test_cannot_unset_only_default_policy() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_without_user_policy_group() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -2504,7 +2504,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E030");
@@ -2514,7 +2514,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::{auth::local, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -2584,7 +2584,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E005");
@@ -2594,7 +2594,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
-    use aster_drive::services::{auth::local, file_service, policy_service};
+    use aster_drive::services::{auth::local, files::file, policy_service};
     use aster_drive::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -2689,7 +2689,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 15)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 15)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E005");

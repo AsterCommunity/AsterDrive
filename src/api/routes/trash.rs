@@ -10,7 +10,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service, auth::local::Claims, file_service, folder_service, task_service, trash_service,
+    audit_service, auth::local::Claims, files::file, files::folder, task_service, trash_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -423,14 +423,13 @@ async fn trash_item_audit_details(
         EntityType::File => {
             let file = file_repo::find_by_id(state.reader_db(), id).await?;
             let name = file.name.clone();
-            let details = file_service::audit_location_details_for_model(state, scope, &file).await;
+            let details = file::audit_location_details_for_model(state, scope, &file).await;
             Ok((Some(name), details))
         }
         EntityType::Folder => {
             let folder = folder_repo::find_by_id(state.reader_db(), id).await?;
             let name = folder.name.clone();
-            let details =
-                folder_service::audit_location_details_for_model(state, scope, &folder).await;
+            let details = folder::audit_location_details_for_model(state, scope, &folder).await;
             Ok((Some(name), details))
         }
     }

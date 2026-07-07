@@ -65,7 +65,7 @@ pub async fn bind_policy_to_folder(
     folder_id: i64,
     policy_id: i64,
 ) {
-    aster_drive::services::folder_service::admin_set_policy_with_audit(
+    aster_drive::services::files::folder::admin_set_policy_with_audit(
         state,
         folder_id,
         Some(policy_id),

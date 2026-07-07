@@ -193,7 +193,7 @@ async fn purge_archived_team_files(state: &PrimaryAppState, team: &team::Model) 
         }
 
         after_file_id = files.last().map(|file| file.id);
-        crate::services::file_service::batch_purge_in_scope(state, scope, files).await?;
+        crate::services::files::file::batch_purge_in_scope(state, scope, files).await?;
     }
 
     Ok(())
@@ -264,7 +264,7 @@ async fn force_delete_archived_team(state: &PrimaryAppState, team: team::Model) 
         .await;
         crate::services::share_service::invalidate_all_share_token_record_cache(state).await;
     }
-    crate::services::folder_service::invalidate_folder_path_cache(state).await;
+    crate::services::files::folder::invalidate_folder_path_cache(state).await;
     tracing::info!(
         team_id,
         team_name = %team_name,

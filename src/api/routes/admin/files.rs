@@ -10,7 +10,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{admin_file_service, audit_service, auth::local::Claims, task_service};
+use crate::services::{audit_service, auth::local::Claims, files::admin, task_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -31,7 +31,7 @@ pub async fn list_files(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminFileListQuery>,
 ) -> Result<HttpResponse> {
-    let page = admin_file_service::list_files(
+    let page = admin::list_files(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -59,7 +59,7 @@ pub async fn get_file(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let file = admin_file_service::get_file(state.get_ref(), *path).await?;
+    let file = admin::get_file(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
@@ -81,7 +81,7 @@ pub async fn list_file_blobs(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminFileBlobListQuery>,
 ) -> Result<HttpResponse> {
-    let page = admin_file_service::list_blobs(
+    let page = admin::list_blobs(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -109,7 +109,7 @@ pub async fn get_file_blob(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let blob = admin_file_service::get_blob(state.get_ref(), *path).await?;
+    let blob = admin::get_blob(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(blob)))
 }
 

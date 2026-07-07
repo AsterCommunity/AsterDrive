@@ -82,7 +82,7 @@ pub(crate) async fn upload_in_scope_with_audit(
 
     let audit_started_at = Instant::now();
     let details =
-        crate::services::file_service::audit_location_details_for_model(state, params.scope, &file)
+        crate::services::files::file::audit_location_details_for_model(state, params.scope, &file)
             .await;
     audit_service::log_with_details(
         state,

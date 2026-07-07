@@ -439,7 +439,7 @@ async fn run_orphan_cleanup(
                 Some(reconciled)
                     if reconciled.actual_refs == 0
                         && reconciled.blob.ref_count == 0
-                        && crate::services::file_service::cleanup_unreferenced_blob_with_driver(
+                        && crate::services::files::file::cleanup_unreferenced_blob_with_driver(
                             state,
                             &reconciled.blob,
                             &mut |policy| driver_cache.driver_for_policy(state, policy),

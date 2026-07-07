@@ -981,8 +981,8 @@ mod tests {
 
         let expected_etag = media_processing_service::image_preview_etag_value_for(
             &blob.hash,
-            crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
-            crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+            crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+            crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
         );
         assert_eq!(handle.identity.cache_key, "/files/42/image-preview");
         assert_eq!(
@@ -1118,8 +1118,8 @@ mod tests {
 
         let expected_etag = media_processing_service::thumbnail_etag_value_for(
             &blob.hash,
-            Some(crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE),
-            Some(crate::services::thumbnail_service::CURRENT_THUMBNAIL_VERSION),
+            Some(crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE),
+            Some(crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION),
         );
         assert_eq!(handle.identity.cache_key, "/files/42/thumbnail");
         assert_eq!(

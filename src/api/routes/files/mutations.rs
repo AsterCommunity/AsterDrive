@@ -9,7 +9,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
-    file_service,
+    files::file,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -511,14 +511,9 @@ pub(crate) async fn create_empty_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let file = file_service::create_empty_in_scope_with_audit(
-        state,
-        scope,
-        body.folder_id,
-        &body.name,
-        &ctx,
-    )
-    .await?;
+    let file =
+        file::create_empty_in_scope_with_audit(state, scope, body.folder_id, &body.name, &ctx)
+            .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
 }
 
@@ -571,7 +566,7 @@ pub(crate) async fn delete_file_response(
     file_id: i64,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    file_service::delete_in_scope_with_audit(state, scope, file_id, &ctx).await?;
+    file::delete_in_scope_with_audit(state, scope, file_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -585,7 +580,7 @@ pub(crate) async fn patch_file_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let file = file_service::update_in_scope_with_audit(
+    let file = file::update_in_scope_with_audit(
         state,
         scope,
         file_id,
@@ -611,7 +606,7 @@ pub(crate) async fn update_content_response(
         .and_then(|value| value.to_str().ok());
     let declared_size = request_content_length(req);
     let ctx = AuditContext::from_request(req, claims);
-    let (file, new_hash) = file_service::update_content_stream_in_scope_with_audit(
+    let (file, new_hash) = file::update_content_stream_in_scope_with_audit(
         state,
         scope,
         file_id,
@@ -644,8 +639,7 @@ pub(crate) async fn set_lock_response(
     locked: bool,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    let file =
-        file_service::set_lock_in_scope_with_audit(state, scope, file_id, locked, &ctx).await?;
+    let file = file::set_lock_in_scope_with_audit(state, scope, file_id, locked, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
@@ -659,7 +653,6 @@ pub(crate) async fn copy_file_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     let file =
-        file_service::copy_file_in_scope_with_audit(state, scope, file_id, body.folder_id, &ctx)
-            .await?;
+        file::copy_file_in_scope_with_audit(state, scope, file_id, body.folder_id, &ctx).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
 }

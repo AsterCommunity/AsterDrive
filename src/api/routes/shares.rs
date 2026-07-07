@@ -13,7 +13,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::services::batch_service;
+use crate::services::files::batch;
 use crate::services::{
     audit_service::AuditContext, auth::local::Claims, share_service,
     workspace_storage_service::WorkspaceStorageScope,
@@ -179,7 +179,7 @@ pub async fn delete_share(
     operation_id = "batch_delete_shares",
     request_body = BatchDeleteSharesReq,
     responses(
-        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -343,7 +343,7 @@ pub(crate) async fn team_delete_share(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchDeleteSharesReq,
     responses(
-        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),

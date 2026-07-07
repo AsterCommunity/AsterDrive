@@ -10,7 +10,8 @@ use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_co
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditRequestInfo},
-    file_service, profile_service,
+    files::file,
+    profile_service,
 };
 use crate::types::NullablePatch;
 use bytes::BytesMut;
@@ -36,7 +37,7 @@ use super::types::{
 /// WOPI GetFile 的服务层结果，包含文件流下载数据和协议专用的 item version header。
 /// 路由层负责把这些字段组装成 HttpResponse，同时附加 X-WOPI-ItemVersion 响应头。
 pub struct WopiGetFileResult {
-    pub outcome: file_service::DownloadOutcome,
+    pub outcome: file::DownloadOutcome,
     pub item_version: String,
 }
 
@@ -101,18 +102,17 @@ pub async fn get_file_contents(
     }
 
     let item_version = blob.hash.clone();
-    let outcome = file_service::build_stream_outcome_with_disposition(
+    let outcome = file::build_stream_outcome_with_disposition(
         state,
         &resolved.file,
         &blob,
-        file_service::DownloadDisposition::Inline,
+        file::DownloadDisposition::Inline,
         if_none_match,
     )
     .await?;
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
     let scope = scope_from_payload(&resolved.payload);
-    let details =
-        file_service::audit_location_details_for_model(state, scope, &resolved.file).await;
+    let details = file::audit_location_details_for_model(state, scope, &resolved.file).await;
     audit_service::log_with_details(
         state,
         &audit_ctx,
@@ -151,7 +151,7 @@ pub async fn put_file_contents(
         return Ok(WopiPutFileResult::Conflict(conflict));
     }
 
-    let (updated, item_version) = file_service::update_content_stream_in_scope(
+    let (updated, item_version) = file::update_content_stream_in_scope(
         state,
         scope_from_payload(&resolved.payload),
         resolved.file.id,
@@ -162,7 +162,7 @@ pub async fn put_file_contents(
     .await?;
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);
     let scope = scope_from_payload(&resolved.payload);
-    let details = file_service::audit_location_details_for_model(state, scope, &updated).await;
+    let details = file::audit_location_details_for_model(state, scope, &updated).await;
     audit_service::log_with_details(
         state,
         &audit_ctx,
@@ -322,7 +322,7 @@ pub async fn put_relative_file(
     };
 
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);
-    let details = file_service::audit_location_details_for_model(state, scope, &target_file).await;
+    let details = file::audit_location_details_for_model(state, scope, &target_file).await;
     audit_service::log_with_details(
         state,
         &audit_ctx,
@@ -376,7 +376,7 @@ pub async fn rename_file(
     .await?;
 
     let previous_file = resolved.file.clone();
-    let updated = match file_service::update_in_scope(
+    let updated = match file::update_in_scope(
         state,
         scope,
         resolved.file.id,
@@ -396,7 +396,7 @@ pub async fn rename_file(
                 &final_name,
             )
             .await?;
-            file_service::update_in_scope(
+            file::update_in_scope(
                 state,
                 scope,
                 resolved.file.id,
@@ -410,8 +410,7 @@ pub async fn rename_file(
 
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
     let details =
-        file_service::audit_transfer_details_for_models(state, scope, &previous_file, &updated)
-            .await;
+        file::audit_transfer_details_for_models(state, scope, &previous_file, &updated).await;
     audit_service::log_with_details(
         state,
         &audit_ctx,

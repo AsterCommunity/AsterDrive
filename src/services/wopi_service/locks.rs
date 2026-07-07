@@ -10,7 +10,8 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     audit_service::{self, AuditRequestInfo},
-    file_service, lock_service,
+    files::file as file_ops,
+    lock_service,
 };
 use crate::types::EntityType;
 
@@ -273,7 +274,7 @@ async fn log_wopi_lock_action(
     file: &file::Model,
 ) {
     let audit_ctx = request_info.to_context(payload.actor_user_id);
-    let details = file_service::audit_location_details_for_model(
+    let details = file_ops::audit_location_details_for_model(
         state,
         super::session::scope_from_payload(payload),
         file,

@@ -14,7 +14,8 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
-    batch_service, stream_ticket_service, task_service,
+    files::batch,
+    stream_ticket_service, task_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
@@ -61,7 +62,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "batch_delete",
     request_body = BatchDeleteReq,
     responses(
-        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -93,7 +94,7 @@ pub async fn batch_delete(
     operation_id = "batch_move",
     request_body = BatchMoveReq,
     responses(
-        (status = 200, description = "Batch move result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch move result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -125,7 +126,7 @@ pub async fn batch_move(
     operation_id = "batch_copy",
     request_body = BatchCopyReq,
     responses(
-        (status = 200, description = "Batch copy result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch copy result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -253,7 +254,7 @@ pub async fn archive_download_stream(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchDeleteReq,
     responses(
-        (status = 200, description = "Team batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -287,7 +288,7 @@ pub(crate) async fn team_batch_delete(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchMoveReq,
     responses(
-        (status = 200, description = "Team batch move result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch move result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -321,7 +322,7 @@ pub(crate) async fn team_batch_move(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchCopyReq,
     responses(
-        (status = 200, description = "Team batch copy result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch copy result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -451,7 +452,7 @@ pub(crate) async fn batch_delete_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_delete_in_scope_with_audit(
+    let result = batch::batch_delete_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,
@@ -471,7 +472,7 @@ pub(crate) async fn batch_move_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_move_in_scope_with_audit(
+    let result = batch::batch_move_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,
@@ -492,7 +493,7 @@ pub(crate) async fn batch_copy_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_copy_in_scope_with_audit(
+    let result = batch::batch_copy_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,

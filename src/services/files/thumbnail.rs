@@ -1,4 +1,4 @@
-//! 服务模块：`thumbnail_service`。
+//! 服务模块：`thumbnail`。
 
 use std::io::Cursor;
 use std::path::PathBuf;

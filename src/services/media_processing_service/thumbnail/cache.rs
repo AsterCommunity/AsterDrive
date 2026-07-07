@@ -67,7 +67,7 @@ pub(super) async fn load_thumbnail_if_exists_with_context(
     ctx: &ThumbnailContext,
 ) -> Result<Option<ThumbnailData>> {
     if requires_server_side_source_limit(&ctx.processor) {
-        crate::services::thumbnail_service::ensure_source_size_supported(
+        crate::services::files::thumbnail::ensure_source_size_supported(
             blob,
             operations::thumbnail_max_source_bytes(state.runtime_config()),
         )?;

@@ -4,7 +4,7 @@ use crate::db::repository::{file_repo, folder_repo, property_repo};
 use crate::entities::entity_property;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{file_service, folder_service};
+use crate::services::files::{file, folder};
 use crate::types::EntityType;
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -68,14 +68,14 @@ async fn verify_ownership(
     match entity_type {
         EntityType::File => {
             let f = file_repo::find_by_id(state.writer_db(), entity_id).await?;
-            file_service::ensure_personal_file_scope(&f)?;
+            file::ensure_personal_file_scope(&f)?;
             if f.owner_user_id != Some(user_id) {
                 return Err(AsterError::auth_forbidden("not your file"));
             }
         }
         EntityType::Folder => {
             let f = folder_repo::find_by_id(state.writer_db(), entity_id).await?;
-            folder_service::ensure_personal_folder_scope(&f)?;
+            folder::ensure_personal_folder_scope(&f)?;
             if f.owner_user_id != Some(user_id) {
                 return Err(AsterError::auth_forbidden("not your folder"));
             }

@@ -7,7 +7,9 @@ use crate::entities::folder;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
-    file_service, folder_service, storage_change_service, workspace_models::FileInfo,
+    files::{file, folder as folder_ops},
+    storage_change_service,
+    workspace_models::FileInfo,
     workspace_storage_service::WorkspaceStorageScope,
 };
 
@@ -21,7 +23,7 @@ async fn collect_folder_tree_models(
     folder_id: i64,
     include_deleted: bool,
 ) -> Result<(Vec<crate::entities::file::Model>, Vec<i64>)> {
-    folder_service::collect_folder_tree_in_scope(
+    folder_ops::collect_folder_tree_in_scope(
         db,
         WorkspaceStorageScope::Personal { user_id },
         folder_id,
@@ -36,7 +38,7 @@ async fn collect_folder_tree_models_in_scope(
     folder_id: i64,
     include_deleted: bool,
 ) -> Result<(Vec<crate::entities::file::Model>, Vec<i64>)> {
-    folder_service::collect_folder_tree_in_scope(db, scope, folder_id, include_deleted).await
+    folder_ops::collect_folder_tree_in_scope(db, scope, folder_id, include_deleted).await
 }
 
 pub async fn collect_folder_tree(
@@ -121,7 +123,7 @@ pub async fn purge_folder_tree(
     let file_count = all_files.len();
     let folder_count = all_folder_ids.len();
 
-    file_service::batch_purge_in_scope(
+    file::batch_purge_in_scope(
         state,
         WorkspaceStorageScope::Personal { user_id },
         all_files,
@@ -145,7 +147,7 @@ pub async fn purge_folder_tree(
         .await;
         crate::services::share_service::invalidate_all_share_token_record_cache(state).await;
     }
-    crate::services::folder_service::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
+    crate::services::files::folder::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
         .await;
     folder_repo::delete_many(state.writer_db(), &all_folder_ids).await?;
     tracing::debug!(
@@ -187,7 +189,7 @@ pub(crate) async fn copy_folder_tree_in_scope(
     dest_parent_id: Option<i64>,
     dest_name: &str,
 ) -> Result<folder::Model> {
-    let (copied, storage_delta) = crate::services::folder_service::copy_folder_tree_in_scope(
+    let (copied, storage_delta) = crate::services::files::folder::copy_folder_tree_in_scope(
         state,
         scope,
         src_folder_id,

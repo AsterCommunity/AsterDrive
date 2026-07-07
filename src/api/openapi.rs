@@ -481,9 +481,9 @@ use utoipa::{Modify, OpenApi};
             crate::services::archive_preview_service::ArchivePreviewExtractCompatibility,
             crate::services::archive_preview_service::ArchivePreviewExtractUnsupportedReason,
 
-            // services::folder_service / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
-            crate::services::folder_service::FolderContents,
-            crate::services::folder_service::FolderAncestorItem,
+            // services::files::folder / entities::{file,folder,file_version}：个人空间文件树、文件实体和版本信息模型。
+            crate::services::files::folder::FolderContents,
+            crate::services::files::folder::FolderAncestorItem,
             crate::services::workspace_models::FileInfo,
             crate::services::workspace_models::FolderInfo,
             crate::entities::file::Model,
@@ -520,8 +520,8 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::files::SetLockReq,
             crate::api::routes::files::CopyFileReq,
             crate::api::routes::folders::CopyFolderReq,
-            crate::services::direct_link_service::DirectLinkTokenInfo,
-            crate::services::preview_link_service::PreviewLinkInfo,
+            crate::services::files::direct_link::DirectLinkTokenInfo,
+            crate::services::files::preview_link::PreviewLinkInfo,
             crate::services::stream_ticket_service::StreamTicketInfo,
             crate::services::wopi_service::WopiLaunchSession,
             crate::services::media_metadata_service::MediaMetadataInfo,
@@ -771,15 +771,15 @@ use utoipa::{Modify, OpenApi};
             crate::services::search_service::SearchParams,
             crate::services::search_service::SearchResults,
 
-            // api::routes::batch / services::batch_service：批量操作和归档下载请求/结果模型。
+            // api::routes::batch / services::files::batch：批量操作和归档下载请求/结果模型。
             crate::api::routes::batch::ArchiveDownloadReq,
             crate::api::routes::batch::BatchDeleteReq,
             crate::api::routes::batch::BatchMoveReq,
             crate::api::routes::batch::BatchCopyReq,
             crate::api::routes::batch::WorkspaceRef,
             crate::api::routes::batch::WorkspaceTransferCopyReq,
-            crate::services::batch_service::BatchResult,
-            crate::services::batch_service::BatchItemError,
+            crate::services::files::batch::BatchResult,
+            crate::services::files::batch::BatchItemError,
         ),
     ),
     tags(

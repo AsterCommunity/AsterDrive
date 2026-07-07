@@ -512,7 +512,7 @@ mod tests {
     };
     use crate::runtime::PrimaryAppState;
     use crate::services::workspace_scope_service::SharedRuntimeState;
-    use crate::services::{folder_service, mail_service};
+    use crate::services::{files::folder, mail_service};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
@@ -788,7 +788,7 @@ mod tests {
         .await
         .expect("child folder should insert");
 
-        let first = folder_service::build_folder_paths_cached(&state, &[child.id])
+        let first = folder::build_folder_paths_cached(&state, &[child.id])
             .await
             .expect("first path build should succeed");
         assert_eq!(
@@ -804,7 +804,7 @@ mod tests {
             .await
             .expect("parent should rename");
 
-        let second = folder_service::build_folder_paths_cached(&state, &[child.id])
+        let second = folder::build_folder_paths_cached(&state, &[child.id])
             .await
             .expect("cached path build should use current database names");
         assert_eq!(

@@ -8,7 +8,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{file_service, workspace_storage_service::WorkspaceResourceScope};
+use crate::services::{files::file as file_ops, workspace_storage_service::WorkspaceResourceScope};
 
 use super::common::{load_retention_days, purge_folder_tree_in_resource_scope};
 
@@ -36,7 +36,7 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     }
 
     for (user_id, files) in by_user {
-        match file_service::batch_purge_in_resource_scope(
+        match file_ops::batch_purge_in_resource_scope(
             state,
             WorkspaceResourceScope::Personal { user_id },
             files,
@@ -51,7 +51,7 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     }
 
     for (team_id, files) in by_team {
-        match file_service::batch_purge_in_resource_scope(
+        match file_ops::batch_purge_in_resource_scope(
             state,
             WorkspaceResourceScope::Team { team_id },
             files,

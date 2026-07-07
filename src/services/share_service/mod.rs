@@ -14,7 +14,7 @@ mod shared;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::batch_service;
+use crate::services::files::batch;
 use crate::services::workspace_storage_service::WorkspaceStorageScope;
 
 pub use access::{
@@ -175,7 +175,7 @@ pub(crate) async fn batch_delete_shares_in_scope_with_audit(
     scope: WorkspaceStorageScope,
     share_ids: &[i64],
     audit_ctx: &AuditContext,
-) -> Result<batch_service::BatchResult> {
+) -> Result<batch::BatchResult> {
     validate_batch_share_ids(share_ids)?;
     let result = batch_delete_shares_in_scope(state, scope, share_ids).await?;
     audit_service::log_with_details(

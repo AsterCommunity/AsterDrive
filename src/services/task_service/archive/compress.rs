@@ -14,7 +14,7 @@ use crate::entities::background_task;
 use crate::errors::{AsterError, MapAsterErr, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    batch_service,
+    files::batch,
     task_service::{
         TaskExecutionContext, cleanup_task_temp_dir_for_task_kind, create_typed_task_record,
         get_task_in_scope, mark_task_progress, mark_task_succeeded, prepare_task_temp_dir,
@@ -65,7 +65,7 @@ pub(crate) async fn create_archive_compress_task_in_scope(
         params.target_folder_id,
     )
     .await?;
-    let batch_service::NormalizedSelection {
+    let batch::NormalizedSelection {
         file_ids,
         folder_ids,
         ..
@@ -119,7 +119,7 @@ pub(super) async fn process_archive_compress_task(
             workspace_storage_service::verify_folder_access(state, scope, target_folder_id).await?;
         }
 
-        let selection = batch_service::load_normalized_selection_in_scope(
+        let selection = batch::load_normalized_selection_in_scope(
             state,
             scope,
             &payload.file_ids,

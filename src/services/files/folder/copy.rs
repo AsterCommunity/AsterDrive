@@ -57,7 +57,7 @@ async fn copy_frontier_files_between_scopes(
             file_repo::find_by_team_folders(db, team_id, &src_folder_ids).await?
         }
     };
-    let copy_specs: Vec<crate::services::file_service::BatchDuplicateFileRecordTargetSpec<'_>> =
+    let copy_specs: Vec<crate::services::files::file::BatchDuplicateFileRecordTargetSpec<'_>> =
         files
             .iter()
             .map(|file| {
@@ -73,7 +73,7 @@ async fn copy_frontier_files_between_scopes(
                     ))
                 })?;
                 Ok(
-                    crate::services::file_service::BatchDuplicateFileRecordTargetSpec {
+                    crate::services::files::file::BatchDuplicateFileRecordTargetSpec {
                         dest_name: Cow::Borrowed(file.name.as_str()),
                         src: file,
                         dest_folder_id: Some(dest_folder_id),
@@ -82,7 +82,7 @@ async fn copy_frontier_files_between_scopes(
             })
             .collect::<Result<_>>()?;
 
-    crate::services::file_service::batch_duplicate_file_records_to_mixed_folders_in_scope(
+    crate::services::files::file::batch_duplicate_file_records_to_mixed_folders_in_scope(
         state,
         dest_scope,
         &copy_specs,

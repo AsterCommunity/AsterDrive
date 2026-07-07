@@ -18,9 +18,9 @@ use crate::entities::{file, folder, share};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    batch_service,
     download_headers::DownloadDisposition,
-    folder_service, share_service,
+    files::{batch, folder as folder_ops},
+    share_service,
     task_service::types::CreateArchiveTaskParams,
     workspace_storage_service::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
@@ -32,7 +32,7 @@ pub(crate) struct PreparedArchiveDownload {
 }
 
 pub(super) struct ResolvedArchiveDownload {
-    pub(super) selection: batch_service::NormalizedSelection,
+    pub(super) selection: batch::NormalizedSelection,
     pub(super) archive_name: String,
 }
 
@@ -280,7 +280,7 @@ pub(super) async fn resolve_archive_download_in_scope(
 ) -> Result<ResolvedArchiveDownload> {
     ensure_archive_selection_request_in_scope(state, scope, &params.file_ids, &params.folder_ids)
         .await?;
-    let selection = batch_service::load_normalized_selection_in_scope(
+    let selection = batch::load_normalized_selection_in_scope(
         state,
         scope,
         &params.file_ids,
@@ -297,7 +297,7 @@ pub(super) async fn resolve_archive_download_in_scope(
 }
 
 struct ResolvedSharedArchiveDownload {
-    selection: batch_service::NormalizedSelection,
+    selection: batch::NormalizedSelection,
     archive_name: String,
     share: share::Model,
     scope: WorkspaceResourceScope,
@@ -308,7 +308,7 @@ async fn resolve_shared_archive_download(
     token: &str,
     params: &CreateArchiveTaskParams,
 ) -> Result<ResolvedSharedArchiveDownload> {
-    batch_service::validate_batch_ids(&params.file_ids, &params.folder_ids)?;
+    batch::validate_batch_ids(&params.file_ids, &params.folder_ids)?;
     let (share, root_folder_id) = share_service::load_valid_folder_share_root(state, token).await?;
     let scope = match share.team_id {
         Some(team_id) => WorkspaceResourceScope::Team { team_id },
@@ -342,7 +342,7 @@ async fn ensure_archive_selection_request_in_scope(
 ) -> Result<()> {
     workspace_storage_service::require_scope_access_with_db(state, state.writer_db(), scope)
         .await?;
-    batch_service::validate_batch_ids(file_ids, folder_ids)?;
+    batch::validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map: HashMap<i64, file::Model> = file_repo::find_by_ids(state.writer_db(), file_ids)
         .await?
@@ -378,7 +378,7 @@ async fn load_normalized_shared_selection(
     root_folder_id: i64,
     file_ids: &[i64],
     folder_ids: &[i64],
-) -> Result<batch_service::NormalizedSelection> {
+) -> Result<batch::NormalizedSelection> {
     let file_map: HashMap<i64, file::Model> = file_repo::find_by_ids(state.writer_db(), file_ids)
         .await?
         .into_iter()
@@ -412,7 +412,7 @@ async fn load_normalized_shared_selection(
         ensure_shared_folder_in_scope(state, scope, root_folder_id, folder).await?;
     }
 
-    Ok(batch_service::NormalizedSelection {
+    Ok(batch::NormalizedSelection {
         file_ids: file_ids.to_vec(),
         folder_ids: folder_ids.to_vec(),
         file_map,
@@ -440,8 +440,7 @@ async fn ensure_shared_file_in_scope(
         ));
     };
     if verified_folder_ids.insert(folder_id) {
-        folder_service::verify_folder_in_scope(state.writer_db(), folder_id, root_folder_id)
-            .await?;
+        folder_ops::verify_folder_in_scope(state.writer_db(), folder_id, root_folder_id).await?;
     }
     Ok(())
 }
@@ -459,12 +458,12 @@ async fn ensure_shared_folder_in_scope(
             folder.id
         )));
     }
-    folder_service::verify_folder_in_scope(state.writer_db(), folder.id, root_folder_id).await
+    folder_ops::verify_folder_in_scope(state.writer_db(), folder.id, root_folder_id).await
 }
 
 pub(super) fn ensure_archive_selection_active(
     scope: WorkspaceStorageScope,
-    selection: &batch_service::NormalizedSelection,
+    selection: &batch::NormalizedSelection,
 ) -> Result<()> {
     for &file_id in &selection.file_ids {
         let file = selection
@@ -488,7 +487,7 @@ pub(super) fn ensure_archive_selection_active(
 async fn collect_archive_entries_from_shared_selection(
     state: &impl SharedRuntimeState,
     scope: WorkspaceResourceScope,
-    selection: &batch_service::NormalizedSelection,
+    selection: &batch::NormalizedSelection,
     limits: ArchiveBuildLimits,
 ) -> Result<CollectedArchiveEntries> {
     let mut entries = Vec::new();
@@ -500,7 +499,7 @@ async fn collect_archive_entries_from_shared_selection(
             .file_map
             .get(&file_id)
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
-        let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
+        let entry_path = batch::reserve_unique_name(&mut reserved_root_names, &file.name);
         record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
             file: ArchiveFileEntry::from_file(file, &entry_path),
@@ -513,18 +512,16 @@ async fn collect_archive_entries_from_shared_selection(
             .folder_map
             .get(&folder_id)
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
-        let archive_root =
-            batch_service::reserve_unique_name(&mut reserved_root_names, &folder.name);
+        let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
-        let (tree_files, tree_folder_ids) = folder_service::collect_folder_tree_in_resource_scope(
+        let (tree_files, tree_folder_ids) = folder_ops::collect_folder_tree_in_resource_scope(
             state.writer_db(),
             scope,
             folder_id,
             false,
         )
         .await?;
-        let folder_paths =
-            folder_service::build_folder_paths_cached(state, &tree_folder_ids).await?;
+        let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
         let root_path = folder_paths
             .get(&folder_id)
             .cloned()
@@ -580,7 +577,7 @@ async fn collect_archive_entries_from_shared_selection(
 pub(super) async fn collect_archive_entries_from_selection_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
-    selection: &batch_service::NormalizedSelection,
+    selection: &batch::NormalizedSelection,
     limits: ArchiveBuildLimits,
 ) -> Result<CollectedArchiveEntries> {
     let mut entries = Vec::new();
@@ -593,7 +590,7 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .get(&file_id)
             .ok_or_else(|| AsterError::file_not_found(format!("file #{file_id}")))?;
         workspace_storage_service::ensure_active_file_scope(file, scope)?;
-        let entry_path = batch_service::reserve_unique_name(&mut reserved_root_names, &file.name);
+        let entry_path = batch::reserve_unique_name(&mut reserved_root_names, &file.name);
         record_archive_build_entry(&mut stats, &entry_path, Some(file.size), limits)?;
         entries.push(ArchiveEntry::File {
             file: ArchiveFileEntry::from_file(file, &entry_path),
@@ -607,18 +604,12 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
             .get(&folder_id)
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
         workspace_storage_service::ensure_active_folder_scope(folder, scope)?;
-        let archive_root =
-            batch_service::reserve_unique_name(&mut reserved_root_names, &folder.name);
+        let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
-        let (tree_files, tree_folder_ids) = folder_service::collect_folder_tree_in_scope(
-            state.writer_db(),
-            scope,
-            folder_id,
-            false,
-        )
-        .await?;
-        let folder_paths =
-            folder_service::build_folder_paths_cached(state, &tree_folder_ids).await?;
+        let (tree_files, tree_folder_ids) =
+            folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, folder_id, false)
+                .await?;
+        let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
         let root_path = folder_paths
             .get(&folder_id)
             .cloned()
@@ -725,7 +716,7 @@ fn record_archive_build_entry(
 pub(super) async fn resolve_archive_compress_target_folder_id(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
-    selection: &batch_service::NormalizedSelection,
+    selection: &batch::NormalizedSelection,
     requested_target_folder_id: Option<i64>,
 ) -> Result<Option<i64>> {
     if let Some(target_folder_id) = requested_target_folder_id {
@@ -803,7 +794,7 @@ fn archive_relative_dir(folder_path: &str, root_path: &str) -> Result<String> {
 
 fn resolve_archive_name(
     archive_name: &Option<String>,
-    selection: &batch_service::NormalizedSelection,
+    selection: &batch::NormalizedSelection,
 ) -> Result<String> {
     let base = match archive_name.as_deref().map(str::trim) {
         Some(name) if !name.is_empty() => name.to_string(),
@@ -831,7 +822,7 @@ fn normalize_archive_zip_name(base: &str) -> Result<String> {
     Ok(format!("{stem}.zip"))
 }
 
-fn default_archive_name(selection: &batch_service::NormalizedSelection) -> String {
+fn default_archive_name(selection: &batch::NormalizedSelection) -> String {
     if selection.folder_ids.len() == 1
         && selection.file_ids.is_empty()
         && let Some(folder) = selection.folder_map.get(&selection.folder_ids[0])

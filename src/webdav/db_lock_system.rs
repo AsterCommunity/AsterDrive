@@ -77,7 +77,7 @@ impl DbLockSystem {
         match entity_type {
             EntityType::File => match file_repo::find_by_id(&self.db, entity_id).await {
                 Ok(file) => {
-                    let details = crate::services::file_service::audit_location_details_for_model(
+                    let details = crate::services::files::file::audit_location_details_for_model(
                         state, self.scope, &file,
                     )
                     .await;
@@ -111,11 +111,10 @@ impl DbLockSystem {
             },
             EntityType::Folder => match folder_repo::find_by_id(&self.db, entity_id).await {
                 Ok(folder) => {
-                    let details =
-                        crate::services::folder_service::audit_location_details_for_model(
-                            state, self.scope, &folder,
-                        )
-                        .await;
+                    let details = crate::services::files::folder::audit_location_details_for_model(
+                        state, self.scope, &folder,
+                    )
+                    .await;
                     audit_service::log_with_details(
                         state,
                         &self.audit_ctx,

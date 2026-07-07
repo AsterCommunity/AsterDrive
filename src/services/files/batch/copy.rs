@@ -7,7 +7,8 @@ use futures::{StreamExt, stream};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    file_service, folder_service, storage_change_service,
+    files::{file, folder},
+    storage_change_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 
@@ -100,7 +101,7 @@ pub(crate) async fn batch_copy_between_scopes(
         let dest_name = reserve_unique_name(&mut reserved_file_names, &file.name);
         planned_storage_used = projected_storage_used;
         result.record_success();
-        file_copy_specs.push(file_service::BatchDuplicateFileRecordSpec {
+        file_copy_specs.push(file::BatchDuplicateFileRecordSpec {
             src: file,
             dest_name: Cow::Owned(dest_name),
         });
@@ -112,7 +113,7 @@ pub(crate) async fn batch_copy_between_scopes(
                 AsterError::internal_error("copied byte count overflow during batch copy")
             })
         })?;
-        let created_files = file_service::batch_duplicate_file_records_with_specs_in_scope(
+        let created_files = file::batch_duplicate_file_records_with_specs_in_scope(
             state,
             dest_scope,
             &file_copy_specs,
@@ -142,7 +143,7 @@ pub(crate) async fn batch_copy_between_scopes(
     let mut folder_copy_results =
         stream::iter(normalized_folder_ids.iter().copied().enumerate().map(
             |(index, id)| async move {
-                let copy_result = folder_service::copy_folder_between_scopes(
+                let copy_result = folder::copy_folder_between_scopes(
                     state,
                     source_scope,
                     dest_scope,

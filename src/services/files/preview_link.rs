@@ -1,4 +1,4 @@
-//! 服务模块：`preview_link_service`。
+//! 服务模块：`preview_link`。
 
 use base64::Engine;
 use chrono::{DateTime, Duration, Utc};
@@ -11,9 +11,12 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::file_service::ResolvedDownloadRange;
 use crate::services::{
-    direct_link_service, file_service, share_service,
+    files::{
+        direct_link,
+        file::{self as file_ops, ResolvedDownloadRange},
+    },
+    share_service,
     workspace_storage_service::{self, WorkspaceStorageScope},
 };
 
@@ -128,35 +131,35 @@ pub(crate) async fn download_file(
     requested_name: &str,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,
-) -> Result<file_service::DownloadOutcome> {
+) -> Result<file_ops::DownloadOutcome> {
     let resolved = resolve_token(state, token).await?;
     let file = match &resolved {
         ResolvedPreviewTarget::File { file, .. } => file,
         ResolvedPreviewTarget::Shared { file, .. } => file,
     };
 
-    direct_link_service::validate_public_file_name(file, requested_name)?;
+    direct_link::validate_public_file_name(file, requested_name)?;
 
     let blob = file_repo::find_blob_by_id(state.reader_db(), file.blob_id).await?;
     if let Some(if_none_match) = if_none_match
-        && file_service::if_none_match_matches(if_none_match, &blob.hash)
+        && file_ops::if_none_match_matches(if_none_match, &blob.hash)
     {
-        return file_service::build_download_outcome_with_disposition_and_range(
+        return file_ops::build_download_outcome_with_disposition_and_range(
             state,
             file,
             &blob,
-            file_service::DownloadDisposition::Inline,
+            file_ops::DownloadDisposition::Inline,
             Some(if_none_match),
             None,
         )
         .await;
     }
 
-    file_service::build_download_outcome_with_disposition_and_range(
+    file_ops::build_download_outcome_with_disposition_and_range(
         state,
         file,
         &blob,
-        file_service::DownloadDisposition::Inline,
+        file_ops::DownloadDisposition::Inline,
         None,
         range,
     )
@@ -173,7 +176,7 @@ pub(crate) async fn resolve_file_for_download(
         ResolvedPreviewTarget::File { file, .. } => file,
         ResolvedPreviewTarget::Shared { file, .. } => file,
     };
-    direct_link_service::validate_public_file_name(file, requested_name)?;
+    direct_link::validate_public_file_name(file, requested_name)?;
     Ok(file.clone())
 }
 
@@ -283,7 +286,7 @@ async fn resolve_token(
 
     match &payload.subject {
         PreviewSubject::File { file_id } => {
-            let file = direct_link_service::load_public_file(state, *file_id).await?;
+            let file = direct_link::load_public_file(state, *file_id).await?;
             if !verify_file_payload(
                 &file,
                 payload_segment,

@@ -21,7 +21,7 @@ use crate::api::dto::validate_request;
 use crate::api::dto::wopi::WopiAccessQuery;
 use crate::config::site_url;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, file_service, wopi_service};
+use crate::services::{audit_service, files::file, wopi_service};
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -102,7 +102,7 @@ pub async fn get_file_contents(
     .await
     {
         Ok(result) => {
-            let mut response = file_service::outcome_to_response(result.outcome);
+            let mut response = file::outcome_to_response(result.outcome);
             // X-WOPI-ItemVersion は 304 / 302 でも添付する（WOPI 仕様要求）
             if let Ok(version_value) =
                 actix_web::http::header::HeaderValue::from_str(&result.item_version)

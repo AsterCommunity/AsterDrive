@@ -4,7 +4,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::file_service::{
+use crate::services::files::file::{
     DownloadDisposition, ensure_personal_file_scope, get_info_in_scope, if_none_match_matches,
     inline_sandbox_csp, requires_inline_sandbox,
 };

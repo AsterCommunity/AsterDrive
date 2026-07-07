@@ -24,8 +24,8 @@ Main code paths:
 - `src/services/workspace_storage_service/`
 - `src/services/workspace_storage_core.rs`
 - `src/services/workspace_storage_core/`
-- `src/services/file_service/*`
-- `src/services/folder_service/*`
+- `src/services/files/file/*`
+- `src/services/files/folder/*`
 
 ### Design goal
 
@@ -446,7 +446,7 @@ The first version does not support `delete_source_after_success = true`. The fie
 Main code paths:
 
 - `src/api/routes/admin/files.rs`
-- `src/services/admin_file_service.rs`
+- `src/services/admin.rs`
 - `src/db/repository/file_repo/`
 
 This surface is for admin debugging and migration validation, not ordinary file business flows.

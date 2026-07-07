@@ -10,7 +10,8 @@ use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
-    file_service, folder_service, property_service, storage_change_service, webdav_service,
+    files::{file as file_ops, folder},
+    property_service, storage_change_service, webdav_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
@@ -200,7 +201,7 @@ impl AsterDavFs {
         )
         .await?;
 
-        let created = folder_service::create_in_scope_with_audit(
+        let created = folder::create_in_scope_with_audit(
             &state,
             self.scope(),
             &dest_name,
@@ -220,7 +221,7 @@ impl AsterDavFs {
         let target_folder = folder_repo::find_by_id(state.reader_db(), created.id)
             .await
             .map_err(to_fs_error)?;
-        let details = folder_service::audit_transfer_details_for_models(
+        let details = folder::audit_transfer_details_for_models(
             &state,
             self.scope(),
             &src_folder,
@@ -403,7 +404,7 @@ impl DavFileSystem for AsterDavFs {
             .await?;
 
             let state = self.app_state();
-            folder_service::create_in_scope_with_audit(
+            folder::create_in_scope_with_audit(
                 &state,
                 self.scope(),
                 &name,
@@ -433,7 +434,7 @@ impl DavFileSystem for AsterDavFs {
 
             let state = self.app_state();
             let details =
-                folder_service::audit_location_details_for_model(&state, self.scope, &folder).await;
+                folder::audit_location_details_for_model(&state, self.scope, &folder).await;
             webdav_service::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
                 .await
                 .map_err(to_fs_error)?;
@@ -467,14 +468,9 @@ impl DavFileSystem for AsterDavFs {
             };
 
             let state = self.app_state();
-            file_service::delete_in_scope_with_audit(
-                &state,
-                self.scope(),
-                file.id,
-                &self.audit_ctx,
-            )
-            .await
-            .map_err(to_fs_error)?;
+            file_ops::delete_in_scope_with_audit(&state, self.scope(), file.id, &self.audit_ctx)
+                .await
+                .map_err(to_fs_error)?;
 
             Ok(())
         })
@@ -510,7 +506,7 @@ impl DavFileSystem for AsterDavFs {
 
             match node {
                 ResolvedNode::File(f) => {
-                    file_service::update_in_scope_with_audit(
+                    file_ops::update_in_scope_with_audit(
                         &state,
                         self.scope(),
                         f.id,
@@ -522,7 +518,7 @@ impl DavFileSystem for AsterDavFs {
                     .map_err(to_fs_error)?;
                 }
                 ResolvedNode::Folder(f) => {
-                    folder_service::update_in_scope_with_audit(
+                    folder::update_in_scope_with_audit(
                         &state,
                         self.scope(),
                         f.id,
@@ -570,7 +566,7 @@ impl DavFileSystem for AsterDavFs {
 
             match node {
                 ResolvedNode::File(f) => {
-                    let copied = file_service::duplicate_file_record_in_scope(
+                    let copied = file_ops::duplicate_file_record_in_scope(
                         &state,
                         self.scope(),
                         &f,
@@ -598,7 +594,7 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(copied.size),
                     );
-                    let details = file_service::audit_transfer_details_for_models(
+                    let details = file_ops::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
                         &f,
@@ -628,7 +624,7 @@ impl DavFileSystem for AsterDavFs {
                     .map_err(to_fs_error)?;
                     copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
                         .await?;
-                    let details = folder_service::audit_transfer_details_for_models(
+                    let details = folder::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
                         &f,
@@ -1164,7 +1160,7 @@ async fn delete_existing_destination_for_overwrite(
     audit_ctx: &AuditContext,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details = file_service::audit_location_details_for_model(state, scope, &existing).await;
+        let details = file_ops::audit_location_details_for_model(state, scope, &existing).await;
         file_repo::soft_delete(state.writer_db(), existing.id)
             .await
             .map_err(to_fs_error)?;
@@ -1191,8 +1187,7 @@ async fn delete_existing_destination_for_overwrite(
     }
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details =
-            folder_service::audit_location_details_for_model(state, scope, &existing).await;
+        let details = folder::audit_location_details_for_model(state, scope, &existing).await;
         webdav_service::recursive_soft_delete_in_scope(state, scope, existing.id)
             .await
             .map_err(to_fs_error)?;
