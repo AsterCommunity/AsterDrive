@@ -421,14 +421,9 @@ async fn load_or_enqueue_thumbnail(
             thumbnail_version: Some(thumbnail.thumbnail_version),
         })),
         None => {
-            task::thumbnail::ensure_thumbnail_task(
-                state,
-                &blob,
-                &file.name,
-                &file.mime_type,
-            )
-            .await
-            .map_err(processing::map_thumbnail_request_error)?;
+            task::thumbnail::ensure_thumbnail_task(state, &blob, &file.name, &file.mime_type)
+                .await
+                .map_err(processing::map_thumbnail_request_error)?;
             Ok(None)
         }
     }

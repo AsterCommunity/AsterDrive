@@ -4,7 +4,7 @@ use crate::api::dto::files::VersionPath;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{ops::audit::AuditContext, auth::local::Claims, content::version};
+use crate::services::{auth::local::Claims, content::version, ops::audit::AuditContext};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(

@@ -17,12 +17,12 @@ use crate::entities::{mfa_email_code, mfa_login_flow, user};
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    ops::audit::AuditRequestInfo,
     auth::local,
     mail::audit as mail_audit,
     mail::sender,
     mail::template::{self, MailTemplatePayload},
     ops::audit,
+    ops::audit::AuditRequestInfo,
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
 use crate::utils::hash;

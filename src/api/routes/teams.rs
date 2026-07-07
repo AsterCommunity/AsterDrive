@@ -238,8 +238,7 @@ pub async fn restore_team(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    let team =
-        team::restore_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
+    let team = team::restore_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 

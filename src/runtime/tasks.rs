@@ -664,7 +664,9 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::workspace::team::cleanup_expired_archived_teams(s.get_ref()).await {
+            match crate::services::workspace::team::cleanup_expired_archived_teams(s.get_ref())
+                .await
+            {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired archived teams");
                     crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -795,11 +797,9 @@ pub fn spawn_primary_background_tasks(
         state.clone(),
         |s| async move {
             match crate::services::ops::audit::cleanup_expired(s.get_ref()).await {
-                Ok(count) if count > 0 => {
-                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
-                        "cleaned up {count} expired audit log entries"
-                    )))
-                }
+                Ok(count) if count > 0 => crate::services::task::RuntimeTaskRunOutcome::succeeded(
+                    Some(format!("cleaned up {count} expired audit log entries")),
+                ),
                 Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("audit log cleanup failed: {error}");

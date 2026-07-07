@@ -190,8 +190,7 @@ pub async fn purge_all(
     let scope = WorkspaceStorageScope::Personal {
         user_id: claims.user_id,
     };
-    let task =
-        task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
+    let task = task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",
@@ -386,8 +385,7 @@ pub(crate) async fn team_purge_all(
         team_id,
         actor_user_id: claims.user_id,
     };
-    let task =
-        task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
+    let task = task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",

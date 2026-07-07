@@ -126,10 +126,7 @@ impl SystemHealthReport {
                 system_health,
             )
         } else {
-            task::RuntimeTaskRunOutcome::succeeded_with_system_health(
-                Some(summary),
-                system_health,
-            )
+            task::RuntimeTaskRunOutcome::succeeded_with_system_health(Some(summary), system_health)
         }
     }
 

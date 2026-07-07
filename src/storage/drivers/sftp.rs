@@ -182,10 +182,12 @@ impl SftpDriver {
     }
 
     async fn connect(&self) -> Result<SftpConnection> {
-        let mut config = russh::client::Config::default();
-        config.inactivity_timeout = Some(IO_TIMEOUT);
-        config.keepalive_interval = Some(Duration::from_secs(10));
-        config.nodelay = true;
+        let config = russh::client::Config {
+            inactivity_timeout: Some(IO_TIMEOUT),
+            keepalive_interval: Some(Duration::from_secs(10)),
+            nodelay: true,
+            ..Default::default()
+        };
 
         let address = (self.endpoint.host.clone(), self.endpoint.port);
         let host_key_rejection = Arc::new(Mutex::new(None));

@@ -150,12 +150,10 @@ async fn insert_processing_system_runtime_task(
         team_id: Set(None),
         share_id: Set(None),
         display_name: Set("dispatch system runtime".to_string()),
-        payload_json: Set(
-            crate::services::task::runtime::system_runtime_payload_json(
-                SystemRuntimeTaskKind::BackgroundTaskDispatch,
-            )
-            .expect("system runtime payload should serialize"),
-        ),
+        payload_json: Set(crate::services::task::runtime::system_runtime_payload_json(
+            SystemRuntimeTaskKind::BackgroundTaskDispatch,
+        )
+        .expect("system runtime payload should serialize")),
         result_json: Set(None),
         runtime_json: Set(None),
         steps_json: Set(None),

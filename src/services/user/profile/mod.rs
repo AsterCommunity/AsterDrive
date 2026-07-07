@@ -4,7 +4,7 @@ mod avatar;
 mod avatar_image;
 mod avatar_storage;
 mod info;
-mod profile;
+mod management;
 pub(crate) mod shared;
 
 pub use avatar::{
@@ -15,4 +15,4 @@ pub use info::{
     AvatarAudience, AvatarInfo, UserProfileInfo, build_profile_info,
     build_share_public_avatar_info, get_profile_info_map, resolve_gravatar_base_url,
 };
-pub use profile::{get_profile_info, get_wopi_user_info, update_profile, update_wopi_user_info};
+pub use management::{get_profile_info, get_wopi_user_info, update_profile, update_wopi_user_info};

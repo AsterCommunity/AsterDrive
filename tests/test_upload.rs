@@ -1271,8 +1271,7 @@ async fn test_empty_file_upload_flow_uses_direct_and_creates_file() {
 }
 
 #[actix_web::test]
-async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_windows_reserved_name()
-{
+async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_windows_reserved_name() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::{auth::local, files::upload};
 
@@ -1286,10 +1285,9 @@ async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_window
     .await
     .unwrap();
 
-    let init =
-        upload::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
     let upload_id = init
         .upload_id
@@ -1299,9 +1297,7 @@ async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_window
         .unwrap();
     assert_eq!(session.filename, "caf\u{00e9}.txt");
 
-    let err = match upload::init_upload(&state, user.id, "COM1.txt", 10_485_760, None, None)
-        .await
-    {
+    let err = match upload::init_upload(&state, user.id, "COM1.txt", 10_485_760, None, None).await {
         Ok(_) => panic!("COM1.txt should be rejected"),
         Err(err) => err,
     };
@@ -1824,10 +1820,9 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
     let mut upload_ids = Vec::new();
 
     for name in ["dedup-a.bin", "dedup-b.bin"] {
-        let init =
-            upload::init_upload(&state, user.id, name, content.len() as i64, None, None)
-                .await
-                .unwrap();
+        let init = upload::init_upload(&state, user.id, name, content.len() as i64, None, None)
+            .await
+            .unwrap();
         let upload_id = init.upload_id.unwrap();
         let total_chunks = init.total_chunks.unwrap();
         let chunk_size = init.chunk_size.unwrap() as usize;
@@ -2202,10 +2197,9 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
         .await
         .unwrap();
 
-    let init =
-        upload::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
@@ -2233,10 +2227,9 @@ async fn test_complete_upload_is_idempotent_after_completion() {
         .await
         .unwrap();
 
-    let init =
-        upload::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
     assert_eq!(init.total_chunks, Some(2));
 
@@ -3261,10 +3254,9 @@ async fn test_presigned_upload_s3_e2e() {
 
     // 1. init_upload → 应返回 presigned 模式
     let data = b"hello presigned world!";
-    let init =
-        upload::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
     assert!(init.presigned_url.is_some());
     assert!(init.upload_id.is_some());
@@ -3320,10 +3312,9 @@ async fn test_presigned_upload_s3_e2e() {
 
     // 5. 上传相同内容 → S3 presigned 不做 blob 去重（避免回拉 SHA256 抵消直传优势）
     //    每次上传产生独立 blob，各自 ref_count=1
-    let init2 =
-        upload::init_upload(&state, user.id, "hello2.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init2 = upload::init_upload(&state, user.id, "hello2.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     let url2 = init2.presigned_url.unwrap();
     let id2 = init2.upload_id.unwrap();
     client
@@ -3359,7 +3350,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
     use aster_drive::services::{
-        auth::local, files::folder, storage_policy::policy, task, files::upload,
+        auth::local, files::folder, files::upload, storage_policy::policy, task,
     };
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -3752,10 +3743,9 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     common::seed_csrf_token(&login.access_token);
 
     let data = b"hello relay stream!";
-    let init =
-        upload::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Direct);
 
     let db = state.writer_db().clone();

@@ -19,8 +19,8 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth::local, files::file, files::folder, remote::master_binding, remote::remote_node,
-    remote::storage_target, storage_policy::policy, files::upload,
+    auth::local, files::file, files::folder, files::upload, remote::master_binding,
+    remote::remote_node, remote::storage_target, storage_policy::policy,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_BODY_LIMIT, REMOTE_TUNNEL_COMPLETE_PATH, REMOTE_TUNNEL_JSON_LIMIT,
@@ -6613,10 +6613,9 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .is_empty(),
         "oversized remote relay chunk must release the claimed part row"
     );
-    let oversized_progress =
-        upload::get_progress(&consumer_state, &oversized_upload_id, user.id)
-            .await
-            .expect("remote relay oversized progress should be queryable");
+    let oversized_progress = upload::get_progress(&consumer_state, &oversized_upload_id, user.id)
+        .await
+        .expect("remote relay oversized progress should be queryable");
     assert!(oversized_progress.chunks_on_disk.is_empty());
 
     let first_chunk_end = std::cmp::min(chunk_size, body.len());
@@ -7463,14 +7462,10 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         "remote presigned multipart upload should not create local assembled temp file"
     );
 
-    let created = upload::complete_upload(
-        &consumer_state,
-        &upload_id,
-        user.id,
-        Some(completed_parts),
-    )
-    .await
-    .expect("remote presigned multipart upload should complete");
+    let created =
+        upload::complete_upload(&consumer_state, &upload_id, user.id, Some(completed_parts))
+            .await
+            .expect("remote presigned multipart upload should complete");
     let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
         .await
         .expect("uploaded file should be queryable");

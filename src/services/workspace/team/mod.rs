@@ -1,23 +1,23 @@
 //! 工作空间团队、成员和团队归档服务聚合入口。
 //!
 //! 团队相关逻辑拆成两层：
-//! - `team` / `members` / `archive` 这些核心业务语义
+//! - `core` / `members` / `archive` 这些核心业务语义
 //! - 这里的 audit 包装与导出入口
 //!
 //! 团队空间文件操作本身不在这里实现，而是复用 workspace/file/folder/upload 等服务。
 
 mod admin;
 mod archive;
+mod core;
 mod members;
 mod models;
 mod shared;
-mod team;
 
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    ops::audit::{self, AuditContext},
     auth::local,
+    ops::audit::{self, AuditContext},
 };
 
 pub use admin::{
@@ -25,6 +25,10 @@ pub use admin::{
     update_admin_team,
 };
 pub use archive::cleanup_expired_archived_teams;
+pub use core::{
+    archive_team, create_team, get_team, list_teams, list_teams_filtered, list_user_team_ids,
+    restore_team, update_team,
+};
 pub use members::{
     add_admin_member, add_member, get_admin_member, get_member, list_admin_members, list_members,
     remove_admin_member, remove_member, update_admin_member_role, update_member_role,
@@ -34,10 +38,6 @@ pub use models::{
     TeamInfo, TeamMemberInfo, TeamMemberListFilters, TeamMemberPage, UpdateTeamInput,
 };
 pub(crate) use shared::validate_team_name;
-pub use team::{
-    archive_team, create_team, get_team, list_teams, list_teams_filtered, list_user_team_ids,
-    restore_team, update_team,
-};
 
 // 和其他 service 一样，audit 放在聚合层，核心 team/member 逻辑保持纯业务语义。
 fn team_audit_details(team: &TeamInfo) -> Option<serde_json::Value> {

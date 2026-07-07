@@ -96,8 +96,6 @@ pub(in crate::services::task) fn ensure_download_size_allowed(
     Ok(())
 }
 
-pub(in crate::services::task) fn transient_storage_error(
-    message: impl Into<String>,
-) -> AsterError {
+pub(in crate::services::task) fn transient_storage_error(message: impl Into<String>) -> AsterError {
     AsterError::storage_driver_error(format!("transient: {}", message.into()))
 }

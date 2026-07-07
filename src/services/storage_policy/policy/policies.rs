@@ -266,13 +266,14 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
         }
 
         let cleanup = crate::services::files::upload::force_cleanup_by_policy(state, id).await?;
-        let cleanup_task = crate::services::task::storage_policy_cleanup::create_storage_policy_temp_cleanup_task(
-            state,
-            &policy,
-            &cleanup.deferred_temp_keys,
-            &cleanup.deferred_multipart_uploads,
-        )
-        .await?;
+        let cleanup_task =
+            crate::services::task::storage_policy_cleanup::create_storage_policy_temp_cleanup_task(
+                state,
+                &policy,
+                &cleanup.deferred_temp_keys,
+                &cleanup.deferred_multipart_uploads,
+            )
+            .await?;
         tracing::info!(
             policy_id = id,
             upload_session_count,

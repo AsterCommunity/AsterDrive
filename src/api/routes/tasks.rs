@@ -11,8 +11,8 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    ops::audit::{self, AuditContext},
     auth::local::Claims,
+    ops::audit::{self, AuditContext},
     task,
     workspace::storage::WorkspaceStorageScope,
 };
@@ -292,13 +292,9 @@ pub(crate) async fn list_tasks_response(
     scope: WorkspaceStorageScope,
     query: &LimitOffsetQuery,
 ) -> Result<HttpResponse> {
-    let page = task::list_tasks_paginated_in_scope(
-        state,
-        scope,
-        query.limit_or(20, 100),
-        query.offset(),
-    )
-    .await?;
+    let page =
+        task::list_tasks_paginated_in_scope(state, scope, query.limit_or(20, 100), query.offset())
+            .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
 
@@ -317,8 +313,7 @@ pub(crate) async fn retry_task_response(
     task_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<HttpResponse> {
-    let task =
-        task::retry_task_in_scope_with_audit(state, scope, task_id, audit_ctx).await?;
+    let task = task::retry_task_in_scope_with_audit(state, scope, task_id, audit_ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }
 
@@ -331,8 +326,7 @@ pub(crate) async fn create_offline_download_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     let task =
-        task::offline_download::create_offline_download_task_in_scope(state, scope, body)
-            .await?;
+        task::offline_download::create_offline_download_task_in_scope(state, scope, body).await?;
     audit::log_with_details(
         state,
         &ctx,

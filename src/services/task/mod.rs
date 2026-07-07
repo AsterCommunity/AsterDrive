@@ -670,10 +670,7 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         }
     }
 
-    pub(in crate::services::task) fn in_scope(
-        mut self,
-        scope: WorkspaceStorageScope,
-    ) -> Self {
+    pub(in crate::services::task) fn in_scope(mut self, scope: WorkspaceStorageScope) -> Self {
         self.creator_user_id = Some(scope.actor_user_id());
         self.team_id = scope.team_id();
         self
@@ -707,10 +704,7 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         self
     }
 
-    pub(in crate::services::task) fn status(
-        mut self,
-        status: BackgroundTaskStatus,
-    ) -> Self {
+    pub(in crate::services::task) fn status(mut self, status: BackgroundTaskStatus) -> Self {
         self.status = status;
         self
     }
@@ -745,10 +739,7 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         self
     }
 
-    pub(in crate::services::task) fn last_error(
-        mut self,
-        last_error: Option<String>,
-    ) -> Self {
+    pub(in crate::services::task) fn last_error(mut self, last_error: Option<String>) -> Self {
         self.last_error = last_error;
         self
     }
@@ -1983,13 +1974,12 @@ mod tests {
             source_mime_type: "image/png".to_string(),
             processor: crate::types::MediaProcessorKind::Images,
         };
-        let create =
-            TypedTaskCreate::<crate::services::task::spec::ThumbnailGenerateTask>::new(
-                "thumbnail",
-                payload,
-            )
-            .status_text(long_status_text)
-            .last_error(Some(long_error));
+        let create = TypedTaskCreate::<crate::services::task::spec::ThumbnailGenerateTask>::new(
+            "thumbnail",
+            payload,
+        )
+        .status_text(long_status_text)
+        .last_error(Some(long_error));
 
         assert_eq!(
             create.status_text_for_insert().as_deref(),

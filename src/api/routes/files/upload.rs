@@ -7,7 +7,7 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    ops::audit::AuditContext, auth::local::Claims, files::upload, workspace::models::FileInfo,
+    auth::local::Claims, files::upload, ops::audit::AuditContext, workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
@@ -216,8 +216,7 @@ pub async fn get_upload_progress(
     claims: web::ReqData<Claims>,
     path: web::Path<UploadIdPath>,
 ) -> Result<HttpResponse> {
-    let resp =
-        upload::get_progress(state.get_ref(), &path.upload_id, claims.user_id).await?;
+    let resp = upload::get_progress(state.get_ref(), &path.upload_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -507,8 +506,7 @@ pub(crate) async fn team_get_upload_progress(
 ) -> Result<HttpResponse> {
     let (team_id, upload_id) = path.into_inner();
     let resp =
-        upload::get_progress_for_team(state.get_ref(), team_id, &upload_id, claims.user_id)
-            .await?;
+        upload::get_progress_for_team(state.get_ref(), team_id, &upload_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -536,8 +534,7 @@ pub(crate) async fn team_cancel_upload(
     path: web::Path<(i64, String)>,
 ) -> Result<HttpResponse> {
     let (team_id, upload_id) = path.into_inner();
-    upload::cancel_upload_for_team(state.get_ref(), team_id, &upload_id, claims.user_id)
-        .await?;
+    upload::cancel_upload_for_team(state.get_ref(), team_id, &upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
     crate::services::ops::audit::log_with_details(
         state.get_ref(),

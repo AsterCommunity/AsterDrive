@@ -55,8 +55,7 @@ pub(crate) async fn create_archive_download_ticket_in_scope(
     scope: WorkspaceStorageScope,
     params: &task::types::CreateArchiveTaskParams,
 ) -> Result<StreamTicketInfo> {
-    let prepared =
-        task::archive::prepare_archive_download_in_scope(state, scope, params).await?;
+    let prepared = task::archive::prepare_archive_download_in_scope(state, scope, params).await?;
     let expires_at = Utc::now() + Duration::seconds(STREAM_TICKET_TTL_SECS);
     let token = format!("st_{}", crate::utils::id::new_short_token());
     let payload = StreamTicketPayload {
@@ -164,13 +163,11 @@ pub(crate) async fn resolve_shared_archive_download_ticket(
             file_ids,
             folder_ids,
             archive_name,
-        } if ticket_share_token == share_token => {
-            Ok(task::types::CreateArchiveTaskParams {
-                file_ids,
-                folder_ids,
-                archive_name: Some(archive_name),
-            })
-        }
+        } if ticket_share_token == share_token => Ok(task::types::CreateArchiveTaskParams {
+            file_ids,
+            folder_ids,
+            archive_name: Some(archive_name),
+        }),
         StreamTicketKind::SharedArchiveDownload { .. } => Err(AsterError::auth_forbidden(
             "stream ticket belongs to a different share",
         )),

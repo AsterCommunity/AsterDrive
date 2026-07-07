@@ -375,7 +375,6 @@ pub async fn delete_team_member(
 ) -> Result<HttpResponse> {
     let (team_id, member_user_id) = path.into_inner();
     let ctx = audit::AuditContext::from_request(&req, &claims);
-    team::remove_admin_member_with_audit(state.get_ref(), team_id, member_user_id, &ctx)
-        .await?;
+    team::remove_admin_member_with_audit(state.get_ref(), team_id, member_user_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }

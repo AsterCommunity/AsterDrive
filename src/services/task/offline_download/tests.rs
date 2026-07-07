@@ -23,9 +23,7 @@ use super::runtime::{
 };
 use super::source::validate_public_download_ip;
 use super::*;
-use crate::services::task::{
-    TaskExecutionContext, TaskLease, is_task_worker_shutdown_requested,
-};
+use crate::services::task::{TaskExecutionContext, TaskLease, is_task_worker_shutdown_requested};
 
 fn request(url: &str) -> CreateOfflineDownloadTaskParams {
     CreateOfflineDownloadTaskParams {

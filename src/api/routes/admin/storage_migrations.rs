@@ -5,7 +5,7 @@ use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{ops::audit::AuditContext, auth::local::Claims, task};
+use crate::services::{auth::local::Claims, ops::audit::AuditContext, task};
 use actix_web::HttpRequest;
 use actix_web::{HttpResponse, web};
 

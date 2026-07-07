@@ -9,7 +9,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    ops::audit::AuditContext, auth::local::Claims, files::batch,
+    auth::local::Claims, files::batch, ops::audit::AuditContext,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;

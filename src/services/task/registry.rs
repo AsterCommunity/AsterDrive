@@ -101,9 +101,7 @@ pub(in crate::services::task) fn task_lane(kind: BackgroundTaskKind) -> TaskLane
     spec_for_kind(kind).lane()
 }
 
-pub(in crate::services::task) fn task_lane_kinds(
-    lane: TaskLane,
-) -> &'static [BackgroundTaskKind] {
+pub(in crate::services::task) fn task_lane_kinds(lane: TaskLane) -> &'static [BackgroundTaskKind] {
     match lane {
         TaskLane::Archive => &[
             BackgroundTaskKind::ArchiveCompress,

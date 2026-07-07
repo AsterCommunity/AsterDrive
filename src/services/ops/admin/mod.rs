@@ -340,8 +340,7 @@ fn build_background_task_event(
         )),
         _ => None,
     };
-    let presentation = match crate::services::task::build_task_presentation_for_model(&task)
-    {
+    let presentation = match crate::services::task::build_task_presentation_for_model(&task) {
         Ok(presentation) => presentation,
         Err(error) => {
             tracing::warn!(

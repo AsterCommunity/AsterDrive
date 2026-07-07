@@ -3,8 +3,8 @@
 use crate::entities::file;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    ops::audit::{self, AuditContext, AuditEntityType},
     files::file as file_ops,
+    ops::audit::{self, AuditContext, AuditEntityType},
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::utils::hash;

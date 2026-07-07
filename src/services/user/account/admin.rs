@@ -11,8 +11,8 @@ use crate::entities::user;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    ops::audit::{self, AuditContext},
     auth::local,
+    ops::audit::{self, AuditContext},
     user::profile,
 };
 use crate::types::{UserRole, UserStatus};
