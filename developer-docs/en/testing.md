@@ -131,7 +131,7 @@ The SFTP driver has a dedicated integration test:
 cargo test --test test_sftp
 ```
 
-This test starts an `atmoz/sftp` container through `testcontainers` by default and runs a real upload, download, range read, delete, and host-key fingerprint confirmation flow. It requires a local Docker / container runtime.
+This test starts an `lscr.io/linuxserver/openssh-server` container through `testcontainers` by default and runs a real upload, download, range read, delete, and host-key fingerprint confirmation flow. It requires a local Docker / container runtime.
 
 If the current environment cannot run Docker, disable it explicitly:
 

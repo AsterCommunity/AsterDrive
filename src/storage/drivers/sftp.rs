@@ -7,10 +7,12 @@ use russh_sftp::client::{Config as SftpClientConfig, SftpSession, error::Error a
 use russh_sftp::protocol::StatusCode;
 use std::io::SeekFrom;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
@@ -23,6 +25,10 @@ use crate::types::parse_storage_policy_options;
 const DEFAULT_SFTP_PORT: u16 = 22;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
 const IO_TIMEOUT: Duration = Duration::from_secs(30);
+const SSH_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(10);
+const POOL_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
+const POOLED_CONNECTION_IDLE_TTL: Duration = Duration::from_secs(60);
+const DEFAULT_POOL_SIZE: usize = 4;
 
 #[derive(Debug, Clone)]
 struct SftpEndpoint {
@@ -30,13 +36,14 @@ struct SftpEndpoint {
     port: u16,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct SftpDriver {
     endpoint: SftpEndpoint,
     username: String,
     password: String,
     base_path: String,
     host_key_fingerprint: Option<String>,
+    pool: Arc<SftpConnectionPool>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -105,9 +112,36 @@ struct SftpConnection {
     sftp: SftpSession,
 }
 
+struct IdleSftpConnection {
+    connection: SftpConnection,
+    returned_at: Instant,
+}
+
+struct SftpConnectionPool {
+    semaphore: Arc<Semaphore>,
+    idle: Mutex<Vec<IdleSftpConnection>>,
+    max_idle: usize,
+    created_connections: AtomicUsize,
+}
+
+struct SftpConnectionLease {
+    connection: Option<SftpConnection>,
+    pool: Arc<SftpConnectionPool>,
+    _permit: OwnedSemaphorePermit,
+    reusable: bool,
+}
+
 struct SftpFileReader {
-    _connection: SftpConnection,
     file: russh_sftp::client::fs::File,
+    connection: SftpConnectionLease,
+}
+
+#[cfg(debug_assertions)]
+#[doc(hidden)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SftpConnectionPoolSnapshot {
+    pub idle_connections: usize,
+    pub created_connections: usize,
 }
 
 impl AsyncRead for SftpFileReader {
@@ -116,7 +150,131 @@ impl AsyncRead for SftpFileReader {
         cx: &mut Context<'_>,
         buf: &mut ReadBuf<'_>,
     ) -> Poll<std::io::Result<()>> {
-        Pin::new(&mut self.file).poll_read(cx, buf)
+        let result = Pin::new(&mut self.file).poll_read(cx, buf);
+        if matches!(result, Poll::Ready(Err(_))) {
+            self.connection.discard();
+        }
+        result
+    }
+}
+
+impl SftpConnectionPool {
+    fn new(max_size: usize) -> Self {
+        let max_size = max_size.max(1);
+        Self {
+            semaphore: Arc::new(Semaphore::new(max_size)),
+            idle: Mutex::new(Vec::with_capacity(max_size)),
+            max_idle: max_size,
+            created_connections: AtomicUsize::new(0),
+        }
+    }
+
+    async fn acquire(self: &Arc<Self>, driver: &SftpDriver) -> Result<SftpConnectionLease> {
+        let permit = timeout_io(
+            "acquire SFTP connection lease",
+            POOL_ACQUIRE_TIMEOUT,
+            self.semaphore.clone().acquire_owned(),
+        )
+        .await?
+        .map_err(|error| {
+            storage_driver_error(
+                StorageErrorKind::Transient,
+                format!("acquire SFTP connection lease failed: {error}"),
+            )
+        })?;
+
+        let connection = if let Some(connection) = self.take_idle_connection() {
+            connection
+        } else {
+            let connection = driver.connect_new_connection().await?;
+            self.created_connections.fetch_add(1, Ordering::Relaxed);
+            connection
+        };
+
+        Ok(SftpConnectionLease {
+            connection: Some(connection),
+            pool: Arc::clone(self),
+            _permit: permit,
+            reusable: false,
+        })
+    }
+
+    fn take_idle_connection(&self) -> Option<SftpConnection> {
+        let mut idle = match self.idle.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                tracing::warn!("failed to lock SFTP connection pool: {error}");
+                return None;
+            }
+        };
+
+        while let Some(connection) = idle.pop() {
+            if connection.returned_at.elapsed() <= POOLED_CONNECTION_IDLE_TTL {
+                return Some(connection.connection);
+            }
+        }
+        None
+    }
+
+    fn return_connection(&self, connection: SftpConnection) {
+        let mut idle = match self.idle.lock() {
+            Ok(guard) => guard,
+            Err(error) => {
+                tracing::warn!("failed to return SFTP connection to pool: {error}");
+                return;
+            }
+        };
+
+        if idle.len() < self.max_idle {
+            idle.push(IdleSftpConnection {
+                connection,
+                returned_at: Instant::now(),
+            });
+        }
+    }
+
+    #[cfg(debug_assertions)]
+    fn snapshot(&self) -> SftpConnectionPoolSnapshot {
+        let idle_connections = self.idle.lock().map(|idle| idle.len()).unwrap_or(0);
+        SftpConnectionPoolSnapshot {
+            idle_connections,
+            created_connections: self.created_connections.load(Ordering::Relaxed),
+        }
+    }
+}
+
+impl SftpConnectionLease {
+    fn sftp(&self) -> &SftpSession {
+        &self
+            .connection
+            .as_ref()
+            .expect("SFTP connection lease must hold a connection")
+            .sftp
+    }
+
+    fn mark_reusable(&mut self) {
+        self.reusable = true;
+    }
+
+    fn discard(&mut self) {
+        self.reusable = false;
+    }
+
+    fn map_sftp_error(&mut self, context: &'static str, error: SftpError) -> AsterError {
+        if is_sftp_connection_reusable_after_error(&error) {
+            self.mark_reusable();
+        }
+        map_sftp_error(context, error)
+    }
+}
+
+impl Drop for SftpConnectionLease {
+    fn drop(&mut self) {
+        if self.reusable
+            && let Some(connection) = self.connection.take()
+        {
+            self.pool.return_connection(connection);
+        }
     }
 }
 
@@ -158,6 +316,7 @@ impl SftpDriver {
             base_path: normalize_remote_base_path(&policy.base_path)?,
             host_key_fingerprint: parse_storage_policy_options(policy.options.as_ref())
                 .sftp_host_key_fingerprint,
+            pool: Arc::new(SftpConnectionPool::new(DEFAULT_POOL_SIZE)),
         })
     }
 
@@ -181,10 +340,20 @@ impl SftpDriver {
         })
     }
 
-    async fn connect(&self) -> Result<SftpConnection> {
+    #[cfg(debug_assertions)]
+    #[doc(hidden)]
+    pub fn debug_connection_pool_snapshot(&self) -> SftpConnectionPoolSnapshot {
+        self.pool.snapshot()
+    }
+
+    async fn acquire_connection(&self) -> Result<SftpConnectionLease> {
+        self.pool.acquire(self).await
+    }
+
+    async fn connect_new_connection(&self) -> Result<SftpConnection> {
         let config = russh::client::Config {
             inactivity_timeout: Some(IO_TIMEOUT),
-            keepalive_interval: Some(Duration::from_secs(10)),
+            keepalive_interval: Some(SSH_KEEPALIVE_INTERVAL),
             nodelay: true,
             ..Default::default()
         };
@@ -258,21 +427,19 @@ impl SftpDriver {
 
     async fn open_reader(&self, path: &str, offset: u64) -> Result<SftpFileReader> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
+        let mut connection = self.acquire_connection().await?;
         let mut file = connection
-            .sftp
+            .sftp()
             .open(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP open failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP open failed", error))?;
         if offset > 0 {
             file.seek(SeekFrom::Start(offset))
                 .await
                 .map_err(|error| map_io_error("SFTP seek failed", error))?;
         }
-        Ok(SftpFileReader {
-            _connection: connection,
-            file,
-        })
+        connection.mark_reusable();
+        Ok(SftpFileReader { file, connection })
     }
 }
 
@@ -280,13 +447,13 @@ impl SftpDriver {
 impl StorageDriver for SftpDriver {
     async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
-        ensure_remote_parent_dir(&connection.sftp, &remote_path).await?;
+        let mut connection = self.acquire_connection().await?;
+        ensure_remote_parent_dir(connection.sftp(), &remote_path).await?;
         let mut file = connection
-            .sftp
+            .sftp()
             .create(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP create failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
         file.write_all(data)
             .await
             .map_err(|error| map_io_error("SFTP write failed", error))?;
@@ -296,17 +463,20 @@ impl StorageDriver for SftpDriver {
         file.shutdown()
             .await
             .map_err(|error| map_io_error("SFTP close failed", error))?;
+        connection.mark_reusable();
         Ok(path.to_string())
     }
 
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
-        connection
-            .sftp
+        let mut connection = self.acquire_connection().await?;
+        let data = connection
+            .sftp()
             .read(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP read failed", error))
+            .map_err(|error| connection.map_sftp_error("SFTP read failed", error))?;
+        connection.mark_reusable();
+        Ok(data)
     }
 
     async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
@@ -336,32 +506,41 @@ impl StorageDriver for SftpDriver {
 
     async fn delete(&self, path: &str) -> Result<()> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
+        let mut connection = self.acquire_connection().await?;
         connection
-            .sftp
+            .sftp()
             .remove_file(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP delete failed", error))
+            .map_err(|error| connection.map_sftp_error("SFTP delete failed", error))?;
+        connection.mark_reusable();
+        Ok(())
     }
 
     async fn exists(&self, path: &str) -> Result<bool> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
-        match connection.sftp.metadata(remote_path).await {
-            Ok(_) => Ok(true),
-            Err(error) if is_sftp_not_found(&error) => Ok(false),
-            Err(error) => Err(map_sftp_error("SFTP stat failed", error)),
+        let mut connection = self.acquire_connection().await?;
+        match connection.sftp().metadata(remote_path).await {
+            Ok(_) => {
+                connection.mark_reusable();
+                Ok(true)
+            }
+            Err(error) if is_sftp_not_found(&error) => {
+                connection.mark_reusable();
+                Ok(false)
+            }
+            Err(error) => Err(connection.map_sftp_error("SFTP stat failed", error)),
         }
     }
 
     async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
         let remote_path = self.full_path(path)?;
-        let connection = self.connect().await?;
+        let mut connection = self.acquire_connection().await?;
         let stat = connection
-            .sftp
+            .sftp()
             .metadata(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP stat failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP stat failed", error))?;
+        connection.mark_reusable();
         Ok(BlobMetadata {
             size: stat.size.unwrap_or(0),
             content_type: None,
@@ -371,18 +550,18 @@ impl StorageDriver for SftpDriver {
     async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
-        let connection = self.connect().await?;
-        ensure_remote_parent_dir(&connection.sftp, &dest_remote_path).await?;
+        let mut connection = self.acquire_connection().await?;
+        ensure_remote_parent_dir(connection.sftp(), &dest_remote_path).await?;
         let mut src = connection
-            .sftp
+            .sftp()
             .open(src_remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP source open failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP source open failed", error))?;
         let mut dest = connection
-            .sftp
+            .sftp()
             .create(dest_remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP destination create failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP destination create failed", error))?;
         tokio::io::copy(&mut src, &mut dest)
             .await
             .map_err(|error| map_io_error("SFTP copy failed", error))?;
@@ -392,6 +571,7 @@ impl StorageDriver for SftpDriver {
         dest.shutdown()
             .await
             .map_err(|error| map_io_error("SFTP copy close failed", error))?;
+        connection.mark_reusable();
         Ok(dest_path.to_string())
     }
 
@@ -409,13 +589,13 @@ impl StreamUploadDriver for SftpDriver {
         _size: i64,
     ) -> Result<String> {
         let remote_path = self.full_path(storage_path)?;
-        let connection = self.connect().await?;
-        ensure_remote_parent_dir(&connection.sftp, &remote_path).await?;
+        let mut connection = self.acquire_connection().await?;
+        ensure_remote_parent_dir(connection.sftp(), &remote_path).await?;
         let mut remote_file = connection
-            .sftp
+            .sftp()
             .create(remote_path)
             .await
-            .map_err(|error| map_sftp_error("SFTP create failed", error))?;
+            .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
         tokio::io::copy(&mut reader, &mut remote_file)
             .await
             .map_err(|error| map_io_error("SFTP stream upload failed", error))?;
@@ -427,6 +607,7 @@ impl StreamUploadDriver for SftpDriver {
             .shutdown()
             .await
             .map_err(|error| map_io_error("SFTP stream close failed", error))?;
+        connection.mark_reusable();
         Ok(storage_path.to_string())
     }
 
@@ -757,6 +938,17 @@ fn classify_sftp_error(error: &SftpError) -> StorageErrorKind {
     }
 }
 
+fn is_sftp_connection_reusable_after_error(error: &SftpError) -> bool {
+    matches!(
+        error,
+        SftpError::Status(status)
+            if matches!(
+                status.status_code,
+                StatusCode::NoSuchFile | StatusCode::PermissionDenied
+            )
+    )
+}
+
 fn classify_io_error(error: &std::io::Error) -> StorageErrorKind {
     match error.kind() {
         std::io::ErrorKind::NotFound => StorageErrorKind::NotFound,
@@ -809,9 +1001,11 @@ fn is_sftp_not_found(error: &SftpError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        classify_sftp_error, host_key_fingerprint_matches, is_valid_host_key_fingerprint,
-        join_remote_path, normalize_host_key_fingerprint, normalize_remote_base_path,
-        parse_sftp_endpoint, sanitize_relative_storage_path,
+        CONNECT_TIMEOUT, DEFAULT_POOL_SIZE, IO_TIMEOUT, POOL_ACQUIRE_TIMEOUT,
+        POOLED_CONNECTION_IDLE_TTL, SSH_KEEPALIVE_INTERVAL, SftpConnectionPool,
+        classify_sftp_error, host_key_fingerprint_matches, is_sftp_connection_reusable_after_error,
+        is_valid_host_key_fingerprint, join_remote_path, normalize_host_key_fingerprint,
+        normalize_remote_base_path, parse_sftp_endpoint, sanitize_relative_storage_path,
     };
     use crate::storage::error::StorageErrorKind;
     use crate::storage::{StorageDriver, StreamUploadDriver};
@@ -932,6 +1126,70 @@ mod tests {
         assert!(!is_valid_host_key_fingerprint("MD5:aa:bb"));
         assert!(!is_valid_host_key_fingerprint("SHA256:"));
         assert!(!is_valid_host_key_fingerprint("SHA256:abc def"));
+    }
+
+    #[test]
+    fn sftp_pool_defaults_match_storage_timeout_boundaries() {
+        assert_eq!(DEFAULT_POOL_SIZE, 4);
+        assert_eq!(CONNECT_TIMEOUT, std::time::Duration::from_secs(10));
+        assert_eq!(IO_TIMEOUT, std::time::Duration::from_secs(30));
+        assert_eq!(SSH_KEEPALIVE_INTERVAL, std::time::Duration::from_secs(10));
+        assert_eq!(POOL_ACQUIRE_TIMEOUT, std::time::Duration::from_secs(30));
+        assert_eq!(
+            POOLED_CONNECTION_IDLE_TTL,
+            std::time::Duration::from_secs(60)
+        );
+    }
+
+    #[test]
+    fn sftp_pool_size_has_lower_bound() {
+        let pool = SftpConnectionPool::new(0);
+        assert_eq!(pool.max_idle, 1);
+        assert_eq!(pool.semaphore.available_permits(), 1);
+    }
+
+    #[test]
+    fn sftp_status_errors_reuse_connection_only_for_known_safe_statuses() {
+        let status = |status_code, error_message: &str| {
+            SftpError::Status(Status {
+                id: 1,
+                status_code,
+                error_message: error_message.to_string(),
+                language_tag: String::new(),
+            })
+        };
+
+        assert!(is_sftp_connection_reusable_after_error(&status(
+            StatusCode::NoSuchFile,
+            "missing"
+        )));
+        assert!(is_sftp_connection_reusable_after_error(&status(
+            StatusCode::PermissionDenied,
+            "denied"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::BadMessage,
+            "bad packet"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::Failure,
+            "generic failure"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::OpUnsupported,
+            "unsupported operation"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::NoConnection,
+            "no connection"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::ConnectionLost,
+            "lost"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(
+            &SftpError::Timeout
+        ));
     }
 
     fn env_policy() -> Option<crate::entities::storage_policy::Model> {

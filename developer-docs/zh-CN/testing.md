@@ -131,7 +131,7 @@ SFTP 驱动有单独的集成测试：
 cargo test --test test_sftp
 ```
 
-这个测试默认会通过 `testcontainers` 启动 `atmoz/sftp` 容器，完成一次真实上传、下载、range 读取、删除和主机密钥指纹确认流程。它需要本机 Docker / 容器运行时可用。
+这个测试默认会通过 `testcontainers` 启动 `lscr.io/linuxserver/openssh-server` 容器，完成一次真实上传、下载、range 读取、删除和主机密钥指纹确认流程。它需要本机 Docker / 容器运行时可用。
 
 如果当前环境不能跑 Docker，可以显式关闭：
 
