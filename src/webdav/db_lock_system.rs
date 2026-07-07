@@ -275,8 +275,8 @@ impl DavLockSystem for DbLockSystem {
                 let timeout_at = lock_timeout_at(now, timeout_dur)
                     .map_err(|_| DavLockError::Backend)?;
                 let owner_info = owner_xml.clone().map(|xml| {
-                    crate::services::lock_service::ResourceLockOwnerInfo::Webdav(
-                        crate::services::lock_service::WebdavLockOwnerInfo { xml },
+                    crate::services::files::lock::ResourceLockOwnerInfo::Webdav(
+                        crate::services::files::lock::WebdavLockOwnerInfo { xml },
                     )
                 });
 
@@ -290,7 +290,7 @@ impl DavLockSystem for DbLockSystem {
                     // workspace::storage 误判为被其他用户锁定。
                     owner_id: sea_orm::Set(Some(self.scope.actor_user_id())),
                     owner_info: sea_orm::Set(
-                        crate::services::lock_service::serialize_resource_lock_owner_info(
+                        crate::services::files::lock::serialize_resource_lock_owner_info(
                             owner_info.as_ref(),
                         )
                         .map_err(|error| {
@@ -311,7 +311,7 @@ impl DavLockSystem for DbLockSystem {
                         tracing::warn!(error = %error, path = %path_str, "failed to create WebDAV lock");
                         DavLockError::Backend
                     })?;
-                crate::services::lock_service::set_entity_locked(
+                crate::services::files::lock::set_entity_locked(
                     &txn,
                     entity_type,
                     entity_id,
@@ -383,7 +383,7 @@ impl DavLockSystem for DbLockSystem {
                 .await
                 .map_err(|_| ())?;
 
-            if let Err(e) = crate::services::lock_service::clear_entity_locked_if_unlocked(
+            if let Err(e) = crate::services::files::lock::clear_entity_locked_if_unlocked(
                 &self.db,
                 lock.entity_type,
                 lock.entity_id,
@@ -687,7 +687,7 @@ async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_l
         tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
         return;
     }
-    if let Err(error) = crate::services::lock_service::clear_entity_locked_if_unlocked(
+    if let Err(error) = crate::services::files::lock::clear_entity_locked_if_unlocked(
         db,
         lock.entity_type,
         lock.entity_id,
@@ -793,8 +793,8 @@ fn deserialize_element(xml: &str) -> Option<Element> {
 }
 
 fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {
-    match crate::services::lock_service::deserialize_resource_lock_owner_info(lock).ok()? {
-        Some(crate::services::lock_service::ResourceLockOwnerInfo::Webdav(payload)) => {
+    match crate::services::files::lock::deserialize_resource_lock_owner_info(lock).ok()? {
+        Some(crate::services::files::lock::ResourceLockOwnerInfo::Webdav(payload)) => {
             Some(payload.xml)
         }
         _ => None,

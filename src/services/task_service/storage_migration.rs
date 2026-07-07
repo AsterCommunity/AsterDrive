@@ -207,7 +207,7 @@ async fn build_storage_policy_migration_preflight(
     )
     .await?;
     let (target_capacity, _target_capacity_diagnostic) =
-        crate::services::policy_service::capacity_info_or_status(
+        crate::services::storage_policy::policy::capacity_info_or_status(
             target_driver.as_ref(),
             target_policy.driver_type,
         )

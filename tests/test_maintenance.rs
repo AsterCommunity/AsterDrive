@@ -239,7 +239,7 @@ async fn create_wopi_session(
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_removes_broken_temp_object() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser1", "maint1@test.com", "password123")
@@ -262,7 +262,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_temp_obje
     )
     .await;
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -280,7 +280,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_temp_obje
 async fn test_cleanup_expired_completed_upload_sessions_removes_broken_completed_multipart_object()
 {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser1b", "maint1b@test.com", "password123")
@@ -306,7 +306,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_completed
     )
     .await;
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -324,7 +324,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_completed
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_delete_fails() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintfail1", "maintfail1@test.com", "password123")
@@ -354,7 +354,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_
         .to_path_buf();
     let guard = DirModeGuard::set_read_only(object_parent);
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -370,7 +370,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_
 
     drop(guard);
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -387,7 +387,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
     use aster_drive::db::repository::{file_repo, upload_session_repo};
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser2", "maint2@test.com", "password123")
@@ -413,7 +413,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
     )
     .await;
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -440,7 +440,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_completed_file() {
     use aster_drive::db::repository::{file_repo, upload_session_repo};
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser2b", "maint2b@test.com", "password123")
@@ -468,7 +468,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_c
     )
     .await;
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -551,7 +551,7 @@ async fn test_cleanup_expired_wopi_sessions_removes_only_expired_rows() {
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() {
     use aster_drive::entities::upload_session::Entity as UploadSession;
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintbatch", "maintbatch@test.com", "password123")
@@ -585,7 +585,7 @@ async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() 
         .await;
     }
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -603,7 +603,7 @@ async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() 
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth::local, maintenance_service, team_service};
+    use aster_drive::services::{auth::local, ops::maintenance, team_service};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintteam1", "maintteam1@test.com", "password123")
@@ -637,7 +637,7 @@ async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
     )
     .await;
 
-    let stats = maintenance_service::cleanup_expired_completed_upload_sessions(&state)
+    let stats = maintenance::cleanup_expired_completed_upload_sessions(&state)
         .await
         .unwrap();
 
@@ -654,7 +654,7 @@ async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
 #[actix_web::test]
 async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     use aster_drive::db::repository::{file_repo, version_repo};
-    use aster_drive::services::{auth::local, maintenance_service};
+    use aster_drive::services::{auth::local, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser3", "maint3@test.com", "password123")
@@ -702,7 +702,7 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     let orphan_thumb = thumb_path(&orphan_hash);
     driver.put(&orphan_thumb, b"thumb").await.unwrap();
 
-    let stats = maintenance_service::reconcile_blob_state(&state)
+    let stats = maintenance::reconcile_blob_state(&state)
         .await
         .unwrap();
 
@@ -731,7 +731,7 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
 #[actix_web::test]
 async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
     use aster_drive::entities::file_blob::Entity as FileBlob;
-    use aster_drive::services::maintenance_service;
+    use aster_drive::services::ops::maintenance;
 
     let state = common::setup().await;
     let policy = default_policy(&state).await;
@@ -743,7 +743,7 @@ async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
         create_blob(&state, &hash, &storage_path, b"x", 1).await;
     }
 
-    let stats = maintenance_service::reconcile_blob_state(&state)
+    let stats = maintenance::reconcile_blob_state(&state)
         .await
         .unwrap();
 
@@ -757,7 +757,7 @@ async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
 #[actix_web::test]
 async fn test_reconcile_blob_state_skips_fresh_cleanup_claim() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::maintenance_service;
+    use aster_drive::services::ops::maintenance;
 
     let state = common::setup().await;
     let policy = default_policy(&state).await;
@@ -772,7 +772,7 @@ async fn test_reconcile_blob_state_skips_fresh_cleanup_claim() {
     )
     .await;
 
-    let stats = maintenance_service::reconcile_blob_state(&state)
+    let stats = maintenance::reconcile_blob_state(&state)
         .await
         .unwrap();
 
@@ -791,7 +791,7 @@ async fn test_reconcile_blob_state_skips_fresh_cleanup_claim() {
 #[actix_web::test]
 async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::maintenance_service;
+    use aster_drive::services::ops::maintenance;
 
     let state = common::setup().await;
     let policy = default_policy(&state).await;
@@ -809,7 +809,7 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
     active.updated_at = Set(Utc::now() - Duration::minutes(11));
     active.update(state.writer_db()).await.unwrap();
 
-    let stats = maintenance_service::reconcile_blob_state(&state)
+    let stats = maintenance::reconcile_blob_state(&state)
         .await
         .unwrap();
 
@@ -827,7 +827,7 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
 #[actix_web::test]
 async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_retries() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, files::file, maintenance_service};
+    use aster_drive::services::{auth::local, files::file, ops::maintenance};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintuser4", "maint4@test.com", "password123")
@@ -863,7 +863,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
 
     drop(_guard);
 
-    let stats = maintenance_service::reconcile_blob_state(&state)
+    let stats = maintenance::reconcile_blob_state(&state)
         .await
         .unwrap();
 
@@ -977,7 +977,7 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
 async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     use aster_drive::db::repository::{file_repo, folder_repo, user_repo};
     use aster_drive::entities::{file_blob, folder};
-    use aster_drive::services::{auth::local, integrity_service};
+    use aster_drive::services::{auth::local, ops::integrity};
 
     let state = common::setup().await;
     let user = local::register(&state, "audituser1", "audit1@test.com", "password123")
@@ -1079,16 +1079,16 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     cycle_a_active.updated_at = Set(Utc::now());
     cycle_a_active.update(state.writer_db()).await.unwrap();
 
-    let usage_drifts = integrity_service::audit_storage_usage(state.writer_db())
+    let usage_drifts = integrity::audit_storage_usage(state.writer_db())
         .await
         .unwrap();
     assert!(usage_drifts.iter().any(|drift| {
-        drift.owner_kind == integrity_service::StorageOwnerKind::User
+        drift.owner_kind == integrity::StorageOwnerKind::User
             && drift.owner_id == user.id
             && drift.recorded_bytes == 999
     }));
 
-    let blob_drifts = integrity_service::audit_blob_ref_counts(state.writer_db(), None)
+    let blob_drifts = integrity::audit_blob_ref_counts(state.writer_db(), None)
         .await
         .unwrap();
     assert!(blob_drifts.iter().any(|drift| {
@@ -1097,7 +1097,7 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             && drift.actual_ref_count == 1
     }));
 
-    let storage_report = integrity_service::audit_storage_objects(
+    let storage_report = integrity::audit_storage_objects(
         state.writer_db(),
         state.driver_registry.as_ref(),
         None,
@@ -1125,17 +1125,17 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
             .any(|issue| issue.path == current_thumb_path(&orphan_thumb_hash))
     );
 
-    let folder_issues = integrity_service::audit_folder_tree(state.writer_db())
+    let folder_issues = integrity::audit_folder_tree(state.writer_db())
         .await
         .unwrap();
     assert!(folder_issues.iter().any(|issue| {
-        issue.kind == integrity_service::FolderTreeIssueKind::MissingParent
+        issue.kind == integrity::FolderTreeIssueKind::MissingParent
             && issue.folder_id == dangling_folder.id
     }));
     assert!(
         folder_issues
             .iter()
-            .any(|issue| issue.kind == integrity_service::FolderTreeIssueKind::Cycle)
+            .any(|issue| issue.kind == integrity::FolderTreeIssueKind::Cycle)
     );
 }
 
@@ -1143,7 +1143,7 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
 async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
     use aster_drive::db::repository::{file_repo, user_repo};
     use aster_drive::entities::file_blob;
-    use aster_drive::services::{auth::local, integrity_service};
+    use aster_drive::services::{auth::local, ops::integrity};
 
     let state = common::setup().await;
     let user = local::register(&state, "audituser2", "audit2@test.com", "password123")
@@ -1167,29 +1167,29 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
     blob_active.updated_at = Set(Utc::now());
     blob_active.update(state.writer_db()).await.unwrap();
 
-    let usage_drifts = integrity_service::audit_storage_usage(state.writer_db())
+    let usage_drifts = integrity::audit_storage_usage(state.writer_db())
         .await
         .unwrap();
     assert_eq!(usage_drifts.len(), 1);
-    integrity_service::fix_storage_usage_drifts(state.writer_db(), &usage_drifts)
+    integrity::fix_storage_usage_drifts(state.writer_db(), &usage_drifts)
         .await
         .unwrap();
     assert!(
-        integrity_service::audit_storage_usage(state.writer_db())
+        integrity::audit_storage_usage(state.writer_db())
             .await
             .unwrap()
             .is_empty()
     );
 
-    let blob_drifts = integrity_service::audit_blob_ref_counts(state.writer_db(), None)
+    let blob_drifts = integrity::audit_blob_ref_counts(state.writer_db(), None)
         .await
         .unwrap();
     assert_eq!(blob_drifts.len(), 1);
-    integrity_service::fix_blob_ref_count_drifts(state.writer_db(), &blob_drifts)
+    integrity::fix_blob_ref_count_drifts(state.writer_db(), &blob_drifts)
         .await
         .unwrap();
     assert!(
-        integrity_service::audit_blob_ref_counts(state.writer_db(), None)
+        integrity::audit_blob_ref_counts(state.writer_db(), None)
             .await
             .unwrap()
             .is_empty()

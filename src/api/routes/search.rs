@@ -8,10 +8,10 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::services::search_service::SearchResults;
+use crate::services::content::search::SearchResults;
 use crate::services::{
     auth::local::Claims,
-    search_service::{self, SearchParams},
+    content::search::{self, SearchParams},
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
@@ -93,6 +93,6 @@ pub(crate) async fn search_response(
     scope: WorkspaceStorageScope,
     query: &SearchParams,
 ) -> Result<HttpResponse> {
-    let results = search_service::search_in_scope(state, scope, query).await?;
+    let results = search::search_in_scope(state, scope, query).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(results)))
 }

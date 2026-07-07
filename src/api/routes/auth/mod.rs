@@ -14,7 +14,7 @@ use crate::api::request_auth::access_token;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{auth::local, storage_change_service};
+use crate::services::{auth::local, events::storage_change};
 use actix_governor::Governor;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
@@ -324,7 +324,7 @@ fn contact_verification_redirect_response(
         .finish()
 }
 
-fn storage_event_frame(event: &storage_change_service::StorageChangeEvent) -> Option<Bytes> {
+fn storage_event_frame(event: &storage_change::StorageChangeEvent) -> Option<Bytes> {
     serde_json::to_string(event)
         .map(|json| Bytes::from(format!("data: {json}\n\n")))
         .map_err(|e| tracing::warn!("failed to serialize storage change event: {e}"))

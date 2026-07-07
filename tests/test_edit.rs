@@ -385,7 +385,7 @@ async fn test_update_content_locked_by_other() {
             ..Default::default()
         };
         lock.insert(&db).await.unwrap();
-        aster_drive::services::lock_service::set_entity_locked(
+        aster_drive::services::files::lock::set_entity_locked(
             &db,
             aster_drive::types::EntityType::File,
             file_id,

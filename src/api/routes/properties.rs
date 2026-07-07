@@ -10,7 +10,7 @@ use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, property_service};
+use crate::services::{audit_service, auth::local::Claims, content::property};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -42,7 +42,7 @@ pub fn routes(
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     responses(
-        (status = 200, description = "Properties list", body = inline(ApiResponse<Vec<property_service::EntityProperty>>)),
+        (status = 200, description = "Properties list", body = inline(ApiResponse<Vec<property::EntityProperty>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Entity not found"),
     ),
@@ -55,7 +55,7 @@ pub async fn list_props(
 ) -> Result<HttpResponse> {
     let path = path.into_inner();
     validate_request(&path)?;
-    let props = property_service::list(
+    let props = property::list(
         state.get_ref(),
         path.entity_type,
         path.entity_id,
@@ -76,7 +76,7 @@ pub async fn list_props(
     ),
     request_body = SetPropReq,
     responses(
-        (status = 200, description = "Property set", body = inline(ApiResponse<property_service::EntityProperty>)),
+        (status = 200, description = "Property set", body = inline(ApiResponse<property::EntityProperty>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "DAV: namespace is read-only"),
         (status = 404, description = "Entity not found"),
@@ -94,7 +94,7 @@ pub async fn set_prop(
     let body = body.into_inner();
     validate_request(&path)?;
     validate_request(&body)?;
-    let prop = property_service::set(
+    let prop = property::set(
         state.get_ref(),
         path.entity_type,
         path.entity_id,
@@ -152,7 +152,7 @@ pub async fn delete_prop(
 ) -> Result<HttpResponse> {
     let path = path.into_inner();
     validate_request(&path)?;
-    property_service::delete(
+    property::delete(
         state.get_ref(),
         path.entity_type,
         path.entity_id,

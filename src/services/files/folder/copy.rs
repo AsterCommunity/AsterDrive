@@ -10,7 +10,7 @@ use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    storage_change_service,
+    events::storage_change,
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
@@ -368,10 +368,10 @@ pub(crate) async fn copy_folder_between_scopes(
         .await
         {
             Ok((copied, storage_delta)) => {
-                storage_change_service::publish(
+                storage_change::publish(
                     state,
-                    storage_change_service::StorageChangeEvent::new(
-                        storage_change_service::StorageChangeKind::FolderCreated,
+                    storage_change::StorageChangeEvent::new(
+                        storage_change::StorageChangeKind::FolderCreated,
                         dest_scope,
                         vec![],
                         vec![copied.id],

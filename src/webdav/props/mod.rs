@@ -10,7 +10,7 @@ use actix_web::{HttpRequest, HttpResponse};
 use futures::{StreamExt, pin_mut};
 use xmltree::{Element, XMLNode};
 
-use crate::services::property_service;
+use crate::services::content::property;
 use crate::webdav::dav::{
     DavFileSystem, DavLock, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, ReadDirMeta,
 };
@@ -93,7 +93,7 @@ impl RequestedProp {
     fn is_system_namespace(&self) -> bool {
         self.namespace
             .as_deref()
-            .is_some_and(property_service::is_system_namespace)
+            .is_some_and(property::is_system_namespace)
     }
 }
 

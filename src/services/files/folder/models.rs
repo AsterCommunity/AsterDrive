@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use utoipa::ToSchema;
 
 use crate::entities::{file, folder};
-use crate::services::tag_service::TagSummary;
+use crate::services::content::tag::TagSummary;
 use crate::types::EntityType;
 
 #[derive(Serialize)]

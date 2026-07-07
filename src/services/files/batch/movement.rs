@@ -10,7 +10,7 @@ use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    storage_change_service,
+    events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -265,10 +265,10 @@ pub(crate) async fn batch_move_in_scope(
         crate::db::transaction::commit(txn).await?;
 
         if !file_ids_to_move.is_empty() {
-            storage_change_service::publish(
+            storage_change::publish(
                 state,
-                storage_change_service::StorageChangeEvent::new(
-                    storage_change_service::StorageChangeKind::FileUpdated,
+                storage_change::StorageChangeEvent::new(
+                    storage_change::StorageChangeKind::FileUpdated,
                     scope,
                     file_ids_to_move,
                     vec![],
@@ -277,10 +277,10 @@ pub(crate) async fn batch_move_in_scope(
             );
         }
         if !folder_ids_to_move.is_empty() {
-            storage_change_service::publish(
+            storage_change::publish(
                 state,
-                storage_change_service::StorageChangeEvent::new(
-                    storage_change_service::StorageChangeKind::FolderUpdated,
+                storage_change::StorageChangeEvent::new(
+                    storage_change::StorageChangeKind::FolderUpdated,
                     scope,
                     vec![],
                     folder_ids_to_move,

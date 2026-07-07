@@ -15,7 +15,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeSt
 use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::PrimaryLoginCompletion;
-use crate::services::storage_change_service::StorageChangeWorkspace;
+use crate::services::events::storage_change::StorageChangeWorkspace;
 use crate::services::{auth::local, team_service, user::account};
 use crate::types::TokenType;
 use crate::utils::numbers::{u64_to_i64, usize_to_i64};
@@ -227,7 +227,7 @@ pub async fn get_storage_events(
                                 break;
                             }
                             if let Some(frame) = storage_event_frame(
-                                &crate::services::storage_change_service::StorageChangeEvent::sync_required(),
+                                &crate::services::events::storage_change::StorageChangeEvent::sync_required(),
                             ) {
                                 yield Ok(frame);
                             }

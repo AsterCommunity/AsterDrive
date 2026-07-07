@@ -7,7 +7,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    share, storage_change_service,
+    share, events::storage_change,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{i64_to_i32, usize_to_u32};
@@ -156,10 +156,10 @@ async fn batch_purge_in_resource_scope_internal(
 
     crate::db::transaction::commit(txn).await?;
     if emit_storage_event {
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new_for_resource_scope(
-                storage_change_service::StorageChangeKind::FilePurged,
+            storage_change::StorageChangeEvent::new_for_resource_scope(
+                storage_change::StorageChangeKind::FilePurged,
                 scope,
                 file_ids.clone(),
                 vec![],

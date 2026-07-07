@@ -10,7 +10,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    storage_change_service,
+    events::storage_change,
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
@@ -86,10 +86,10 @@ pub(crate) async fn copy_file_in_scope(
             src.name
         ))
     })?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FileCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FileCreated,
             scope,
             vec![copied.id],
             vec![],
@@ -288,10 +288,10 @@ pub async fn duplicate_file_record(
         dest_name,
     )
     .await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FileCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FileCreated,
             WorkspaceStorageScope::Personal {
                 user_id: src.owner_user_id.ok_or_else(|| {
                     AsterError::auth_forbidden("source file has no personal owner")

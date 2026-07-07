@@ -12,7 +12,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    archive_service::{
+    files::archive::core::{
         scan::{
             ArchiveScanEntry, ArchiveScanLimits, ArchiveScanNamePolicy,
             ensure_archive_scan_deadline,

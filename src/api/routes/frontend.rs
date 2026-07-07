@@ -302,7 +302,7 @@ mod tests {
             .await
             .expect("frontend test runtime config should load");
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) = build_share_download_rollback_queue(
             db.clone(),

@@ -12,7 +12,7 @@ use crate::errors::{
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    policy_service::StoragePolicy,
+    storage_policy::policy::StoragePolicy,
     workspace::models::FileInfo,
     workspace::storage::{
         self, NewFileMode, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,

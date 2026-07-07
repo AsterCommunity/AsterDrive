@@ -471,7 +471,7 @@ Main code paths:
 
 - `src/cli/doctor.rs`
 - `src/cli/doctor/execute.rs`
-- `src/services/integrity_service.rs`
+- `src/services/ops/integrity.rs`
 - `src/storage/driver.rs`
 
 ### Design goal
@@ -493,7 +493,7 @@ Those questions should not be buried inside online requests or hidden behind bac
 
 1. `src/cli/doctor.rs`
    handles argument parsing, mode selection, report aggregation, human-readable output, and JSON output
-2. `src/services/integrity_service.rs`
+2. `src/services/ops/integrity.rs`
    handles the real deep audit and some repair logic
 
 The point is to separate “how the result is shown” from “how the actual system state is calculated.”

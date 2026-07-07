@@ -10,7 +10,7 @@ use crate::db::repository::file_repo;
 use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::storage_change_service;
+use crate::services::events::storage_change;
 
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
@@ -156,10 +156,10 @@ pub(crate) async fn create_empty(
 
     let created = create_new_file_from_blob(&txn, scope, folder_id, &filename, &blob, now).await?;
     crate::db::transaction::commit(txn).await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FileCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FileCreated,
             scope,
             vec![created.id],
             vec![],
@@ -336,13 +336,13 @@ pub(crate) async fn store_preuploaded_nondedup(
     };
 
     let event_kind = if existing_file_id.is_some() {
-        storage_change_service::StorageChangeKind::FileUpdated
+        storage_change::StorageChangeKind::FileUpdated
     } else {
-        storage_change_service::StorageChangeKind::FileCreated
+        storage_change::StorageChangeKind::FileCreated
     };
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
+        storage_change::StorageChangeEvent::new(
             event_kind,
             scope,
             vec![result.id],
@@ -353,7 +353,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     );
 
     if let Some(existing_id) = existing_file_id {
-        crate::services::version_service::cleanup_excess(state, existing_id).await?;
+        crate::services::content::version::cleanup_excess(state, existing_id).await?;
     }
 
     tracing::debug!(

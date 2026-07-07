@@ -16,7 +16,7 @@ use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
-    storage_change_service,
+    events::storage_change,
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
@@ -216,10 +216,10 @@ pub(crate) async fn create_in_scope(
         .await
     })
     .await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FolderCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderCreated,
             scope,
             vec![],
             vec![created.id],
@@ -280,10 +280,10 @@ pub(crate) async fn delete_in_scope(
             Ok((folder, file_count, folder_count))
         })
         .await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FolderTrashed,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderTrashed,
             scope,
             vec![],
             vec![folder.id],
@@ -324,7 +324,7 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let storage_used = compute_folder_storage_used(state, scope, folder_id).await?;
     let tags =
-        crate::services::tag_service::load_entity_tag_map(state, scope.into(), &[], &[folder.id])
+        crate::services::content::tag::load_entity_tag_map(state, scope.into(), &[], &[folder.id])
             .await?
             .remove(&(crate::types::EntityType::Folder, folder.id))
             .unwrap_or_default();
@@ -432,10 +432,10 @@ pub(crate) async fn update_in_scope(
         Ok((updated, previous_parent_id))
     })
     .await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FolderUpdated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderUpdated,
             scope,
             vec![],
             vec![updated.id],
@@ -493,10 +493,10 @@ pub(crate) async fn admin_set_policy(
     })
     .await?;
 
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new_for_resource_scope(
-            storage_change_service::StorageChangeKind::FolderUpdated,
+        storage_change::StorageChangeEvent::new_for_resource_scope(
+            storage_change::StorageChangeKind::FolderUpdated,
             storage::WorkspaceResourceScope::from_folder_model(&updated)?,
             vec![],
             vec![updated.id],
@@ -640,7 +640,7 @@ pub(crate) async fn set_lock_in_scope(
     folder_id: i64,
     locked: bool,
 ) -> Result<folder::Model> {
-    use crate::services::lock_service;
+    use crate::services::files::lock;
     use crate::types::EntityType;
 
     tracing::debug!(
@@ -652,7 +652,7 @@ pub(crate) async fn set_lock_in_scope(
     storage::verify_folder_access(state, scope, folder_id).await?;
 
     if locked {
-        lock_service::lock(
+        lock::lock(
             state,
             EntityType::Folder,
             folder_id,
@@ -662,7 +662,7 @@ pub(crate) async fn set_lock_in_scope(
         )
         .await?;
     } else {
-        lock_service::unlock(state, EntityType::Folder, folder_id, scope.actor_user_id()).await?;
+        lock::unlock(state, EntityType::Folder, folder_id, scope.actor_user_id()).await?;
     }
 
     let folder = storage::verify_folder_access(state, scope, folder_id).await?;
@@ -699,13 +699,13 @@ fn publish_folder_lock_change(
     folder: &folder::Model,
     locked: bool,
 ) {
-    crate::services::storage_change_service::publish(
+    crate::services::events::storage_change::publish(
         state,
-        crate::services::storage_change_service::StorageChangeEvent::new(
+        crate::services::events::storage_change::StorageChangeEvent::new(
             if locked {
-                crate::services::storage_change_service::StorageChangeKind::LockCreated
+                crate::services::events::storage_change::StorageChangeKind::LockCreated
             } else {
-                crate::services::storage_change_service::StorageChangeKind::LockDeleted
+                crate::services::events::storage_change::StorageChangeKind::LockDeleted
             },
             scope,
             vec![],

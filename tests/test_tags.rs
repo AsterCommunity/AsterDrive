@@ -8,7 +8,7 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::property_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    storage_change_service::StorageChangeKind, tag_service::TAG_PROPERTY_NAMESPACE,
+    content::tag::TAG_PROPERTY_NAMESPACE, events::storage_change::StorageChangeKind,
 };
 use aster_drive::types::EntityType;
 use serde_json::Value;

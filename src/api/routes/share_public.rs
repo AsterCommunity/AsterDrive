@@ -18,7 +18,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
-    archive_preview_service,
+    files::archive::preview,
     files::{direct_link, file, preview_link},
     media::metadata, user::profile, share, share::stream,
     share::ticket, task_service,
@@ -344,7 +344,7 @@ pub async fn create_preview_link(
     operation_id = "get_shared_file_archive_preview",
     params(("token" = String, Path, description = "Share token"), ArchivePreviewQuery),
     responses(
-        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -361,14 +361,14 @@ pub async fn archive_preview(
     let token = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    match archive_preview_service::preview_shared_file(
+    match preview::preview_shared_file(
         state.get_ref(),
         &token,
         query.filename_encoding,
     )
     .await?
     {
-        archive_preview_service::ArchivePreviewManifestLookup::Ready(manifest) => {
+        preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             files::archive_preview_manifest_response(
                 manifest,
                 req.headers()
@@ -377,7 +377,7 @@ pub async fn archive_preview(
                 "public, max-age=0, must-revalidate",
             )
         }
-        archive_preview_service::ArchivePreviewManifestLookup::Pending => {
+        preview::ArchivePreviewManifestLookup::Pending => {
             Ok(files::archive_preview_pending_response())
         }
     }
@@ -739,7 +739,7 @@ pub async fn create_folder_file_preview_link(
         ArchivePreviewQuery
     ),
     responses(
-        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -756,7 +756,7 @@ pub async fn folder_file_archive_preview(
     let (token, file_id) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    match archive_preview_service::preview_shared_folder_file(
+    match preview::preview_shared_folder_file(
         state.get_ref(),
         &token,
         file_id,
@@ -764,7 +764,7 @@ pub async fn folder_file_archive_preview(
     )
     .await?
     {
-        archive_preview_service::ArchivePreviewManifestLookup::Ready(manifest) => {
+        preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             files::archive_preview_manifest_response(
                 manifest,
                 req.headers()
@@ -773,7 +773,7 @@ pub async fn folder_file_archive_preview(
                 "public, max-age=0, must-revalidate",
             )
         }
-        archive_preview_service::ArchivePreviewManifestLookup::Pending => {
+        preview::ArchivePreviewManifestLookup::Pending => {
             Ok(files::archive_preview_pending_response())
         }
     }
@@ -1325,7 +1325,7 @@ mod tests {
         config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
             crate::services::share::spawn_detached_share_download_rollback_queue(

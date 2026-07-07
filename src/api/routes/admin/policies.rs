@@ -14,12 +14,12 @@ use crate::api::response::{ApiEmptyData, ApiResponse};
 use crate::config::site_url;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::storage_credential_service;
-use crate::services::{audit_service, auth::local::Claims, policy_service};
+use crate::services::storage_policy::credential;
+use crate::services::{audit_service, auth::local::Claims, storage_policy::policy};
 use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
-// ── Conversion helpers (must stay here because they use policy_service types) ──────────
+// ── Conversion helpers (must stay here because they use storage_policy::policy types) ──────────
 
 struct PolicyConnectionInputParts {
     driver_type: DriverType,
@@ -33,7 +33,7 @@ struct PolicyConnectionInputParts {
     options: crate::types::StoragePolicyOptions,
 }
 
-impl From<PolicyConnectionInputParts> for policy_service::StoragePolicyConnectionInput {
+impl From<PolicyConnectionInputParts> for policy::StoragePolicyConnectionInput {
     fn from(value: PolicyConnectionInputParts) -> Self {
         Self {
             driver_type: value.driver_type,
@@ -49,7 +49,7 @@ impl From<PolicyConnectionInputParts> for policy_service::StoragePolicyConnectio
     }
 }
 
-impl From<CreatePolicyReq> for policy_service::CreateStoragePolicyInput {
+impl From<CreatePolicyReq> for policy::CreateStoragePolicyInput {
     fn from(value: CreatePolicyReq) -> Self {
         Self {
             name: value.name,
@@ -76,7 +76,7 @@ impl From<CreatePolicyReq> for policy_service::CreateStoragePolicyInput {
     }
 }
 
-impl From<PatchPolicyReq> for policy_service::UpdateStoragePolicyInput {
+impl From<PatchPolicyReq> for policy::UpdateStoragePolicyInput {
     fn from(value: PatchPolicyReq) -> Self {
         Self {
             name: value.name,
@@ -97,7 +97,7 @@ impl From<PatchPolicyReq> for policy_service::UpdateStoragePolicyInput {
     }
 }
 
-impl From<TestPolicyParamsReq> for policy_service::TestDraftStoragePolicyConnectionInput {
+impl From<TestPolicyParamsReq> for policy::TestDraftStoragePolicyConnectionInput {
     fn from(value: TestPolicyParamsReq) -> Self {
         Self {
             policy_id: value.policy_id,
@@ -118,7 +118,7 @@ impl From<TestPolicyParamsReq> for policy_service::TestDraftStoragePolicyConnect
 }
 
 impl From<ExecuteDraftStoragePolicyActionReq>
-    for policy_service::ExecuteDraftStoragePolicyActionInput
+    for policy::ExecuteDraftStoragePolicyActionInput
 {
     fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
         Self {
@@ -141,7 +141,7 @@ impl From<ExecuteDraftStoragePolicyActionReq>
 }
 
 impl From<ExecuteSavedStoragePolicyActionReq>
-    for policy_service::ExecuteSavedStoragePolicyActionInput
+    for policy::ExecuteSavedStoragePolicyActionInput
 {
     fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
         Self {
@@ -151,7 +151,7 @@ impl From<ExecuteSavedStoragePolicyActionReq>
 }
 
 impl From<PromoteS3CompatiblePolicyDriverReq>
-    for policy_service::PromoteS3CompatiblePolicyDriverInput
+    for policy::PromoteS3CompatiblePolicyDriverInput
 {
     fn from(value: PromoteS3CompatiblePolicyDriverReq) -> Self {
         Self {
@@ -163,7 +163,7 @@ impl From<PromoteS3CompatiblePolicyDriverReq>
 }
 
 impl From<StartStorageAuthorizationReq>
-    for storage_credential_service::StorageAuthorizationStartInput
+    for credential::StorageAuthorizationStartInput
 {
     fn from(value: StartStorageAuthorizationReq) -> Self {
         Self {
@@ -175,11 +175,11 @@ impl From<StartStorageAuthorizationReq>
 
 fn map_group_items(
     items: Vec<PolicyGroupItemReq>,
-) -> Vec<policy_service::StoragePolicyGroupItemInput> {
+) -> Vec<policy::StoragePolicyGroupItemInput> {
     items.into_iter().map(Into::into).collect()
 }
 
-impl From<PolicyGroupItemReq> for policy_service::StoragePolicyGroupItemInput {
+impl From<PolicyGroupItemReq> for policy::StoragePolicyGroupItemInput {
     fn from(value: PolicyGroupItemReq) -> Self {
         Self {
             policy_id: value.policy_id,
@@ -190,7 +190,7 @@ impl From<PolicyGroupItemReq> for policy_service::StoragePolicyGroupItemInput {
     }
 }
 
-impl From<CreatePolicyGroupReq> for policy_service::CreateStoragePolicyGroupInput {
+impl From<CreatePolicyGroupReq> for policy::CreateStoragePolicyGroupInput {
     fn from(value: CreatePolicyGroupReq) -> Self {
         Self {
             name: value.name,
@@ -202,7 +202,7 @@ impl From<CreatePolicyGroupReq> for policy_service::CreateStoragePolicyGroupInpu
     }
 }
 
-impl From<PatchPolicyGroupReq> for policy_service::UpdateStoragePolicyGroupInput {
+impl From<PatchPolicyGroupReq> for policy::UpdateStoragePolicyGroupInput {
     fn from(value: PatchPolicyGroupReq) -> Self {
         Self {
             name: value.name,
@@ -221,7 +221,7 @@ impl From<PatchPolicyGroupReq> for policy_service::UpdateStoragePolicyGroupInput
     operation_id = "list_policies",
     params(LimitOffsetQuery, AdminPolicyListQuery),
     responses(
-        (status = 200, description = "List storage policies", body = inline(ApiResponse<OffsetPage<policy_service::StoragePolicy>>)),
+        (status = 200, description = "List storage policies", body = inline(ApiResponse<OffsetPage<policy::StoragePolicy>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -232,7 +232,7 @@ pub async fn list_policies(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminPolicyListQuery>,
 ) -> Result<HttpResponse> {
-    let policies = policy_service::list_paginated(
+    let policies = policy::list_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -268,7 +268,7 @@ pub async fn list_storage_driver_descriptors() -> Result<HttpResponse> {
     operation_id = "create_policy",
     request_body = CreatePolicyReq,
     responses(
-        (status = 201, description = "Policy created", body = inline(ApiResponse<policy_service::StoragePolicy>)),
+        (status = 201, description = "Policy created", body = inline(ApiResponse<policy::StoragePolicy>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -283,7 +283,7 @@ pub async fn create_policy(
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     let policy =
-        policy_service::create_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
+        policy::create_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(policy)))
 }
 
@@ -294,7 +294,7 @@ pub async fn create_policy(
     operation_id = "get_policy",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Policy details", body = inline(ApiResponse<policy_service::StoragePolicy>)),
+        (status = 200, description = "Policy details", body = inline(ApiResponse<policy::StoragePolicy>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),
@@ -305,7 +305,7 @@ pub async fn get_policy(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let policy = policy_service::get(state.get_ref(), *path).await?;
+    let policy = policy::get(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
@@ -316,7 +316,7 @@ pub async fn get_policy(
     operation_id = "get_policy_capacity",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Storage policy capacity observability", body = inline(ApiResponse<policy_service::StoragePolicyCapacityInfo>)),
+        (status = 200, description = "Storage policy capacity observability", body = inline(ApiResponse<policy::StoragePolicyCapacityInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),
@@ -327,12 +327,12 @@ pub async fn get_policy_capacity(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let capacity = policy_service::capacity_info(state.get_ref(), *path).await?;
+    let capacity = policy::capacity_info(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capacity)))
 }
 
 fn storage_policy_action_response(
-    result: policy_service::StoragePolicyActionResult,
+    result: policy::StoragePolicyActionResult,
 ) -> HttpResponse {
     HttpResponse::Ok().json(ApiResponse::ok(result))
 }
@@ -345,7 +345,7 @@ fn storage_policy_action_response(
     params(("id" = i64, Path, description = "Policy ID")),
     request_body = PatchPolicyReq,
     responses(
-        (status = 200, description = "Policy updated", body = inline(ApiResponse<policy_service::StoragePolicy>)),
+        (status = 200, description = "Policy updated", body = inline(ApiResponse<policy::StoragePolicy>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),
@@ -362,7 +362,7 @@ pub async fn update_policy(
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     let policy =
-        policy_service::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx)
+        policy::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx)
             .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
@@ -375,7 +375,7 @@ pub async fn update_policy(
     params(("id" = i64, Path, description = "Policy ID")),
     request_body = PromoteS3CompatiblePolicyDriverReq,
     responses(
-        (status = 200, description = "Policy driver promoted", body = inline(ApiResponse<policy_service::StoragePolicy>)),
+        (status = 200, description = "Policy driver promoted", body = inline(ApiResponse<policy::StoragePolicy>)),
         (status = 400, description = "Promotion rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -392,7 +392,7 @@ pub async fn promote_s3_compatible_policy_driver(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let policy = policy_service::promote_s3_compatible_driver_with_audit(
+    let policy = policy::promote_s3_compatible_driver_with_audit(
         state.get_ref(),
         *path,
         body.into_inner().into(),
@@ -424,7 +424,7 @@ pub async fn delete_policy(
     query: web::Query<DeletePolicyQuery>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    policy_service::delete_with_audit(state.get_ref(), *path, query.force, &ctx).await?;
+    policy::delete_with_audit(state.get_ref(), *path, query.force, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -445,7 +445,7 @@ pub async fn test_policy_connection(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    policy_service::test_connection(state.get_ref(), *path).await?;
+    policy::test_connection(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
 }
 
@@ -467,7 +467,7 @@ pub async fn test_policy_params(
     body: web::Json<TestPolicyParamsReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    policy_service::test_connection_params(state.get_ref(), body.into_inner().into()).await?;
+    policy::test_connection_params(state.get_ref(), body.into_inner().into()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
 }
 
@@ -479,7 +479,7 @@ pub async fn test_policy_params(
     params(("id" = i64, Path, description = "Policy ID")),
     request_body = ExecuteSavedStoragePolicyActionReq,
     responses(
-        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy_service::StoragePolicyActionResult>)),
+        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -496,7 +496,7 @@ pub async fn execute_saved_storage_policy_action(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let result = policy_service::execute_saved_action_with_audit(
+    let result = policy::execute_saved_action_with_audit(
         state.get_ref(),
         *path,
         body.into_inner().into(),
@@ -513,7 +513,7 @@ pub async fn execute_saved_storage_policy_action(
     operation_id = "execute_draft_storage_policy_action",
     request_body = ExecuteDraftStoragePolicyActionReq,
     responses(
-        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy_service::StoragePolicyActionResult>)),
+        (status = 200, description = "Storage policy action executed", body = inline(ApiResponse<policy::StoragePolicyActionResult>)),
         (status = 400, description = "Action rejected"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -528,7 +528,7 @@ pub async fn execute_draft_storage_policy_action(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let result = policy_service::execute_draft_action_with_audit(
+    let result = policy::execute_draft_action_with_audit(
         state.get_ref(),
         body.into_inner().into(),
         &ctx,
@@ -543,7 +543,7 @@ pub async fn execute_draft_storage_policy_action(
     tag = "admin",
     operation_id = "list_storage_credential_providers",
     responses(
-        (status = 200, description = "Supported storage credential providers", body = inline(ApiResponse<Vec<storage_credential_service::StorageCredentialProviderInfo>>)),
+        (status = 200, description = "Supported storage credential providers", body = inline(ApiResponse<Vec<credential::StorageCredentialProviderInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -551,7 +551,7 @@ pub async fn execute_draft_storage_policy_action(
 )]
 pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
-        storage_credential_service::list_supported_providers(),
+        credential::list_supported_providers(),
     )))
 }
 
@@ -563,7 +563,7 @@ pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
     params(("id" = i64, Path, description = "Policy ID")),
     request_body = StartStorageAuthorizationReq,
     responses(
-        (status = 200, description = "Storage credential authorization URL", body = inline(ApiResponse<storage_credential_service::StorageAuthorizationStartResponse>)),
+        (status = 200, description = "Storage credential authorization URL", body = inline(ApiResponse<credential::StorageAuthorizationStartResponse>)),
         (status = 400, description = "Invalid authorization configuration"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -579,7 +579,7 @@ pub async fn start_storage_authorization(
     body: web::Json<StartStorageAuthorizationReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let response = storage_credential_service::start_authorization(
+    let response = credential::start_authorization(
         state.get_ref(),
         &req,
         *path,
@@ -597,7 +597,7 @@ pub async fn start_storage_authorization(
     operation_id = "list_storage_policy_credentials",
     params(("id" = i64, Path, description = "Policy ID")),
     responses(
-        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<storage_credential_service::StoragePolicyCredentialInfo>>)),
+        (status = 200, description = "Storage policy credentials", body = inline(ApiResponse<Vec<credential::StoragePolicyCredentialInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy not found"),
@@ -609,7 +609,7 @@ pub async fn list_storage_policy_credentials(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let credentials =
-        storage_credential_service::list_policy_credentials(state.get_ref(), *path).await?;
+        credential::list_policy_credentials(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(credentials)))
 }
 
@@ -623,7 +623,7 @@ pub async fn list_storage_policy_credentials(
         ("provider" = String, Path, description = "Storage credential provider"),
     ),
     responses(
-        (status = 200, description = "Storage policy credential validation result", body = inline(ApiResponse<storage_credential_service::StoragePolicyCredentialValidationResult>)),
+        (status = 200, description = "Storage policy credential validation result", body = inline(ApiResponse<credential::StoragePolicyCredentialValidationResult>)),
         (status = 400, description = "Invalid provider or credential state"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -639,7 +639,7 @@ pub async fn validate_storage_policy_credential(
     let provider = provider.parse().map_err(|()| {
         crate::errors::AsterError::validation_error("unsupported storage credential provider")
     })?;
-    let result = storage_credential_service::validate_policy_credential(
+    let result = credential::validate_policy_credential(
         state.get_ref(),
         policy_id,
         provider,
@@ -653,16 +653,16 @@ pub async fn validate_storage_policy_credential(
     path = "/api/v1/admin/policies/storage-authorization/callback",
     tag = "admin",
     operation_id = "finish_storage_authorization",
-    params(storage_credential_service::StorageAuthorizationCallbackQuery),
+    params(credential::StorageAuthorizationCallbackQuery),
     responses(
         (status = 302, description = "Storage credential authorization callback handled and redirected to the admin policies page with success or error state"),
     ),
 )]
 pub async fn finish_storage_authorization(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<storage_credential_service::StorageAuthorizationCallbackQuery>,
+    query: web::Query<credential::StorageAuthorizationCallbackQuery>,
 ) -> Result<HttpResponse> {
-    match storage_credential_service::finish_authorization_callback(state.get_ref(), &query).await {
+    match credential::finish_authorization_callback(state.get_ref(), &query).await {
         Ok(response) => Ok(storage_authorization_redirect_response(
             state.get_ref(),
             "success",
@@ -726,7 +726,7 @@ fn storage_authorization_redirect_path(
     operation_id = "list_policy_groups",
     params(LimitOffsetQuery, AdminPolicyGroupListQuery),
     responses(
-        (status = 200, description = "List storage policy groups", body = inline(ApiResponse<OffsetPage<crate::services::policy_service::StoragePolicyGroupInfo>>)),
+        (status = 200, description = "List storage policy groups", body = inline(ApiResponse<OffsetPage<crate::services::storage_policy::policy::StoragePolicyGroupInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -737,7 +737,7 @@ pub async fn list_policy_groups(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminPolicyGroupListQuery>,
 ) -> Result<HttpResponse> {
-    let groups = policy_service::list_groups_paginated(
+    let groups = policy::list_groups_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -755,7 +755,7 @@ pub async fn list_policy_groups(
     operation_id = "create_policy_group",
     request_body = CreatePolicyGroupReq,
     responses(
-        (status = 201, description = "Policy group created", body = inline(ApiResponse<crate::services::policy_service::StoragePolicyGroupInfo>)),
+        (status = 201, description = "Policy group created", body = inline(ApiResponse<crate::services::storage_policy::policy::StoragePolicyGroupInfo>)),
         (status = 400, description = "Bad Request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -771,7 +771,7 @@ pub async fn create_policy_group(
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     let group =
-        policy_service::create_group_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
+        policy::create_group_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
             .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(group)))
 }
@@ -783,7 +783,7 @@ pub async fn create_policy_group(
     operation_id = "get_policy_group",
     params(("id" = i64, Path, description = "Policy group ID")),
     responses(
-        (status = 200, description = "Policy group details", body = inline(ApiResponse<crate::services::policy_service::StoragePolicyGroupInfo>)),
+        (status = 200, description = "Policy group details", body = inline(ApiResponse<crate::services::storage_policy::policy::StoragePolicyGroupInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Policy group not found"),
@@ -794,7 +794,7 @@ pub async fn get_policy_group(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let group = policy_service::get_group(state.get_ref(), *path).await?;
+    let group = policy::get_group(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
 }
 
@@ -806,7 +806,7 @@ pub async fn get_policy_group(
     params(("id" = i64, Path, description = "Policy group ID")),
     request_body = PatchPolicyGroupReq,
     responses(
-        (status = 200, description = "Policy group updated", body = inline(ApiResponse<crate::services::policy_service::StoragePolicyGroupInfo>)),
+        (status = 200, description = "Policy group updated", body = inline(ApiResponse<crate::services::storage_policy::policy::StoragePolicyGroupInfo>)),
         (status = 400, description = "Bad Request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -823,7 +823,7 @@ pub async fn update_policy_group(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let group = policy_service::update_group_with_audit(
+    let group = policy::update_group_with_audit(
         state.get_ref(),
         *path,
         body.into_inner().into(),
@@ -855,7 +855,7 @@ pub async fn delete_policy_group(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    policy_service::delete_group_with_audit(state.get_ref(), *path, &ctx).await?;
+    policy::delete_group_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -867,7 +867,7 @@ pub async fn delete_policy_group(
     params(("id" = i64, Path, description = "Source policy group ID")),
     request_body = MigratePolicyGroupAssignmentsReq,
     responses(
-        (status = 200, description = "Policy group assignments migrated", body = inline(ApiResponse<crate::services::policy_service::PolicyGroupAssignmentMigrationResult>)),
+        (status = 200, description = "Policy group assignments migrated", body = inline(ApiResponse<crate::services::storage_policy::policy::PolicyGroupAssignmentMigrationResult>)),
         (status = 400, description = "Bad Request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -884,7 +884,7 @@ pub async fn migrate_policy_group_assignments(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let result = policy_service::migrate_group_assignments_with_audit(
+    let result = policy::migrate_group_assignments_with_audit(
         state.get_ref(),
         *path,
         body.target_group_id,

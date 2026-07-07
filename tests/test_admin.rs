@@ -1247,15 +1247,15 @@ async fn test_admin_team_crud() {
             .unwrap()
             .expect("default policy should exist")
             .id;
-    let alternate_group_id = aster_drive::services::policy_service::create_group(
+    let alternate_group_id = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Operations Archive".to_string(),
             description: Some("Secondary team routing".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,
@@ -2114,15 +2114,15 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
         .unwrap()
         .expect("default policy should exist")
         .id;
-    let source_group = aster_drive::services::policy_service::create_group(
+    let source_group = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Migration Source Group".to_string(),
             description: Some("source assignments".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,
@@ -2133,15 +2133,15 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
     )
     .await
     .expect("source policy group should be created");
-    let target_group = aster_drive::services::policy_service::create_group(
+    let target_group = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Migration Target Group".to_string(),
             description: Some("target assignments".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,

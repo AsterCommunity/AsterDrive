@@ -176,7 +176,7 @@ remote protocol 不应该决定：
 - remote storage target descriptor 的 UI 呈现
 - 产品级错误是否应该阻止策略变更
 
-这些决定属于 `remote::remote_node`、`remote::storage_target`、`policy_service` 或后续抽出的 capability / target resolver。
+这些决定属于 `remote::remote_node`、`remote::storage_target`、`storage_policy::policy` 或后续抽出的 capability / target resolver。
 
 ### WebDAV / WOPI 协议接入
 
@@ -320,7 +320,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - 数据库事务内的文件、blob、version、quota 一致性
 - upload session 完成态和正式文件之间的绑定
 
-### `policy_service`
+### `storage_policy::policy`
 
 当前职责：
 

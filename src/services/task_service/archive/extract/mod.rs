@@ -13,9 +13,9 @@ use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::archive_service::format::{ArchiveFormat, detect_supported_archive_format};
+use crate::services::files::archive::core::format::{ArchiveFormat, detect_supported_archive_format};
 use crate::services::{
-    storage_change_service,
+    events::storage_change,
     task_service::{
         TaskExecutionContext, TaskLease, cleanup_task_temp_dir_for_task_kind,
         create_typed_task_record, get_task_in_scope, is_task_lease_lost,
@@ -222,10 +222,10 @@ pub(super) async fn process_archive_extract_task(
                 return Err(error);
             }
         };
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FolderCreated,
+            storage_change::StorageChangeEvent::new(
+                storage_change::StorageChangeKind::FolderCreated,
                 scope,
                 import_summary.file_ids,
                 import_summary.folder_ids,

@@ -196,7 +196,7 @@ async fn test_db_lock_system_rejects_unrepresentable_timeout() {
 #[actix_web::test]
 async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file, lock_service};
+    use aster_drive::services::{auth::local, files::file, files::lock};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
@@ -221,14 +221,14 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
     .await
     .unwrap();
 
-    let expired_lock = lock_service::lock(
+    let expired_lock = lock::lock(
         &state,
         EntityType::File,
         file.id,
         Some(user.id),
         Some(
-            aster_drive::services::lock_service::ResourceLockOwnerInfo::Text(
-                aster_drive::services::lock_service::TextLockOwnerInfo {
+            aster_drive::services::files::lock::ResourceLockOwnerInfo::Text(
+                aster_drive::services::files::lock::TextLockOwnerInfo {
                     value: "expired".to_string(),
                 },
             ),

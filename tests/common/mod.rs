@@ -1101,7 +1101,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     .await
     .unwrap();
 
-    aster_drive::services::policy_service::ensure_policy_groups_seeded(&db)
+    aster_drive::services::storage_policy::policy::ensure_policy_groups_seeded(&db)
         .await
         .unwrap();
 
@@ -1141,7 +1141,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     let mail_sender = aster_drive::services::mail::sender::memory_sender();
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        aster_drive::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        aster_drive::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
         aster_drive::services::share::spawn_detached_share_download_rollback_queue(

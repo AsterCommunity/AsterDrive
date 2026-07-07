@@ -11,7 +11,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     files::{file as file_ops, folder},
-    property_service, storage_change_service, webdav::tree,
+    content::property, events::storage_change, webdav::tree,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
@@ -583,10 +583,10 @@ impl DavFileSystem for AsterDavFs {
                         copied.id,
                     )
                     .await?;
-                    storage_change_service::publish(
+                    storage_change::publish(
                         &state,
-                        storage_change_service::StorageChangeEvent::new(
-                            storage_change_service::StorageChangeKind::FileCreated,
+                        storage_change::StorageChangeEvent::new(
+                            storage_change::StorageChangeKind::FileCreated,
                             self.scope(),
                             vec![copied.id],
                             vec![],
@@ -698,7 +698,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property_service::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -744,7 +744,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property_service::is_protected_namespace(&prop.namespace) {
+                if property::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -783,7 +783,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property_service::is_protected_namespace(&prop.namespace) {
+                if property::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -817,7 +817,7 @@ impl DavFileSystem for AsterDavFs {
             let mut protected_failure = false;
             for (_, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
-                if property_service::is_protected_namespace(ns) {
+                if property::is_protected_namespace(ns) {
                     protected_failure = true;
                     break;
                 }
@@ -828,7 +828,7 @@ impl DavFileSystem for AsterDavFs {
                     .into_iter()
                     .map(|(_, prop)| {
                         let ns = prop.namespace.as_deref().unwrap_or("");
-                        let status = if property_service::is_protected_namespace(ns) {
+                        let status = if property::is_protected_namespace(ns) {
                             http::StatusCode::FORBIDDEN
                         } else {
                             http::StatusCode::FAILED_DEPENDENCY
@@ -906,7 +906,7 @@ fn entity_props_to_dav_props(
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property_service::is_protected_namespace(&p.namespace))
+        .filter(|p| !property::is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -972,7 +972,7 @@ async fn copy_visible_entity_properties(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property_service::is_protected_namespace(&prop.namespace) {
+        if property::is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(
@@ -1164,10 +1164,10 @@ async fn delete_existing_destination_for_overwrite(
         file_repo::soft_delete(state.writer_db(), existing.id)
             .await
             .map_err(to_fs_error)?;
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FileTrashed,
+            storage_change::StorageChangeEvent::new(
+                storage_change::StorageChangeKind::FileTrashed,
                 scope,
                 vec![existing.id],
                 vec![],

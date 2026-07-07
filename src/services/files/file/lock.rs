@@ -4,7 +4,7 @@ use crate::entities::file;
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
-    lock_service, storage_change_service, workspace::models::FileInfo,
+    files::lock, events::storage_change, workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -24,7 +24,7 @@ pub(crate) async fn set_lock_in_scope(
     crate::services::workspace::storage::verify_file_access(state, scope, file_id).await?;
 
     if locked {
-        lock_service::lock(
+        lock::lock(
             state,
             EntityType::File,
             file_id,
@@ -34,7 +34,7 @@ pub(crate) async fn set_lock_in_scope(
         )
         .await?;
     } else {
-        lock_service::unlock(state, EntityType::File, file_id, scope.actor_user_id()).await?;
+        lock::unlock(state, EntityType::File, file_id, scope.actor_user_id()).await?;
     }
 
     let file =
@@ -73,13 +73,13 @@ async fn publish_file_lock_change(
     file: &file::Model,
     locked: bool,
 ) -> Result<()> {
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
+        storage_change::StorageChangeEvent::new(
             if locked {
-                storage_change_service::StorageChangeKind::LockCreated
+                storage_change::StorageChangeKind::LockCreated
             } else {
-                storage_change_service::StorageChangeKind::LockDeleted
+                storage_change::StorageChangeKind::LockDeleted
             },
             scope,
             vec![file.id],

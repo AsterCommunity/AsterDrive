@@ -545,7 +545,7 @@ async fn test_batch_copy_files() {
         .expect("storage change event channel should stay open");
     assert_eq!(
         event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FileCreated
+        aster_drive::services::events::storage_change::StorageChangeKind::FileCreated
     );
     assert_eq!(event.file_ids.len(), 2);
     assert!(event.folder_ids.is_empty());
@@ -1517,12 +1517,12 @@ async fn test_workspace_transfer_copy_personal_file_to_team_root_resolves_name_c
     assert_eq!(
         event.workspace,
         Some(
-            aster_drive::services::storage_change_service::StorageChangeWorkspace::Team { team_id }
+            aster_drive::services::events::storage_change::StorageChangeWorkspace::Team { team_id }
         )
     );
     assert_eq!(
         event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FileCreated
+        aster_drive::services::events::storage_change::StorageChangeKind::FileCreated
     );
     assert_eq!(event.file_ids.len(), 1);
     assert!(event.root_affected);

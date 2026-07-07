@@ -11,8 +11,8 @@ use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
+    events::storage_change::StorageChangeEvent,
     mail::sender::MailSender, share::ShareDownloadRollbackQueue,
-    storage_change_service::StorageChangeEvent,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use sea_orm::DatabaseConnection;
@@ -314,7 +314,7 @@ mod tests {
         .await;
         let runtime_config = Arc::new(RuntimeConfig::new());
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) = build_share_download_rollback_queue(
             db.clone(),

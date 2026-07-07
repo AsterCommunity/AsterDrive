@@ -3,7 +3,7 @@ use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{mail::sender, policy_service};
+use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{
@@ -102,7 +102,7 @@ async fn build_webdav_test_state(
     .await
     .expect("webdav handler user should be inserted");
 
-    policy_service::ensure_policy_groups_seeded(&db)
+    policy::ensure_policy_groups_seeded(&db)
         .await
         .expect("webdav handler policy groups should be seeded");
 
@@ -126,7 +126,7 @@ async fn build_webdav_test_state(
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
         crate::services::share::spawn_detached_share_download_rollback_queue(

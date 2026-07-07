@@ -8,7 +8,7 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    archive_preview_service,
+    files::archive::preview,
     audit_service::{self, AuditContext},
     auth::local::Claims,
     files::{direct_link, file, preview_link},
@@ -70,7 +70,7 @@ pub async fn get_file(
     operation_id = "get_file_archive_preview",
     params(("id" = i64, Path, description = "File ID"), ArchivePreviewQuery),
     responses(
-        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -407,7 +407,7 @@ pub(crate) async fn team_get_file(
         ArchivePreviewQuery
     ),
     responses(
-        (status = 200, description = "Team archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Team archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -757,17 +757,17 @@ pub(crate) async fn archive_preview_response(
         .headers()
         .get(header::IF_NONE_MATCH)
         .and_then(|value| value.to_str().ok());
-    match archive_preview_service::preview_file_in_scope(state, scope, file_id, filename_encoding)
+    match preview::preview_file_in_scope(state, scope, file_id, filename_encoding)
         .await?
     {
-        archive_preview_service::ArchivePreviewManifestLookup::Ready(manifest) => {
+        preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             archive_preview_manifest_response(
                 manifest,
                 if_none_match,
                 "private, max-age=0, must-revalidate",
             )
         }
-        archive_preview_service::ArchivePreviewManifestLookup::Pending => {
+        preview::ArchivePreviewManifestLookup::Pending => {
             Ok(archive_preview_pending_response())
         }
     }
@@ -780,13 +780,13 @@ pub(crate) fn archive_preview_pending_response() -> HttpResponse {
 }
 
 pub(crate) fn archive_preview_manifest_response(
-    manifest: archive_preview_service::ArchivePreviewManifest,
+    manifest: preview::ArchivePreviewManifest,
     if_none_match: Option<&str>,
     cache_control: &str,
 ) -> Result<HttpResponse> {
     let etag_value = format!(
         "archive-preview-{}",
-        archive_preview_service::manifest_etag_value(&manifest)?
+        preview::manifest_etag_value(&manifest)?
     );
     let etag = format!("\"{etag_value}\"");
 
@@ -1240,7 +1240,7 @@ mod tests {
         config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
             crate::services::share::spawn_detached_share_download_rollback_queue(

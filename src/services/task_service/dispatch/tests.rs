@@ -61,7 +61,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         .await
         .expect("dispatch test runtime config should reload");
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let (share_download_rollback, _worker) =
         crate::services::share::build_share_download_rollback_queue(

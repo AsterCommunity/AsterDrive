@@ -6,7 +6,7 @@ use tokio::io::AsyncWriteExt;
 use crate::entities::file_blob;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::archive_service::range_reader::StorageRangeReader;
+use crate::services::files::archive::core::range_reader::StorageRangeReader;
 use crate::storage::StorageDriver;
 use crate::utils::raii::TempFileGuard;
 

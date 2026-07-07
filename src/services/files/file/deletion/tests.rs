@@ -207,7 +207,7 @@ async fn build_deletion_test_state() -> (
         .expect("policy snapshot should reload");
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
         crate::services::share::spawn_detached_share_download_rollback_queue(

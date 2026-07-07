@@ -547,7 +547,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::maintenance_service::cleanup_expired_completed_upload_sessions(
+            match crate::services::ops::maintenance::cleanup_expired_completed_upload_sessions(
                 s.get_ref(),
             )
             .await
@@ -583,7 +583,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::maintenance_service::reconcile_blob_state(s.get_ref()).await {
+            match crate::services::ops::maintenance::reconcile_blob_state(s.get_ref()).await {
                 Ok(stats) if stats.ref_count_fixed > 0 || stats.orphan_blobs_deleted > 0 => {
                     tracing::info!(
                         ref_count_fixed = stats.ref_count_fixed,
@@ -615,7 +615,7 @@ pub fn spawn_primary_background_tasks(
         state.clone(),
         |s| async move {
             let report =
-                crate::services::health_service::run_primary_system_health_checks(s.get_ref())
+                crate::services::ops::health::run_primary_system_health_checks(s.get_ref())
                     .await;
             if report.has_issues() {
                 tracing::warn!(
@@ -639,7 +639,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::trash_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::files::trash::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired trash entries");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -691,7 +691,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::lock_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::files::lock::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired locks");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -967,7 +967,7 @@ mod tests {
         let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
         runtime_config.reload(&db).await.unwrap();
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
             crate::services::share::build_share_download_rollback_queue(

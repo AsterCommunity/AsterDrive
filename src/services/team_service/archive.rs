@@ -153,7 +153,7 @@ async fn clear_team_locks<C: ConnectionTrait>(db: &C, team_id: i64) -> Result<()
     let prefix = format!("/teams/{team_id}/");
     let locks = lock_repo::find_by_path_prefix(db, &prefix).await?;
     for lock in &locks {
-        if let Err(err) = crate::services::lock_service::set_entity_locked(
+        if let Err(err) = crate::services::files::lock::set_entity_locked(
             db,
             lock.entity_type,
             lock.entity_id,

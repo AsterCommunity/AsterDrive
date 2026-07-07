@@ -8,7 +8,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::{file, folder},
-    storage_change_service,
+    events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -120,10 +120,10 @@ pub(crate) async fn batch_copy_between_scopes(
             target_folder_id,
         )
         .await?;
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FileCreated,
+            storage_change::StorageChangeEvent::new(
+                storage_change::StorageChangeKind::FileCreated,
                 dest_scope,
                 created_files.into_iter().map(|file| file.id).collect(),
                 vec![],

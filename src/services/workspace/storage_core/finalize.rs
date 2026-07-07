@@ -7,7 +7,7 @@ use crate::db::repository::{file_repo, upload_session_repo};
 use crate::entities::{file, file_blob, upload_session};
 use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::storage_change_service;
+use crate::services::events::storage_change;
 use crate::services::workspace::scope::WorkspaceStorageScope;
 
 use super::file_record::{
@@ -106,10 +106,10 @@ pub(crate) async fn finalize_upload_session_file(
     .await?;
 
     crate::db::transaction::commit(txn).await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FileCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FileCreated,
             scope,
             vec![created.id],
             vec![],

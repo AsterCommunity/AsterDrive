@@ -6,7 +6,7 @@ use crate::entities::{background_task, file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
-    archive_preview_service,
+    files::archive::preview,
     task_service::{
         TaskExecutionContext, cleanup_task_temp_dir_for_task_kind, create_typed_task_record,
         mark_task_progress, mark_task_succeeded, prepare_task_temp_dir,
@@ -46,7 +46,7 @@ pub(crate) async fn ensure_archive_preview_task(
                 return Ok(());
             }
             BackgroundTaskStatus::Failed => {
-                return Err(archive_preview_service::map_failed_task_error(
+                return Err(preview::map_failed_task_error(
                     existing.last_error.as_deref(),
                 ));
             }
@@ -120,21 +120,20 @@ pub(super) async fn process_archive_preview_task(
         )?;
         let source_file = file_repo::find_by_id(state.writer_db(), payload.file_id).await?;
         ensure_source_file_matches_payload(&source_file, &payload)?;
-        let archive_format =
-            archive_preview_service::ensure_archive_preview_source_supported(&source_file)?;
-        let limits = archive_preview_service::ArchivePreviewLimits::from_runtime_config(
+        let archive_format = preview::ensure_archive_preview_source_supported(&source_file)?;
+        let limits = preview::ArchivePreviewLimits::from_runtime_config(
             state.runtime_config(),
             crate::types::ArchiveFilenameEncoding::Auto,
             archive_format,
         )?;
         if limits.task_signature != payload.limit_signature {
-            return Err(archive_preview_service::archive_preview_validation_error(
+            return Err(preview::archive_preview_validation_error(
                 ApiErrorCode::ArchivePreviewRejected,
                 "archive preview limits changed before generation completed",
             ));
         }
         if source_file.size > limits.max_source_bytes {
-            return Err(archive_preview_service::archive_preview_validation_error(
+            return Err(preview::archive_preview_validation_error(
                 ApiErrorCode::ArchivePreviewSourceTooLarge,
                 format!(
                     "source archive size {} exceeds archive preview limit {}",
@@ -177,7 +176,7 @@ pub(super) async fn process_archive_preview_task(
             let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
             let source_archive_path =
                 std::path::Path::new(&task_temp_dir).join(archive_format.temp_file_name());
-            archive_preview_service::download_blob_to_temp(
+            preview::download_blob_to_temp(
                 state,
                 &context,
                 &source_file,
@@ -211,7 +210,7 @@ pub(super) async fn process_archive_preview_task(
         .await?;
         let manifest = match source_archive_path {
             Some(source_archive_path) => {
-                archive_preview_service::scan_manifest_from_temp(
+                preview::scan_manifest_from_temp(
                     &source_file,
                     &blob,
                     &source_archive_path,
@@ -220,7 +219,7 @@ pub(super) async fn process_archive_preview_task(
                 .await?
             }
             None => {
-                archive_preview_service::scan_manifest_from_storage_range(
+                preview::scan_manifest_from_storage_range(
                     &source_file,
                     &blob,
                     driver,
@@ -252,7 +251,7 @@ pub(super) async fn process_archive_preview_task(
         )
         .await?;
 
-        archive_preview_service::store_cached_manifest(
+        preview::store_cached_manifest(
             state,
             &source_file,
             &blob,
@@ -314,7 +313,7 @@ fn ensure_source_file_matches_payload(
         )));
     }
     if source_file.blob_id != payload.source_blob_id {
-        return Err(archive_preview_service::archive_preview_validation_error(
+        return Err(preview::archive_preview_validation_error(
             ApiErrorCode::ArchivePreviewRejected,
             "archive preview source changed before generation completed",
         ));
@@ -327,7 +326,7 @@ fn ensure_source_blob_matches_payload(
     payload: &ArchivePreviewTaskPayload,
 ) -> Result<()> {
     if blob.id != payload.source_blob_id || blob.hash != payload.source_hash {
-        return Err(archive_preview_service::archive_preview_validation_error(
+        return Err(preview::archive_preview_validation_error(
             ApiErrorCode::ArchivePreviewRejected,
             "archive preview source blob changed before generation completed",
         ));

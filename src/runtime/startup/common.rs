@@ -98,7 +98,7 @@ pub async fn initialize_database_state(
 
     ensure_default_policy(database).await?;
     if matches!(mode, NodeRuntimeMode::Primary) {
-        crate::services::policy_service::ensure_policy_groups_seeded(database).await?;
+        crate::services::storage_policy::policy::ensure_policy_groups_seeded(database).await?;
     }
 
     let bootstrap_cookie_secure = (!cfg.auth.bootstrap_insecure_cookies).to_string();

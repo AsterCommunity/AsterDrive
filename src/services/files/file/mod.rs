@@ -22,7 +22,7 @@ use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::types::NullablePatch;
 
-pub(crate) use crate::services::download_headers::DownloadDisposition;
+pub(crate) use crate::services::files::download_headers::DownloadDisposition;
 pub use crate::services::media::metadata::{MediaMetadataInfo, MediaMetadataLookup};
 pub(crate) use common::{
     ensure_personal_file_scope, if_none_match_matches, if_none_match_matches_value,

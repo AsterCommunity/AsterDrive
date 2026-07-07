@@ -648,15 +648,15 @@ async fn create_s3_default_policy(
 ) -> aster_drive::entities::storage_policy::Model {
     let policy = create_s3_policy(state, name, endpoint, bucket, options, chunk_size).await;
 
-    let group = aster_drive::services::policy_service::create_group(
+    let group = aster_drive::services::storage_policy::policy::create_group(
         state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: format!("S3 Test Group · {}", policy.id),
             description: Some(format!("Single-policy S3 group for policy #{}", policy.id)),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: policy.id,
                     priority: 1,
                     min_file_size: 0,
@@ -3359,7 +3359,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
     use aster_drive::services::{
-        auth::local, files::folder, policy_service, task_service, upload_service,
+        auth::local, files::folder, storage_policy::policy, task_service, upload_service,
     };
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -3429,7 +3429,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "temp object should not exist before the late PUT"
     );
 
-    policy_service::delete(&state, policy.id, true)
+    policy::delete(&state, policy.id, true)
         .await
         .expect("force deleting policy with pending presigned session should succeed");
     assert!(

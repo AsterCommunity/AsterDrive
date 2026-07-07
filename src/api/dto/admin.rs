@@ -222,7 +222,7 @@ pub struct ExecuteSavedStoragePolicyActionReq {
 pub struct StartStorageAuthorizationReq {
     pub provider: crate::types::StorageCredentialProvider,
     pub microsoft_graph:
-        Option<crate::services::storage_credential_service::MicrosoftGraphAuthorizationInput>,
+        Option<crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput>,
 }
 
 /// Promote an S3-compatible storage policy to a specialized S3-compatible driver.
@@ -932,7 +932,7 @@ fn validate_admin_patch_team(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::storage_credential_service::MicrosoftGraphAuthorizationInput;
+    use crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput;
     use crate::types::{DriverType, StorageCredentialProvider};
 
     #[test]

@@ -7,7 +7,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::config::{RuntimeConfig, operations};
 use crate::errors::Result;
-use crate::services::integrity_service::{self, StorageObjectAudit};
+use crate::services::ops::integrity::{self, StorageObjectAudit};
 
 use super::{DoctorCheck, DoctorStatus, doctor_check};
 
@@ -18,7 +18,7 @@ pub(super) async fn doctor_storage_scan_checks(
     policy_id: Option<i64>,
 ) -> Result<Vec<DoctorCheck>> {
     let driver_registry = crate::storage::DriverRegistry::noop();
-    let report = integrity_service::audit_storage_objects(
+    let report = integrity::audit_storage_objects(
         db,
         &driver_registry,
         policy_id,

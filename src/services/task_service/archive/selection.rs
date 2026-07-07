@@ -18,8 +18,7 @@ use crate::entities::{file, folder, share};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    download_headers::DownloadDisposition,
-    files::{batch, folder as folder_ops},
+    files::{batch, download_headers::DownloadDisposition, folder as folder_ops},
     share::{load_valid_folder_share_root, reserve_share_download_count, rollback_share_download_count},
     task_service::types::CreateArchiveTaskParams,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},

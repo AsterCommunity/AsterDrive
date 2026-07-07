@@ -549,7 +549,7 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
 
 #[actix_web::test]
 async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
-    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
 
     let state = common::setup().await;
     let user = local::register(
@@ -577,7 +577,7 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
     file::delete(&state, file_id, user.id).await.unwrap();
     folder::delete(&state, archive.id, user.id).await.unwrap();
 
-    let trash = trash_service::list_trash(&state, user.id, 10, 0, 10, None)
+    let trash = trash::list_trash(&state, user.id, 10, 0, 10, None)
         .await
         .unwrap();
 
@@ -593,7 +593,7 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
 
 #[actix_web::test]
 async fn test_list_trash_handles_root_and_shared_parent_paths() {
-    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashmix", "trashmix@example.com", "password123")
@@ -629,7 +629,7 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
         folder::delete(&state, folder_id, user.id).await.unwrap();
     }
 
-    let trash = trash_service::list_trash(&state, user.id, 10, 0, 10, None)
+    let trash = trash::list_trash(&state, user.id, 10, 0, 10, None)
         .await
         .unwrap();
 
@@ -669,7 +669,7 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
 
 #[actix_web::test]
 async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
-    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashzero", "trashzero@example.com", "password123")
@@ -686,7 +686,7 @@ async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
         .unwrap();
     file::delete(&state, root_file, user.id).await.unwrap();
 
-    let trash = trash_service::list_trash(&state, user.id, 0, 0, 0, None)
+    let trash = trash::list_trash(&state, user.id, 0, 0, 0, None)
         .await
         .unwrap();
 
@@ -697,10 +697,10 @@ async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
     assert!(trash.next_file_cursor.is_none());
 }
 
-// ─── Lock Service ─────────────────────────────────────────────────
+// ─── File Lock ─────────────────────────────────────────────────
 
 #[actix_web::test]
-async fn test_lock_service_lock_unlock() {
+async fn test_file_lock_lock_unlock() {
     let state = common::setup().await;
 
     let user = aster_drive::services::auth::local::register(
@@ -719,7 +719,7 @@ async fn test_lock_service_lock_unlock() {
     assert!(!folder.is_locked);
 
     // 锁定
-    let lock = aster_drive::services::lock_service::lock(
+    let lock = aster_drive::services::files::lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -738,7 +738,7 @@ async fn test_lock_service_lock_unlock() {
     assert!(f.is_locked);
 
     // 重复锁定应失败
-    let err = aster_drive::services::lock_service::lock(
+    let err = aster_drive::services::files::lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -754,7 +754,7 @@ async fn test_lock_service_lock_unlock() {
     assert!(err.is_err());
 
     // 解锁
-    aster_drive::services::lock_service::unlock(
+    aster_drive::services::files::lock::unlock(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -776,7 +776,7 @@ async fn test_lock_service_lock_unlock() {
 }
 
 #[actix_web::test]
-async fn test_lock_service_force_unlock() {
+async fn test_file_lock_force_unlock() {
     let state = common::setup().await;
 
     let user = aster_drive::services::auth::local::register(
@@ -792,7 +792,7 @@ async fn test_lock_service_force_unlock() {
         .await
         .unwrap();
 
-    let lock = aster_drive::services::lock_service::lock(
+    let lock = aster_drive::services::files::lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -804,7 +804,7 @@ async fn test_lock_service_force_unlock() {
     .unwrap();
 
     // 强制解锁（admin 操作）
-    aster_drive::services::lock_service::force_unlock(&state, lock.id)
+    aster_drive::services::files::lock::force_unlock(&state, lock.id)
         .await
         .unwrap();
 
@@ -815,9 +815,9 @@ async fn test_lock_service_force_unlock() {
 }
 
 #[actix_web::test]
-async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
+async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file, lock_service};
+    use aster_drive::services::{auth::local, files::file, files::lock};
 
     let state = common::setup().await;
     let user = local::register(&state, "tokunlock", "tokunlock@example.com", "pass1234")
@@ -837,7 +837,7 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
     .await
     .unwrap();
 
-    let lock = lock_service::lock(
+    let lock = lock::lock(
         &state,
         aster_drive::types::EntityType::File,
         file.id,
@@ -853,7 +853,7 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
         .unwrap();
     assert!(locked.is_locked);
 
-    lock_service::unlock_by_token(&state, &lock.token)
+    lock::unlock_by_token(&state, &lock.token)
         .await
         .unwrap();
 
@@ -870,9 +870,9 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
 }
 
 #[actix_web::test]
-async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
+async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::folder, lock_service};
+    use aster_drive::services::{auth::local, files::folder, files::lock};
     use chrono::Duration;
 
     let state = common::setup().await;
@@ -887,7 +887,7 @@ async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
         .await
         .unwrap();
 
-    let expired_lock = lock_service::lock(
+    let expired_lock = lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         expired_folder.id,
@@ -897,7 +897,7 @@ async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
     )
     .await
     .unwrap();
-    let active_lock = lock_service::lock(
+    let active_lock = lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         active_folder.id,
@@ -908,7 +908,7 @@ async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
     .await
     .unwrap();
 
-    let cleaned = lock_service::cleanup_expired(&state).await.unwrap();
+    let cleaned = lock::cleanup_expired(&state).await.unwrap();
     assert_eq!(cleaned, 1);
 
     let expired = folder_repo::find_by_id(state.writer_db(), expired_folder.id)
@@ -963,7 +963,7 @@ async fn test_version_service_list_delete() {
     .unwrap();
 
     // 无版本
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 0);
@@ -981,14 +981,14 @@ async fn test_version_service_list_delete() {
     .unwrap();
 
     // 应有 1 个版本
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 1);
     assert_eq!(versions[0].version, 1);
 
     // 删除版本
-    aster_drive::services::version_service::delete_version(
+    aster_drive::services::content::version::delete_version(
         &state,
         file.id,
         versions[0].id,
@@ -997,7 +997,7 @@ async fn test_version_service_list_delete() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 0);
@@ -1043,7 +1043,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -1054,7 +1054,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
         vec![2, 1]
     );
 
-    aster_drive::services::version_service::delete_version(
+    aster_drive::services::content::version::delete_version(
         &state,
         file.id,
         versions[1].id,
@@ -1063,7 +1063,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 1);
@@ -1078,7 +1078,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -1133,7 +1133,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     .unwrap();
     assert_eq!(user_storage_used(&state, user.id).await, 18);
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -1144,7 +1144,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
         vec![6, 4]
     );
 
-    aster_drive::services::version_service::delete_version(
+    aster_drive::services::content::version::delete_version(
         &state,
         file.id,
         versions[1].id,
@@ -1154,10 +1154,10 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     .unwrap();
     assert_eq!(user_storage_used(&state, user.id).await, 14);
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
-    let restored = aster_drive::services::version_service::restore_version(
+    let restored = aster_drive::services::content::version::restore_version(
         &state,
         file.id,
         versions[0].id,
@@ -1168,7 +1168,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     assert_eq!(restored.size, 6);
     assert_eq!(user_storage_used(&state, user.id).await, 6);
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert!(versions.is_empty());
@@ -1226,7 +1226,7 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 1);
@@ -1291,7 +1291,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -1305,13 +1305,13 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
     let old_current_blob_id = latest.blob_id;
 
     let restored =
-        aster_drive::services::version_service::restore_version(&state, file.id, v2.id, user.id)
+        aster_drive::services::content::version::restore_version(&state, file.id, v2.id, user.id)
             .await
             .unwrap();
 
     assert_eq!(restored.blob_id, v2.blob_id);
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(versions.len(), 1);
@@ -1352,7 +1352,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
     .await
     .unwrap();
 
-    let versions = aster_drive::services::version_service::list_versions(&state, file.id, user.id)
+    let versions = aster_drive::services::content::version::list_versions(&state, file.id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -1732,7 +1732,7 @@ async fn test_property_service_dav_readonly() {
         .unwrap();
 
     // 普通命名空间 OK
-    let prop = aster_drive::services::property_service::set(
+    let prop = aster_drive::services::content::property::set(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -1746,7 +1746,7 @@ async fn test_property_service_dav_readonly() {
     assert_eq!(prop.name, "color");
 
     // DAV: 命名空间被拒绝
-    let err = aster_drive::services::property_service::set(
+    let err = aster_drive::services::content::property::set(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,
@@ -1782,10 +1782,10 @@ async fn test_driver_registry_invalidate_on_policy_update() {
     );
 
     // 通过 service 更新策略（会触发 invalidate）
-    aster_drive::services::policy_service::update(
+    aster_drive::services::storage_policy::policy::update(
         &state,
         policy.id,
-        aster_drive::services::policy_service::UpdateStoragePolicyInput {
+        aster_drive::services::storage_policy::policy::UpdateStoragePolicyInput {
             name: Some("Updated Name".to_string()),
             ..Default::default()
         },
@@ -2735,7 +2735,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     .await
     .unwrap();
 
-    aster_drive::services::lock_service::lock(
+    aster_drive::services::files::lock::lock(
         &state,
         aster_drive::types::EntityType::Folder,
         folder.id,

@@ -4,7 +4,7 @@ use crate::api::dto::files::VersionPath;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service::AuditContext, auth::local::Claims, version_service};
+use crate::services::{audit_service::AuditContext, auth::local::Claims, content::version};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -24,7 +24,7 @@ pub async fn list_versions(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let versions = version_service::list_versions(state.get_ref(), *path, claims.user_id).await?;
+    let versions = version::list_versions(state.get_ref(), *path, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
@@ -51,7 +51,7 @@ pub async fn restore_version(
     path: web::Path<VersionPath>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = version_service::restore_version_with_audit(
+    let file = version::restore_version_with_audit(
         state.get_ref(),
         path.id,
         path.version_id,
@@ -85,7 +85,7 @@ pub async fn delete_version(
     path: web::Path<VersionPath>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    version_service::delete_version_with_audit(
+    version::delete_version_with_audit(
         state.get_ref(),
         path.id,
         path.version_id,
@@ -119,7 +119,7 @@ pub(crate) async fn team_list_versions(
 ) -> Result<HttpResponse> {
     let (team_id, file_id) = path.into_inner();
     let versions =
-        version_service::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id)
+        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id)
             .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
@@ -150,7 +150,7 @@ pub(crate) async fn team_restore_version(
 ) -> Result<HttpResponse> {
     let (team_id, file_id, version_id) = path.into_inner();
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = version_service::restore_version_for_team_with_audit(
+    let file = version::restore_version_for_team_with_audit(
         state.get_ref(),
         team_id,
         file_id,
@@ -188,7 +188,7 @@ pub(crate) async fn team_delete_version(
 ) -> Result<HttpResponse> {
     let (team_id, file_id, version_id) = path.into_inner();
     let ctx = AuditContext::from_request(&req, &claims);
-    version_service::delete_version_for_team_with_audit(
+    version::delete_version_for_team_with_audit(
         state.get_ref(),
         team_id,
         file_id,

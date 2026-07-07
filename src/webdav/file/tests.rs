@@ -224,7 +224,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
     .await
     .expect("test user should be inserted");
 
-    crate::services::policy_service::ensure_policy_groups_seeded(&db)
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(&db)
         .await
         .expect("policy groups should be seeded for direct S3 test");
 
@@ -249,7 +249,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
     driver_registry.insert_for_test(policy.id, Arc::new(mock_driver.clone()));
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
         crate::services::share::spawn_detached_share_download_rollback_queue(

@@ -345,7 +345,7 @@ async fn wait_for_aria2_rpc(rpc_url: &str, rpc_secret: &str) {
 
 async fn drain_storage_change_events(
     rx: &mut tokio::sync::broadcast::Receiver<
-        aster_drive::services::storage_change_service::StorageChangeEvent,
+        aster_drive::services::events::storage_change::StorageChangeEvent,
     >,
 ) {
     while let Ok(Ok(_)) | Ok(Err(broadcast::error::RecvError::Lagged(_))) =
@@ -3921,7 +3921,7 @@ async fn test_archive_extract_task_publishes_single_storage_change_event() {
         .expect("storage change channel should stay open");
     assert_eq!(
         event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FolderCreated
+        aster_drive::services::events::storage_change::StorageChangeKind::FolderCreated
     );
     assert_eq!(event.file_ids.len(), 3);
     assert_eq!(event.folder_ids.len(), 2);
@@ -4082,7 +4082,7 @@ async fn test_archive_extract_empty_directories_publish_non_quota_storage_change
         .expect("storage change channel should stay open");
     assert_eq!(
         event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FolderCreated
+        aster_drive::services::events::storage_change::StorageChangeKind::FolderCreated
     );
     assert!(event.file_ids.is_empty());
     assert_eq!(event.folder_ids.len(), 3);

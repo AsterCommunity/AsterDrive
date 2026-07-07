@@ -34,9 +34,9 @@ fn write_open_options(create_new: bool) -> OpenOptions {
 
 async fn recv_storage_event(
     rx: &mut tokio::sync::broadcast::Receiver<
-        aster_drive::services::storage_change_service::StorageChangeEvent,
+        aster_drive::services::events::storage_change::StorageChangeEvent,
     >,
-) -> aster_drive::services::storage_change_service::StorageChangeEvent {
+) -> aster_drive::services::events::storage_change::StorageChangeEvent {
     tokio::time::timeout(Duration::from_secs(1), rx.recv())
         .await
         .expect("should receive storage change event")
@@ -616,7 +616,7 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
 #[actix_web::test]
 async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
     use aster_drive::services::auth::local;
-    use aster_drive::services::storage_change_service::{
+    use aster_drive::services::events::storage_change::{
         StorageChangeKind, StorageChangeWorkspace,
     };
     use aster_drive::webdav::fs::AsterDavFs;
@@ -664,7 +664,7 @@ async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
 #[actix_web::test]
 async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
     use aster_drive::services::auth::local;
-    use aster_drive::services::storage_change_service::{
+    use aster_drive::services::events::storage_change::{
         StorageChangeKind, StorageChangeWorkspace,
     };
     use aster_drive::webdav::fs::AsterDavFs;
@@ -707,7 +707,7 @@ async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
 #[actix_web::test]
 async fn test_aster_dav_fs_copy_folder_publishes_storage_event() {
     use aster_drive::services::auth::local;
-    use aster_drive::services::storage_change_service::{
+    use aster_drive::services::events::storage_change::{
         StorageChangeKind, StorageChangeWorkspace,
     };
     use aster_drive::webdav::fs::AsterDavFs;

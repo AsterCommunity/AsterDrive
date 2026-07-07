@@ -11,7 +11,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::{
     audit_service::{self, AuditRequestInfo},
     files::file as file_ops,
-    lock_service,
+    files::lock,
 };
 use crate::types::EntityType;
 
@@ -240,7 +240,7 @@ pub async fn unlock_file(
     match active_lock.payload {
         Some(payload) if payload.lock == lock_value => {
             lock_repo::delete_by_id(state.writer_db(), active_lock.lock.id).await?;
-            lock_service::clear_entity_locked_if_unlocked(
+            lock::clear_entity_locked_if_unlocked(
                 state.writer_db(),
                 EntityType::File,
                 resolved.file.id,
@@ -372,7 +372,7 @@ pub(crate) async fn load_active_lock(
     }
 
     if active_locks.is_empty() {
-        lock_service::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id)
+        lock::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id)
             .await?;
         return Ok(ActiveWopiLockState::None);
     }
@@ -402,12 +402,12 @@ async fn create_wopi_lock(
     file: &file::Model,
     requested_lock: &str,
 ) -> Result<()> {
-    let owner_info = lock_service::ResourceLockOwnerInfo::Wopi(lock_service::WopiLockOwnerInfo {
+    let owner_info = lock::ResourceLockOwnerInfo::Wopi(lock::WopiLockOwnerInfo {
         app_key: payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
 
-    lock_service::lock(
+    lock::lock(
         state,
         EntityType::File,
         file.id,
@@ -483,11 +483,11 @@ async fn replace_wopi_lock_model(
 ) -> Result<()> {
     let mut active: resource_lock::ActiveModel = lock.into();
     // app_key 仍保留在 owner_info 里做审计/排障，但 lock 是否匹配只比较 opaque lock ID。
-    let owner_info = lock_service::ResourceLockOwnerInfo::Wopi(lock_service::WopiLockOwnerInfo {
+    let owner_info = lock::ResourceLockOwnerInfo::Wopi(lock::WopiLockOwnerInfo {
         app_key: payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
-    active.owner_info = Set(lock_service::serialize_resource_lock_owner_info(Some(
+    active.owner_info = Set(lock::serialize_resource_lock_owner_info(Some(
         &owner_info,
     ))?);
     active.timeout_at = Set(Some(
@@ -501,8 +501,8 @@ async fn replace_wopi_lock_model(
 }
 
 fn parse_wopi_lock_payload(lock: &resource_lock::Model) -> Result<Option<WopiLockPayload>> {
-    match lock_service::deserialize_resource_lock_owner_info(lock)? {
-        Some(lock_service::ResourceLockOwnerInfo::Wopi(payload)) => Ok(Some(WopiLockPayload {
+    match lock::deserialize_resource_lock_owner_info(lock)? {
+        Some(lock::ResourceLockOwnerInfo::Wopi(payload)) => Ok(Some(WopiLockPayload {
             kind: "wopi".to_string(),
             app_key: payload.app_key,
             lock: payload.lock,

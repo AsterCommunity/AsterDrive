@@ -175,7 +175,7 @@ Remote protocol code must not decide:
 - How remote storage target descriptors are presented in the UI
 - Whether a product-level error should block a policy change
 
-Those decisions belong to `remote::remote_node`, `remote::storage_target`, `policy_service`, or a capability / target resolver.
+Those decisions belong to `remote::remote_node`, `remote::storage_target`, `storage_policy::policy`, or a capability / target resolver.
 
 ### WebDAV And WOPI Protocol Entry Points
 
@@ -319,7 +319,7 @@ Side effects that must be explicit:
 - File, blob, version, and quota consistency inside database transactions
 - Binding between completed upload sessions and final files
 
-### `policy_service`
+### `storage_policy::policy`
 
 Current responsibilities:
 

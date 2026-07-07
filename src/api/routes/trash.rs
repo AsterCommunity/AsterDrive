@@ -10,7 +10,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service, auth::local::Claims, files::file, files::folder, task_service, trash_service,
+    audit_service, auth::local::Claims, files::file, files::folder, task_service, files::trash,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -48,7 +48,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "list_trash",
     params(TrashListQuery),
     responses(
-        (status = 200, description = "Trash contents", body = inline(ApiResponse<trash_service::TrashContents>)),
+        (status = 200, description = "Trash contents", body = inline(ApiResponse<trash::TrashContents>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -59,9 +59,9 @@ pub async fn list_trash(
     query: web::Query<TrashListQuery>,
 ) -> Result<HttpResponse> {
     let file_cursor = query.file_cursor().map(|(expires_at, id)| {
-        trash_service::expires_cursor_to_deleted_cursor(state.get_ref(), expires_at, id)
+        trash::expires_cursor_to_deleted_cursor(state.get_ref(), expires_at, id)
     });
-    let contents = trash_service::list_trash(
+    let contents = trash::list_trash(
         state.get_ref(),
         claims.user_id,
         query.folder_limit(),
@@ -102,10 +102,10 @@ pub async fn restore(
         trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
         EntityType::File => {
-            trash_service::restore_file(state.get_ref(), path.id, claims.user_id).await?
+            trash::restore_file(state.get_ref(), path.id, claims.user_id).await?
         }
         EntityType::Folder => {
-            trash_service::restore_folder(state.get_ref(), path.id, claims.user_id).await?
+            trash::restore_folder(state.get_ref(), path.id, claims.user_id).await?
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
@@ -154,10 +154,10 @@ pub async fn purge_one(
         trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
         EntityType::File => {
-            trash_service::purge_file(state.get_ref(), path.id, claims.user_id).await?
+            trash::purge_file(state.get_ref(), path.id, claims.user_id).await?
         }
         EntityType::Folder => {
-            trash_service::purge_folder(state.get_ref(), path.id, claims.user_id).await?
+            trash::purge_folder(state.get_ref(), path.id, claims.user_id).await?
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
@@ -227,7 +227,7 @@ pub async fn purge_all(
         TrashListQuery
     ),
     responses(
-        (status = 200, description = "Team trash contents", body = inline(ApiResponse<trash_service::TrashContents>)),
+        (status = 200, description = "Team trash contents", body = inline(ApiResponse<trash::TrashContents>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -241,9 +241,9 @@ pub(crate) async fn team_list_trash(
 ) -> Result<HttpResponse> {
     let team_id = *path;
     let file_cursor = query.file_cursor().map(|(expires_at, id)| {
-        trash_service::expires_cursor_to_deleted_cursor(state.get_ref(), expires_at, id)
+        trash::expires_cursor_to_deleted_cursor(state.get_ref(), expires_at, id)
     });
-    let contents = trash_service::list_team_trash(
+    let contents = trash::list_team_trash(
         state.get_ref(),
         team_id,
         claims.user_id,
@@ -289,10 +289,10 @@ pub(crate) async fn team_restore(
         trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     match entity_type {
         EntityType::File => {
-            trash_service::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?
+            trash::restore_team_file(state.get_ref(), team_id, id, claims.user_id).await?
         }
         EntityType::Folder => {
-            trash_service::restore_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
+            trash::restore_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
@@ -345,10 +345,10 @@ pub(crate) async fn team_purge_one(
         trash_item_audit_details(state.get_ref(), scope, entity_type, id).await?;
     match entity_type {
         EntityType::File => {
-            trash_service::purge_team_file(state.get_ref(), team_id, id, claims.user_id).await?
+            trash::purge_team_file(state.get_ref(), team_id, id, claims.user_id).await?
         }
         EntityType::Folder => {
-            trash_service::purge_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
+            trash::purge_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
         }
     }
     let ctx = audit_service::AuditContext::from_request(&req, &claims);

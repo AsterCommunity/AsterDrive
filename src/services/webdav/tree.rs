@@ -8,7 +8,7 @@ use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
     files::{file, folder as folder_ops},
-    storage_change_service,
+    events::storage_change,
     workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
@@ -87,10 +87,10 @@ pub(crate) async fn recursive_soft_delete_in_scope(
     file_repo::soft_delete_many(&txn, &file_ids, now).await?;
     folder_repo::soft_delete_many(&txn, &folder_ids, now).await?;
     crate::db::transaction::commit(txn).await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FolderTrashed,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderTrashed,
             scope,
             vec![],
             vec![folder.id],
@@ -197,10 +197,10 @@ pub(crate) async fn copy_folder_tree_in_scope(
         dest_name,
     )
     .await?;
-    storage_change_service::publish(
+    storage_change::publish(
         state,
-        storage_change_service::StorageChangeEvent::new(
-            storage_change_service::StorageChangeKind::FolderCreated,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FolderCreated,
             scope,
             vec![],
             vec![copied.id],

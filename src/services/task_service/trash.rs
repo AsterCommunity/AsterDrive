@@ -54,7 +54,7 @@ pub(super) async fn process_trash_purge_all_task(
     mark_task_progress(state, &lease_guard, 0, 0, Some("Purging trash"), &steps).await?;
 
     let purge_summary =
-        crate::services::trash_service::purge_all_in_scope_silent(state, scope).await?;
+        crate::services::files::trash::purge_all_in_scope_silent(state, scope).await?;
     let purged = purge_summary.purged;
     let progress = i64::from(purged);
     set_task_step_succeeded(
@@ -75,6 +75,6 @@ pub(super) async fn process_trash_purge_all_task(
         &steps,
     )
     .await?;
-    crate::services::trash_service::publish_purge_all_storage_change(state, scope, &purge_summary);
+    crate::services::files::trash::publish_purge_all_storage_change(state, scope, &purge_summary);
     Ok(())
 }

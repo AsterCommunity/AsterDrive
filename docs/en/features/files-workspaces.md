@@ -27,8 +27,8 @@ Files and workspaces are the main business path in AsterDrive. This area connect
 | `workspace::storage_core`, `workspace::storage` | File records, blobs, quota, storage-policy finalization |
 | `team_service` | Teams, members, roles, archive |
 | `share`, `share_public` routes | Share creation, public access, share scope |
-| `trash_service`, `version_service`, `lock_service` | Trash, versions, file locks |
-| `property_service` | File/folder extended properties |
+| `files::trash`, `content::version`, `files::lock` | Trash, versions, file locks |
+| `content::property` | File/folder extended properties |
 
 ## Data Boundaries
 

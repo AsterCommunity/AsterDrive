@@ -1,33 +1,21 @@
 //! 服务层模块导出。
 
-pub mod admin_service;
-pub mod archive_preview_service;
-pub(crate) mod archive_service;
 pub mod audit_service;
 pub mod auth;
 pub mod config_service;
-pub(crate) mod download_headers;
+pub mod content;
+pub mod events;
 pub mod files;
-pub mod health_service;
-pub mod integrity_service;
-pub mod lock_service;
 pub mod mail;
-pub mod maintenance_service;
 pub mod media;
-pub mod policy_service;
+pub mod ops;
 pub mod preview;
-pub mod property_service;
 pub mod remote;
-pub mod search_service;
 pub mod share;
-pub mod storage_change_service;
-pub mod storage_credential_service;
-pub mod tag_service;
+pub mod storage_policy;
 pub mod task_service;
 pub mod team_service;
-pub mod trash_service;
 pub mod upload_service;
 pub mod user;
-pub mod version_service;
 pub mod webdav;
 pub mod workspace;

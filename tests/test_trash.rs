@@ -26,7 +26,7 @@ async fn test_trash_restore_purge() {
     let upload_event = rx.recv().await.expect("upload should publish event");
     assert_eq!(
         upload_event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FileCreated
+        aster_drive::services::events::storage_change::StorageChangeKind::FileCreated
     );
     assert!(upload_event.affects_quota);
     assert_eq!(
@@ -45,7 +45,7 @@ async fn test_trash_restore_purge() {
     let trash_event = rx.recv().await.expect("soft delete should publish event");
     assert_eq!(
         trash_event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FileTrashed
+        aster_drive::services::events::storage_change::StorageChangeKind::FileTrashed
     );
     assert!(!trash_event.affects_quota);
     assert_eq!(trash_event.storage_delta, None);
@@ -75,7 +75,7 @@ async fn test_trash_restore_purge() {
     let restore_event = rx.recv().await.expect("restore should publish event");
     assert_eq!(
         restore_event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FileRestoredFromTrash
+        aster_drive::services::events::storage_change::StorageChangeKind::FileRestoredFromTrash
     );
     assert!(!restore_event.affects_quota);
     assert_eq!(restore_event.storage_delta, None);
@@ -108,7 +108,7 @@ async fn test_trash_restore_purge() {
     let purge_event = rx.recv().await.expect("purge should publish event");
     assert_eq!(
         purge_event.kind,
-        aster_drive::services::storage_change_service::StorageChangeKind::FilePurged
+        aster_drive::services::events::storage_change::StorageChangeKind::FilePurged
     );
     assert!(purge_event.affects_quota);
     assert_eq!(
@@ -181,7 +181,7 @@ async fn test_restore_file_rejects_active_name_conflict() {
 #[actix_web::test]
 async fn test_trash_purge_all() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::storage_change_service::StorageChangeKind;
+    use aster_drive::services::events::storage_change::StorageChangeKind;
 
     let state = common::setup().await;
     let mut rx = state.storage_change_tx.subscribe();
@@ -780,7 +780,7 @@ async fn test_restore_folder_moves_to_root_when_parent_is_deleted() {
 #[actix_web::test]
 async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config() {
     use aster_drive::db::repository::{config_repo, file_repo, folder_repo};
-    use aster_drive::services::{auth::local, files::file, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -863,7 +863,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     deleted_folder.deleted_at = Set(Some(expired_at));
     deleted_folder.update(state.writer_db()).await.unwrap();
 
-    let purged = trash_service::cleanup_expired(&state).await.unwrap();
+    let purged = trash::cleanup_expired(&state).await.unwrap();
     assert_eq!(purged, 3);
     assert!(
         file_repo::find_by_id(state.writer_db(), root_file.id)
@@ -885,7 +885,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
 #[actix_web::test]
 async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
     use aster_drive::db::repository::folder_repo;
-    use aster_drive::services::{auth::local, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::folder, files::trash};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -914,7 +914,7 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
         folder.update(state.writer_db()).await.unwrap();
     }
 
-    let purged = trash_service::cleanup_expired(&state).await.unwrap();
+    let purged = trash::cleanup_expired(&state).await.unwrap();
     assert_eq!(
         purged, 1,
         "only the top-level expired folder should be counted"
@@ -934,7 +934,7 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
 #[actix_web::test]
 async fn test_cleanup_expired_keeps_recently_deleted_items() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth::local, files::file, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::trash};
 
     let state = common::setup().await;
     let user = local::register(&state, "trashrecent", "trashrecent@example.com", "pass1234")
@@ -957,7 +957,7 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
 
     file::delete(&state, file.id, user.id).await.unwrap();
 
-    let purged = trash_service::cleanup_expired(&state).await.unwrap();
+    let purged = trash::cleanup_expired(&state).await.unwrap();
     assert_eq!(purged, 0);
 
     let trashed = file_repo::find_by_id(state.writer_db(), file.id)
@@ -968,7 +968,7 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_file_batches() {
-    use aster_drive::services::{auth::local, files::file, trash_service};
+    use aster_drive::services::{auth::local, files::file, files::trash};
 
     let state = common::setup().await;
     let user = local::register(&state, "tbfiles", "trashbatchfiles@example.com", "pass1234")
@@ -982,10 +982,10 @@ async fn test_purge_all_processes_multiple_file_batches() {
         file::delete(&state, file.id, user.id).await.unwrap();
     }
 
-    let purged = trash_service::purge_all(&state, user.id).await.unwrap();
+    let purged = trash::purge_all(&state, user.id).await.unwrap();
     assert_eq!(purged, 120);
 
-    let trash = trash_service::list_trash(&state, user.id, 50, 0, 50, None)
+    let trash = trash::list_trash(&state, user.id, 50, 0, 50, None)
         .await
         .unwrap();
     assert_eq!(trash.files_total, 0);
@@ -994,7 +994,7 @@ async fn test_purge_all_processes_multiple_file_batches() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_folder_batches() {
-    use aster_drive::services::{auth::local, files::folder, trash_service};
+    use aster_drive::services::{auth::local, files::folder, files::trash};
 
     let state = common::setup().await;
     let user = local::register(
@@ -1013,10 +1013,10 @@ async fn test_purge_all_processes_multiple_folder_batches() {
         folder::delete(&state, folder.id, user.id).await.unwrap();
     }
 
-    let purged = trash_service::purge_all(&state, user.id).await.unwrap();
+    let purged = trash::purge_all(&state, user.id).await.unwrap();
     assert_eq!(purged, 120);
 
-    let trash = trash_service::list_trash(&state, user.id, 50, 0, 50, None)
+    let trash = trash::list_trash(&state, user.id, 50, 0, 50, None)
         .await
         .unwrap();
     assert_eq!(trash.files_total, 0);

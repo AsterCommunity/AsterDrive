@@ -1,0 +1,6 @@
+//! 管理概览、健康检查、维护任务和一致性审计服务。
+
+pub mod admin;
+pub mod health;
+pub mod integrity;
+pub mod maintenance;

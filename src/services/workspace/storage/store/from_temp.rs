@@ -40,13 +40,13 @@ pub(crate) async fn store_from_temp_internal(
 
     if emit_storage_event {
         let event_kind = if overwritten {
-            storage_change_service::StorageChangeKind::FileUpdated
+            storage_change::StorageChangeKind::FileUpdated
         } else {
-            storage_change_service::StorageChangeKind::FileCreated
+            storage_change::StorageChangeKind::FileCreated
         };
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new(
+            storage_change::StorageChangeEvent::new(
                 event_kind,
                 scope,
                 vec![result.id],
@@ -58,7 +58,7 @@ pub(crate) async fn store_from_temp_internal(
     }
 
     if let Some(existing_id) = existing_file_id {
-        crate::services::version_service::cleanup_excess(state, existing_id).await?;
+        crate::services::content::version::cleanup_excess(state, existing_id).await?;
     }
 
     tracing::debug!(

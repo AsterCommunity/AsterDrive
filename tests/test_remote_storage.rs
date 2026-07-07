@@ -19,7 +19,7 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth::local, files::file, files::folder, policy_service, remote::master_binding,
+    auth::local, files::file, files::folder, storage_policy::policy, remote::master_binding,
     remote::remote_node, remote::storage_target, upload_service,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
@@ -528,11 +528,11 @@ async fn create_remote_policy_via_service_with_options(
     options: StoragePolicyOptions,
     chunk_size: i64,
 ) -> storage_policy::Model {
-    let created = policy_service::create(
+    let created = policy::create(
         state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: name.to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Remote,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -3814,11 +3814,11 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
     )
     .await;
 
-    policy_service::test_connection_params(
+    policy::test_connection_params(
         &consumer_state,
-        policy_service::TestDraftStoragePolicyConnectionInput {
+        policy::TestDraftStoragePolicyConnectionInput {
             policy_id: None,
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Remote,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -4289,9 +4289,9 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
     .await
     .expect("reverse remote node should be created");
 
-    let make_input = |options| policy_service::CreateStoragePolicyInput {
+    let make_input = |options| policy::CreateStoragePolicyInput {
         name: "Reverse Presigned Rejected".to_string(),
-        connection: policy_service::StoragePolicyConnectionInput {
+        connection: policy::StoragePolicyConnectionInput {
             driver_type: DriverType::Remote,
             endpoint: String::new(),
             bucket: String::new(),
@@ -4311,7 +4311,7 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
         application_config: Default::default(),
     };
 
-    let upload_error = policy_service::create(
+    let upload_error = policy::create(
         &state,
         make_input(StoragePolicyOptions {
             remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
@@ -4330,7 +4330,7 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
             .contains("reverse tunnel remote nodes do not support presigned")
     );
 
-    let download_error = policy_service::create(
+    let download_error = policy::create(
         &state,
         make_input(StoragePolicyOptions {
             remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
@@ -4365,11 +4365,11 @@ async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
     .await
     .expect("auto remote node should be created without base_url");
 
-    let error = policy_service::create(
+    let error = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Auto Empty Presigned Rejected".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Remote,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -4430,10 +4430,10 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
     )
     .await;
 
-    let upload_error = policy_service::update(
+    let upload_error = policy::update(
         &state,
         policy.id,
-        policy_service::UpdateStoragePolicyInput {
+        policy::UpdateStoragePolicyInput {
             options: Some(StoragePolicyOptions {
                 remote_upload_strategy: Some(RemoteUploadStrategy::Presigned),
                 ..Default::default()
@@ -4453,10 +4453,10 @@ async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies()
             .contains("reverse tunnel remote nodes do not support presigned")
     );
 
-    let download_error = policy_service::update(
+    let download_error = policy::update(
         &state,
         policy.id,
-        policy_service::UpdateStoragePolicyInput {
+        policy::UpdateStoragePolicyInput {
             options: Some(StoragePolicyOptions {
                 remote_download_strategy: Some(RemoteDownloadStrategy::Presigned),
                 ..Default::default()
@@ -4800,11 +4800,11 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     assert_eq!(probe_error.code(), "E060");
     assert!(probe_error.message().contains("master binding is disabled"));
 
-    let create_error = policy_service::create(
+    let create_error = policy::create(
         &consumer_state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Disabled Remote Policy".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Remote,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -5712,7 +5712,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
         "temp object should not exist before the late PUT"
     );
 
-    policy_service::delete(&consumer_state, remote_policy.id, true)
+    policy::delete(&consumer_state, remote_policy.id, true)
         .await
         .expect("force deleting remote policy with pending presigned session should succeed");
     assert!(

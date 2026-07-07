@@ -9,7 +9,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::folder,
-    storage_change_service,
+    events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -132,10 +132,10 @@ pub(crate) async fn batch_delete_in_scope(
         crate::db::transaction::commit(txn).await?;
 
         if !direct_file_ids_deleted.is_empty() {
-            storage_change_service::publish(
+            storage_change::publish(
                 state,
-                storage_change_service::StorageChangeEvent::new(
-                    storage_change_service::StorageChangeKind::FileTrashed,
+                storage_change::StorageChangeEvent::new(
+                    storage_change::StorageChangeKind::FileTrashed,
                     scope,
                     direct_file_ids_deleted,
                     vec![],
@@ -144,10 +144,10 @@ pub(crate) async fn batch_delete_in_scope(
             );
         }
         if !root_folder_ids_to_delete.is_empty() {
-            storage_change_service::publish(
+            storage_change::publish(
                 state,
-                storage_change_service::StorageChangeEvent::new(
-                    storage_change_service::StorageChangeKind::FolderTrashed,
+                storage_change::StorageChangeEvent::new(
+                    storage_change::StorageChangeKind::FolderTrashed,
                     scope,
                     vec![],
                     root_folder_ids_to_delete,

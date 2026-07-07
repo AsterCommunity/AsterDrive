@@ -3,7 +3,7 @@
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::admin_service;
+use crate::services::ops::admin;
 use actix_web::{HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -11,9 +11,9 @@ use actix_web::{HttpResponse, web};
     path = "/api/v1/admin/overview",
     tag = "admin",
     operation_id = "get_admin_overview",
-    params(admin_service::AdminOverviewQuery),
+    params(admin::AdminOverviewQuery),
     responses(
-        (status = 200, description = "Admin overview", body = inline(ApiResponse<crate::services::admin_service::AdminOverview>)),
+        (status = 200, description = "Admin overview", body = inline(ApiResponse<crate::services::ops::admin::AdminOverview>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -21,9 +21,9 @@ use actix_web::{HttpResponse, web};
 )]
 pub async fn get_overview(
     state: web::Data<PrimaryAppState>,
-    query: web::Query<admin_service::AdminOverviewQuery>,
+    query: web::Query<admin::AdminOverviewQuery>,
 ) -> Result<HttpResponse> {
-    let overview = admin_service::get_overview(
+    let overview = admin::get_overview(
         state.get_ref(),
         query.days_or_default(),
         query.timezone_name(),
