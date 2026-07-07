@@ -11,7 +11,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::io::{AsyncRead, empty};
 
 use super::*;
-use crate::cache;
+use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};

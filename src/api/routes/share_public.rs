@@ -253,7 +253,7 @@ pub fn direct_routes(
     )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}",
     tag = "shares",
@@ -272,7 +272,7 @@ pub async fn get_share_info(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/verify",
     tag = "shares",
@@ -306,7 +306,7 @@ pub async fn verify_password(
         .json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/preview-link",
     tag = "shares",
@@ -339,7 +339,7 @@ pub async fn create_preview_link(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/archive-preview",
     tag = "shares",
@@ -379,7 +379,7 @@ pub async fn archive_preview(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/archive-download",
     tag = "shares",
@@ -418,7 +418,7 @@ pub async fn archive_download(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(ticket)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/archive-download/{ticket}",
     tag = "shares",
@@ -447,7 +447,7 @@ pub async fn archive_download_stream(
     task::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/stream-session",
     tag = "shares",
@@ -490,7 +490,7 @@ fn ensure_share_archive_download_enabled(state: &PrimaryAppState) -> Result<()> 
     Ok(())
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
 	path = "/api/v1/s/{token}/download",
 	tag = "shares",
@@ -587,7 +587,7 @@ pub async fn download_preview(
     Ok(file::outcome_to_response(outcome))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/stream/{session_token}/{filename}",
     tag = "shares",
@@ -625,7 +625,7 @@ pub async fn stream_shared_video(
     Ok(file::outcome_to_response(outcome))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/download",
     tag = "shares",
@@ -672,7 +672,7 @@ pub async fn download_shared_folder_file_handler(
     Ok(file::outcome_to_response(outcome))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/files/{file_id}/preview-link",
     tag = "shares",
@@ -709,7 +709,7 @@ pub async fn create_folder_file_preview_link(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(link)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/archive-preview",
     tag = "shares",
@@ -760,7 +760,7 @@ pub async fn folder_file_archive_preview(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/s/{token}/files/{file_id}/stream-session",
     tag = "shares",
@@ -797,7 +797,7 @@ pub async fn create_folder_file_stream_session(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(session)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/content",
     tag = "shares",
@@ -822,7 +822,7 @@ pub async fn list_shared_content(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/folders/{folder_id}/content",
     tag = "shares",
@@ -853,7 +853,7 @@ pub async fn list_shared_subfolder_content(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/avatar/{size}",
     tag = "shares",
@@ -880,7 +880,7 @@ pub async fn shared_avatar(
     Ok(profile::avatar_image_response(bytes))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/thumbnail",
     tag = "shares",
@@ -920,7 +920,7 @@ pub async fn shared_thumbnail(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/image-preview",
     tag = "shares",
@@ -961,7 +961,7 @@ pub async fn shared_image_preview(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/media-metadata",
     tag = "shares",
@@ -986,7 +986,7 @@ pub async fn shared_media_metadata(
     Ok(media_metadata_response(lookup))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/thumbnail",
     tag = "shares",
@@ -1030,7 +1030,7 @@ pub async fn shared_folder_file_thumbnail(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/media-metadata",
     tag = "shares",
@@ -1059,7 +1059,7 @@ pub async fn shared_folder_file_media_metadata(
     Ok(media_metadata_response(lookup))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/s/{token}/files/{file_id}/image-preview",
     tag = "shares",
@@ -1107,7 +1107,7 @@ pub async fn shared_folder_file_image_preview(
 #[cfg(test)]
 mod tests {
     use super::{direct_routes, routes};
-    use crate::cache;
+    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
     use crate::entities::{file, file_blob, folder, storage_policy, user};

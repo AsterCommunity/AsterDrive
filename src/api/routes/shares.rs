@@ -46,7 +46,7 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}", web::delete().to(team_delete_share))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/shares",
     tag = "shares",
@@ -77,7 +77,7 @@ pub async fn create_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/shares",
     tag = "shares",
@@ -104,7 +104,7 @@ pub async fn list_shares(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/shares/{id}",
     tag = "shares",
@@ -140,7 +140,7 @@ pub async fn update_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/shares/{id}",
     tag = "shares",
@@ -171,7 +171,7 @@ pub async fn delete_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/shares/batch-delete",
     tag = "shares",
@@ -203,7 +203,7 @@ pub async fn batch_delete_shares(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/shares",
     tag = "teams",
@@ -236,7 +236,7 @@ pub(crate) async fn team_create_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/shares",
     tag = "teams",
@@ -261,7 +261,7 @@ pub(crate) async fn team_list_shares(
     list_shares_response(state.get_ref(), team_scope(*path, claims.user_id), &query).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/shares/{id}",
     tag = "teams",
@@ -300,7 +300,7 @@ pub(crate) async fn team_update_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/shares/{id}",
     tag = "teams",
@@ -334,7 +334,7 @@ pub(crate) async fn team_delete_share(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/shares/batch-delete",
     tag = "teams",

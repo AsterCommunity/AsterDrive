@@ -49,21 +49,24 @@ panic = "abort"
 strip = true
 
 [workspace]
-members = [".", "migration", "api-docs-macros"]
+members = [".", "migration"]
 
 [features]
 default = ["server", "cli"]
 server = []
 cli = ["server", "dep:clap"]
 metrics = ["server", "dep:prometheus", "dep:sysinfo"]
-openapi = ["dep:utoipa", "dep:utoipa-swagger-ui", "api-docs-macros/openapi"]
+openapi = [
+    "dep:utoipa",
+    "dep:utoipa-swagger-ui",
+    "aster_forge_api_docs_macros/openapi",
+]
 full = ["server", "cli", "metrics", "openapi"]
-jemalloc = ["dep:tikv-jemallocator"]
+jemalloc = ["dep:tikv-jemallocator", "aster_forge_alloc/jemalloc"]
 jemalloc-stats = [
     "jemalloc",
     "tikv-jemallocator/stats",
-    "dep:tikv-jemalloc-ctl",
-    "tikv-jemalloc-ctl/stats",
+    "aster_forge_alloc/jemalloc-stats",
 ]
 jemalloc-profiling = ["jemalloc-stats", "tikv-jemallocator/profiling"]
 
@@ -74,7 +77,11 @@ actix-multipart = "0.8"
 actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aes-gcm = "0.10"
-api-docs-macros = { path = "api-docs-macros" }
+aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
+aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_alloc" }
+aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_cache", features = ["memory", "redis", "runtime-component"] }
+aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
+aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
 argon2 = "0.5.3"
 async-stream = "0.3"
 async-trait = "0.1"
@@ -117,19 +124,18 @@ percent-encoding = "2.3"
 openidconnect = "4.0.1"
 prometheus = { version = "0.14", optional = true, default-features = false }
 sysinfo = { version = "0.39", optional = true, default-features = false, features = ["system"] }
-rand = { version = "0.10.1", default-features = false, features = ["std", "std_rng", "thread_rng"] }
-redis = { version = "1.2.4", features = ["connection-manager", "tokio-comp", "tokio-rustls-comp"] }
+rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 reqwest = { version = "0.13", features = ["stream", "json"] }
 ring = "0.17"
 rust-embed = "8"
-sea-orm = { version = "2.0.0-rc.41", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "macros", "runtime-tokio-rustls"] }
+sea-orm = { version = "2.0.0-rc.42", features = ["sqlx-mysql", "sqlx-postgres", "sqlx-sqlite", "macros", "runtime-tokio-rustls"] }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.150"
 serde_repr = "0.1.20"
 secrecy = "0.10"
 sha1 = "0.11"
 sha2 = "0.11"
-russh = "0.62.1"
+russh = "0.62.2"
 russh-sftp = "2.3.0"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "fs", "io-util"] }
 tokio-tungstenite = { version = "0.29", features = ["rustls-tls-native-roots"] }
@@ -138,10 +144,7 @@ toml = "1.1"
 toml_edit = "0.25"
 tiff = "0.11.3"
 tikv-jemallocator = { version = "0.7", optional = true }
-tikv-jemalloc-ctl = { version = "0.7", optional = true }
 tracing = { version = "0.1.44", default-features = false}
-tracing-appender = "0.2.5"
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }
 unicode-normalization = "0.1"
 utoipa = { version = "5.5.0", features = ["chrono", "actix_extras", "repr"], optional = true }
 utoipa-swagger-ui = { version = "9.0.2", features = ["actix-web"], optional = true }
@@ -157,8 +160,8 @@ ipnet = "2.12.0"
 lofty = "0.24.0"
 
 [dev-dependencies]
-aws-smithy-http-client = { version = "1.1.13", features = ["test-util"] }
-aws-smithy-types = "1.5.0"
+aws-smithy-http-client = { version = "1.2.0", features = ["test-util"] }
+aws-smithy-types = "1.6.1"
 criterion = "0.7"
 # Test-only RSA key generation still uses rsa 0.9, which depends on rand 0.8.
 # Keep both dev-only so production builds continue using the main rand 0.10 line.
@@ -166,6 +169,7 @@ rand_08 = { package = "rand", version = "0.8" }
 rsa = "0.9"
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["ansi", "env-filter", "fmt", "json"] }
 webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] }
 
 [build-dependencies]

@@ -12,7 +12,7 @@ use crate::services::ops::audit::{self, AuditContext};
 use crate::services::{auth::local, user::account, user::profile};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/email/change",
     tag = "auth",
@@ -43,7 +43,7 @@ pub async fn request_email_change(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(user_info)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/email/change/resend",
     tag = "auth",
@@ -79,7 +79,7 @@ pub async fn resend_email_change(
 ///
 /// Only non-null fields in the request body are merged into the existing
 /// preferences. Returns the full updated preferences object.
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/auth/preferences",
     tag = "auth",
@@ -149,7 +149,7 @@ pub async fn patch_preferences(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(prefs)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/auth/profile",
     tag = "auth",
@@ -188,7 +188,7 @@ pub async fn patch_profile(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/profile/avatar/upload",
     tag = "auth",
@@ -227,7 +227,7 @@ pub async fn upload_avatar(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/auth/profile/avatar/source",
     tag = "auth",
@@ -269,7 +269,7 @@ pub async fn put_avatar_source(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(profile)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/profile/avatar/{size}",
     tag = "auth",

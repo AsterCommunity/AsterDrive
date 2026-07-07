@@ -504,7 +504,7 @@ pub(crate) async fn list_folders_in_parent(
 #[cfg(test)]
 mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
-    use crate::cache;
+    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, RuntimeConfig};
     use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
     use crate::entities::{

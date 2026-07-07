@@ -21,7 +21,7 @@ The repository already has the required wiring:
 - `jemalloc-profiling` enables `tikv-jemallocator/profiling` and includes `jemalloc-stats`
 - `src/main.rs` installs `tikv_jemallocator::Jemalloc` as the global allocator under the `jemalloc` feature
 - `src/main.rs` also embeds low-memory defaults through `_rjem_malloc_conf`: `narenas:1`, `dirty_decay_ms:1000`, `muzzy_decay_ms:1000`, `background_thread:true`
-- `src/alloc.rs` reads `stats::allocated` and `stats::resident` under `jemalloc-stats`
+- `aster_forge_alloc::stats()` reads `stats::allocated` and `stats::resident` under `jemalloc-stats`
 
 This means the first investigation usually does not need code changes. Build a profiling binary and enable profile dumps at runtime.
 

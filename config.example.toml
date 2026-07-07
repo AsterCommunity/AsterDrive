@@ -24,7 +24,7 @@ bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时�
 
 [cache]
 backend = "memory"   # "memory" | "redis"
-redis_url = ""
+endpoint = ""
 default_ttl = 3600
 
 [logging]

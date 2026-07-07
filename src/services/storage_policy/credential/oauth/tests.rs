@@ -220,7 +220,7 @@ async fn build_oauth_test_state(
         crate::config::site_url::PUBLIC_SITE_URL_KEY,
         r#"["https://drive.example.test"]"#,
     ));
-    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
         backend: "memory".to_string(),
         ..Default::default()
     })

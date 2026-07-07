@@ -5,7 +5,7 @@ use super::{
     RuntimeCors, apply_origin_headers, ensure_vary, is_cors_exempt_path, request_is_same_origin,
     requested_headers_are_allowed, requested_method_is_allowed,
 };
-use crate::cache;
+use aster_forge_cache as cache;
 use crate::config::cors::{CorsAllowedOrigins, RuntimeCorsPolicy};
 use crate::config::definitions::CONFIG_CATEGORY_NETWORK;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};

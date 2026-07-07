@@ -5,7 +5,7 @@ use std::time::Duration as StdDuration;
 
 use moka::future::Cache;
 
-use crate::cache::CacheExt;
+use aster_forge_cache::CacheExt;
 use crate::config::operations;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
@@ -98,7 +98,7 @@ fn encode_marker_state(state: CountMarkerState) -> Result<Vec<u8>> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cache::CacheExt;
+    use aster_forge_cache::CacheExt;
     use crate::runtime::test_support::CacheOnlyState;
 
     #[tokio::test]

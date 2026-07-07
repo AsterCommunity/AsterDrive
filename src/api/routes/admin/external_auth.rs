@@ -37,7 +37,7 @@ struct ExternalAuthProviderTestParamsAuditDetails<'a> {
     success: bool,
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/providers",
     tag = "admin",
@@ -60,7 +60,7 @@ pub async fn list_external_auth_providers(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/provider-kinds",
     tag = "admin",
@@ -76,7 +76,7 @@ pub async fn list_external_auth_provider_kinds() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(external::list_provider_kinds())))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers",
     tag = "admin",
@@ -111,7 +111,7 @@ pub async fn create_external_auth_provider(
     Ok(HttpResponse::Created().json(ApiResponse::ok(provider)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/external-auth/providers/{id}",
     tag = "admin",
@@ -133,7 +133,7 @@ pub async fn get_external_auth_provider(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/external-auth/providers/{id}",
     tag = "admin",
@@ -171,7 +171,7 @@ pub async fn update_external_auth_provider(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/external-auth/providers/{id}",
     tag = "admin",
@@ -207,7 +207,7 @@ pub async fn delete_external_auth_provider(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers/test",
     tag = "admin",
@@ -252,7 +252,7 @@ pub async fn test_external_auth_provider_params(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/external-auth/providers/{id}/test",
     tag = "admin",

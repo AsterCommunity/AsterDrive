@@ -1,6 +1,5 @@
 //! 服务模块：`ops::health`。
 
-use crate::cache::CacheBackend;
 use crate::config::CacheConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{FollowerRuntimeState, RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -51,14 +50,6 @@ impl HealthComponentReport {
         Self {
             name,
             status: HealthStatus::Healthy,
-            message: message.into(),
-        }
-    }
-
-    fn degraded(name: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            name,
-            status: HealthStatus::Degraded,
             message: message.into(),
         }
     }
@@ -247,31 +238,20 @@ async fn check_cache_component<S: SharedRuntimeState>(state: &S) -> HealthCompon
 
 async fn check_cache_backend(
     config: &CacheConfig,
-    cache: &dyn CacheBackend,
+    cache: &dyn aster_forge_cache::CacheBackend,
 ) -> HealthComponentReport {
-    let active_backend = cache.backend_name();
+    let report = aster_forge_cache::check_cache_component(config, cache).await;
+    let status = match report.status.as_str() {
+        "healthy" => HealthStatus::Healthy,
+        "degraded" => HealthStatus::Degraded,
+        _ => HealthStatus::Unhealthy,
+    };
 
-    if let Err(error) = cache.health_check().await {
-        return HealthComponentReport::unhealthy(
-            "cache",
-            format!("cache backend '{active_backend}' health check failed: {error}"),
-        );
+    HealthComponentReport {
+        name: report.name,
+        status,
+        message: report.message,
     }
-
-    if config.backend.as_str() != active_backend {
-        return HealthComponentReport::degraded(
-            "cache",
-            format!(
-                "configured cache backend '{}' is using active backend '{}'",
-                config.backend, active_backend
-            ),
-        );
-    }
-
-    HealthComponentReport::healthy(
-        "cache",
-        format!("cache backend '{active_backend}' health check succeeded"),
-    )
 }
 
 async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
@@ -309,9 +289,8 @@ async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
 #[cfg(test)]
 mod tests {
     use super::{HealthComponentReport, HealthStatus, SystemHealthReport, check_cache_backend};
-    use crate::cache::CacheBackend;
+    use aster_forge_cache::{CacheBackend, CacheError};
     use crate::config::CacheConfig;
-    use crate::errors::{AsterError, Result};
     use crate::services::task::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
     use async_trait::async_trait;
 
@@ -342,11 +321,11 @@ mod tests {
             self.backend_name
         }
 
-        async fn health_check(&self) -> Result<()> {
+        async fn health_check(&self) -> aster_forge_cache::Result<()> {
             if self.healthy {
                 Ok(())
             } else {
-                Err(AsterError::internal_error("cache probe failed"))
+                Err(CacheError::RedisHealthCheck("cache probe failed".to_string()))
             }
         }
 
@@ -479,7 +458,7 @@ mod tests {
     async fn cache_report_is_degraded_when_configured_backend_falls_back() {
         let config = CacheConfig {
             backend: "redis".to_string(),
-            redis_url: "redis://example.com:6379/0".to_string(),
+            endpoint: "redis://example.com:6379/0".to_string(),
             default_ttl: 60,
         };
         let cache = FakeCache::new("memory");
@@ -498,7 +477,7 @@ mod tests {
     async fn cache_report_is_unhealthy_when_backend_probe_fails() {
         let config = CacheConfig {
             backend: "redis".to_string(),
-            redis_url: "redis://example.com:6379/0".to_string(),
+            endpoint: "redis://example.com:6379/0".to_string(),
             default_ttl: 60,
         };
         let cache = FakeCache::unhealthy("redis");

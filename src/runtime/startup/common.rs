@@ -15,7 +15,7 @@ pub(super) struct CommonRuntimeParts {
     pub database: sea_orm::DatabaseConnection,
     pub driver_registry: Arc<DriverRegistry>,
     pub policy_snapshot: Arc<crate::storage::PolicySnapshot>,
-    pub cache: Arc<dyn crate::cache::CacheBackend>,
+    pub cache: Arc<dyn aster_forge_cache::CacheBackend>,
     pub metrics: SharedMetricsRecorder,
 }
 
@@ -50,7 +50,7 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
         NodeRuntimeMode::Follower => driver_registry.reload_follower_state(&database).await?,
     }
 
-    let cache = crate::cache::create_cache(&cfg.cache).await;
+    let cache = aster_forge_cache::create_cache(&cfg.cache).await;
 
     Ok(CommonRuntimeParts {
         cfg,

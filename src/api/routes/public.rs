@@ -43,7 +43,7 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/frontend-config",
     tag = "public",
@@ -57,7 +57,7 @@ pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<Ht
     Ok(public_config_response(config))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/preview-apps",
     tag = "public",
@@ -71,7 +71,7 @@ pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpR
     Ok(public_config_response(preview_apps))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/custom-config",
     tag = "public",
@@ -97,7 +97,7 @@ pub async fn get_custom_config(
     Ok(public_config_response(custom_config))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/thumbnail-support",
     tag = "public",
@@ -111,7 +111,7 @@ pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<
     Ok(public_config_response(support))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/public/media-data-support",
     tag = "public",
@@ -145,7 +145,7 @@ async fn request_has_valid_access_token(
     Ok(true)
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/public/remote-enrollment/redeem",
     tag = "public",
@@ -182,7 +182,7 @@ pub async fn redeem_remote_enrollment(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(bootstrap)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/public/remote-enrollment/ack",
     tag = "public",

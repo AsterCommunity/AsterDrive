@@ -12,9 +12,7 @@
     )
 )]
 
-pub mod alloc;
 pub mod api;
-pub mod cache;
 #[cfg(feature = "cli")]
 pub mod cli;
 pub mod config;

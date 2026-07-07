@@ -36,7 +36,7 @@ pub fn routes(
         .route("/test", web::post().to(test_connection))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/webdav-accounts/settings",
     tag = "webdav",
@@ -69,7 +69,7 @@ pub async fn get_settings(
     })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/webdav-accounts",
     tag = "webdav",
@@ -96,7 +96,7 @@ pub async fn list_accounts(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(accounts)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts",
     tag = "webdav",
@@ -149,7 +149,7 @@ pub struct TeamWebdavAccountIdPath {
     pub account_id: i64,
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/webdav-accounts",
     tag = "webdav",
@@ -178,7 +178,7 @@ pub async fn list_team_accounts(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(accounts)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/webdav-accounts",
     tag = "webdav",
@@ -223,7 +223,7 @@ pub async fn create_team_account(
     Ok(HttpResponse::Created().json(ApiResponse::ok(result)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/webdav-accounts/{account_id}",
     tag = "webdav",
@@ -268,7 +268,7 @@ pub async fn delete_team_account(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/webdav-accounts/{account_id}/toggle",
     tag = "webdav",
@@ -316,7 +316,7 @@ pub async fn toggle_team_account(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/webdav-accounts/{id}",
     tag = "webdav",
@@ -352,7 +352,7 @@ pub async fn delete_account(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts/{id}/toggle",
     tag = "webdav",
@@ -390,7 +390,7 @@ pub async fn toggle_account(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(account)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/webdav-accounts/test",
     tag = "webdav",

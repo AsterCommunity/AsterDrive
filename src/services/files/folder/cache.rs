@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::cache::CacheExt;
+use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
 
 const FOLDER_PATH_CACHE_TTL: u64 = 300;

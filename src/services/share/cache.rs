@@ -4,7 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use crate::cache::CacheExt;
+use aster_forge_cache::CacheExt;
 use crate::db::repository::share_repo;
 use crate::entities::share;
 use crate::errors::{AsterError, Result};

@@ -21,7 +21,7 @@
 - `jemalloc-profiling` 会启用 `tikv-jemallocator/profiling`，并包含 `jemalloc-stats`
 - `src/main.rs` 在 `jemalloc` feature 下把 `tikv_jemallocator::Jemalloc` 设为全局 allocator
 - `src/main.rs` 还通过 `_rjem_malloc_conf` 内置了低内存默认项：`narenas:1`、`dirty_decay_ms:1000`、`muzzy_decay_ms:1000`、`background_thread:true`
-- `src/alloc.rs` 在 `jemalloc-stats` 下会读取 `stats::allocated` 和 `stats::resident`
+- `aster_forge_alloc::stats()` 在 `jemalloc-stats` 下会读取 `stats::allocated` 和 `stats::resident`
 
 所以通常不需要改代码。第一轮排查直接编 profiling binary，再用运行时配置打开 profile dump。
 

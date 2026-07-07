@@ -197,7 +197,7 @@ async fn authenticate_basic(
 #[cfg(test)]
 mod tests {
     use super::{authenticate_webdav, invalidate_webdav_auth_for_username};
-    use crate::cache;
+    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::{user, webdav_account};
     use crate::errors::AsterError;

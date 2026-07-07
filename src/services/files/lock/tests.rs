@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::cache;
+use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
 use crate::entities::{file, file_blob, resource_lock, storage_policy, user};

@@ -86,7 +86,7 @@ pub fn team_routes() -> actix_web::Scope {
         )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tags",
     tag = "tags",
@@ -116,7 +116,7 @@ pub async fn list_tags(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tags",
     tag = "tags",
@@ -147,7 +147,7 @@ pub async fn create_tag(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/tags/{tag_id}",
     tag = "tags",
@@ -184,7 +184,7 @@ pub async fn patch_tag(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/tags/{tag_id}",
     tag = "tags",
@@ -340,7 +340,7 @@ pub async fn batch_detach_tag(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tags",
     tag = "teams",
@@ -370,7 +370,7 @@ pub async fn team_list_tags(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tags",
     tag = "teams",
@@ -402,7 +402,7 @@ pub async fn team_create_tag(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/tags/{tag_id}",
     tag = "teams",
@@ -440,7 +440,7 @@ pub async fn team_patch_tag(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/tags/{tag_id}",
     tag = "teams",

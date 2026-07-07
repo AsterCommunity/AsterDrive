@@ -800,7 +800,7 @@ mod tests {
             .await
             .expect("policy service migrations should succeed");
         let runtime_config = Arc::new(RuntimeConfig::new());
-        let cache = crate::cache::create_cache(&CacheConfig {
+        let cache = aster_forge_cache::create_cache(&CacheConfig {
             backend: "memory".to_string(),
             ..Default::default()
         })

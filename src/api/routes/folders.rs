@@ -53,7 +53,7 @@ pub fn team_routes() -> actix_web::Scope {
         .service(files::team_routes())
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders",
     tag = "folders",
@@ -83,7 +83,7 @@ pub async fn create_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders",
     tag = "folders",
@@ -111,7 +111,7 @@ pub async fn list_root(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}",
     tag = "folders",
@@ -141,7 +141,7 @@ pub async fn list_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}/info",
     tag = "folders",
@@ -169,7 +169,7 @@ pub async fn get_folder_info(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/folders/{id}/ancestors",
     tag = "folders",
@@ -197,7 +197,7 @@ pub async fn get_ancestors(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/folders/{id}",
     tag = "folders",
@@ -228,7 +228,7 @@ pub async fn delete_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/folders/{id}",
     tag = "folders",
@@ -264,7 +264,7 @@ pub async fn patch_folder(
 
 // ── Lock ────────────────────────────────────────────────────────────
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders/{id}/lock",
     tag = "folders",
@@ -300,7 +300,7 @@ pub async fn set_lock(
 
 // ── Copy ───────────────────────────────────────────────────────────
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/folders/{id}/copy",
     tag = "folders",
@@ -334,7 +334,7 @@ pub async fn copy_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders",
     tag = "teams",
@@ -365,7 +365,7 @@ pub(crate) async fn team_list_root(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders",
     tag = "teams",
@@ -396,7 +396,7 @@ pub(crate) async fn team_create_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}",
     tag = "teams",
@@ -430,7 +430,7 @@ pub(crate) async fn team_list_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}/info",
     tag = "teams",
@@ -461,7 +461,7 @@ pub(crate) async fn team_get_folder_info(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/folders/{id}/ancestors",
     tag = "teams",
@@ -492,7 +492,7 @@ pub(crate) async fn team_get_ancestors(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/folders/{id}",
     tag = "teams",
@@ -526,7 +526,7 @@ pub(crate) async fn team_delete_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/folders/{id}",
     tag = "teams",
@@ -563,7 +563,7 @@ pub(crate) async fn team_patch_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders/{id}/copy",
     tag = "teams",
@@ -600,7 +600,7 @@ pub(crate) async fn team_copy_folder(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/folders/{id}/lock",
     tag = "teams",

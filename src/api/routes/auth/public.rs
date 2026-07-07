@@ -59,7 +59,7 @@ async fn bootstrap_public_site_url_from_setup(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/check",
     tag = "auth",
@@ -78,7 +78,7 @@ pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
     })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/setup",
     tag = "auth",
@@ -114,7 +114,7 @@ pub async fn setup(
     response
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/register",
     tag = "auth",
@@ -149,7 +149,7 @@ pub async fn register(
     response
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/register/resend",
     tag = "auth",
@@ -186,7 +186,7 @@ pub async fn resend_register_activation(
     })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/invitations/{token}",
     tag = "auth",
@@ -205,7 +205,7 @@ pub async fn verify_user_invitation(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/invitations/{token}/accept",
     tag = "auth",
@@ -242,7 +242,7 @@ pub async fn accept_user_invitation(
     Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/contact-verification/confirm",
     tag = "auth",
@@ -347,7 +347,7 @@ pub async fn confirm_contact_verification(
     ))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/password/reset/request",
     tag = "auth",
@@ -380,7 +380,7 @@ pub async fn request_password_reset(
     })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/password/reset/confirm",
     tag = "auth",

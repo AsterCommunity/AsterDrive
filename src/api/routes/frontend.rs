@@ -292,7 +292,7 @@ mod tests {
             .await
             .expect("frontend test DB should migrate");
 
-        let cache = crate::cache::create_cache(&CacheConfig {
+        let cache = aster_forge_cache::create_cache(&CacheConfig {
             ..Default::default()
         })
         .await;

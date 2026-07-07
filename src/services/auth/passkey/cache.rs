@@ -1,6 +1,6 @@
 //! Passkey/WebAuthn flow challenge 缓存。
 
-use crate::cache::CacheExt;
+use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
 
 use super::{PasskeyAuthenticationChallenge, PasskeyRegistrationChallenge};

@@ -6,7 +6,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::ops::admin;
 use actix_web::{HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/overview",
     tag = "admin",

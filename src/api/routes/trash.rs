@@ -41,7 +41,7 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{entity_type}/{id}", web::delete().to(team_purge_one))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/trash",
     tag = "trash",
@@ -73,7 +73,7 @@ pub async fn list_trash(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/trash/{entity_type}/{id}/restore",
     tag = "trash",
@@ -123,7 +123,7 @@ pub async fn restore(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/trash/{entity_type}/{id}",
     tag = "trash",
@@ -171,7 +171,7 @@ pub async fn purge_one(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/trash",
     tag = "trash",
@@ -210,7 +210,7 @@ pub async fn purge_all(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/trash",
     tag = "teams",
@@ -249,7 +249,7 @@ pub(crate) async fn team_list_trash(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/trash/{entity_type}/{id}/restore",
     tag = "teams",
@@ -305,7 +305,7 @@ pub(crate) async fn team_restore(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/trash/{entity_type}/{id}",
     tag = "teams",
@@ -361,7 +361,7 @@ pub(crate) async fn team_purge_one(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/trash",
     tag = "teams",

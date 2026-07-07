@@ -30,7 +30,7 @@ struct TestFollowerState {
     runtime_config: Arc<crate::config::RuntimeConfig>,
     policy_snapshot: Arc<crate::storage::PolicySnapshot>,
     config: Arc<crate::config::Config>,
-    cache: Arc<dyn crate::cache::CacheBackend>,
+    cache: Arc<dyn aster_forge_cache::CacheBackend>,
     metrics: SharedMetricsRecorder,
 }
 
@@ -59,7 +59,7 @@ impl SharedRuntimeState for TestFollowerState {
         &self.config
     }
 
-    fn cache(&self) -> &Arc<dyn crate::cache::CacheBackend> {
+    fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
         &self.cache
     }
 
@@ -97,7 +97,7 @@ async fn setup_state() -> TestFollowerState {
         },
         ..Default::default()
     });
-    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
         ..Default::default()
     })
     .await;

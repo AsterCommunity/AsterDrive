@@ -248,7 +248,7 @@ pub async fn get_storage_events(
         .streaming(stream))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/login",
     tag = "auth",
@@ -289,7 +289,7 @@ pub async fn login(
     response
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/refresh",
     tag = "auth",
@@ -337,7 +337,7 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
         })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/logout",
     tag = "auth",
@@ -394,7 +394,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
         .json(ApiResponse::<()>::ok_empty())
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/me",
     tag = "auth",
@@ -431,7 +431,7 @@ pub async fn me(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/sessions",
     tag = "auth",
@@ -456,7 +456,7 @@ pub async fn list_sessions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(sessions)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/sessions/others",
     tag = "auth",
@@ -501,7 +501,7 @@ pub async fn delete_other_sessions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed })))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/sessions/{id}",
     tag = "auth",
@@ -562,7 +562,7 @@ pub async fn delete_session(
     Ok(response.json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/auth/password",
     tag = "auth",

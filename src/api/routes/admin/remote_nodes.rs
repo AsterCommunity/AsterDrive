@@ -81,7 +81,7 @@ impl From<TestRemoteNodeParamsReq> for remote_node::TestRemoteNodeInput {
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes",
     tag = "admin",
@@ -110,7 +110,7 @@ pub async fn list_remote_nodes(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(nodes)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes",
     tag = "admin",
@@ -145,7 +145,7 @@ pub async fn create_remote_node(
     Ok(HttpResponse::Created().json(ApiResponse::ok(node)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}",
     tag = "admin",
@@ -167,7 +167,7 @@ pub async fn get_remote_node(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/remote-nodes/{id}",
     tag = "admin",
@@ -205,7 +205,7 @@ pub async fn update_remote_node(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/remote-nodes/{id}",
     tag = "admin",
@@ -241,7 +241,7 @@ pub async fn delete_remote_node(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/test",
     tag = "admin",
@@ -278,7 +278,7 @@ pub async fn test_remote_node(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/test",
     tag = "admin",
@@ -327,7 +327,7 @@ pub async fn test_remote_node_params(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/enrollment-token",
     tag = "admin",
@@ -366,7 +366,7 @@ pub async fn create_remote_node_enrollment_token(
     Ok(HttpResponse::Created().json(ApiResponse::ok(command)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles",
     tag = "admin",
@@ -389,7 +389,7 @@ pub async fn list_remote_node_ingress_profiles(
     list_remote_node_storage_targets(state, path).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}/storage-targets",
     tag = "admin",
@@ -412,7 +412,7 @@ pub async fn list_remote_node_storage_targets(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profile-drivers",
     tag = "admin",
@@ -437,7 +437,7 @@ pub async fn list_remote_node_ingress_profile_drivers(
     list_remote_node_storage_target_drivers(state, path).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/remote-nodes/{id}/storage-target-drivers",
     tag = "admin",
@@ -460,7 +460,7 @@ pub async fn list_remote_node_storage_target_drivers(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles",
     tag = "admin",
@@ -490,7 +490,7 @@ pub async fn create_remote_node_ingress_profile(
     create_remote_node_storage_target(state, claims, req, path, body).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/remote-nodes/{id}/storage-targets",
     tag = "admin",
@@ -528,7 +528,7 @@ pub async fn create_remote_node_storage_target(
     Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{target_key}",
     tag = "admin",
@@ -561,7 +561,7 @@ pub async fn update_remote_node_ingress_profile(
     update_remote_node_storage_target(state, claims, req, path, body).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}",
     tag = "admin",
@@ -604,7 +604,7 @@ pub async fn update_remote_node_storage_target(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/remote-nodes/{id}/ingress-profiles/{target_key}",
     tag = "admin",
@@ -635,7 +635,7 @@ pub async fn delete_remote_node_ingress_profile(
     delete_remote_node_storage_target(state, claims, req, path).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}",
     tag = "admin",

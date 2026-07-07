@@ -8,7 +8,7 @@
 ```toml
 [cache]
 backend = "memory"
-redis_url = ""
+endpoint = ""
 default_ttl = 3600
 ```
 
@@ -24,7 +24,7 @@ default_ttl = 3600
 | 选项 | 默认值 | 作用 |
 | --- | --- | --- |
 | `backend` | `"memory"` | `memory` 或 `redis` |
-| `redis_url` | `""` | Redis 连接地址，仅 `backend = "redis"` 时使用 |
+| `endpoint` | `""` | Redis 连接地址，仅 `backend = "redis"` 时使用 |
 | `default_ttl` | `3600` | 默认 TTL，单位秒 |
 
 ## Redis 连不上会怎样
@@ -37,6 +37,6 @@ default_ttl = 3600
 
 ```bash
 ASTER__CACHE__BACKEND=memory
-ASTER__CACHE__REDIS_URL=redis://127.0.0.1:6379/0
+ASTER__CACHE__ENDPOINT=redis://127.0.0.1:6379/0
 ASTER__CACHE__DEFAULT_TTL=3600
 ```

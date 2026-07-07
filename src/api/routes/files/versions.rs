@@ -7,7 +7,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, content::version, ops::audit::AuditContext};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/versions",
     tag = "files",
@@ -28,7 +28,7 @@ pub async fn list_versions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/versions/{version_id}/restore",
     tag = "files",
@@ -62,7 +62,7 @@ pub async fn restore_version(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/{id}/versions/{version_id}",
     tag = "files",
@@ -96,7 +96,7 @@ pub async fn delete_version(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/versions",
     tag = "teams",
@@ -123,7 +123,7 @@ pub(crate) async fn team_list_versions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/versions/{version_id}/restore",
     tag = "teams",
@@ -161,7 +161,7 @@ pub(crate) async fn team_restore_version(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/{id}/versions/{version_id}",
     tag = "teams",

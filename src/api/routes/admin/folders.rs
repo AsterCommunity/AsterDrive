@@ -8,7 +8,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, files::folder, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/admin/folders/{id}/policy",
     tag = "admin",

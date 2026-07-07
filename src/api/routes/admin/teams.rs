@@ -12,7 +12,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, ops::audit, workspace::team};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams",
     tag = "admin",
@@ -43,7 +43,7 @@ pub async fn list_teams(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(teams)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams",
     tag = "admin",
@@ -82,7 +82,7 @@ pub async fn create_team(
     Ok(HttpResponse::Created().json(ApiResponse::ok(team)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}",
     tag = "admin",
@@ -104,7 +104,7 @@ pub async fn get_team(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/teams/{id}",
     tag = "admin",
@@ -144,7 +144,7 @@ pub async fn update_team(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/teams/{id}",
     tag = "admin",
@@ -169,7 +169,7 @@ pub async fn delete_team(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams/{id}/restore",
     tag = "admin",
@@ -194,7 +194,7 @@ pub async fn restore_team(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}/audit-logs",
     tag = "admin",
@@ -230,7 +230,7 @@ pub async fn list_team_audit_logs(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/teams/{id}/members",
     tag = "admin",
@@ -274,7 +274,7 @@ pub async fn list_team_members(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(members)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/teams/{id}/members",
     tag = "admin",
@@ -312,7 +312,7 @@ pub async fn add_team_member(
     Ok(HttpResponse::Created().json(ApiResponse::ok(member)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/teams/{id}/members/{member_user_id}",
     tag = "admin",
@@ -350,7 +350,7 @@ pub async fn patch_team_member(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(member)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/teams/{id}/members/{member_user_id}",
     tag = "admin",

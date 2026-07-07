@@ -891,7 +891,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         default_ttl: 60,
         ..Default::default()
     };
-    let cache = aster_drive::cache::create_cache(&cache_config).await;
+    let cache = aster_forge_cache::create_cache(&cache_config).await;
 
     PrimaryAppState {
         db_handles: base.db_handles,
@@ -1127,7 +1127,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
 
     // 测试用内存缓存。
     let cache_config = aster_drive::config::CacheConfig::default();
-    let cache = aster_drive::cache::create_cache(&cache_config).await;
+    let cache = aster_forge_cache::create_cache(&cache_config).await;
 
     // 初始化全局 config（WebDAV file.rs 内部调 get_config() 需要）
     // OnceLock 只设置一次，后续调用忽略

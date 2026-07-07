@@ -10,7 +10,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{auth::local::Claims, ops::audit, share};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/shares",
     tag = "admin",
@@ -39,7 +39,7 @@ pub async fn list_all_shares(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(shares)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/shares/{id}",
     tag = "admin",

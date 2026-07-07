@@ -41,7 +41,7 @@ fn attach_optional_routes(scope: actix_web::Scope) -> actix_web::Scope {
     scope
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/health",
     tag = "health",
@@ -54,7 +54,7 @@ pub async fn health() -> HttpResponse {
     HttpResponse::Ok().json(status_response("ok"))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/health/ready",
     tag = "health",
@@ -109,7 +109,7 @@ pub async fn ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
 }
 
 pub async fn memory() -> HttpResponse {
-    let (allocated, peak) = crate::alloc::stats();
+    let (allocated, peak) = aster_forge_alloc::stats();
     HttpResponse::Ok().json(ApiResponse::ok(MemoryStatsResponse {
         heap_allocated_mb: format!("{allocated:.2}"),
         heap_peak_mb: format!("{peak:.2}"),
@@ -156,7 +156,7 @@ fn status_response(status: &str) -> HealthResponse {
 #[cfg(test)]
 mod tests {
     use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, ready};
-    use crate::cache;
+    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::storage_policy;
     use crate::runtime::PrimaryAppState;

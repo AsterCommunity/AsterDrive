@@ -14,7 +14,7 @@ use crate::services::{auth::local::Claims, auth::passkey};
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde_json::json;
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/passkeys",
     tag = "auth",
@@ -33,7 +33,7 @@ pub async fn list_passkeys(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(items)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/register/start",
     tag = "auth",
@@ -55,7 +55,7 @@ pub async fn start_registration(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/register/finish",
     tag = "auth",
@@ -97,7 +97,7 @@ pub async fn finish_registration(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/auth/passkeys/{id}",
     tag = "auth",
@@ -145,7 +145,7 @@ pub async fn rename_passkey(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(passkey)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/passkeys/{id}",
     tag = "auth",
@@ -193,7 +193,7 @@ pub async fn delete_passkey(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/login/start",
     tag = "auth",
@@ -223,7 +223,7 @@ pub async fn start_login(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/passkeys/login/finish",
     tag = "auth",

@@ -204,7 +204,7 @@ impl From<PatchPolicyGroupReq> for policy::UpdateStoragePolicyGroupInput {
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies",
     tag = "admin",
@@ -233,7 +233,7 @@ pub async fn list_policies(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policies)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-drivers",
     tag = "admin",
@@ -251,7 +251,7 @@ pub async fn list_storage_driver_descriptors() -> Result<HttpResponse> {
     )))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies",
     tag = "admin",
@@ -276,7 +276,7 @@ pub async fn create_policy(
     Ok(HttpResponse::Created().json(ApiResponse::ok(policy)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -298,7 +298,7 @@ pub async fn get_policy(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}/capacity",
     tag = "admin",
@@ -324,7 +324,7 @@ fn storage_policy_action_response(result: policy::StoragePolicyActionResult) -> 
     HttpResponse::Ok().json(ApiResponse::ok(result))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -353,7 +353,7 @@ pub async fn update_policy(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/promote-s3-driver",
     tag = "admin",
@@ -388,7 +388,7 @@ pub async fn promote_s3_compatible_policy_driver(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policies/{id}",
     tag = "admin",
@@ -414,7 +414,7 @@ pub async fn delete_policy(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/test",
     tag = "admin",
@@ -435,7 +435,7 @@ pub async fn test_policy_connection(
     Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/test",
     tag = "admin",
@@ -457,7 +457,7 @@ pub async fn test_policy_params(
     Ok(HttpResponse::Ok().json(ApiResponse::<ApiEmptyData>::ok_empty_data()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/action",
     tag = "admin",
@@ -492,7 +492,7 @@ pub async fn execute_saved_storage_policy_action(
     Ok(storage_policy_action_response(result))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/action",
     tag = "admin",
@@ -520,7 +520,7 @@ pub async fn execute_draft_storage_policy_action(
     Ok(storage_policy_action_response(result))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-credential-providers",
     tag = "admin",
@@ -536,7 +536,7 @@ pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(credential::list_supported_providers())))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/storage-authorization/start",
     tag = "admin",
@@ -571,7 +571,7 @@ pub async fn start_storage_authorization(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/{id}/storage-credentials",
     tag = "admin",
@@ -593,7 +593,7 @@ pub async fn list_storage_policy_credentials(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(credentials)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policies/{id}/storage-credentials/{provider}/validate",
     tag = "admin",
@@ -624,7 +624,7 @@ pub async fn validate_storage_policy_credential(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policies/storage-authorization/callback",
     tag = "admin",
@@ -695,7 +695,7 @@ fn storage_authorization_redirect_path(
     path
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policy-groups",
     tag = "admin",
@@ -724,7 +724,7 @@ pub async fn list_policy_groups(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policy-groups",
     tag = "admin",
@@ -751,7 +751,7 @@ pub async fn create_policy_group(
     Ok(HttpResponse::Created().json(ApiResponse::ok(group)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/policy-groups/{id}",
     tag = "admin",
@@ -773,7 +773,7 @@ pub async fn get_policy_group(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/admin/policy-groups/{id}",
     tag = "admin",
@@ -804,7 +804,7 @@ pub async fn update_policy_group(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/policy-groups/{id}",
     tag = "admin",
@@ -830,7 +830,7 @@ pub async fn delete_policy_group(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/policy-groups/{id}/migrate-assignments",
     tag = "admin",

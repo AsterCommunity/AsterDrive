@@ -10,7 +10,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{ops::audit, ops::config};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config",
     tag = "admin",
@@ -32,7 +32,7 @@ pub async fn list_config(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(configs)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/schema",
     tag = "admin",
@@ -49,7 +49,7 @@ pub async fn config_schema() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(schema)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/template-variables",
     tag = "admin",
@@ -66,7 +66,7 @@ pub async fn config_template_variables() -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/config/{key}",
     tag = "admin",
@@ -88,7 +88,7 @@ pub async fn get_config(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(config)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/admin/config/{key}",
     tag = "admin",
@@ -123,7 +123,7 @@ pub async fn set_config(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(config)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/config/{key}",
     tag = "admin",
@@ -148,7 +148,7 @@ pub async fn delete_config(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/config/{key}/action",
     tag = "admin",

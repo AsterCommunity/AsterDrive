@@ -11,7 +11,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, ops::audit, task};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/tasks",
     tag = "admin",
@@ -44,7 +44,7 @@ pub async fn list_tasks(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/tasks/cleanup",
     tag = "admin",

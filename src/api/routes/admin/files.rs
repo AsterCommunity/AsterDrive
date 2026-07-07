@@ -13,7 +13,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, files::admin, ops::audit, task};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/files",
     tag = "admin",
@@ -41,7 +41,7 @@ pub async fn list_files(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/files/{id}",
     tag = "admin",
@@ -63,7 +63,7 @@ pub async fn get_file(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/file-blobs",
     tag = "admin",
@@ -91,7 +91,7 @@ pub async fn list_file_blobs(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(page)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/file-blobs/{id}",
     tag = "admin",
@@ -113,7 +113,7 @@ pub async fn get_file_blob(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(blob)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/file-blobs/maintenance",
     tag = "admin",

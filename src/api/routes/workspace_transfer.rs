@@ -28,7 +28,7 @@ pub fn routes(
         .route("/copy", web::post().to(copy_to_workspace))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/workspace-transfer/copy",
     tag = "batch",

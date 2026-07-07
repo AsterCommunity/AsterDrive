@@ -4,7 +4,7 @@ use crate::api::response::ApiResponse;
 use crate::api::routes::health;
 use actix_web::HttpResponse;
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/system-info",
     tag = "admin",

@@ -413,7 +413,7 @@ async fn log_writes_synchronously_without_global_manager() {
         .reload(&db)
         .await
         .expect("runtime config should load");
-    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -473,7 +473,7 @@ async fn follower_state_can_record_allowed_audit_log() {
         .reload(&db)
         .await
         .expect("runtime config should load");
-    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -526,7 +526,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         updated_at: chrono::Utc::now(),
         updated_by: None,
     });
-    let cache = crate::cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
         ..Default::default()
     })
     .await;

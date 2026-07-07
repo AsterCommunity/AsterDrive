@@ -9,7 +9,7 @@ use crate::services::{auth::local::Claims, ops::audit::AuditContext, task};
 use actix_web::HttpRequest;
 use actix_web::{HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations",
     tag = "admin",
@@ -42,7 +42,7 @@ pub async fn create_storage_policy_migration(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(task)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations/dry-run",
     tag = "admin",
@@ -75,7 +75,7 @@ pub async fn dry_run_storage_policy_migration(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(dry_run)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/admin/storage-migrations/{task_id}/resume",
     tag = "admin",

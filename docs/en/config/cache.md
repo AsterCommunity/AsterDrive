@@ -8,7 +8,7 @@ Not sure whether to introduce Redis? Most single-node deployments do not need it
 ```toml
 [cache]
 backend = "memory"
-redis_url = ""
+endpoint = ""
 default_ttl = 3600
 ```
 
@@ -24,7 +24,7 @@ For single-node, NAS, personal, or small-team deployments, the memory cache is e
 | Option | Default | Purpose |
 | --- | --- | --- |
 | `backend` | `"memory"` | `memory` or `redis` |
-| `redis_url` | `""` | Redis connection URL, used only when `backend = "redis"` |
+| `endpoint` | `""` | Redis connection URL, used only when `backend = "redis"` |
 | `default_ttl` | `3600` | Default TTL in seconds |
 
 ## What Happens If Redis Is Unreachable
@@ -37,6 +37,6 @@ The service usually will not fail to start just because Redis is temporarily una
 
 ```bash
 ASTER__CACHE__BACKEND=memory
-ASTER__CACHE__REDIS_URL=redis://127.0.0.1:6379/0
+ASTER__CACHE__ENDPOINT=redis://127.0.0.1:6379/0
 ASTER__CACHE__DEFAULT_TTL=3600
 ```

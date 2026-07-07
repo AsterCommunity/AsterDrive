@@ -56,7 +56,7 @@ pub fn team_routes() -> actix_web::Scope {
         )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/delete",
     tag = "batch",
@@ -88,7 +88,7 @@ pub async fn batch_delete(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/move",
     tag = "batch",
@@ -120,7 +120,7 @@ pub async fn batch_move(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/copy",
     tag = "batch",
@@ -152,7 +152,7 @@ pub async fn batch_copy(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/archive-download",
     tag = "batch",
@@ -185,7 +185,7 @@ pub async fn archive_download(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/batch/archive-compress",
     tag = "batch",
@@ -217,7 +217,7 @@ pub async fn archive_compress(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/batch/archive-download/{token}",
     tag = "batch",
@@ -247,7 +247,7 @@ pub async fn archive_download_stream(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/delete",
     tag = "teams",
@@ -281,7 +281,7 @@ pub(crate) async fn team_batch_delete(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/move",
     tag = "teams",
@@ -315,7 +315,7 @@ pub(crate) async fn team_batch_move(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/copy",
     tag = "teams",
@@ -349,7 +349,7 @@ pub(crate) async fn team_batch_copy(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/archive-download",
     tag = "teams",
@@ -383,7 +383,7 @@ pub(crate) async fn team_archive_download(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/batch/archive-compress",
     tag = "teams",
@@ -417,7 +417,7 @@ pub(crate) async fn team_archive_compress(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/batch/archive-download/{token}",
     tag = "teams",

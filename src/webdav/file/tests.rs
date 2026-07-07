@@ -1,7 +1,7 @@
 //! Tests for WebDAV file write handling.
 
 use super::AsterDavFile;
-use crate::cache;
+use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{storage_policy, user};

@@ -3,6 +3,9 @@
 use serde::{Deserialize, Serialize};
 use std::num::{NonZeroU32, NonZeroU64};
 
+use aster_forge_cache::CacheConfig;
+use aster_forge_logging::LoggingConfig;
+
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
@@ -181,78 +184,6 @@ impl AuthConfig {
     }
     fn default_bootstrap_insecure_cookies() -> bool {
         false
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct CacheConfig {
-    #[serde(default = "CacheConfig::default_backend")]
-    pub backend: String, // "memory" | "redis"
-    #[serde(default)]
-    pub redis_url: String,
-    #[serde(default = "CacheConfig::default_ttl")]
-    pub default_ttl: u64,
-}
-
-impl Default for CacheConfig {
-    fn default() -> Self {
-        Self {
-            backend: Self::default_backend(),
-            redis_url: String::new(),
-            default_ttl: Self::default_ttl(),
-        }
-    }
-}
-
-impl CacheConfig {
-    fn default_backend() -> String {
-        "memory".to_string()
-    }
-    fn default_ttl() -> u64 {
-        3600
-    }
-}
-
-#[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct LoggingConfig {
-    #[serde(default = "LoggingConfig::default_level")]
-    pub level: String,
-    #[serde(default = "LoggingConfig::default_format")]
-    pub format: String, // "text" | "json"
-    #[serde(default)]
-    pub file: String, // 留空 = stdout only
-    /// 启用日志轮转（按天），仅在 file 非空时生效
-    #[serde(default = "LoggingConfig::default_enable_rotation")]
-    pub enable_rotation: bool,
-    /// 保留的历史日志文件数量
-    #[serde(default = "LoggingConfig::default_max_backups")]
-    pub max_backups: u32,
-}
-
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            level: Self::default_level(),
-            format: Self::default_format(),
-            file: String::new(),
-            enable_rotation: Self::default_enable_rotation(),
-            max_backups: Self::default_max_backups(),
-        }
-    }
-}
-
-impl LoggingConfig {
-    fn default_level() -> String {
-        "info".to_string()
-    }
-    fn default_format() -> String {
-        "text".to_string()
-    }
-    fn default_enable_rotation() -> bool {
-        true
-    }
-    fn default_max_backups() -> u32 {
-        5
     }
 }
 

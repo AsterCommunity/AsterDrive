@@ -14,7 +14,7 @@ use crate::services::{
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/new",
     tag = "files",
@@ -45,7 +45,7 @@ pub async fn create_empty(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/extract",
     tag = "files",
@@ -80,7 +80,7 @@ pub async fn extract_archive(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/{id}",
     tag = "files",
@@ -111,7 +111,7 @@ pub async fn delete_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/files/{id}",
     tag = "files",
@@ -145,7 +145,7 @@ pub async fn patch_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/files/{id}/content",
     tag = "files",
@@ -181,7 +181,7 @@ pub async fn update_content(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/lock",
     tag = "files",
@@ -215,7 +215,7 @@ pub async fn set_lock(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/copy",
     tag = "files",
@@ -249,7 +249,7 @@ pub async fn copy_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/new",
     tag = "teams",
@@ -280,7 +280,7 @@ pub(crate) async fn team_create_empty(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/files/{id}/content",
     tag = "teams",
@@ -319,7 +319,7 @@ pub(crate) async fn team_update_content(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/extract",
     tag = "teams",
@@ -357,7 +357,7 @@ pub(crate) async fn team_extract_archive(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/lock",
     tag = "teams",
@@ -394,7 +394,7 @@ pub(crate) async fn team_set_lock(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     patch,
     path = "/api/v1/teams/{team_id}/files/{id}",
     tag = "teams",
@@ -431,7 +431,7 @@ pub(crate) async fn team_patch_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/copy",
     tag = "teams",
@@ -468,7 +468,7 @@ pub(crate) async fn team_copy_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/{id}",
     tag = "teams",

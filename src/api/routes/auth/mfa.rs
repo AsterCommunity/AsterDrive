@@ -9,7 +9,7 @@ use crate::services::{auth::mfa, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 use mfa::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/challenge/verify",
     tag = "auth",
@@ -50,7 +50,7 @@ pub async fn verify_challenge(
     )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/challenge/email-code/send",
     tag = "auth",
@@ -81,7 +81,7 @@ pub async fn send_email_code(
     )))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/auth/mfa",
     tag = "auth",
@@ -101,7 +101,7 @@ pub async fn status(
     )))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/totp/setup/start",
     tag = "auth",
@@ -121,7 +121,7 @@ pub async fn start_totp_setup(
     )))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/totp/setup/finish",
     tag = "auth",
@@ -145,7 +145,7 @@ pub async fn finish_totp_setup(
     )))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/auth/mfa/factors/{id}",
     tag = "auth",
@@ -184,7 +184,7 @@ pub async fn delete_factor(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/auth/mfa/recovery-codes/regenerate",
     tag = "auth",

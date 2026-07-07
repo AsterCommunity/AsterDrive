@@ -37,7 +37,7 @@ pub(crate) fn download_disposition_from_query(
     }
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}",
     tag = "files",
@@ -65,7 +65,7 @@ pub async fn get_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/archive-preview",
     tag = "files",
@@ -101,7 +101,7 @@ pub async fn get_archive_preview(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/direct-link",
     tag = "files",
@@ -132,7 +132,7 @@ pub async fn get_direct_link(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/preview-link",
     tag = "files",
@@ -163,7 +163,7 @@ pub async fn get_preview_link(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/resource-handle",
     tag = "files",
@@ -200,7 +200,7 @@ pub async fn resolve_resource_handle(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/{id}/wopi/open",
     tag = "files",
@@ -234,7 +234,7 @@ pub async fn open_wopi(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/download",
     tag = "files",
@@ -268,7 +268,7 @@ pub async fn download(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/thumbnail",
     tag = "files",
@@ -303,7 +303,7 @@ pub async fn get_thumbnail(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/media-metadata",
     tag = "files",
@@ -332,7 +332,7 @@ pub async fn get_media_metadata(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/{id}/image-preview",
     tag = "files",
@@ -367,7 +367,7 @@ pub async fn get_image_preview(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}",
     tag = "teams",
@@ -398,7 +398,7 @@ pub(crate) async fn team_get_file(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/archive-preview",
     tag = "teams",
@@ -437,7 +437,7 @@ pub(crate) async fn team_get_archive_preview(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/direct-link",
     tag = "teams",
@@ -471,7 +471,7 @@ pub(crate) async fn team_get_direct_link(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/preview-link",
     tag = "teams",
@@ -505,7 +505,7 @@ pub(crate) async fn team_get_preview_link(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/resource-handle",
     tag = "teams",
@@ -545,7 +545,7 @@ pub(crate) async fn team_resolve_resource_handle(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/{id}/wopi/open",
     tag = "teams",
@@ -582,7 +582,7 @@ pub(crate) async fn team_open_wopi(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/thumbnail",
     tag = "teams",
@@ -620,7 +620,7 @@ pub(crate) async fn team_get_thumbnail(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/image-preview",
     tag = "teams",
@@ -658,7 +658,7 @@ pub(crate) async fn team_get_image_preview(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/media-metadata",
     tag = "teams",
@@ -690,7 +690,7 @@ pub(crate) async fn team_get_media_metadata(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/{id}/download",
     tag = "teams",
@@ -1060,7 +1060,7 @@ mod tests {
         FileResourceHandle, FileResourcePurpose, FileResourceRedirectPolicy,
         FileResourceRepresentation,
     };
-    use crate::cache;
+    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};

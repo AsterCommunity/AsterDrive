@@ -33,7 +33,7 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         .route("/files/{id}/contents", web::post().to(put_file_contents))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/wopi/files/{id}",
     tag = "public",

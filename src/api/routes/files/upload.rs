@@ -26,7 +26,7 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
         .json(ApiResponse::ok(file))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload",
     tag = "files",
@@ -63,7 +63,7 @@ pub async fn upload(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/init",
     tag = "files",
@@ -96,7 +96,7 @@ pub async fn init_chunked_upload(
     Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/upload/sessions",
     tag = "files",
@@ -123,7 +123,7 @@ pub async fn list_recoverable_upload_sessions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/files/upload/{upload_id}/{chunk_number}",
     tag = "files",
@@ -157,7 +157,7 @@ pub async fn upload_chunk(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/{upload_id}/complete",
     tag = "files",
@@ -198,7 +198,7 @@ pub async fn complete_upload(
     Ok(upload_file_created_response(file))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/files/upload/{upload_id}",
     tag = "files",
@@ -220,7 +220,7 @@ pub async fn get_upload_progress(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/files/upload/{upload_id}",
     tag = "files",
@@ -260,7 +260,7 @@ pub async fn cancel_upload(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/files/upload/{upload_id}/presign-parts",
     tag = "files",
@@ -290,7 +290,7 @@ pub async fn presign_parts(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(urls)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload",
     tag = "teams",
@@ -330,7 +330,7 @@ pub(crate) async fn team_upload(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/init",
     tag = "teams",
@@ -367,7 +367,7 @@ pub(crate) async fn team_init_chunked_upload(
     Ok(HttpResponse::Created().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/upload/sessions",
     tag = "teams",
@@ -397,7 +397,7 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/{chunk_number}",
     tag = "teams",
@@ -435,7 +435,7 @@ pub(crate) async fn team_upload_chunk(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/complete",
     tag = "teams",
@@ -482,7 +482,7 @@ pub(crate) async fn team_complete_upload(
     Ok(upload_file_created_response(file))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}",
     tag = "teams",
@@ -510,7 +510,7 @@ pub(crate) async fn team_get_upload_progress(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}",
     tag = "teams",
@@ -555,7 +555,7 @@ pub(crate) async fn team_cancel_upload(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/files/upload/{upload_id}/presign-parts",
     tag = "teams",

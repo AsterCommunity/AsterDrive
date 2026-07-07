@@ -1,6 +1,6 @@
 //! WebDAV 认证缓存。
 
-use crate::cache::CacheExt;
+use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
 use crate::utils::hash;
 

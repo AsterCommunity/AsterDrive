@@ -10,7 +10,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, files::lock, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/admin/locks",
     tag = "admin",
@@ -38,7 +38,7 @@ pub async fn list_locks(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(locks)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/locks/{id}",
     tag = "admin",
@@ -62,7 +62,7 @@ pub async fn force_unlock(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/admin/locks/expired",
     tag = "admin",

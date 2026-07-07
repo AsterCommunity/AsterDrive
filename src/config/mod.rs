@@ -22,9 +22,11 @@ pub mod webdav;
 pub mod wopi;
 
 pub use runtime_config::RuntimeConfig;
+pub use aster_forge_cache::CacheConfig;
+pub use aster_forge_logging::LoggingConfig;
 pub use schema::{
-    AuthConfig, CacheConfig, Config, DatabaseConfig, LoggingConfig, NetworkTrustConfig,
-    RateLimitConfig, RateLimitTier, ServerConfig, ServerFollowerConfig, WebDavConfig,
+    AuthConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig, RateLimitTier,
+    ServerConfig, ServerFollowerConfig, WebDavConfig,
 };
 
 use std::sync::Arc;

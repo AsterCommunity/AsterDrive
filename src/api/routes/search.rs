@@ -34,7 +34,7 @@ pub fn team_routes() -> actix_web::Scope {
     web::scope("/{team_id}/search").route("", web::get().to(team_search))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/search",
     tag = "search",
@@ -62,7 +62,7 @@ pub async fn search(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/search",
     tag = "teams",

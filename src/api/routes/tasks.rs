@@ -46,7 +46,7 @@ pub fn team_routes() -> actix_web::Scope {
         .route("/{id}/retry", web::post().to(team_retry_task))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tasks",
     tag = "tasks",
@@ -73,7 +73,7 @@ pub async fn list_tasks(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/tasks/{id}",
     tag = "tasks",
@@ -101,7 +101,7 @@ pub async fn get_task(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tasks/{id}/retry",
     tag = "tasks",
@@ -133,7 +133,7 @@ pub async fn retry_task(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/tasks/offline-download",
     tag = "tasks",
@@ -164,7 +164,7 @@ pub async fn create_offline_download(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tasks",
     tag = "teams",
@@ -189,7 +189,7 @@ pub(crate) async fn team_list_tasks(
     list_tasks_response(state.get_ref(), team_scope(*path, claims.user_id), &query).await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/teams/{team_id}/tasks/{id}",
     tag = "teams",
@@ -220,7 +220,7 @@ pub(crate) async fn team_get_task(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tasks/{id}/retry",
     tag = "teams",
@@ -255,7 +255,7 @@ pub(crate) async fn team_retry_task(
     .await
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     post,
     path = "/api/v1/teams/{team_id}/tasks/offline-download",
     tag = "teams",

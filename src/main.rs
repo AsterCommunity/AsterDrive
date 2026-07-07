@@ -68,7 +68,7 @@ pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(unsafe {
 
 #[cfg(all(debug_assertions, not(feature = "jemalloc")))]
 #[global_allocator]
-static GLOBAL: aster_drive::alloc::TrackingAlloc = aster_drive::alloc::TrackingAlloc;
+static GLOBAL: aster_forge_alloc::TrackingAlloc = aster_forge_alloc::TrackingAlloc;
 
 #[cfg(feature = "cli")]
 #[derive(Debug, Parser)]
@@ -124,7 +124,11 @@ enum RootCommand {
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // 0. 安装自定义 panic hook（最先执行）
-    aster_drive::runtime::panic::install_panic_hook();
+    aster_forge_panic::install_panic_hook(aster_forge_panic::PanicHookConfig::new(
+        "AsterDrive",
+        env!("CARGO_PKG_VERSION"),
+        env!("CARGO_PKG_REPOSITORY"),
+    ));
 
     dotenvy::dotenv().ok();
 
@@ -220,7 +224,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     // 2. 初始化日志（基于配置）
-    let log_result = aster_drive::runtime::logging::init_logging(&cfg.logging);
+    let log_result = aster_forge_logging::init_logging(&cfg.logging);
     let _log_guard = log_result.guard;
     if let Some(warning) = log_result.warning {
         tracing::warn!("{}", warning);

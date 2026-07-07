@@ -32,7 +32,7 @@ pub fn routes(
         )
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     get,
     path = "/api/v1/properties/{entity_type}/{entity_id}",
     tag = "properties",
@@ -65,7 +65,7 @@ pub async fn list_props(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(props)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     put,
     path = "/api/v1/properties/{entity_type}/{entity_id}",
     tag = "properties",
@@ -125,7 +125,7 @@ pub async fn set_prop(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(prop)))
 }
 
-#[api_docs_macros::path(
+#[aster_forge_api_docs_macros::path(
     delete,
     path = "/api/v1/properties/{entity_type}/{entity_id}/{namespace}/{name}",
     tag = "properties",
