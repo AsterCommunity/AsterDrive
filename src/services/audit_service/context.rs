@@ -1,4 +1,4 @@
-use crate::services::auth_service::Claims;
+use crate::services::auth::local::Claims;
 use actix_web::HttpRequest;
 use ipnet::IpNet;
 use std::net::{IpAddr, SocketAddr};

@@ -11,7 +11,7 @@ use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service, auth_service::Claims, remote::enrollment, remote::remote_node,
+    audit_service, auth::local::Claims, remote::enrollment, remote::remote_node,
     remote::storage_target,
 };
 use crate::storage::remote_protocol::{

@@ -10,7 +10,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::{
     archive_preview_service,
     audit_service::{self, AuditContext},
-    auth_service::Claims,
+    auth::local::Claims,
     direct_link_service, file_service, media_metadata_service, media_processing_service,
     preview_link_service, wopi_service,
     workspace_storage_service::WorkspaceStorageScope,
@@ -1069,7 +1069,7 @@ mod tests {
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::file_service::{ImagePreviewResult, ThumbnailResult};
-    use crate::services::{auth_service, mail_service, media_processing_service};
+    use crate::services::{auth::local, mail_service, media_processing_service};
     use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -1269,7 +1269,7 @@ mod tests {
     }
 
     async fn access_token_for(state: &PrimaryAppState, user: &user::Model) -> String {
-        auth_service::issue_tokens_for_user(state, user, None, None)
+        local::issue_tokens_for_user(state, user, None, None)
             .await
             .expect("image preview route access token should issue")
             .0

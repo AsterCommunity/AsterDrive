@@ -21,7 +21,7 @@ use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_code, validation_error_with_code,
 };
 use crate::runtime::SharedRuntimeState;
-use crate::services::auth_service::{self, LoginResult, is_email_verified};
+use crate::services::auth::local::{self, LoginResult, is_email_verified};
 use crate::types::StoredPasskeyCredential;
 use crate::utils::{
     char_count, id,
@@ -668,10 +668,9 @@ pub async fn finish_login(
     }
 
     let (access, refresh) = if user.must_change_password {
-        auth_service::issue_password_change_tokens_for_user(state, &user, ip_address, user_agent)
-            .await?
+        local::issue_password_change_tokens_for_user(state, &user, ip_address, user_agent).await?
     } else {
-        auth_service::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
+        local::issue_tokens_for_user(state, &user, ip_address, user_agent).await?
     };
     let login = LoginResult {
         access_token: access,

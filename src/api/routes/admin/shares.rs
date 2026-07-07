@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, auth_service::Claims, share_service};
+use crate::services::{audit_service, auth::local::Claims, share_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(

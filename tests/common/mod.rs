@@ -445,11 +445,11 @@ pub fn seed_csrf_token(session_token: &str) -> String {
 #[allow(dead_code)]
 #[track_caller]
 pub fn expect_authenticated_login(
-    completion: aster_drive::services::mfa_service::PrimaryLoginCompletion,
-) -> aster_drive::services::auth_service::LoginResult {
+    completion: aster_drive::services::auth::mfa::PrimaryLoginCompletion,
+) -> aster_drive::services::auth::local::LoginResult {
     match completion {
-        aster_drive::services::mfa_service::PrimaryLoginCompletion::Authenticated(login) => login,
-        aster_drive::services::mfa_service::PrimaryLoginCompletion::MfaRequired(_) => {
+        aster_drive::services::auth::mfa::PrimaryLoginCompletion::Authenticated(login) => login,
+        aster_drive::services::auth::mfa::PrimaryLoginCompletion::MfaRequired(_) => {
             panic!("expected login to complete without MFA challenge")
         }
     }

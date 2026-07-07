@@ -1,7 +1,7 @@
 //! 外部认证服务聚合入口。
 //!
 //! 这组模块负责外部认证 provider 管理、登录回调、邮箱补验、账号绑定和清理任务。
-//! 对外仍通过 `crate::services::external_auth_service::*` 暴露，避免 route 层感知拆分。
+//! 对外仍通过 `crate::services::auth::external::*` 暴露，避免 route 层感知拆分。
 
 mod links;
 mod login;

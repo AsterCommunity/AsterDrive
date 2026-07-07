@@ -5,7 +5,7 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::utils::hash;
 
 use super::normalize::{normalize_flow_token, token_hash};
@@ -51,7 +51,7 @@ pub async fn link_with_password(
         ));
     }
 
-    let user = auth_service::shared::find_user_by_identifier(state.writer_db(), identifier).await?;
+    let user = local::shared::find_user_by_identifier(state.writer_db(), identifier).await?;
     let password_hash = user
         .as_ref()
         .map(|user| user.password_hash.as_str())
@@ -65,7 +65,7 @@ pub async fn link_with_password(
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
-    if !auth_service::is_email_verified(&user) {
+    if !local::is_email_verified(&user) {
         return Err(AsterError::auth_pending_activation(
             "account pending activation",
         ));

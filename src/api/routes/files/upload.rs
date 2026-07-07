@@ -7,7 +7,7 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth_service::Claims, upload_service, workspace_models::FileInfo,
+    audit_service::AuditContext, auth::local::Claims, upload_service, workspace_models::FileInfo,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};

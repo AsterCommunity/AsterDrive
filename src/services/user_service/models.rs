@@ -5,7 +5,7 @@ use utoipa::ToSchema;
 
 use crate::api::pagination::{AdminUserSortBy, SortBy, SortOrder};
 use crate::entities::user;
-use crate::services::{auth_service, profile_service};
+use crate::services::{auth::local, profile_service};
 use crate::types::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode, UserConfig,
     UserPreferences as StoredUserPreferences, UserRole, UserStatus,
@@ -328,7 +328,7 @@ pub(super) fn user_core(user: &user::Model) -> UserCore {
         id: user.id,
         username: user.username.clone(),
         email: user.email.clone(),
-        email_verified: auth_service::is_email_verified(user),
+        email_verified: local::is_email_verified(user),
         pending_email: user.pending_email.clone(),
         role: user.role,
         status: user.status,

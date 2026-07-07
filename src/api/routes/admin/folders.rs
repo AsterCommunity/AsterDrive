@@ -5,7 +5,7 @@ use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, folder_service};
+use crate::services::{audit_service, auth::local::Claims, folder_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(

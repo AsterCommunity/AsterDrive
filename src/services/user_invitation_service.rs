@@ -14,7 +14,7 @@ use crate::entities::{user, user_invitation};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    auth_service::shared::{CreateUserWithRoleInput, create_user_with_role},
+    auth::local::shared::{CreateUserWithRoleInput, create_user_with_role},
     mail_outbox_service,
     mail_template::MailTemplatePayload,
 };

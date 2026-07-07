@@ -47,8 +47,8 @@ use crate::entities::auth_session;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::auth_service::Claims;
-use crate::services::auth_service::session::{
+use crate::services::auth::local::Claims;
+use crate::services::auth::local::session::{
     invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection,
 };
 use crate::types::TokenType;

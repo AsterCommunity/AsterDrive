@@ -394,7 +394,7 @@ mod tests {
             token_type: TokenType::Access,
             exp: usize::MAX, // 永不过期，只测 version
         };
-        let snapshot = crate::services::auth_service::AuthSnapshot {
+        let snapshot = crate::services::auth::local::AuthSnapshot {
             session_version: 2,
             status: crate::types::UserStatus::Active,
             role: crate::types::UserRole::User,
@@ -415,7 +415,7 @@ mod tests {
             token_type: TokenType::Access,
             exp: usize::MAX,
         };
-        let snapshot = crate::services::auth_service::AuthSnapshot {
+        let snapshot = crate::services::auth::local::AuthSnapshot {
             session_version: 1,
             status: crate::types::UserStatus::Active,
             role: crate::types::UserRole::User,

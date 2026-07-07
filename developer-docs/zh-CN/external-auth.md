@@ -8,12 +8,12 @@
 | --- | --- | --- |
 | 路由 | `src/api/routes/auth/external_auth.rs` | 匿名 provider 列表、登录发起、回调、邮箱补验、密码绑定、用户解绑 |
 | 管理路由 | `src/api/routes/admin/external_auth.rs` | provider kind、provider CRUD、草稿测试、已保存 provider 测试 |
-| 服务聚合 | `src/services/external_auth_service/mod.rs` | DTO、常量和服务导出 |
-| Provider 管理 | `src/services/external_auth_service/providers.rs` | provider 创建、更新、列表、测试、driver descriptor 映射 |
-| 登录流程 | `src/services/external_auth_service/login.rs` | state flow、回调消费、driver 调用、邮箱补验分支 |
-| 账号解析 | `src/services/external_auth_service/resolution.rs` | 既有身份匹配、已验证邮箱自动绑定、自动创建本地用户 |
-| 邮箱补验 | `src/services/external_auth_service/verification.rs` | 临时 flow、邮件发送、确认后继续登录 |
-| 密码绑定 | `src/services/external_auth_service/password_link.rs` | 用户输入本地密码后绑定外部身份 |
+| 服务聚合 | `src/services/auth/external/mod.rs` | DTO、常量和服务导出 |
+| Provider 管理 | `src/services/auth/external/providers.rs` | provider 创建、更新、列表、测试、driver descriptor 映射 |
+| 登录流程 | `src/services/auth/external/login.rs` | state flow、回调消费、driver 调用、邮箱补验分支 |
+| 账号解析 | `src/services/auth/external/resolution.rs` | 既有身份匹配、已验证邮箱自动绑定、自动创建本地用户 |
+| 邮箱补验 | `src/services/auth/external/verification.rs` | 临时 flow、邮件发送、确认后继续登录 |
+| 密码绑定 | `src/services/auth/external/password_link.rs` | 用户输入本地密码后绑定外部身份 |
 | Driver trait | `src/external_auth/driver.rs` | provider driver 统一接口和 descriptor |
 | Driver 注册表 | `src/external_auth/registry.rs` | 注册 `oidc`、`generic_oauth2`、`github`、`qq`、`google` 和 `microsoft` |
 | OIDC driver | `src/external_auth/providers/oidc.rs` | discovery、PKCE、nonce、ID Token 校验 |
@@ -82,7 +82,7 @@
 6. 用户在身份提供商授权后回调 `/auth/external-auth/{kind}/{provider}/callback`。
 7. 服务端按 state hash 原子消费 flow，校验 kind / provider 是否匹配，再调用 driver exchange。
 8. Driver 返回 `ExternalAuthProfile`，服务层按 `identity_namespace + subject` 解析本地用户。
-9. 找到或创建本地用户后，走 `mfa_service::complete_primary_login_or_start_mfa()`。
+9. 找到或创建本地用户后，走 `mfa::complete_primary_login_or_start_mfa()`。
 10. 不需要 MFA 时写 Cookie 并重定向；需要 MFA 时重定向到登录页继续 challenge。
 
 回调错误不会直接输出 JSON，而是重定向回登录页，并记录 `external auth callback failed` warn 日志。
@@ -267,7 +267,7 @@ Generic OAuth2 的 token exchange 只能请求一次。authorization code 是一
 
 ## URL、scope 和 secret 规范化
 
-规范化在 `src/services/external_auth_service/normalize.rs`：
+规范化在 `src/services/auth/external/normalize.rs`：
 
 - provider key 只允许小写字母、数字、短横线，长度 2-64
 - provider endpoint 必须是 HTTPS，localhost / loopback HTTP 例外

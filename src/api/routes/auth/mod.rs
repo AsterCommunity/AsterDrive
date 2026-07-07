@@ -14,7 +14,7 @@ use crate::api::request_auth::access_token;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{auth_service, storage_change_service};
+use crate::services::{auth::local, storage_change_service};
 use actix_governor::Governor;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
@@ -289,7 +289,7 @@ async fn request_has_active_access_session(state: &PrimaryAppState, req: &HttpRe
         return false;
     };
 
-    auth_service::authenticate_access_token(state, &token)
+    local::authenticate_access_token(state, &token)
         .await
         .is_ok()
 }

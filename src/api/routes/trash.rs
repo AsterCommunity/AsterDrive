@@ -10,7 +10,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service, auth_service::Claims, file_service, folder_service, task_service, trash_service,
+    audit_service, auth::local::Claims, file_service, folder_service, task_service, trash_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use crate::types::EntityType;

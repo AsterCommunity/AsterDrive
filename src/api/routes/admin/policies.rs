@@ -15,7 +15,7 @@ use crate::config::site_url;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_credential_service;
-use crate::services::{audit_service, auth_service::Claims, policy_service};
+use crate::services::{audit_service, auth::local::Claims, policy_service};
 use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 

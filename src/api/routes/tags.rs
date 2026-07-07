@@ -18,7 +18,7 @@ use crate::runtime::PrimaryAppState;
 use crate::services::tag_service::TagInfo;
 use crate::services::{
     audit_service,
-    auth_service::Claims,
+    auth::local::Claims,
     tag_service::{self, EntityTags, MinimalTagInfo},
     workspace_storage_service::WorkspaceStorageScope,
 };

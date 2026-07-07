@@ -10,7 +10,7 @@ use crate::external_auth::driver::{
     ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderDriver,
     ExternalAuthProviderTestCheck, ExternalAuthProviderTestResult,
 };
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 
 use super::oauth2::{
@@ -242,7 +242,7 @@ fn select_verified_primary_email(emails: Vec<GitHubEmail>) -> Result<Option<Stri
     else {
         return Ok(None);
     };
-    auth_service::validate_email(&email)
+    local::validate_email(&email)
         .map_err(|_| AsterError::auth_invalid_credentials("GitHub primary email is invalid"))?;
     Ok(Some(email))
 }

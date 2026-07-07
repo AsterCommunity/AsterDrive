@@ -8,8 +8,8 @@ use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::audit_service::{self, AuditContext};
-use crate::services::auth_service::Claims;
-use crate::services::{auth_service, profile_service, user_service};
+use crate::services::auth::local::Claims;
+use crate::services::{auth::local, profile_service, user_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -32,7 +32,7 @@ pub async fn request_email_change(
     body: web::Json<RequestEmailChangeReq>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    let user = auth_service::request_email_change_with_audit(
+    let user = local::request_email_change_with_audit(
         state.get_ref(),
         claims.user_id,
         &body.new_email,
@@ -61,8 +61,7 @@ pub async fn resend_email_change(
 ) -> Result<HttpResponse> {
     let started_at = tokio::time::Instant::now();
     let ctx = AuditContext::from_request(&req, &claims);
-    let result =
-        auth_service::resend_email_change_with_audit(state.get_ref(), claims.user_id, &ctx).await;
+    let result = local::resend_email_change_with_audit(state.get_ref(), claims.user_id, &ctx).await;
     match result {
         Ok(_) => {}
         Err(error) => {

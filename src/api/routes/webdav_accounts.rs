@@ -13,7 +13,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::db::repository::webdav_account_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, auth_service::Claims, webdav_account_service};
+use crate::services::{audit_service, auth::local::Claims, webdav_account_service};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};

@@ -12,8 +12,9 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service,
-    auth_service::{self, Claims},
-    mfa_service, profile_service, user_invitation_service, user_service,
+    auth::local::{self, Claims},
+    auth::mfa,
+    profile_service, user_invitation_service, user_service,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -244,7 +245,7 @@ pub async fn revoke_user_sessions(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    auth_service::revoke_user_sessions_with_audit(state.get_ref(), *path, &ctx).await?;
+    local::revoke_user_sessions_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -317,7 +318,7 @@ pub async fn reset_user_password(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    auth_service::set_password_with_audit(state.get_ref(), *path, &body.password, &ctx).await?;
+    local::set_password_with_audit(state.get_ref(), *path, &body.password, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -342,7 +343,7 @@ pub async fn reset_user_mfa(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    mfa_service::reset_user_mfa(state.get_ref(), *path, &ctx).await?;
+    mfa::reset_user_mfa(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 

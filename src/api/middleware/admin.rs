@@ -9,7 +9,7 @@ use std::rc::Rc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, auth_forbidden_with_code};
-use crate::services::auth_service::AuthSnapshot;
+use crate::services::auth::local::AuthSnapshot;
 
 /// 要求请求已经通过 JwtAuth，并且当前用户是管理员。
 pub struct RequireAdmin;

@@ -13,7 +13,7 @@ use crate::db::repository::{
 use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, auth_mfa_failed_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{audit_service, auth_service};
+use crate::services::{audit_service, auth::local};
 use crate::types::MfaPersistentFactorMethod;
 use crate::utils::numbers::u64_to_i64;
 
@@ -382,7 +382,7 @@ pub async fn reset_user_mfa(
     match result {
         Ok((updated_user_id, username, factor_count, recovery_code_count)) => {
             crate::db::transaction::commit(txn).await?;
-            auth_service::invalidate_auth_snapshot_cache(state, updated_user_id).await;
+            local::invalidate_auth_snapshot_cache(state, updated_user_id).await;
             audit_service::log(
                 state,
                 audit_ctx,
@@ -456,7 +456,7 @@ fn ensure_user_can_manage_mfa(user: &crate::entities::user::Model) -> Result<()>
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
-    if !auth_service::is_email_verified(user) {
+    if !local::is_email_verified(user) {
         return Err(AsterError::auth_pending_activation(
             "account pending activation",
         ));

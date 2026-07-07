@@ -717,7 +717,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::auth_service::cleanup_expired_auth_sessions(s.get_ref()).await {
+            match crate::services::auth::local::cleanup_expired_auth_sessions(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired auth sessions");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -743,7 +743,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::external_auth_service::cleanup_expired_flows(s.get_ref()).await {
+            match crate::services::auth::external::cleanup_expired_flows(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired external auth flows");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -769,7 +769,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::mfa_service::cleanup_expired_flows(s.get_ref()).await {
+            match crate::services::auth::mfa::cleanup_expired_flows(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired MFA flows");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(

@@ -19,7 +19,8 @@ use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
     audit_service,
     audit_service::AuditRequestInfo,
-    auth_service, mail_audit_service, mail_service,
+    auth::local,
+    mail_audit_service, mail_service,
     mail_template::{self, MailTemplatePayload},
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
@@ -33,7 +34,7 @@ use super::{
 
 #[derive(Debug)]
 pub enum PrimaryLoginCompletion {
-    Authenticated(auth_service::LoginResult),
+    Authenticated(local::LoginResult),
     MfaRequired(MfaChallengeStart),
 }
 
@@ -73,19 +74,17 @@ pub async fn complete_primary_login_or_start_mfa(
     let methods = available_challenge_methods(state.writer_db(), state, user).await?;
     if methods.is_empty() {
         let (access_token, refresh_token) = if user.must_change_password {
-            auth_service::issue_password_change_tokens_for_user(state, user, ip_address, user_agent)
+            local::issue_password_change_tokens_for_user(state, user, ip_address, user_agent)
                 .await?
         } else {
-            auth_service::issue_tokens_for_user(state, user, ip_address, user_agent).await?
+            local::issue_tokens_for_user(state, user, ip_address, user_agent).await?
         };
-        return Ok(PrimaryLoginCompletion::Authenticated(
-            auth_service::LoginResult {
-                access_token,
-                refresh_token,
-                user_id: user.id,
-                password_change_required: user.must_change_password,
-            },
-        ));
+        return Ok(PrimaryLoginCompletion::Authenticated(local::LoginResult {
+            access_token,
+            refresh_token,
+            user_id: user.id,
+            password_change_required: user.must_change_password,
+        }));
     }
 
     Ok(PrimaryLoginCompletion::MfaRequired(
@@ -423,7 +422,7 @@ pub async fn verify_challenge(
         }
 
         let (access_token, refresh_token) = if user.must_change_password {
-            auth_service::issue_password_change_tokens_for_user(
+            local::issue_password_change_tokens_for_user(
                 state,
                 &user,
                 flow.ip_address.as_deref(),
@@ -431,7 +430,7 @@ pub async fn verify_challenge(
             )
             .await?
         } else {
-            auth_service::issue_tokens_for_user_in_connection(
+            local::issue_tokens_for_user_in_connection(
                 &txn,
                 state,
                 &user,
@@ -609,7 +608,7 @@ async fn available_challenge_methods<C: ConnectionTrait>(
         false
     };
     let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
-    let email_available = auth_service::is_email_verified(user)
+    let email_available = local::is_email_verified(user)
         && email_code_policy_ready(state, &policy)
         && (!totp_enabled || policy.allow_totp_fallback);
 
@@ -685,7 +684,7 @@ fn ensure_flow_user_valid(user: &user::Model, flow: &mfa_login_flow::Model) -> R
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
-    if !auth_service::is_email_verified(user) {
+    if !local::is_email_verified(user) {
         return Err(AsterError::auth_pending_activation(
             "account pending activation",
         ));

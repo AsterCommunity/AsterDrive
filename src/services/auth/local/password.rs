@@ -8,7 +8,7 @@ use crate::utils::hash;
 
 use super::session::{invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection};
 use super::shared::{find_user_by_identifier, update_password_in_connection};
-use crate::services::mfa_service::{self, PrimaryLoginCompletion};
+use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
 use super::{AuthUserInfo, is_email_verified};
 
@@ -54,7 +54,7 @@ pub async fn login(
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
 
-        let completion = mfa_service::complete_primary_login_or_start_mfa(
+        let completion = mfa::complete_primary_login_or_start_mfa(
             state,
             &user,
             crate::types::MfaFirstFactor::Password,

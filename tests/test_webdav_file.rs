@@ -55,11 +55,11 @@ fn snapshot_dir_tree(
 #[actix_web::test]
 async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::webdav::file::AsterDavFile;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davfilewriter",
         "davfilewriter@example.com",
@@ -132,14 +132,14 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
 async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     use aster_drive::db::repository::property_repo;
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, file_service};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavFileSystem, DavPath, DavProp};
     use aster_drive::webdav::fs::AsterDavFs;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "davfsprops", "davfsprops@example.com", "pass1234")
+    let user = local::register(&state, "davfsprops", "davfsprops@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -276,12 +276,12 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, file_service};
     use aster_drive::webdav::dav::DavPath;
     use aster_drive::webdav::fs::AsterDavFs;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "davreadfb", "davreadfb@example.com", "pass1234")
+    let user = local::register(&state, "davreadfb", "davreadfb@example.com", "pass1234")
         .await
         .unwrap();
 

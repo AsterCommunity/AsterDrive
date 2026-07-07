@@ -4185,7 +4185,7 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
 
 #[actix_web::test]
 async fn test_webdav_hides_and_rejects_system_property_namespace() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
     let db1 = state.writer_db().clone();
@@ -4205,7 +4205,7 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
     .await;
 
     let (token, _) = register_and_login!(app);
-    let claims = auth_service::verify_token(&token, &state.config.auth.jwt_secret)
+    let claims = local::verify_token(&token, &state.config.auth.jwt_secret)
         .expect("access token should verify");
     let auth = create_webdav_basic_auth!(app, token);
 

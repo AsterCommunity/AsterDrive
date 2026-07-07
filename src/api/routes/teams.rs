@@ -10,7 +10,7 @@ use crate::api::routes::{batch, folders, search, shares, tags, tasks, trash, web
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, team_service};
+use crate::services::{audit_service, auth::local::Claims, team_service};
 use crate::types::TeamMemberRole;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;

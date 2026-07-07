@@ -3,7 +3,7 @@ use crate::db::repository::user_repo;
 use crate::entities::user;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::{auth_service, profile_service};
+use crate::services::{auth::local, profile_service};
 use std::collections::{HashMap, HashSet};
 
 use super::models::{
@@ -115,7 +115,7 @@ pub async fn to_user_infos(
             id: user.id,
             username: user.username.clone(),
             email: user.email.clone(),
-            email_verified: auth_service::is_email_verified(&user),
+            email_verified: local::is_email_verified(&user),
             pending_email: user.pending_email.clone(),
             role: user.role,
             status: user.status,

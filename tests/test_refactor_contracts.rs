@@ -42,7 +42,7 @@ async fn test_login_returns_correct_user_id_and_tokens() {
 
     // service 层验证 user_id（用独立 state）
     let state_svc = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state_svc,
         "logintest",
         "login@test.com",
@@ -52,7 +52,7 @@ async fn test_login_returns_correct_user_id_and_tokens() {
     .unwrap();
 
     let result =
-        aster_drive::services::auth_service::login(&state_svc, "logintest", "pass1234", None, None)
+        aster_drive::services::auth::local::login(&state_svc, "logintest", "pass1234", None, None)
             .await
             .unwrap();
     let result = common::expect_authenticated_login(result);
@@ -102,7 +102,7 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
     // service 层：错误密码返回 Err
     let state2 = common::setup().await;
     let err =
-        aster_drive::services::auth_service::login(&state2, "wrongpw", "wrongpassword", None, None)
+        aster_drive::services::auth::local::login(&state2, "wrongpw", "wrongpassword", None, None)
             .await;
     assert!(err.is_err());
 }

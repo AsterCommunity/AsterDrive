@@ -13,10 +13,10 @@ use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
-use crate::services::auth_service::Claims;
-use crate::services::mfa_service::PrimaryLoginCompletion;
+use crate::services::auth::local::Claims;
+use crate::services::auth::mfa::PrimaryLoginCompletion;
 use crate::services::storage_change_service::StorageChangeWorkspace;
-use crate::services::{auth_service, team_service, user_service};
+use crate::services::{auth::local, team_service, user_service};
 use crate::types::TokenType;
 use crate::utils::numbers::{u64_to_i64, usize_to_i64};
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -31,7 +31,7 @@ use super::cookies::{
 fn refresh_cookie_jti(state: &PrimaryAppState, req: &HttpRequest) -> Option<String> {
     let refresh_token = req.cookie(REFRESH_COOKIE)?.value().to_string();
     let claims =
-        auth_service::verify_token(&refresh_token, state.config().auth.jwt_secret.as_str()).ok()?;
+        local::verify_token(&refresh_token, state.config().auth.jwt_secret.as_str()).ok()?;
     if claims.token_type != TokenType::Refresh {
         return None;
     }
@@ -91,7 +91,7 @@ async fn revalidate_storage_event_stream(
     session_version: i64,
     refresh_visible_teams: bool,
 ) -> Result<Option<HashSet<i64>>> {
-    let snapshot = auth_service::get_auth_snapshot(state, user_id).await?;
+    let snapshot = local::get_auth_snapshot(state, user_id).await?;
     if !snapshot.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
@@ -275,7 +275,7 @@ pub async fn login(
             &req,
             &state.get_ref().config().network_trust.trusted_proxies,
         );
-        let result = auth_service::login_with_audit(
+        let result = local::login_with_audit(
             state.get_ref(),
             &body.identifier,
             &body.password,
@@ -316,7 +316,7 @@ pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Res
         .map(|c| c.value().to_string())
         .ok_or_else(|| AsterError::auth_token_invalid("missing refresh cookie"))?;
 
-    let (access, refresh_token) = auth_service::refresh_tokens(
+    let (access, refresh_token) = local::refresh_tokens(
         state.get_ref(),
         &refresh_tok,
         audit_info.ip_address.as_deref(),
@@ -367,8 +367,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
     if let Some(refresh_token) = req
         .cookie(REFRESH_COOKIE)
         .map(|cookie| cookie.value().to_string())
-        && let Err(error) =
-            auth_service::revoke_refresh_token(state.get_ref(), &refresh_token).await
+        && let Err(error) = local::revoke_refresh_token(state.get_ref(), &refresh_token).await
     {
         tracing::warn!("failed to revoke refresh token on logout: {error}");
     }
@@ -381,7 +380,7 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
     .into_iter()
     .flatten()
     {
-        if auth_service::log_logout_for_token(state.get_ref(), &token, &audit_info).await {
+        if local::log_logout_for_token(state.get_ref(), &token, &audit_info).await {
             break;
         }
     }
@@ -439,7 +438,7 @@ pub async fn me(
     tag = "auth",
     operation_id = "list_auth_sessions",
     responses(
-        (status = 200, description = "Active login devices", body = inline(ApiResponse<Vec<crate::services::auth_service::AuthSessionInfo>>)),
+        (status = 200, description = "Active login devices", body = inline(ApiResponse<Vec<crate::services::auth::local::AuthSessionInfo>>)),
         (status = 401, description = "Not authenticated"),
     ),
     security(("bearer" = [])),
@@ -449,7 +448,7 @@ pub async fn list_sessions(
     req: HttpRequest,
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
-    let sessions = auth_service::list_auth_sessions(
+    let sessions = local::list_auth_sessions(
         state.get_ref(),
         claims.user_id,
         refresh_cookie_jti(state.get_ref(), &req).as_deref(),
@@ -476,12 +475,9 @@ pub async fn delete_other_sessions(
 ) -> Result<HttpResponse> {
     let current_refresh_jti = refresh_cookie_jti(state.get_ref(), &req)
         .ok_or_else(|| AsterError::auth_token_invalid("missing current refresh session"))?;
-    let removed = auth_service::revoke_other_auth_sessions(
-        state.get_ref(),
-        claims.user_id,
-        &current_refresh_jti,
-    )
-    .await?;
+    let removed =
+        local::revoke_other_auth_sessions(state.get_ref(), claims.user_id, &current_refresh_jti)
+            .await?;
     let ctx = AuditContext::from_request_with_trusted_proxies(
         &req,
         &claims,
@@ -526,7 +522,7 @@ pub async fn delete_session(
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
     let current_refresh_jti = refresh_cookie_jti(state.get_ref(), &req);
-    let revoked_current = auth_service::revoke_auth_session(
+    let revoked_current = local::revoke_auth_session(
         state.get_ref(),
         claims.user_id,
         path.as_str(),
@@ -591,7 +587,7 @@ pub async fn put_password(
         &claims,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    let user = auth_service::change_password_with_audit(
+    let user = local::change_password_with_audit(
         state.get_ref(),
         claims.user_id,
         &body.current_password,
@@ -600,7 +596,7 @@ pub async fn put_password(
     )
     .await?;
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
-    let (access_token, refresh_token) = auth_service::issue_tokens_for_session(
+    let (access_token, refresh_token) = local::issue_tokens_for_session(
         state.get_ref(),
         user.id,
         user.session_version,

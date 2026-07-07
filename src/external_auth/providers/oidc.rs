@@ -12,7 +12,7 @@ use openidconnect::{
 use openidconnect::{EndpointMaybeSet, EndpointNotSet, EndpointSet};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use crate::utils::OUTBOUND_HTTP_USER_AGENT;
 
@@ -295,7 +295,7 @@ pub(super) fn profile_from_id_token(
         .map(|email| email.as_str().trim().to_string())
         .filter(|email| !email.is_empty());
     if let Some(email) = email.as_deref() {
-        auth_service::validate_email(email)
+        local::validate_email(email)
             .map_err(|_| AsterError::auth_invalid_credentials("OIDC email claim is invalid"))?;
     }
 

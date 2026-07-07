@@ -10,7 +10,7 @@ use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, property_service};
+use crate::services::{audit_service, auth::local::Claims, property_service};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};

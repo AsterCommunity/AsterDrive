@@ -5,7 +5,7 @@ use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service, config_service, remote::enrollment};
+use crate::services::{audit_service, auth::local, config_service, remote::enrollment};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -144,7 +144,7 @@ async fn request_has_valid_access_token(
         return Ok(false);
     };
 
-    auth_service::authenticate_access_token(state, &token).await?;
+    local::authenticate_access_token(state, &token).await?;
     Ok(true)
 }
 

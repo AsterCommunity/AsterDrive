@@ -106,7 +106,7 @@ pub async fn get_config(
 )]
 pub async fn set_config(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
     body: web::Json<SetConfigReq>,
@@ -140,7 +140,7 @@ pub async fn set_config(
 )]
 pub async fn delete_config(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
@@ -168,7 +168,7 @@ pub async fn delete_config(
 )]
 pub async fn execute_config_action(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
     body: web::Json<ExecuteConfigActionReq>,

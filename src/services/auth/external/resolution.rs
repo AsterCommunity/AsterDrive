@@ -10,7 +10,7 @@ use crate::entities::{
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::external_auth::ExternalAuthProfile;
 use crate::runtime::SharedRuntimeState;
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::types::{UserRole, UserStatus};
 use crate::utils::hash;
 
@@ -272,10 +272,10 @@ async fn create_external_auth_user_and_identity(
                     "account exists; automatic linking disabled",
                 ));
             }
-            let user = auth_service::shared::create_user_with_role(
+            let user = local::shared::create_user_with_role(
                 &txn,
                 state,
-                auth_service::shared::CreateUserWithRoleInput {
+                local::shared::CreateUserWithRoleInput {
                     username: &username,
                     email,
                     password: &password,
@@ -354,10 +354,10 @@ async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::Connec
     for attempt in 0..UNIQUE_USERNAME_MAX_ATTEMPTS {
         let username = external_auth_username_candidate(&username_base, attempt);
         let password = random_internal_password();
-        match auth_service::shared::create_user_with_role(
+        match local::shared::create_user_with_role(
             db,
             state,
-            auth_service::shared::CreateUserWithRoleInput {
+            local::shared::CreateUserWithRoleInput {
                 username: &username,
                 email,
                 password: &password,

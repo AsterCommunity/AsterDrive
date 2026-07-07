@@ -15,7 +15,7 @@ use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::services::batch_service;
 use crate::services::{
-    audit_service::AuditContext, auth_service::Claims, share_service,
+    audit_service::AuditContext, auth::local::Claims, share_service,
     workspace_storage_service::WorkspaceStorageScope,
 };
 use actix_governor::Governor;

@@ -8,7 +8,7 @@ use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     audit_service::{self, AuditContext},
-    auth_service::Claims,
+    auth::local::Claims,
     file_service,
     workspace_storage_service::WorkspaceStorageScope,
 };

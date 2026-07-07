@@ -16,7 +16,7 @@ use crate::external_auth::driver::{
     ExternalAuthProviderTestCheck, ExternalAuthProviderTestResult,
 };
 use crate::external_auth::url::{has_http_scheme, parse_url};
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use crate::utils::{OUTBOUND_HTTP_USER_AGENT, id};
 
@@ -471,7 +471,7 @@ pub(super) fn profile_from_userinfo(
         .map(|email| email.trim().to_string())
         .filter(|email| !email.is_empty());
     if let Some(email) = email.as_deref() {
-        auth_service::validate_email(email)
+        local::validate_email(email)
             .map_err(|_| AsterError::auth_invalid_credentials("OAuth2 email claim is invalid"))?;
     }
 

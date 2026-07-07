@@ -4,7 +4,7 @@ use actix_web::{body::MessageBody, http::StatusCode, test};
 use aster_drive::config::{auth_runtime, mail};
 use aster_drive::entities::audit_log;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::mfa_service::totp;
+use aster_drive::services::auth::mfa::totp;
 use aster_drive::types::AuditAction;
 use chrono::{Duration, Utc};
 use sea_orm::{

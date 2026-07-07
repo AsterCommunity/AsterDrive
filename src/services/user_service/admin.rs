@@ -12,7 +12,8 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
-    auth_service, profile_service,
+    auth::local,
+    profile_service,
 };
 use crate::types::{UserRole, UserStatus};
 
@@ -117,10 +118,10 @@ pub async fn create(
         .ok_or_else(|| {
             AsterError::internal_error("temporary password generation returned no password")
         })?;
-    auth_service::validate_password(password)?;
+    local::validate_password(password)?;
     let must_change_password =
         generated_password.is_some() || input.must_change_password.unwrap_or(false);
-    let user = auth_service::create_user_by_admin(
+    let user = local::create_user_by_admin(
         state,
         input.username,
         input.email,
@@ -211,7 +212,7 @@ async fn update_with_audit_diff(
 
     let existing = user_repo::find_by_id(state.writer_db(), id).await?;
     let existing_policy_group_id = existing.policy_group_id;
-    let existing_email_verified = auth_service::is_email_verified(&existing);
+    let existing_email_verified = local::is_email_verified(&existing);
     let before = UserAuditSnapshot {
         email_verified: existing_email_verified,
         role: existing.role,
@@ -302,7 +303,7 @@ async fn update_with_audit_diff(
         }
     }
     if role_changed || status_changed || email_verified_changed || must_change_password_changed {
-        auth_service::invalidate_auth_snapshot_cache(state, id).await;
+        local::invalidate_auth_snapshot_cache(state, id).await;
     }
     if status_changed
         && let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_user(state, id).await

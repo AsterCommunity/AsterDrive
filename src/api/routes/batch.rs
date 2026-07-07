@@ -13,7 +13,7 @@ use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
-    auth_service::Claims,
+    auth::local::Claims,
     batch_service, stream_ticket_service, task_service,
     workspace_storage_service::WorkspaceStorageScope,
 };

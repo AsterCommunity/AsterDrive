@@ -780,12 +780,12 @@ async fn test_restore_folder_moves_to_root_when_parent_is_deleted() {
 #[actix_web::test]
 async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config() {
     use aster_drive::db::repository::{config_repo, file_repo, folder_repo};
-    use aster_drive::services::{auth_service, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "trashcleanup",
         "trashcleanup@example.com",
@@ -889,12 +889,12 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
 #[actix_web::test]
 async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
     use aster_drive::db::repository::folder_repo;
-    use aster_drive::services::{auth_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, folder_service, trash_service};
     use chrono::{Duration, Utc};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "trashnested", "trashnested@example.com", "pass1234")
+    let user = local::register(&state, "trashnested", "trashnested@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -940,10 +940,10 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
 #[actix_web::test]
 async fn test_cleanup_expired_keeps_recently_deleted_items() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, file_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "trashrecent", "trashrecent@example.com", "pass1234")
+    let user = local::register(&state, "trashrecent", "trashrecent@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -976,10 +976,10 @@ async fn test_cleanup_expired_keeps_recently_deleted_items() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_file_batches() {
-    use aster_drive::services::{auth_service, file_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "tbfiles", "trashbatchfiles@example.com", "pass1234")
+    let user = local::register(&state, "tbfiles", "trashbatchfiles@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -1004,10 +1004,10 @@ async fn test_purge_all_processes_multiple_file_batches() {
 
 #[actix_web::test]
 async fn test_purge_all_processes_multiple_folder_batches() {
-    use aster_drive::services::{auth_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, folder_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "tbfolders",
         "trashbatchfolders@example.com",

@@ -19,7 +19,7 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth_service, file_service, folder_service, policy_service, remote::master_binding,
+    auth::local, file_service, folder_service, policy_service, remote::master_binding,
     remote::remote_node, remote::storage_target, upload_service,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
@@ -2984,7 +2984,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     )
     .await;
 
-    let user = auth_service::register(
+    let user = local::register(
         &consumer_state,
         "remoteuser",
         "remoteuser@example.com",
@@ -5831,7 +5831,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     )
     .await;
 
-    let user = auth_service::register(
+    let user = local::register(
         &consumer_state,
         "remrelaydir",
         "remote-relay-direct@example.com",
@@ -5844,7 +5844,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
-    let login = auth_service::login(&consumer_state, "remrelaydir", "pass1234", None, None)
+    let login = local::login(&consumer_state, "remrelaydir", "pass1234", None, None)
         .await
         .expect("consumer login should succeed");
     let login = common::expect_authenticated_login(login);
@@ -6503,7 +6503,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     )
     .await;
 
-    let user = auth_service::register(
+    let user = local::register(
         &consumer_state,
         "remrelaych",
         "remote-relay-chunked@example.com",
@@ -6511,7 +6511,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     )
     .await
     .expect("consumer test user should be created");
-    let login = auth_service::login(&consumer_state, "remrelaych", "pass1234", None, None)
+    let login = local::login(&consumer_state, "remrelaych", "pass1234", None, None)
         .await
         .expect("consumer test user should log in");
     let login = common::expect_authenticated_login(login);

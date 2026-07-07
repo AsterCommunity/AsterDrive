@@ -145,11 +145,11 @@ async fn wait_for_share_download_count(
 // ─── Auth Service ─────────────────────────────────────────────────
 
 #[actix_web::test]
-async fn test_auth_service_register_login() {
+async fn test_auth_local_register_login() {
     let state = common::setup().await;
 
     // 注册
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "alice",
         "alice@example.com",
@@ -164,7 +164,7 @@ async fn test_auth_service_register_login() {
 
     // 登录 → LoginResult { access_token, refresh_token, user_id }
     let result =
-        aster_drive::services::auth_service::login(&state, "alice", "password123", None, None)
+        aster_drive::services::auth::local::login(&state, "alice", "password123", None, None)
             .await
             .unwrap();
     let result = common::expect_authenticated_login(result);
@@ -174,11 +174,11 @@ async fn test_auth_service_register_login() {
 
     // 错误密码
     let err =
-        aster_drive::services::auth_service::login(&state, "alice", "wrongpass", None, None).await;
+        aster_drive::services::auth::local::login(&state, "alice", "wrongpass", None, None).await;
     assert!(err.is_err());
 
     // 重复注册
-    let err = aster_drive::services::auth_service::register(
+    let err = aster_drive::services::auth::local::register(
         &state,
         "alice",
         "alice2@example.com",
@@ -189,10 +189,10 @@ async fn test_auth_service_register_login() {
 }
 
 #[actix_web::test]
-async fn test_auth_service_rejects_password_shorter_than_eight_chars() {
+async fn test_auth_local_rejects_password_shorter_than_eight_chars() {
     let state = common::setup().await;
 
-    let err = aster_drive::services::auth_service::register(
+    let err = aster_drive::services::auth::local::register(
         &state,
         "alice",
         "alice@example.com",
@@ -205,10 +205,10 @@ async fn test_auth_service_rejects_password_shorter_than_eight_chars() {
 }
 
 #[actix_web::test]
-async fn test_auth_service_change_password() {
+async fn test_auth_local_change_password() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "alice",
         "alice@example.com",
@@ -217,7 +217,7 @@ async fn test_auth_service_change_password() {
     .await
     .unwrap();
 
-    aster_drive::services::auth_service::change_password(
+    aster_drive::services::auth::local::change_password(
         &state,
         user.id,
         "password123",
@@ -227,12 +227,11 @@ async fn test_auth_service_change_password() {
     .unwrap();
 
     let old_login =
-        aster_drive::services::auth_service::login(&state, "alice", "password123", None, None)
-            .await;
+        aster_drive::services::auth::local::login(&state, "alice", "password123", None, None).await;
     assert!(old_login.is_err());
 
     let new_login =
-        aster_drive::services::auth_service::login(&state, "alice", "newpass456", None, None)
+        aster_drive::services::auth::local::login(&state, "alice", "newpass456", None, None)
             .await
             .unwrap();
     let new_login = common::expect_authenticated_login(new_login);
@@ -240,10 +239,10 @@ async fn test_auth_service_change_password() {
 }
 
 #[actix_web::test]
-async fn test_auth_service_set_password() {
+async fn test_auth_local_set_password() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "alice",
         "alice@example.com",
@@ -252,17 +251,16 @@ async fn test_auth_service_set_password() {
     .await
     .unwrap();
 
-    aster_drive::services::auth_service::set_password(&state, user.id, "resetpass789")
+    aster_drive::services::auth::local::set_password(&state, user.id, "resetpass789")
         .await
         .unwrap();
 
     let old_login =
-        aster_drive::services::auth_service::login(&state, "alice", "password123", None, None)
-            .await;
+        aster_drive::services::auth::local::login(&state, "alice", "password123", None, None).await;
     assert!(old_login.is_err());
 
     let new_login =
-        aster_drive::services::auth_service::login(&state, "alice", "resetpass789", None, None)
+        aster_drive::services::auth::local::login(&state, "alice", "resetpass789", None, None)
             .await
             .unwrap();
     let new_login = common::expect_authenticated_login(new_login);
@@ -270,21 +268,21 @@ async fn test_auth_service_set_password() {
 }
 
 #[actix_web::test]
-async fn test_auth_service_verify_token() {
+async fn test_auth_local_verify_token() {
     let state = common::setup().await;
 
-    aster_drive::services::auth_service::register(&state, "bobb", "bob@example.com", "pass1234")
+    aster_drive::services::auth::local::register(&state, "bobb", "bob@example.com", "pass1234")
         .await
         .unwrap();
 
     let login_result =
-        aster_drive::services::auth_service::login(&state, "bobb", "pass1234", None, None)
+        aster_drive::services::auth::local::login(&state, "bobb", "pass1234", None, None)
             .await
             .unwrap();
     let login_result = common::expect_authenticated_login(login_result);
 
     // 验证 access token
-    let claims = aster_drive::services::auth_service::verify_token(
+    let claims = aster_drive::services::auth::local::verify_token(
         &login_result.access_token,
         &state.config.auth.jwt_secret,
     )
@@ -292,7 +290,7 @@ async fn test_auth_service_verify_token() {
     assert_eq!(claims.sub, claims.user_id.to_string());
 
     // 假 token
-    let err = aster_drive::services::auth_service::verify_token(
+    let err = aster_drive::services::auth::local::verify_token(
         "fake.token.here",
         &state.config.auth.jwt_secret,
     );
@@ -305,14 +303,10 @@ async fn test_auth_service_verify_token() {
 async fn test_file_service_get_info() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
-        &state,
-        "user1",
-        "u1@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user =
+        aster_drive::services::auth::local::register(&state, "user1", "u1@example.com", "pass1234")
+            .await
+            .unwrap();
 
     // 上传临时文件
     let temp_dir = format!("/tmp/asterdrive-svc-test-{}", uuid::Uuid::new_v4());
@@ -338,14 +332,10 @@ async fn test_file_service_get_info() {
     assert_eq!(info.created_by_username, user.username);
 
     // 别人的文件
-    let user2 = aster_drive::services::auth_service::register(
-        &state,
-        "user2",
-        "u2@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user2 =
+        aster_drive::services::auth::local::register(&state, "user2", "u2@example.com", "pass1234")
+            .await
+            .unwrap();
     let err = aster_drive::services::file_service::get_info(&state, file.id, user2.id).await;
     assert!(err.is_err());
 }
@@ -357,7 +347,7 @@ async fn test_file_active_model_partial_name_update_refreshes_classification() {
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "filepartialname",
         "filepartialname@example.com",
@@ -393,7 +383,7 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "filepartialmime",
         "filepartialmime@example.com",
@@ -424,10 +414,10 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_respects_deleted_visibility() {
-    use aster_drive::services::{auth_service, folder_service, webdav_service};
+    use aster_drive::services::{auth::local, folder_service, webdav_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "treewalker",
         "treewalker@example.com",
@@ -535,10 +525,10 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_handles_empty_leaf_folder() {
-    use aster_drive::services::{auth_service, folder_service, webdav_service};
+    use aster_drive::services::{auth::local, folder_service, webdav_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "treeleaf", "treeleaf@example.com", "password123")
+    let user = local::register(&state, "treeleaf", "treeleaf@example.com", "password123")
         .await
         .unwrap();
 
@@ -563,10 +553,10 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
 
 #[actix_web::test]
 async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
-    use aster_drive::services::{auth_service, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "trashpaths",
         "trashpaths@example.com",
@@ -611,10 +601,10 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
 
 #[actix_web::test]
 async fn test_list_trash_handles_root_and_shared_parent_paths() {
-    use aster_drive::services::{auth_service, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "trashmix", "trashmix@example.com", "password123")
+    let user = local::register(&state, "trashmix", "trashmix@example.com", "password123")
         .await
         .unwrap();
 
@@ -691,10 +681,10 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
 
 #[actix_web::test]
 async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
-    use aster_drive::services::{auth_service, file_service, folder_service, trash_service};
+    use aster_drive::services::{auth::local, file_service, folder_service, trash_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "trashzero", "trashzero@example.com", "password123")
+    let user = local::register(&state, "trashzero", "trashzero@example.com", "password123")
         .await
         .unwrap();
 
@@ -727,7 +717,7 @@ async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
 async fn test_lock_service_lock_unlock() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "locker",
         "locker@example.com",
@@ -803,7 +793,7 @@ async fn test_lock_service_lock_unlock() {
 async fn test_lock_service_force_unlock() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "admin1",
         "admin1@example.com",
@@ -841,10 +831,10 @@ async fn test_lock_service_force_unlock() {
 #[actix_web::test]
 async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth_service, file_service, lock_service};
+    use aster_drive::services::{auth::local, file_service, lock_service};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "tokunlock", "tokunlock@example.com", "pass1234")
+    let user = local::register(&state, "tokunlock", "tokunlock@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -896,11 +886,11 @@ async fn test_lock_service_unlock_by_token_clears_file_lock_state() {
 #[actix_web::test]
 async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth_service, folder_service, lock_service};
+    use aster_drive::services::{auth::local, folder_service, lock_service};
     use chrono::Duration;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "lockcleanup", "lockcleanup@example.com", "pass1234")
+    let user = local::register(&state, "lockcleanup", "lockcleanup@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -963,7 +953,7 @@ async fn test_lock_service_cleanup_expired_unlocks_only_expired_resources() {
 async fn test_version_service_list_delete() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "veruser",
         "ver@example.com",
@@ -1031,7 +1021,7 @@ async fn test_version_service_list_delete() {
 async fn test_delete_version_keeps_history_numbers_dense() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "densever",
         "densever@example.com",
@@ -1118,7 +1108,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
 async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "versionquota",
         "versionquota@example.com",
@@ -1202,7 +1192,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
 async fn test_version_cleanup_excess_reclaims_storage_used() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "versionlimit",
         "versionlimit@example.com",
@@ -1263,7 +1253,7 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
 async fn test_version_restore_truncates_future_versions_without_deleting_target_blob() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "restoreuser",
         "restore@example.com",
@@ -1391,7 +1381,7 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 async fn test_copy_file_naming() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "copier",
         "copier@example.com",
@@ -1432,14 +1422,10 @@ async fn test_copy_file_naming() {
 async fn test_folder_service_cycle_detection() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
-        &state,
-        "cycl",
-        "cyc@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user =
+        aster_drive::services::auth::local::register(&state, "cycl", "cyc@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let a = aster_drive::services::folder_service::create(&state, user.id, "A", None)
         .await
@@ -1480,7 +1466,7 @@ async fn test_folder_service_cycle_detection() {
 async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "copytree",
         "copytree@example.com",
@@ -1634,7 +1620,7 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "copyquota",
         "copyquota@example.com",
@@ -1746,7 +1732,7 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
 async fn test_property_service_dav_readonly() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "prop",
         "prop@example.com",
@@ -1887,7 +1873,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
 #[actix_web::test]
 async fn test_share_download_failure_rolls_back_download_quota() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "sharedownload",
         "sharedownload@example.com",
@@ -1959,7 +1945,7 @@ async fn test_share_download_abort_rolls_back_download_quota() {
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "sdlabort",
         "sdlabort@example.com",
@@ -2011,7 +1997,7 @@ async fn test_share_target_check_constraint_rejects_zero_or_multiple_targets() {
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "shareconstraint",
         "shareconstraint@example.com",
@@ -2073,7 +2059,7 @@ async fn test_share_token_length_constraint_rejects_tokens_longer_than_32_chars(
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "sharetokenlen",
         "sharetokenlen@example.com",
@@ -2110,7 +2096,7 @@ async fn test_share_token_length_constraint_rejects_tokens_longer_than_32_chars(
 #[actix_web::test]
 async fn test_team_service_accepts_128_multibyte_characters_in_name() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "teamunicode",
         "teamunicode@example.com",
@@ -2152,7 +2138,7 @@ async fn test_team_service_accepts_128_multibyte_characters_in_name() {
 #[actix_web::test]
 async fn test_team_service_clamps_negative_default_storage_quota() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "teamquota",
         "teamquota@example.com",
@@ -2190,7 +2176,7 @@ async fn test_team_service_rejects_create_without_default_policy_group() {
     use sea_orm::ConnectionTrait;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "teamnodefault",
         "teamnodefault@example.com",
@@ -2233,7 +2219,7 @@ async fn test_team_service_degrades_missing_creator_rows() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "missowner",
         "missowner@example.com",
@@ -2241,7 +2227,7 @@ async fn test_team_service_degrades_missing_creator_rows() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth_service::register(
+    let member = aster_drive::services::auth::local::register(
         &state,
         "missmember",
         "missmember@example.com",
@@ -2308,7 +2294,7 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "trashteamowner",
         "trashteamowner@example.com",
@@ -2364,7 +2350,7 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "foldown",
         "foldown@example.com",
@@ -2372,7 +2358,7 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth_service::register(
+    let member = aster_drive::services::auth::local::register(
         &state,
         "foldmem",
         "foldmem@example.com",
@@ -2461,7 +2447,7 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "trashord",
         "trashord@example.com",
@@ -2538,7 +2524,7 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
 #[actix_web::test]
 async fn test_team_service_list_teams_for_member() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "listteams-owner",
         "listteams-owner@example.com",
@@ -2546,7 +2532,7 @@ async fn test_team_service_list_teams_for_member() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth_service::register(
+    let member = aster_drive::services::auth::local::register(
         &state,
         "listteams-member",
         "listteams-member@example.com",
@@ -2590,7 +2576,7 @@ async fn test_team_service_list_teams_for_member() {
 #[actix_web::test]
 async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "teamids-owner",
         "listteamids-owner@example.com",
@@ -2598,7 +2584,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth_service::register(
+    let member = aster_drive::services::auth::local::register(
         &state,
         "teamids-member",
         "listteamids-member@example.com",
@@ -2670,7 +2656,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "cleanup-owner",
         "cleanup-owner@example.com",
@@ -2907,7 +2893,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "cleanupfail",
         "cleanup-fail-owner@example.com",
@@ -3027,7 +3013,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "batchowner",
         "batchcleanup-owner@example.com",
@@ -3194,7 +3180,7 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth_service::register(
+    let owner = aster_drive::services::auth::local::register(
         &state,
         "clnretainown",
         "cleanup-retention-owner@example.com",

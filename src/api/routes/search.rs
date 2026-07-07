@@ -10,7 +10,7 @@ use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::services::search_service::SearchResults;
 use crate::services::{
-    auth_service::Claims,
+    auth::local::Claims,
     search_service::{self, SearchParams},
     workspace_storage_service::WorkspaceStorageScope,
 };

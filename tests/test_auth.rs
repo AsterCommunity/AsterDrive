@@ -12,7 +12,7 @@ use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
 use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::auth_service;
+use aster_drive::services::auth::local;
 use aster_drive::types::{AuditAction, UserStatus};
 use base64::Engine as _;
 use serde_json::Value;
@@ -29,11 +29,11 @@ const TEST_PUBLIC_SITE_ORIGIN: &str = "https://pan.esaps.net";
 const ONE_SECOND_WINDOW_ELAPSED: Duration = Duration::from_millis(1100);
 
 struct RefreshHookGuard {
-    _hook: auth_service::test_support::RefreshRotationTestHook,
+    _hook: local::test_support::RefreshRotationTestHook,
 }
 
 impl RefreshHookGuard {
-    fn new(hook: auth_service::test_support::RefreshRotationTestHook) -> Self {
+    fn new(hook: local::test_support::RefreshRotationTestHook) -> Self {
         Self { _hook: hook }
     }
 }
@@ -41,7 +41,7 @@ impl RefreshHookGuard {
 impl Drop for RefreshHookGuard {
     fn drop(&mut self) {
         tokio::spawn(async {
-            auth_service::test_support::clear_refresh_rotation_test_hook().await;
+            local::test_support::clear_refresh_rotation_test_hook().await;
         });
     }
 }
@@ -579,7 +579,7 @@ async fn test_register_and_login() {
     assert_eq!(csrf_cookie_path.as_deref(), Some("/"));
     assert_eq!(csrf_cookie_same_site, Some(SameSite::Lax));
     assert_ne!(csrf_cookie_http_only, Some(true));
-    let refresh_claims = auth_service::verify_token(
+    let refresh_claims = local::verify_token(
         refresh.as_deref().expect("refresh cookie should exist"),
         &state.config.auth.jwt_secret,
     )
@@ -918,9 +918,8 @@ async fn test_refresh_accepts_matching_csrf_token_and_rotates_cookie() {
         common::extract_cookie(&resp, "aster_csrf").expect("rotated csrf cookie missing");
     assert_ne!(rotated_refresh, refresh);
     assert_ne!(rotated_csrf, csrf);
-    let rotated_claims =
-        auth_service::verify_token(&rotated_refresh, &state.config.auth.jwt_secret)
-            .expect("rotated refresh token should verify");
+    let rotated_claims = local::verify_token(&rotated_refresh, &state.config.auth.jwt_secret)
+        .expect("rotated refresh token should verify");
     let rotated_jti = rotated_claims
         .jti
         .clone()
@@ -950,7 +949,7 @@ async fn test_refresh_accepts_matching_csrf_token_and_rotates_cookie() {
     let next_refresh =
         common::extract_cookie(&resp, "aster_refresh").expect("next refresh cookie missing");
     assert_ne!(next_refresh, rotated_refresh);
-    let next_claims = auth_service::verify_token(&next_refresh, &state.config.auth.jwt_secret)
+    let next_claims = local::verify_token(&next_refresh, &state.config.auth.jwt_secret)
         .expect("next refresh token should verify");
     let next_jti = next_claims
         .jti
@@ -1016,7 +1015,7 @@ async fn test_refresh_reuse_detected_revokes_all_sessions() {
     let (_, refresh_a) = register_and_login!(app);
     let (access_b, refresh_b) = login_user_with_auth_cookies!(app, "testuser", "password123");
 
-    let original_claims = auth_service::verify_token(&refresh_a, &state.config.auth.jwt_secret)
+    let original_claims = local::verify_token(&refresh_a, &state.config.auth.jwt_secret)
         .expect("refresh token should verify");
     let original_jti = original_claims
         .jti
@@ -1037,7 +1036,7 @@ async fn test_refresh_reuse_detected_revokes_all_sessions() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let rotated_a = common::extract_cookie(&resp, "aster_refresh").unwrap();
-    let rotated_claims = auth_service::verify_token(&rotated_a, &state.config.auth.jwt_secret)
+    let rotated_claims = local::verify_token(&rotated_a, &state.config.auth.jwt_secret)
         .expect("rotated refresh should verify");
     let rotated_jti = rotated_claims
         .jti
@@ -1119,7 +1118,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let app = create_test_app!(state.clone());
 
     let (_, refresh) = register_and_login!(app);
-    let hook = auth_service::test_support::install_refresh_rotation_test_hook(
+    let hook = local::test_support::install_refresh_rotation_test_hook(
         &refresh,
         &state.config.auth.jwt_secret,
     )
@@ -1130,7 +1129,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let first_state = state.clone();
     let first_refresh = refresh.clone();
     let first_task = tokio::spawn(async move {
-        auth_service::refresh_tokens(
+        local::refresh_tokens(
             &first_state,
             &first_refresh,
             Some("127.0.0.1"),
@@ -1146,7 +1145,7 @@ async fn test_concurrent_refresh_same_token_has_single_winner() {
     let second_state = state.clone();
     let second_refresh = refresh.clone();
     let second_task = tokio::spawn(async move {
-        auth_service::refresh_tokens(
+        local::refresh_tokens(
             &second_state,
             &second_refresh,
             Some("127.0.0.1"),
@@ -3229,7 +3228,7 @@ async fn test_logout_clears_cookies_and_revokes_refresh_token() {
     let app = create_test_app!(state.clone());
 
     let (access, refresh) = register_and_login!(app);
-    let refresh_claims = auth_service::verify_token(&refresh, &state.config.auth.jwt_secret)
+    let refresh_claims = local::verify_token(&refresh, &state.config.auth.jwt_secret)
         .expect("refresh token should verify");
     let refresh_jti = refresh_claims.jti.expect("refresh token should carry jti");
     assert!(
@@ -3386,7 +3385,7 @@ async fn test_auth_sessions_list_and_revoke_specific_device() {
     assert_eq!(resp.status(), 200);
     let access_a = common::extract_cookie(&resp, "aster_access").unwrap();
     let refresh_a = common::extract_cookie(&resp, "aster_refresh").unwrap();
-    let refresh_a_claims = auth_service::verify_token(&refresh_a, &state.config.auth.jwt_secret)
+    let refresh_a_claims = local::verify_token(&refresh_a, &state.config.auth.jwt_secret)
         .expect("current refresh token should verify");
     assert_eq!(refresh_a_claims.session_version, 1);
     let refresh_a_jti = refresh_a_claims
@@ -3495,7 +3494,7 @@ async fn test_auth_sessions_can_revoke_other_devices() {
     let app = create_test_app!(state.clone());
 
     let (access_a, refresh_a) = register_and_login!(app);
-    let refresh_a_claims = auth_service::verify_token(&refresh_a, &state.config.auth.jwt_secret)
+    let refresh_a_claims = local::verify_token(&refresh_a, &state.config.auth.jwt_secret)
         .expect("current refresh token should verify");
     assert_eq!(refresh_a_claims.session_version, 1);
     let refresh_a_jti = refresh_a_claims
@@ -3562,7 +3561,7 @@ async fn test_auth_sessions_can_revoke_current_device_and_clear_cookies() {
     let app = create_test_app!(state.clone());
 
     let (access, refresh) = register_and_login!(app);
-    let refresh_claims = auth_service::verify_token(&refresh, &state.config.auth.jwt_secret)
+    let refresh_claims = local::verify_token(&refresh, &state.config.auth.jwt_secret)
         .expect("refresh token should verify");
     let refresh_jti = refresh_claims.jti.expect("refresh token should carry jti");
     let current_session = auth_session_repo::find_by_refresh_jti(state.writer_db(), &refresh_jti)
@@ -4075,9 +4074,8 @@ async fn test_change_password_rotates_session_and_updates_login_secret() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], "success");
     assert_eq!(body["data"]["expires_in"], 900);
-    let rotated_claims =
-        auth_service::verify_token(&rotated_refresh, &state.config.auth.jwt_secret)
-            .expect("rotated refresh token should verify");
+    let rotated_claims = local::verify_token(&rotated_refresh, &state.config.auth.jwt_secret)
+        .expect("rotated refresh token should verify");
     let rotated_jti = rotated_claims
         .jti
         .clone()
@@ -4288,7 +4286,7 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
     assert_eq!(body["data"]["status"], "password_change_required");
     assert_eq!(body["data"]["expires_in"], 900);
 
-    let claims = auth_service::verify_token(
+    let claims = local::verify_token(
         &password_change_access,
         state.config.auth.jwt_secret.as_str(),
     )
@@ -4297,7 +4295,7 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         claims.password_change,
         "access token should be scoped to password change"
     );
-    let password_change_refresh_claims = auth_service::verify_token(
+    let password_change_refresh_claims = local::verify_token(
         &password_change_refresh,
         state.config.auth.jwt_secret.as_str(),
     )

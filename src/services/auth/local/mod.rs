@@ -12,7 +12,7 @@ mod validation;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
-use crate::services::mfa_service::PrimaryLoginCompletion;
+use crate::services::auth::mfa::PrimaryLoginCompletion;
 use sea_orm::{ActiveValue, Set};
 use serde::{Deserialize, Serialize};
 

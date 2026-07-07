@@ -15,7 +15,7 @@ use aster_drive::entities::{
     external_auth_login_flow, external_auth_provider, user,
 };
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::{audit_service, external_auth_service};
+use aster_drive::services::{audit_service, auth::external};
 use aster_drive::types::AuditAction;
 use chrono::{Duration, Utc};
 use external_auth::oidc::*;
@@ -2348,7 +2348,7 @@ async fn external_auth_identity_lookup_uses_namespace_subject_not_provider_id() 
         let app = create_test_app!(state.clone());
         register_and_login!(app)
     };
-    let claims = aster_drive::services::auth_service::verify_token(
+    let claims = aster_drive::services::auth::local::verify_token(
         &admin_token,
         &state.config.auth.jwt_secret,
     )
@@ -2461,7 +2461,7 @@ async fn cleanup_expired_flows_removes_only_expired_rows() {
         .expect("email verification flow should create");
     }
 
-    let removed = external_auth_service::cleanup_expired_flows(&state)
+    let removed = external::cleanup_expired_flows(&state)
         .await
         .expect("cleanup should succeed");
     assert_eq!(removed, 2);

@@ -4,7 +4,7 @@ use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::external_auth::url::{is_https_or_loopback_http, parse_url};
 use crate::runtime::SharedRuntimeState;
-use crate::services::auth_service;
+use crate::services::auth::local;
 use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind, NullablePatch};
 use crate::utils::hash;
 
@@ -332,7 +332,7 @@ pub(super) fn normalize_flow_token(value: &str) -> Result<String> {
 
 pub(super) fn normalize_email_for_external_auth(value: &str) -> Result<String> {
     let email = value.trim().to_string();
-    auth_service::validate_email(&email)?;
+    local::validate_email(&email)?;
     Ok(email)
 }
 

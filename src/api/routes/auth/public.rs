@@ -11,7 +11,7 @@ use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
-use crate::services::{auth_service, config_service, user_invitation_service, user_service};
+use crate::services::{auth::local, config_service, user_invitation_service, user_service};
 use crate::types::VerificationPurpose;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -69,7 +69,7 @@ async fn bootstrap_public_site_url_from_setup(
     ),
 )]
 pub async fn check(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let has_users = auth_service::check_auth_state(state.get_ref()).await?;
+    let has_users = local::check_auth_state(state.get_ref()).await?;
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
     Ok(HttpResponse::Ok().json(ApiResponse::ok(CheckResp {
         has_users,
@@ -97,7 +97,7 @@ pub async fn setup(
     let started_at = tokio::time::Instant::now();
     let response = async {
         let audit_info = AuditRequestInfo::from_request(&req);
-        let user = auth_service::setup_with_audit(
+        let user = local::setup_with_audit(
             state.get_ref(),
             &body.username,
             &body.email,
@@ -133,7 +133,7 @@ pub async fn register(
     let started_at = tokio::time::Instant::now();
     let response = async {
         let audit_info = AuditRequestInfo::from_request(&req);
-        let user = auth_service::register_with_audit(
+        let user = local::register_with_audit(
             state.get_ref(),
             &body.username,
             &body.email,
@@ -166,7 +166,7 @@ pub async fn resend_register_activation(
 ) -> Result<HttpResponse> {
     let started_at = tokio::time::Instant::now();
     let audit_info = AuditRequestInfo::from_request(&req);
-    let result = auth_service::resend_register_activation_with_audit(
+    let result = local::resend_register_activation_with_audit(
         state.get_ref(),
         &body.identifier,
         &audit_info,
@@ -282,32 +282,29 @@ pub async fn confirm_contact_verification(
     };
 
     let audit_info = AuditRequestInfo::from_request(&req);
-    let result = match auth_service::confirm_contact_verification_with_audit(
-        state.get_ref(),
-        token,
-        &audit_info,
-    )
-    .await
-    {
-        Ok(result) => result,
-        Err(AsterError::ContactVerificationInvalid(_)) => {
-            return Ok(contact_verification_redirect_response(
-                state.get_ref(),
-                fallback_path,
-                ContactVerificationRedirectStatus::Invalid,
-                None,
-            ));
-        }
-        Err(AsterError::ContactVerificationExpired(_)) => {
-            return Ok(contact_verification_redirect_response(
-                state.get_ref(),
-                fallback_path,
-                ContactVerificationRedirectStatus::Expired,
-                None,
-            ));
-        }
-        Err(error) => return Err(error),
-    };
+    let result =
+        match local::confirm_contact_verification_with_audit(state.get_ref(), token, &audit_info)
+            .await
+        {
+            Ok(result) => result,
+            Err(AsterError::ContactVerificationInvalid(_)) => {
+                return Ok(contact_verification_redirect_response(
+                    state.get_ref(),
+                    fallback_path,
+                    ContactVerificationRedirectStatus::Invalid,
+                    None,
+                ));
+            }
+            Err(AsterError::ContactVerificationExpired(_)) => {
+                return Ok(contact_verification_redirect_response(
+                    state.get_ref(),
+                    fallback_path,
+                    ContactVerificationRedirectStatus::Expired,
+                    None,
+                ));
+            }
+            Err(error) => return Err(error),
+        };
 
     if result.purpose == VerificationPurpose::PasswordReset {
         return Ok(contact_verification_redirect_response(
@@ -372,8 +369,7 @@ pub async fn request_password_reset(
 ) -> Result<HttpResponse> {
     let started_at = tokio::time::Instant::now();
     let audit_info = AuditRequestInfo::from_request(&req);
-    match auth_service::request_password_reset_with_audit(state.get_ref(), &body.email, &audit_info)
-        .await
+    match local::request_password_reset_with_audit(state.get_ref(), &body.email, &audit_info).await
     {
         Ok(_) => {}
         Err(error) => {
@@ -406,7 +402,7 @@ pub async fn confirm_password_reset(
     body: web::Json<PasswordResetConfirmReq>,
 ) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request(&req);
-    auth_service::confirm_password_reset_with_audit(
+    local::confirm_password_reset_with_audit(
         state.get_ref(),
         &body.token,
         &body.new_password,

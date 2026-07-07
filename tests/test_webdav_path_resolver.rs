@@ -86,11 +86,11 @@ async fn seed_nested_file(
 
 #[actix_web::test]
 async fn test_path_resolver_resolves_deep_folder_file_and_parent_paths() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davresolverdeep",
         "davresolverdeep@example.com",
@@ -135,11 +135,11 @@ async fn test_path_resolver_resolves_deep_folder_file_and_parent_paths() {
 
 #[actix_web::test]
 async fn test_path_resolver_uses_canonical_dav_path_segments() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "davcanon", "davcanon@example.com", "pass1234")
+    let user = local::register(&state, "davcanon", "davcanon@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -169,11 +169,11 @@ async fn test_path_resolver_uses_canonical_dav_path_segments() {
 
 #[actix_web::test]
 async fn test_path_resolver_honors_scoped_root_semantics() {
-    use aster_drive::services::{auth_service, folder_service};
+    use aster_drive::services::{auth::local, folder_service};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davresolverscope",
         "davresolverscope@example.com",
@@ -236,11 +236,11 @@ async fn test_path_resolver_honors_scoped_root_semantics() {
 
 #[actix_web::test]
 async fn test_path_resolver_handles_root_level_and_missing_path_boundaries() {
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, file_service};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davresolverroot",
         "davresolverroot@example.com",
@@ -333,11 +333,11 @@ async fn test_path_resolver_handles_root_level_and_missing_path_boundaries() {
 
 #[actix_web::test]
 async fn test_path_resolver_prefers_folder_when_file_and_folder_share_name() {
-    use aster_drive::services::{auth_service, file_service, folder_service};
+    use aster_drive::services::{auth::local, file_service, folder_service};
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_parent, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davresolverdupe",
         "davresolverdupe@example.com",
@@ -395,11 +395,11 @@ async fn test_path_resolver_prefers_folder_when_file_and_folder_share_name() {
 
 #[actix_web::test]
 async fn test_path_resolver_hides_deleted_intermediate_folders() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::webdav::path_resolver::{resolve_parent, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "davresdel", "davresdel@example.com", "pass1234")
+    let user = local::register(&state, "davresdel", "davresdel@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -428,14 +428,14 @@ async fn test_path_resolver_hides_deleted_intermediate_folders() {
 
 #[actix_web::test]
 async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
-    use aster_drive::services::{auth_service, folder_service};
+    use aster_drive::services::{auth::local, folder_service};
     use aster_drive::types::NullablePatch;
     use aster_drive::webdav::path_resolver::{
         ResolvedNode, resolve_parent_cached, resolve_path_cached,
     };
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davresolverstale",
         "davresolverstale@example.com",
@@ -494,11 +494,11 @@ async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
-    use aster_drive::services::{auth_service, folder_service};
+    use aster_drive::services::{auth::local, folder_service};
     use aster_drive::webdav::fs::AsterDavFs;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "davfsdeep", "davfsdeep@example.com", "pass1234")
+    let user = local::register(&state, "davfsdeep", "davfsdeep@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -543,11 +543,11 @@ async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
 #[actix_web::test]
 async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, folder_service};
+    use aster_drive::services::{auth::local, folder_service};
     use aster_drive::webdav::fs::AsterDavFs;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davfswriteroot",
         "davfswriteroot@example.com",
@@ -620,7 +620,7 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::services::storage_change_service::{
         StorageChangeKind, StorageChangeWorkspace,
     };
@@ -628,7 +628,7 @@ async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davfscopyfile",
         "davfscopyfile@example.com",
@@ -668,7 +668,7 @@ async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::services::storage_change_service::{
         StorageChangeKind, StorageChangeWorkspace,
     };
@@ -676,7 +676,7 @@ async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
     use aster_drive::webdav::path_resolver::resolve_path;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davfsremovedir",
         "davfsremovedir@example.com",
@@ -711,7 +711,7 @@ async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
 
 #[actix_web::test]
 async fn test_aster_dav_fs_copy_folder_publishes_storage_event() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::services::storage_change_service::{
         StorageChangeKind, StorageChangeWorkspace,
     };
@@ -719,7 +719,7 @@ async fn test_aster_dav_fs_copy_folder_publishes_storage_event() {
     use aster_drive::webdav::path_resolver::{ResolvedNode, resolve_path};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "davfscopyfolder",
         "davfscopyfolder@example.com",
