@@ -8,6 +8,9 @@ use crate::services::workspace::storage::{
 use sea_orm::ConnectionTrait;
 
 use super::TempBlobPlan;
+use super::contract::{
+    TempStoreBlobCleanupPlan, VerifiedTempStoreBlob, VerifiedTempStoreBlobSource,
+};
 use super::prepare::PreparedStoreFromTemp;
 use super::write_record::WriteFileRecordFromTempParams;
 
@@ -34,7 +37,6 @@ pub(super) async fn persist_temp_store(
         now,
         actor_username,
     } = prepared;
-    let cleanup_blob_plan = blob_plan.clone();
 
     operation_context.checkpoint()?;
     if storage_delta > 0 && !quota_prechecked {
@@ -49,18 +51,16 @@ pub(super) async fn persist_temp_store(
         &operation_context,
     )
     .await?;
+    let verified_blob =
+        VerifiedTempStoreBlob::from_staged_plan(&blob_plan, size, policy.id, staged_dedup_target)?;
     if let Err(error) = operation_context.checkpoint() {
-        if staged_dedup_target {
-            rollback_staged_dedup_blob(state, &blob_plan, driver.as_ref(), policy.id).await;
-        }
-        if let TempBlobPlan::Preuploaded(preuploaded_blob) = &cleanup_blob_plan {
-            cleanup_preuploaded_blob_upload(
-                driver.as_ref(),
-                preuploaded_blob,
-                "cancellation after temp file upload",
-            )
-            .await;
-        }
+        cleanup_verified_temp_blob_after_db_failure(
+            state,
+            &verified_blob,
+            driver.as_ref(),
+            "cancellation after temp file upload",
+        )
+        .await;
         return Err(error);
     }
 
@@ -72,7 +72,7 @@ pub(super) async fn persist_temp_store(
         }
         operation_context.checkpoint()?;
 
-        let blob = persist_temp_blob(&txn, &blob_plan, size, policy.id).await?;
+        let blob = persist_temp_blob(&txn, &verified_blob).await?;
         operation_context.checkpoint()?;
         let result = super::write_record::write_file_record_from_temp(
             &txn,
@@ -100,17 +100,13 @@ pub(super) async fn persist_temp_store(
     match create_result {
         Ok(result) => Ok(result),
         Err(error) => {
-            if staged_dedup_target {
-                rollback_staged_dedup_blob(state, &blob_plan, driver.as_ref(), policy.id).await;
-            }
-            if let TempBlobPlan::Preuploaded(preuploaded_blob) = &cleanup_blob_plan {
-                cleanup_preuploaded_blob_upload(
-                    driver.as_ref(),
-                    preuploaded_blob,
-                    "DB error after temp file upload",
-                )
-                .await;
-            }
+            cleanup_verified_temp_blob_after_db_failure(
+                state,
+                &verified_blob,
+                driver.as_ref(),
+                "DB error after temp file upload",
+            )
+            .await;
             Err(error)
         }
     }
@@ -139,21 +135,50 @@ async fn stage_temp_blob_before_transaction(
     }
 }
 
+async fn cleanup_verified_temp_blob_after_db_failure(
+    state: &PrimaryAppState,
+    verified_blob: &VerifiedTempStoreBlob,
+    driver: &dyn crate::storage::StorageDriver,
+    reason: &str,
+) {
+    match verified_blob.cleanup() {
+        TempStoreBlobCleanupPlan::RollbackStagedDedupIfUnreferenced => {
+            if let VerifiedTempStoreBlobSource::ContentAddressed { file_hash } =
+                verified_blob.source()
+            {
+                rollback_staged_dedup_blob(
+                    state,
+                    file_hash,
+                    verified_blob.storage_path(),
+                    driver,
+                    verified_blob.policy_id(),
+                )
+                .await;
+            }
+        }
+        TempStoreBlobCleanupPlan::CleanupPreuploadedBlobOnDbFailure => {
+            if let VerifiedTempStoreBlobSource::PreuploadedNonDedup { prepared } =
+                verified_blob.source()
+            {
+                cleanup_preuploaded_blob_upload(driver, prepared, reason).await;
+            }
+        }
+        TempStoreBlobCleanupPlan::RetainExistingDedupObject => {}
+    }
+}
+
 async fn rollback_staged_dedup_blob(
     state: &PrimaryAppState,
-    blob_plan: &TempBlobPlan,
+    file_hash: &str,
+    storage_path: &str,
     driver: &dyn crate::storage::StorageDriver,
     policy_id: i64,
 ) {
-    let TempBlobPlan::Dedup(target) = blob_plan else {
-        return;
-    };
-
-    match file_repo::find_blob_by_hash(state.writer_db(), &target.file_hash, policy_id).await {
+    match file_repo::find_blob_by_hash(state.writer_db(), file_hash, policy_id).await {
         Ok(Some(blob)) => {
             tracing::debug!(
                 blob_id = blob.id,
-                storage_path = %target.storage_path,
+                storage_path,
                 "skipping staged dedup blob rollback because a blob row now references it"
             );
             return;
@@ -161,16 +186,16 @@ async fn rollback_staged_dedup_blob(
         Ok(None) => {}
         Err(error) => {
             tracing::warn!(
-                storage_path = %target.storage_path,
+                storage_path,
                 "failed to verify staged dedup blob before rollback; keeping object: {error}"
             );
             return;
         }
     }
 
-    if let Err(error) = driver.delete(&target.storage_path).await {
+    if let Err(error) = driver.delete(storage_path).await {
         tracing::warn!(
-            storage_path = %target.storage_path,
+            storage_path,
             "failed to rollback staged dedup blob after DB error: {error}"
         );
     }
@@ -178,24 +203,22 @@ async fn rollback_staged_dedup_blob(
 
 async fn persist_temp_blob<C: ConnectionTrait>(
     txn: &C,
-    blob_plan: &TempBlobPlan,
-    size: i64,
-    policy_id: i64,
+    verified_blob: &VerifiedTempStoreBlob,
 ) -> Result<file_blob::Model> {
-    match blob_plan {
-        TempBlobPlan::Dedup(target) => {
+    match verified_blob.source() {
+        VerifiedTempStoreBlobSource::ContentAddressed { file_hash } => {
             let blob = file_repo::find_or_create_blob(
                 txn,
-                &target.file_hash,
-                size,
-                policy_id,
-                &target.storage_path,
+                file_hash,
+                verified_blob.size(),
+                verified_blob.policy_id(),
+                verified_blob.storage_path(),
             )
             .await?;
             Ok(blob.model)
         }
-        TempBlobPlan::Preuploaded(preuploaded_blob) => {
-            persist_preuploaded_blob(txn, preuploaded_blob).await
+        VerifiedTempStoreBlobSource::PreuploadedNonDedup { prepared } => {
+            persist_preuploaded_blob(txn, prepared).await
         }
     }
 }

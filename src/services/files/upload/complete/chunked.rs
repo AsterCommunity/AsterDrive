@@ -9,7 +9,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::shared::{
     cleanup_upload_temp_dir, run_upload_completion_stage,
 };
-use crate::services::workspace::storage::{self, PreparedNonDedupBlobUpload};
+use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
 use crate::storage::connectors::{
     StorageConnectorChunkedCompletion, resolve_policy_upload_transport,
@@ -20,18 +20,14 @@ use crate::utils::paths;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
 
+use super::contract::{
+    VerifiedUploadSource, VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure,
+};
+
 struct AssembledTempFile {
     path: String,
     size: i64,
     file_hash: Option<String>,
-}
-
-enum AssembledBlobPlan {
-    Dedup {
-        file_hash: String,
-        storage_path: String,
-    },
-    Preuploaded(PreparedNonDedupBlobUpload),
 }
 
 pub(super) async fn complete_chunked_upload_with_actor_username(
@@ -96,31 +92,23 @@ async fn finalize_chunked_upload_session(
 
     let stage_started_at = Instant::now();
     let assembled_size = assembled.size;
-    let blob_plan = stage_assembled_blob_upload(driver, policy, assembled).await?;
+    let verified = stage_assembled_blob_upload(driver, policy, assembled).await?;
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
 
     let persist_started_at = Instant::now();
-    persist_assembled_upload(
-        state,
-        session,
-        driver,
-        policy.id,
-        assembled_size,
-        &blob_plan,
-        actor_username,
-    )
-    .await
-    .inspect(|file| {
-        tracing::debug!(
-            upload_id = %session.id,
-            file_id = file.id,
-            size = assembled_size,
-            assemble_elapsed_ms,
-            stage_elapsed_ms,
-            persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
-            "local chunked upload finalized"
-        );
-    })
+    persist_assembled_upload(state, session, driver, &verified, actor_username)
+        .await
+        .inspect(|file| {
+            tracing::debug!(
+                upload_id = %session.id,
+                file_id = file.id,
+                size = assembled_size,
+                assemble_elapsed_ms,
+                stage_elapsed_ms,
+                persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
+                "local chunked upload finalized"
+            );
+        })
 }
 
 async fn finalize_stream_relay_chunked_upload_session(
@@ -174,7 +162,8 @@ async fn finalize_stream_relay_chunked_upload_session(
     }
 
     let persist_started_at = Instant::now();
-    persist_preuploaded_chunked_upload(state, session, driver, &prepared, actor_username)
+    let verified = VerifiedUploadedBlob::preuploaded_non_dedup(prepared)?;
+    persist_verified_chunked_upload(state, session, driver, &verified, actor_username)
         .await
         .inspect(|file| {
             tracing::debug!(
@@ -319,7 +308,7 @@ async fn stage_assembled_blob_upload(
     driver: &dyn StorageDriver,
     policy: &storage_policy::Model,
     assembled: AssembledTempFile,
-) -> Result<AssembledBlobPlan> {
+) -> Result<VerifiedUploadedBlob> {
     let AssembledTempFile {
         path,
         size,
@@ -335,44 +324,47 @@ async fn stage_assembled_blob_upload(
         )
         .await?;
 
-        return Ok(AssembledBlobPlan::Dedup {
-            file_hash,
+        return VerifiedUploadedBlob::deduplicated_content(
+            size,
+            policy.id,
             storage_path,
-        });
+            file_hash,
+        );
     }
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 assembled 文件传上去。
-    // 失败只会留下孤儿 storage 对象，由 blob GC 自然回收。
+    // DB finalize 失败后的清理归属由 VerifiedUploadedBlob 的 cleanup plan 表达。
     let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size)?;
     storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
-    Ok(AssembledBlobPlan::Preuploaded(preuploaded))
+    VerifiedUploadedBlob::preuploaded_non_dedup(preuploaded)
 }
 
 async fn persist_assembled_upload(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     driver: &dyn StorageDriver,
-    policy_id: i64,
-    size: i64,
-    blob_plan: &AssembledBlobPlan,
+    verified: &VerifiedUploadedBlob,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
     let create_result = async {
         let txn = crate::db::transaction::begin(state.writer_db()).await?;
 
-        let blob = match blob_plan {
-            AssembledBlobPlan::Dedup {
-                file_hash,
-                storage_path,
-            } => {
-                let blob =
-                    file_repo::find_or_create_blob(&txn, file_hash, size, policy_id, storage_path)
-                        .await?;
-                blob.model
+        let blob = match verified.source() {
+            VerifiedUploadSource::ContentAddressed { file_hash }
+            | VerifiedUploadSource::OpaqueObject { file_hash } => {
+                file_repo::find_or_create_blob(
+                    &txn,
+                    file_hash,
+                    verified.size(),
+                    verified.policy_id(),
+                    verified.storage_path(),
+                )
+                .await?
+                .model
             }
-            AssembledBlobPlan::Preuploaded(preuploaded) => {
-                storage::persist_preuploaded_blob(&txn, preuploaded).await?
+            VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                storage::persist_preuploaded_blob(&txn, prepared).await?
             }
         };
 
@@ -393,14 +385,12 @@ async fn persist_assembled_upload(
     match create_result {
         Ok(created) => Ok(created),
         Err(error) => {
-            if let AssembledBlobPlan::Preuploaded(preuploaded) = blob_plan {
-                storage::cleanup_preuploaded_blob_upload(
-                    driver,
-                    preuploaded,
-                    "chunked upload DB error after storing assembled blob",
-                )
-                .await;
-            }
+            cleanup_verified_upload_after_db_failure(
+                driver,
+                verified,
+                "chunked upload DB error after storing assembled blob",
+            )
+            .await;
             // dedup 失败不主动删 storage 对象：另一路并发上传可能正在引用同内容的 blob，
             // 删除会造成 ref=1 的活 blob 丢数据；留给 orphan-blob GC 处理。
             Err(error)
@@ -408,17 +398,28 @@ async fn persist_assembled_upload(
     }
 }
 
-async fn persist_preuploaded_chunked_upload(
+async fn persist_verified_chunked_upload(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     driver: &dyn StorageDriver,
-    prepared: &PreparedNonDedupBlobUpload,
+    verified: &VerifiedUploadedBlob,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
     let create_result = async {
         let txn = crate::db::transaction::begin(state.writer_db()).await?;
-        let blob = storage::persist_preuploaded_blob(&txn, prepared).await?;
+        let blob = match verified.source() {
+            VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                storage::persist_preuploaded_blob(&txn, prepared).await?
+            }
+            VerifiedUploadSource::ContentAddressed { .. }
+            | VerifiedUploadSource::OpaqueObject { .. } => {
+                return Err(upload_assembly_error_with_code(
+                    ApiErrorCode::UploadSessionCorrupted,
+                    "stream relay chunked upload expected preuploaded blob",
+                ));
+            }
+        };
         let created = storage::finalize_upload_session_blob_with_actor_username(
             &txn,
             session,
@@ -435,9 +436,9 @@ async fn persist_preuploaded_chunked_upload(
     match create_result {
         Ok(created) => Ok(created),
         Err(error) => {
-            storage::cleanup_preuploaded_blob_upload(
+            cleanup_verified_upload_after_db_failure(
                 driver,
-                prepared,
+                verified,
                 "chunked upload DB error after streaming preuploaded blob",
             )
             .await;

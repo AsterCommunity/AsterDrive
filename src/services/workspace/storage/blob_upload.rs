@@ -33,6 +33,18 @@ impl PreparedNonDedupBlobUpload {
             Self::Local { storage_path, .. } | Self::Opaque { storage_path, .. } => storage_path,
         }
     }
+
+    pub(crate) fn size(&self) -> i64 {
+        match self {
+            Self::Local { size, .. } | Self::Opaque { size, .. } => *size,
+        }
+    }
+
+    pub(crate) fn policy_id(&self) -> i64 {
+        match self {
+            Self::Local { policy_id, .. } | Self::Opaque { policy_id, .. } => *policy_id,
+        }
+    }
 }
 
 pub(crate) fn prepare_non_dedup_blob_upload(

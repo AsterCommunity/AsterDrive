@@ -81,6 +81,173 @@ pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub actor_username: Option<&'a str>,
 }
 
+#[derive(Debug)]
+struct VerifiedPreuploadedNondedupStoreBlob {
+    size: i64,
+    policy_id: i64,
+    storage_path: String,
+    prepared: PreparedNonDedupBlobUpload,
+}
+
+impl VerifiedPreuploadedNondedupStoreBlob {
+    fn new(size: i64, policy_id: i64, prepared: PreparedNonDedupBlobUpload) -> Result<Self> {
+        if size < 0 {
+            return Err(AsterError::validation_error(format!(
+                "verified preuploaded store blob size must be non-negative, got {size}",
+            )));
+        }
+        if prepared.size() != size {
+            return Err(AsterError::validation_error(format!(
+                "preuploaded blob size {} does not match verified store size {size}",
+                prepared.size(),
+            )));
+        }
+        if prepared.policy_id() != policy_id {
+            return Err(AsterError::validation_error(format!(
+                "preuploaded blob policy {} does not match verified store policy {policy_id}",
+                prepared.policy_id(),
+            )));
+        }
+
+        Ok(Self {
+            size,
+            policy_id,
+            storage_path: prepared.storage_path().to_string(),
+            prepared,
+        })
+    }
+
+    fn size(&self) -> i64 {
+        self.size
+    }
+
+    fn policy_id(&self) -> i64 {
+        self.policy_id
+    }
+
+    fn storage_path(&self) -> &str {
+        &self.storage_path
+    }
+
+    fn prepared(&self) -> &PreparedNonDedupBlobUpload {
+        &self.prepared
+    }
+}
+
+async fn cleanup_verified_preuploaded_nondedup_store_blob(
+    driver: &dyn crate::storage::StorageDriver,
+    verified_blob: &VerifiedPreuploadedNondedupStoreBlob,
+    reason: &str,
+) {
+    cleanup_preuploaded_blob_upload(driver, verified_blob.prepared(), reason).await;
+}
+
+#[cfg(test)]
+mod preuploaded_contract_tests {
+    use super::{
+        PreparedNonDedupBlobUpload, VerifiedPreuploadedNondedupStoreBlob,
+        cleanup_verified_preuploaded_nondedup_store_blob,
+    };
+    use crate::errors::Result;
+    use crate::storage::{BlobMetadata, StorageDriver};
+    use async_trait::async_trait;
+    use std::sync::Mutex;
+    use tokio::io::AsyncRead;
+
+    #[derive(Default)]
+    struct RecordingDeleteDriver {
+        deleted_paths: Mutex<Vec<String>>,
+    }
+
+    #[async_trait]
+    impl StorageDriver for RecordingDeleteDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            unreachable!()
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            unreachable!()
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            unreachable!()
+        }
+
+        async fn delete(&self, path: &str) -> Result<()> {
+            self.deleted_paths
+                .lock()
+                .expect("deleted paths lock should not be poisoned")
+                .push(path.to_string());
+            Ok(())
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            unreachable!()
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+            unreachable!()
+        }
+
+        async fn copy_object(&self, _src_path: &str, _dest_path: &str) -> Result<String> {
+            unreachable!()
+        }
+    }
+
+    fn opaque_preupload(size: i64, policy_id: i64) -> PreparedNonDedupBlobUpload {
+        PreparedNonDedupBlobUpload::Opaque {
+            upload_id: "opaque-id".to_string(),
+            hash_prefix: "s3",
+            storage_path: "files/opaque-id".to_string(),
+            size,
+            policy_id,
+        }
+    }
+
+    #[test]
+    fn verified_preuploaded_store_blob_carries_size_policy_and_storage_path() {
+        let verified = VerifiedPreuploadedNondedupStoreBlob::new(33, 9, opaque_preupload(33, 9))
+            .expect("verified preupload should be accepted");
+
+        assert_eq!(verified.size(), 33);
+        assert_eq!(verified.policy_id(), 9);
+        assert_eq!(verified.storage_path(), "files/opaque-id");
+        assert_eq!(verified.prepared().storage_path(), "files/opaque-id");
+    }
+
+    #[test]
+    fn verified_preuploaded_store_blob_rejects_invalid_contract() {
+        let negative = VerifiedPreuploadedNondedupStoreBlob::new(-1, 9, opaque_preupload(33, 9))
+            .expect_err("negative size should be rejected");
+        assert!(negative.to_string().contains("non-negative"));
+
+        let size_error = VerifiedPreuploadedNondedupStoreBlob::new(34, 9, opaque_preupload(33, 9))
+            .expect_err("size mismatch should be rejected");
+        assert!(size_error.to_string().contains("size"));
+
+        let policy_error =
+            VerifiedPreuploadedNondedupStoreBlob::new(33, 10, opaque_preupload(33, 9))
+                .expect_err("policy mismatch should be rejected");
+        assert!(policy_error.to_string().contains("policy"));
+    }
+
+    #[tokio::test]
+    async fn cleanup_verified_preuploaded_store_blob_deletes_opaque_object() {
+        let verified = VerifiedPreuploadedNondedupStoreBlob::new(33, 9, opaque_preupload(33, 9))
+            .expect("verified preupload should be accepted");
+        let driver = RecordingDeleteDriver::default();
+
+        cleanup_verified_preuploaded_nondedup_store_blob(&driver, &verified, "test cleanup").await;
+
+        let deleted_paths = driver
+            .deleted_paths
+            .lock()
+            .expect("deleted paths lock should not be poisoned")
+            .clone();
+        assert_eq!(deleted_paths, vec!["files/opaque-id"]);
+    }
+}
+
 pub(crate) async fn store_from_temp_with_hints(
     state: &PrimaryAppState,
     params: StoreFromTempParams<'_>,
@@ -208,17 +375,34 @@ pub(crate) async fn store_preuploaded_nondedup(
     let filename = crate::utils::normalize_validate_name(filename)?;
 
     let driver = state.driver_registry().get_driver(policy)?;
+    let verified_blob = match VerifiedPreuploadedNondedupStoreBlob::new(
+        size,
+        policy.id,
+        preuploaded_blob.clone(),
+    ) {
+        Ok(verified_blob) => verified_blob,
+        Err(error) => {
+            cleanup_preuploaded_blob_upload(
+                driver.as_ref(),
+                &preuploaded_blob,
+                "preuploaded contract validation failure",
+            )
+            .await;
+            return Err(error);
+        }
+    };
 
-    if policy.max_file_size > 0 && size > policy.max_file_size {
-        cleanup_preuploaded_blob_upload(
+    if policy.max_file_size > 0 && verified_blob.size() > policy.max_file_size {
+        cleanup_verified_preuploaded_nondedup_store_blob(
             driver.as_ref(),
-            &preuploaded_blob,
+            &verified_blob,
             "size validation failure",
         )
         .await;
         return Err(AsterError::file_too_large(format!(
             "file size {} exceeds limit {}",
-            size, policy.max_file_size
+            verified_blob.size(),
+            policy.max_file_size
         )));
     }
 
@@ -227,9 +411,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     let overwrite_ctx = if let Some(existing_id) = existing_file_id {
         let old_file = verify_file_access(state, scope, existing_id).await?;
         if old_file.is_locked && !skip_lock_check {
-            cleanup_preuploaded_blob_upload(
+            cleanup_verified_preuploaded_nondedup_store_blob(
                 driver.as_ref(),
-                &preuploaded_blob,
+                &verified_blob,
                 "lock check failure",
             )
             .await;
@@ -245,7 +429,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     } else {
         None
     };
-    let storage_delta = overwrite_ctx.as_ref().map_or(size, |_| size);
+    let storage_delta = overwrite_ctx
+        .as_ref()
+        .map_or(verified_blob.size(), |_| verified_blob.size());
 
     let mime = mime_guess::from_path(&filename)
         .first_or_octet_stream()
@@ -257,7 +443,10 @@ pub(crate) async fn store_preuploaded_nondedup(
             check_quota(&txn, scope, storage_delta).await?;
         }
 
-        let blob = persist_preuploaded_blob(&txn, &preuploaded_blob).await?;
+        let blob = persist_preuploaded_blob(&txn, verified_blob.prepared()).await?;
+        debug_assert_eq!(blob.size, verified_blob.size());
+        debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
+        debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
 
         let result = if let Some((old_file, old_blob)) = overwrite_ctx {
             let current_file =
@@ -325,9 +514,9 @@ pub(crate) async fn store_preuploaded_nondedup(
     let result = match create_result {
         Ok(result) => result,
         Err(error) => {
-            cleanup_preuploaded_blob_upload(
+            cleanup_verified_preuploaded_nondedup_store_blob(
                 driver.as_ref(),
-                &preuploaded_blob,
+                &verified_blob,
                 "DB error after direct upload",
             )
             .await;

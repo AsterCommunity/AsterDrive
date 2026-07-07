@@ -23,6 +23,24 @@
 | `storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart 使用 |
 | `upload::shared::run_upload_completion_stage` | complete 前把 session 从 expected status 切到 assembling；失败后按错误类型恢复或标 failed | 所有 upload session complete 路径共享 |
 
+## 内部 verified blob 契约
+
+`src/services/files/upload/complete/contract.rs` 定义 upload-session complete 阶段本地使用的 `VerifiedUploadedBlob`。所有 session 型 complete 路径在进入 DB finalization 前，必须先把当前 transport 已经验证过的最终对象表达成这个类型。
+
+该类型显式携带：
+
+- `size`：已验证的逻辑计费字节数。
+- `policy_id`：最终 blob 所属的 storage policy。
+- `storage_path`：已经写入或已经 complete 的对象路径。
+- `source`：content-addressed dedup、opaque object 或 preuploaded non-dedup blob。
+- `cleanup`：DB finalize 失败后要删除对象、清理 preuploaded blob、保留给 orphan GC，还是保留已完成 multipart object。
+
+当前 `VerifiedUploadedBlob` 覆盖 presigned single、presigned object multipart、relay object multipart、local chunked 和 stream relay chunked。
+
+`src/services/workspace/storage/store/contract.rs` 定义非 session 型 `store_from_temp` 路径使用的 `VerifiedTempStoreBlob`，覆盖普通 multipart/server path 和 local direct 最终进入 `store_from_temp_with_hints` 的落账契约。它把 content-addressed dedup、preuploaded non-dedup、staged dedup rollback、preuploaded cleanup 这些以前散在 `persist.rs` 里的约定集中起来。
+
+`storage::store_preuploaded_nondedup` 使用本地 `VerifiedPreuploadedNondedupStoreBlob` 覆盖 streaming direct 的最终落账契约，校验 verified size、policy、storage path 和 prepared blob 一致后再进入 DB finalization。
+
 ## 模式矩阵
 
 | 上传模式 / transport | 初始状态和写入位置 | trusted size source | quota precheck / atomic charge | finalize function | cleanup / idempotency |
@@ -52,7 +70,7 @@
 
 本文件只是当前契约基线，后续代码迁移仍需要完成这些 acceptance criteria：
 
-- 引入真正被 complete 路径使用的 internal contract，例如 verified logical size、policy id、storage path 或 blob ref、cleanup plan 的窄类型。
-- 让 presigned single、presigned multipart、relay multipart、local chunked 明确产出同一种 verified finalization input，而不是各自散落 size/quota/cleanup 判断。
+- 继续减少各路径中直接拼 blob/file finalization 参数的代码；新上传入口必须产出 `VerifiedUploadedBlob`、`VerifiedTempStoreBlob`、`VerifiedPreuploadedNondedupStoreBlob` 或同等明确的 verified finalization input。
+- 继续减少 complete 路径中直接拼 blob/file finalization 参数的代码；新路径必须产出 `VerifiedUploadedBlob` 或同等明确的 verified finalization input。
 - 给每个被迁移路径补 quota、size mismatch、DB finalize failure cleanup、completed retry 不重复计费测试。
 - 保持 public API request/response、session status 语义和现有成功上传行为不变。
