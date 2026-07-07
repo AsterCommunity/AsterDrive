@@ -26,7 +26,7 @@ System and operations keep the service stable, configurable, observable, and rec
 | `config::loader`, `config_service` | Static configuration loading and runtime system settings |
 | `runtime::startup`, `runtime::tasks` | Primary/follower startup and periodic background tasks |
 | `task_service` | User-visible background tasks, scheduling, retries, cleanup |
-| `mail_service`, `mail_outbox_service`, `mail_template` | Mail delivery and templates |
+| `mail::sender`, `mail::outbox`, `mail::template` | Mail delivery and templates |
 | `health_service`, `readiness_service`, `metrics` | Health checks, readiness, metrics |
 | `audit_service` | Audit log recording, querying, presentation |
 | `cli::*` | Offline operations commands |

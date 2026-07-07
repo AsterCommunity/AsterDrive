@@ -181,7 +181,7 @@ async fn test_invitation_lifecycle_accepts_and_marks_user_email_verified() {
     assert_ne!(pending_row.token_hash, token);
 
     common::flush_mail_outbox_with(&db, &runtime_config, &mail_sender).await;
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()

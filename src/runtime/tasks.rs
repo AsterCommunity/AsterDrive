@@ -483,7 +483,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::mail_outbox_service::dispatch_due(s.get_ref()).await {
+            match crate::services::mail::outbox::dispatch_due(s.get_ref()).await {
                 Ok(stats) if stats.claimed > 0 || stats.failed > 0 => {
                     tracing::info!(
                         claimed = stats.claimed,
@@ -984,7 +984,7 @@ mod tests {
             config: Arc::new(crate::config::Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: crate::services::mail_service::memory_sender(),
+            mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

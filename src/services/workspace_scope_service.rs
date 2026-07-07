@@ -512,7 +512,7 @@ mod tests {
     };
     use crate::runtime::PrimaryAppState;
     use crate::services::workspace_scope_service::SharedRuntimeState;
-    use crate::services::{files::folder, mail_service};
+    use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
@@ -561,7 +561,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

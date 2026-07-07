@@ -78,7 +78,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         config: Arc::new(crate::config::Config::default()),
         cache,
         metrics: crate::metrics_core::NoopMetrics::arc(),
-        mail_sender: crate::services::mail_service::memory_sender(),
+        mail_sender: crate::services::mail::sender::memory_sender(),
         storage_change_tx,
         share_download_rollback,
         background_task_dispatch_wakeup:

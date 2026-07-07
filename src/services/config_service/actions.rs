@@ -5,8 +5,9 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
-    mail_audit_service, mail_service, media_processing_service, preview_app_service, task_service,
-    wopi_service,
+    mail::audit,
+    mail::sender,
+    media_processing_service, preview_app_service, task_service, wopi_service,
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -250,15 +251,15 @@ async fn execute_mail_action(
             );
 
             let result =
-                mail_service::send_test_email(state, &normalized_target, Some(&actor.username))
+                sender::send_test_email(state, &normalized_target, Some(&actor.username))
                     .await;
             let ip_address = audit_ctx.ip_address.as_deref();
             let user_agent = audit_ctx.user_agent.as_deref();
             match &result {
                 Ok(()) => {
-                    mail_audit_service::log_send(
+                    audit::log_send(
                         state,
-                        mail_audit_service::MailAuditInput {
+                        audit::MailAuditInput {
                             actor_user_id,
                             ip_address,
                             user_agent,
@@ -275,10 +276,10 @@ async fn execute_mail_action(
                 }
                 Err(error) => {
                     let error_message = error.to_string();
-                    mail_audit_service::log_delivery_failed_with_db(
+                    audit::log_delivery_failed_with_db(
                         state.writer_db(),
                         state.runtime_config(),
-                        mail_audit_service::MailAuditInput {
+                        audit::MailAuditInput {
                             actor_user_id,
                             ip_address,
                             user_agent,

@@ -1068,7 +1068,7 @@ mod tests {
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
-    use crate::services::{auth::local, mail_service, media_processing_service};
+    use crate::services::{auth::local, mail::sender, media_processing_service};
     use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -1256,7 +1256,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

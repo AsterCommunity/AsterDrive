@@ -202,7 +202,7 @@ mod tests {
     use crate::entities::{user, webdav_account};
     use crate::errors::AsterError;
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-    use crate::services::mail_service;
+    use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{UserRole, UserStatus};
     use crate::utils::hash;
@@ -247,7 +247,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

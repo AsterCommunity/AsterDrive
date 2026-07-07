@@ -8,7 +8,7 @@ use crate::config::local_email_policy::LocalEmailPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{mail_outbox_service, mail_template::MailTemplatePayload};
+use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
 use crate::types::VerificationPurpose;
 use crate::utils::hash;
 
@@ -76,7 +76,7 @@ pub async fn request_email_change(
         policy.contact_change_ttl_secs,
     )
     .await?;
-    mail_outbox_service::enqueue(
+    outbox::enqueue(
         &txn,
         &normalized_email,
         Some(&updated.username),
@@ -148,7 +148,7 @@ pub async fn resend_email_change(
         Err(err) if is_active_verification_request_error(&err) => return Ok(None),
         Err(err) => return Err(err),
     };
-    mail_outbox_service::enqueue(
+    outbox::enqueue(
         &txn,
         &pending_email,
         Some(&user.username),
@@ -206,7 +206,7 @@ pub async fn request_password_reset(
         }
         Err(err) => return Err(err),
     };
-    mail_outbox_service::enqueue(
+    outbox::enqueue(
         &txn,
         &user.email,
         Some(&user.username),
@@ -274,7 +274,7 @@ pub async fn confirm_password_reset(
 
     let updated = update_password_in_connection(&txn, existing_user, new_password).await?;
     let site_name = branding::title_or_default(state.runtime_config());
-    mail_outbox_service::enqueue(
+    outbox::enqueue(
         &txn,
         &updated.email,
         Some(&updated.username),
@@ -382,7 +382,7 @@ pub async fn confirm_contact_verification(
                 active.updated_at = Set(now);
                 active.update(&txn).await.map_err(map_user_email_db_err)?;
                 if let Some(previous_email) = previous_email.as_deref() {
-                    mail_outbox_service::enqueue(
+                    outbox::enqueue(
                         &txn,
                         previous_email,
                         Some(&username),

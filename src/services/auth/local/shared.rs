@@ -12,7 +12,7 @@ use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::entities::{contact_verification_token, user};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::mail_service;
+use crate::services::mail::sender;
 use crate::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
 use crate::utils::hash;
 use crate::utils::numbers::u64_to_i64;
@@ -297,7 +297,7 @@ pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(
     ttl_secs: u64,
 ) -> Result<String> {
     let now = Utc::now();
-    let token = mail_service::build_verification_token();
+    let token = sender::build_verification_token();
     let token_hash = hash::sha256_hex(token.as_bytes());
 
     contact_verification_token_repo::delete_active_for_user(

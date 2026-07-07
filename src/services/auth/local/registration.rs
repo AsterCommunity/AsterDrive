@@ -11,7 +11,7 @@ use crate::config::{
 use crate::db::repository::user_repo;
 use crate::errors::{Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{mail_outbox_service, mail_template::MailTemplatePayload};
+use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
 use crate::types::{UserRole, UserStatus, VerificationPurpose};
 
 use super::shared::{
@@ -137,7 +137,7 @@ pub async fn register(
             policy.register_activation_ttl_secs,
         )
         .await?;
-        mail_outbox_service::enqueue(
+        outbox::enqueue(
             &txn,
             &user.email,
             Some(&user.username),
@@ -220,7 +220,7 @@ pub async fn resend_register_activation(
         }
         Err(err) => return Err(err),
     };
-    mail_outbox_service::enqueue(
+    outbox::enqueue(
         &txn,
         &user.email,
         Some(&user.username),

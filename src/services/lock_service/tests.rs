@@ -12,7 +12,7 @@ use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
 use crate::entities::{file, file_blob, resource_lock, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::mail_service;
+use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::types::{
     DriverType, EntityType, StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes,
@@ -159,7 +159,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         config: Arc::new(config),
         cache,
         metrics: crate::metrics_core::NoopMetrics::arc(),
-        mail_sender: mail_service::runtime_sender(runtime_config),
+        mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
         background_task_dispatch_wakeup:

@@ -9,9 +9,9 @@ use aster_drive::entities::{audit_log, mail_outbox};
 use aster_drive::errors::{AsterError, Result};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    mail_outbox_service,
-    mail_service::{self, MailMessage, MailSender},
-    mail_template::RenderedMail,
+    mail::outbox,
+    mail::sender::{self, MailMessage, MailSender},
+    mail::template::RenderedMail,
 };
 use aster_drive::types::{AuditAction, MailOutboxStatus, MailTemplateCode, StoredMailPayload};
 use async_trait::async_trait;
@@ -125,12 +125,12 @@ async fn mail_audit_count(db: &sea_orm::DatabaseConnection, action: AuditAction)
 async fn test_memory_sender_records_messages_and_send_rendered_uses_runtime_from_fields() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let sender = mail_service::memory_sender();
+    let sender = sender::memory_sender();
 
-    mail_service::send_rendered_with(
+    sender::send_rendered_with(
         &state.runtime_config,
         &sender,
-        mail_service::MailRecipient {
+        sender::MailRecipient {
             address: "target@example.com".to_string(),
             display_name: Some("Target User".to_string()),
         },
@@ -143,7 +143,7 @@ async fn test_memory_sender_records_messages_and_send_rendered_uses_runtime_from
     .await
     .unwrap();
 
-    let memory = mail_service::memory_sender_ref(&sender).unwrap();
+    let memory = sender::memory_sender_ref(&sender).unwrap();
     let messages = memory.messages();
     assert_eq!(messages.len(), 1);
     assert_eq!(memory.last_message(), messages.last().cloned());
@@ -159,9 +159,9 @@ async fn test_send_rendered_state_wrapper_and_test_email_include_site_context() 
     let state = common::setup().await;
     apply_mail_config(&state);
 
-    mail_service::send_rendered(
+    sender::send_rendered(
         &state,
-        mail_service::MailRecipient {
+        sender::MailRecipient {
             address: "first@example.com".to_string(),
             display_name: None,
         },
@@ -173,11 +173,11 @@ async fn test_send_rendered_state_wrapper_and_test_email_include_site_context() 
     )
     .await
     .unwrap();
-    mail_service::send_test_email(&state, "ops@example.com", Some("tester"))
+    sender::send_test_email(&state, "ops@example.com", Some("tester"))
         .await
         .unwrap();
 
-    let memory = mail_service::memory_sender_ref(&state.mail_sender).unwrap();
+    let memory = sender::memory_sender_ref(&state.mail_sender).unwrap();
     let messages = memory.messages();
     assert_eq!(messages.len(), 2);
     assert_eq!(messages[0].subject, "Wrapped");
@@ -195,13 +195,13 @@ async fn test_send_rendered_state_wrapper_and_test_email_include_site_context() 
 #[tokio::test]
 async fn test_runtime_sender_rejects_missing_and_partial_smtp_configuration_before_network_io() {
     let state = common::setup().await;
-    let sender = mail_service::runtime_sender(state.runtime_config.clone());
+    let sender = sender::runtime_sender(state.runtime_config.clone());
     let message = MailMessage {
-        from: mail_service::MailRecipient {
+        from: sender::MailRecipient {
             address: "noreply@example.com".to_string(),
             display_name: None,
         },
-        to: mail_service::MailRecipient {
+        to: sender::MailRecipient {
             address: "target@example.com".to_string(),
             display_name: None,
         },
@@ -235,7 +235,7 @@ async fn test_runtime_sender_rejects_missing_and_partial_smtp_configuration_befo
 async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -249,7 +249,7 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.sent, 1);
@@ -263,7 +263,7 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     );
     assert!(stored.sent_at.is_some());
 
-    let memory = mail_service::memory_sender_ref(&state.mail_sender).unwrap();
+    let memory = sender::memory_sender_ref(&state.mail_sender).unwrap();
     let message = memory.last_message().unwrap();
     assert_eq!(message.to.address, "user@example.com");
     assert_eq!(message.to.display_name.as_deref(), Some("User"));
@@ -288,7 +288,7 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
 async fn test_mail_outbox_dispatch_skips_future_retry_rows() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -307,12 +307,12 @@ async fn test_mail_outbox_dispatch_skips_future_retry_rows() {
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 0);
     assert_eq!(stats.sent, 0);
     assert!(
-        mail_service::memory_sender_ref(&state.mail_sender)
+        sender::memory_sender_ref(&state.mail_sender)
             .unwrap()
             .messages()
             .is_empty()
@@ -323,7 +323,7 @@ async fn test_mail_outbox_dispatch_skips_future_retry_rows() {
 async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -339,10 +339,9 @@ async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error(
     let failing = FailingMailSender::new("x".repeat(1_200));
     let sender: Arc<dyn MailSender> = failing.clone();
 
-    let stats =
-        mail_outbox_service::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
-            .await
-            .unwrap();
+    let stats = outbox::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
+        .await
+        .unwrap();
 
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.retried, 1);
@@ -367,7 +366,7 @@ async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error(
 async fn test_mail_outbox_dispatch_success_after_retries_records_current_attempt() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -381,7 +380,7 @@ async fn test_mail_outbox_dispatch_success_after_retries_records_current_attempt
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.sent, 1);
@@ -400,7 +399,7 @@ async fn test_mail_outbox_dispatch_respects_mail_audit_action_scope() {
         audit::AUDIT_LOG_RECORDED_ACTIONS_KEY,
         r#"["mail_delivery_failed"]"#,
     ));
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -414,7 +413,7 @@ async fn test_mail_outbox_dispatch_respects_mail_audit_action_scope() {
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.sent, 1);
     assert_eq!(
@@ -427,7 +426,7 @@ async fn test_mail_outbox_dispatch_respects_mail_audit_action_scope() {
 async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -443,10 +442,9 @@ async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
     let failing = FailingMailSender::new("smtp unavailable");
     let sender: Arc<dyn MailSender> = failing.clone();
 
-    let stats =
-        mail_outbox_service::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
-            .await
-            .unwrap();
+    let stats = outbox::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
+        .await
+        .unwrap();
 
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.retried, 0);
@@ -481,7 +479,7 @@ async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
 async fn test_mail_outbox_final_failure_audit_error_is_truncated() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -497,10 +495,9 @@ async fn test_mail_outbox_final_failure_audit_error_is_truncated() {
     let failing = FailingMailSender::new("x".repeat(1_200));
     let sender: Arc<dyn MailSender> = failing;
 
-    let stats =
-        mail_outbox_service::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
-            .await
-            .unwrap();
+    let stats = outbox::dispatch_due_with(state.writer_db(), &state.runtime_config, &sender)
+        .await
+        .unwrap();
 
     assert_eq!(stats.failed, 1);
     let stored = find_outbox_row(state.writer_db(), row.id).await;
@@ -517,7 +514,7 @@ async fn test_mail_outbox_final_failure_audit_error_is_truncated() {
 async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merges_stats() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -536,7 +533,7 @@ async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merg
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::drain(&state).await.unwrap();
+    let stats = outbox::drain(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 2);
     assert_eq!(stats.sent, 2);
@@ -570,12 +567,12 @@ async fn test_mail_outbox_dispatch_invalid_payload_schedules_retry_without_sendi
     .await
     .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.retried, 1);
     assert!(
-        mail_service::memory_sender_ref(&state.mail_sender)
+        sender::memory_sender_ref(&state.mail_sender)
             .unwrap()
             .messages()
             .is_empty()
@@ -589,7 +586,7 @@ async fn test_mail_outbox_dispatch_invalid_payload_schedules_retry_without_sendi
 async fn test_mail_outbox_dispatch_does_not_reclaim_fresh_processing_rows() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let payload = aster_drive::services::mail_template::MailTemplatePayload::register_activation(
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::register_activation(
         "alice",
         "token-123",
         "AsterDrive",
@@ -602,11 +599,11 @@ async fn test_mail_outbox_dispatch_does_not_reclaim_fresh_processing_rows() {
         .await
         .unwrap();
 
-    let stats = mail_outbox_service::dispatch_due(&state).await.unwrap();
+    let stats = outbox::dispatch_due(&state).await.unwrap();
 
     assert_eq!(stats.claimed, 0);
     assert!(
-        mail_service::memory_sender_ref(&state.mail_sender)
+        sender::memory_sender_ref(&state.mail_sender)
             .unwrap()
             .messages()
             .is_empty()

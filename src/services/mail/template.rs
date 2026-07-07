@@ -1,4 +1,4 @@
-//! 服务模块：`mail_template`。
+//! 服务模块：`mail::template`。
 
 use serde::{Deserialize, Serialize, de::DeserializeOwned};
 #[cfg(all(debug_assertions, feature = "openapi"))]

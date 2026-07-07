@@ -9,7 +9,7 @@ use crate::db::repository::{
 use crate::entities::{external_auth_email_verification_flow, external_auth_provider};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{mail_outbox_service, mail_service, mail_template::MailTemplatePayload};
+use crate::services::{mail::outbox, mail::sender, mail::template::MailTemplatePayload};
 use crate::utils::numbers::u64_to_i64;
 
 use super::normalize::{
@@ -136,7 +136,7 @@ pub async fn start_email_verification(
         }
     }
 
-    let verification_token = mail_service::build_verification_token();
+    let verification_token = sender::build_verification_token();
     let verification_token_hash = token_hash(&verification_token);
     let provider_name = provider.display_name.clone();
     let site_name = branding::title_or_default(state.runtime_config());
@@ -157,7 +157,7 @@ pub async fn start_email_verification(
                 "external auth email verification request has already been started",
             )
         })?;
-        mail_outbox_service::enqueue(
+        outbox::enqueue(
             &txn,
             &email,
             None,

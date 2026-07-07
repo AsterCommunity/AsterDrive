@@ -395,7 +395,7 @@ mod tests {
     use crate::db::repository::file_repo;
     use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
-    use crate::services::{mail_service, media_processing_service, policy_service};
+    use crate::services::{mail::sender, media_processing_service, policy_service};
     use crate::storage::traits::driver::PresignedDownloadOptions;
     use crate::storage::traits::extensions::PresignedStorageDriver;
     use crate::storage::{BlobMetadata, DriverRegistry, PolicySnapshot, StorageDriver};
@@ -636,7 +636,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

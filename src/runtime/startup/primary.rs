@@ -15,7 +15,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
 
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
     runtime_config.reload(&common.database).await?;
-    let mail_sender = crate::services::mail_service::runtime_sender(runtime_config.clone());
+    let mail_sender = crate::services::mail::sender::runtime_sender(runtime_config.clone());
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
         crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );

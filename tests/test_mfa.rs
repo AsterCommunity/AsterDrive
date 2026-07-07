@@ -18,10 +18,10 @@ use std::{any::Any, sync::Arc};
 struct FailingMailSender;
 
 #[async_trait::async_trait]
-impl aster_drive::services::mail_service::MailSender for FailingMailSender {
+impl aster_drive::services::mail::sender::MailSender for FailingMailSender {
     async fn send(
         &self,
-        _message: aster_drive::services::mail_service::MailMessage,
+        _message: aster_drive::services::mail::sender::MailMessage,
     ) -> aster_drive::errors::Result<()> {
         Err(aster_drive::errors::AsterError::mail_delivery_failed(
             "forced mail delivery failure",
@@ -227,7 +227,7 @@ fn extract_email_code(content: &str) -> Option<String> {
 }
 
 fn extract_email_code_from_message(
-    message: &aster_drive::services::mail_service::MailMessage,
+    message: &aster_drive::services::mail::sender::MailMessage,
 ) -> String {
     extract_email_code(&message.text_body)
         .or_else(|| extract_email_code(&message.html_body))
@@ -393,7 +393,7 @@ async fn test_email_code_send_rejects_missing_invalid_and_unavailable_flows() {
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body:#?}");
     assert_eq!(body["code"], "auth.mfa_factor_required");
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     assert!(memory_sender.messages().is_empty());
 }
@@ -424,7 +424,7 @@ async fn test_email_code_login_send_and_verify_sets_cookies() {
     assert!(expires_in > 0, "{body:#?}");
     assert_eq!(body["data"]["resend_after"], 60);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let messages = memory_sender.messages();
     assert_eq!(messages.len(), 1);
@@ -521,7 +521,7 @@ async fn test_email_code_verify_requires_prior_send_without_consuming_flow() {
 
     let resp = send_email_code(&app, &flow_token).await;
     assert_eq!(resp.status(), StatusCode::OK);
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
 
@@ -544,7 +544,7 @@ async fn test_email_code_wrong_code_keeps_code_available_until_attempt_limit() {
     let resp = send_email_code(&app, &flow_token).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
     let wrong_code = different_email_code(&code);
@@ -581,7 +581,7 @@ async fn test_email_code_wrong_attempt_limit_consumes_flow() {
     let resp = send_email_code(&app, &flow_token).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
     let wrong_code = different_email_code(&code);
@@ -647,7 +647,7 @@ async fn test_expired_email_code_returns_email_code_expired_code() {
     let resp = send_email_code(&app, &flow_token).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
     let flow = find_mfa_flow_by_token(&db, &flow_token).await;

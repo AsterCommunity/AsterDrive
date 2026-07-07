@@ -1,4 +1,4 @@
-//! 服务模块：`mail_service`。
+//! 服务模块：`mail::sender`。
 
 use std::any::Any;
 use std::sync::{Arc, Mutex};
@@ -15,7 +15,7 @@ use crate::config::RuntimeConfig;
 use crate::config::{mail, site_url};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::MailRuntimeState;
-use crate::services::mail_template::RenderedMail;
+use crate::services::mail::template::RenderedMail;
 use crate::utils::id;
 
 const SMTP_SEND_TIMEOUT_SECS: u64 = 15;

@@ -5,7 +5,7 @@ use crate::cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::mail_service;
+use crate::services::mail::sender;
 use crate::storage::{BlobMetadata, StoragePathVisitor};
 use crate::storage::{
     DriverRegistry, ListStorageDriver, LocalPathStorageDriver, PolicySnapshot, StorageDriver,
@@ -841,7 +841,7 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         config: Arc::new(config),
         cache,
         metrics: crate::metrics_core::NoopMetrics::arc(),
-        mail_sender: mail_service::runtime_sender(runtime_config),
+        mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
         background_task_dispatch_wakeup:

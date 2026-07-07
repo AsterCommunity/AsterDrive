@@ -1138,7 +1138,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
 
     let policy_snapshot = std::sync::Arc::new(aster_drive::storage::PolicySnapshot::new());
     policy_snapshot.reload(&db).await.unwrap();
-    let mail_sender = aster_drive::services::mail_service::memory_sender();
+    let mail_sender = aster_drive::services::mail::sender::memory_sender();
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
         aster_drive::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
@@ -1188,12 +1188,12 @@ pub async fn flush_mail_outbox(state: &PrimaryAppState) {
 pub async fn flush_mail_outbox_with(
     db: &sea_orm::DatabaseConnection,
     runtime_config: &std::sync::Arc<aster_drive::config::RuntimeConfig>,
-    mail_sender: &std::sync::Arc<dyn aster_drive::services::mail_service::MailSender>,
+    mail_sender: &std::sync::Arc<dyn aster_drive::services::mail::sender::MailSender>,
 ) {
     const MAX_ATTEMPTS: usize = 8;
 
     for attempt in 0..MAX_ATTEMPTS {
-        aster_drive::services::mail_outbox_service::drain_with(db, runtime_config, mail_sender)
+        aster_drive::services::mail::outbox::drain_with(db, runtime_config, mail_sender)
             .await
             .expect("mail outbox drain should succeed");
 
@@ -1253,7 +1253,7 @@ fn extract_token_from_content(content: &str, marker: &str) -> Option<String> {
 
 #[allow(dead_code)]
 pub fn extract_token_from_mail_message(
-    message: &aster_drive::services::mail_service::MailMessage,
+    message: &aster_drive::services::mail::sender::MailMessage,
     marker: &str,
 ) -> Option<String> {
     extract_token_from_content(&message.text_body, marker)
@@ -1262,9 +1262,9 @@ pub fn extract_token_from_mail_message(
 
 #[allow(dead_code)]
 pub fn extract_verification_token_from_mail_sender(
-    sender: &Arc<dyn aster_drive::services::mail_service::MailSender>,
+    sender: &Arc<dyn aster_drive::services::mail::sender::MailSender>,
 ) -> Option<String> {
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender.last_message()?;
     extract_token_from_mail_message(&message, "/api/v1/auth/contact-verification/confirm?token=")
@@ -1273,7 +1273,7 @@ pub fn extract_verification_token_from_mail_sender(
 #[allow(dead_code)]
 pub async fn extract_verification_token_from_mail_sender_or_outbox(
     db: &sea_orm::DatabaseConnection,
-    sender: &Arc<dyn aster_drive::services::mail_service::MailSender>,
+    sender: &Arc<dyn aster_drive::services::mail::sender::MailSender>,
 ) -> Option<String> {
     if let Some(token) = extract_verification_token_from_mail_sender(sender) {
         return Some(token);

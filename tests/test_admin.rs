@@ -4187,7 +4187,7 @@ async fn test_admin_config_action_sends_test_email() {
         "Test email sent to deliver@example.com"
     );
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()
@@ -4215,7 +4215,7 @@ async fn test_admin_config_action_defaults_to_admin_email() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()

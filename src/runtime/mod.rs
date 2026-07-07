@@ -11,7 +11,7 @@ use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
-    mail_service::MailSender, share_service::ShareDownloadRollbackQueue,
+    mail::sender::MailSender, share_service::ShareDownloadRollbackQueue,
     storage_change_service::StorageChangeEvent,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
@@ -330,7 +330,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: crate::services::mail_service::memory_sender(),
+            mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

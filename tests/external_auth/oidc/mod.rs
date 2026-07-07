@@ -556,7 +556,7 @@ pub async fn latest_oidc_email_verification_token(
     state: &aster_drive::runtime::PrimaryAppState,
 ) -> String {
     common::flush_mail_outbox(state).await;
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&state.mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&state.mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()

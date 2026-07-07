@@ -439,8 +439,7 @@ async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
     .await
     .unwrap();
 
-    let (_projects, docs, reports, file, _contents) =
-        seed_nested_file(&state, user.id, None).await;
+    let (_projects, docs, reports, file, _contents) = seed_nested_file(&state, user.id, None).await;
     let file_path = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
     let new_file_path = DavPath::new("/projects/manuals/reports/q1.txt").unwrap();
     let pending_create_path = DavPath::new("/projects/docs/reports/new.txt").unwrap();

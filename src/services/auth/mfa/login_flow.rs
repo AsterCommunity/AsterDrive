@@ -20,8 +20,9 @@ use crate::services::{
     audit_service,
     audit_service::AuditRequestInfo,
     auth::local,
-    mail_audit_service, mail_service,
-    mail_template::{self, MailTemplatePayload},
+    mail::audit,
+    mail::sender,
+    mail::template::{self, MailTemplatePayload},
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
 use crate::utils::hash;
@@ -250,7 +251,7 @@ pub async fn send_email_code(
         }
     };
     let rendered =
-        match mail_template::render(state.runtime_config(), payload.template_code(), &stored) {
+        match template::render(state.runtime_config(), payload.template_code(), &stored) {
             Ok(rendered) => rendered,
             Err(error) => {
                 consume_email_code_after_mail_failure(state, record.id).await;
@@ -259,9 +260,9 @@ pub async fn send_email_code(
         };
     let template_code = payload.template_code();
     let subject = rendered.subject.clone();
-    if let Err(error) = mail_service::send_rendered(
+    if let Err(error) = sender::send_rendered(
         state,
-        mail_service::MailRecipient {
+        sender::MailRecipient {
             address: user.email.clone(),
             display_name: Some(user.username.clone()),
         },
@@ -271,10 +272,10 @@ pub async fn send_email_code(
     {
         let error_message = error.to_string();
         consume_email_code_after_mail_failure(state, record.id).await;
-        mail_audit_service::log_delivery_failed_with_db(
+        audit::log_delivery_failed_with_db(
             state.writer_db(),
             state.runtime_config(),
-            mail_audit_service::MailAuditInput {
+            audit::MailAuditInput {
                 actor_user_id: user.id,
                 ip_address: audit_info.ip_address.as_deref(),
                 user_agent: audit_info.user_agent.as_deref(),
@@ -291,9 +292,9 @@ pub async fn send_email_code(
         return Err(error);
     }
 
-    mail_audit_service::log_send(
+    audit::log_send(
         state,
-        mail_audit_service::MailAuditInput {
+        audit::MailAuditInput {
             actor_user_id: user.id,
             ip_address: audit_info.ip_address.as_deref(),
             user_agent: audit_info.user_agent.as_deref(),

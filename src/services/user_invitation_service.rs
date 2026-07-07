@@ -15,8 +15,8 @@ use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
     auth::local::shared::{CreateUserWithRoleInput, create_user_with_role},
-    mail_outbox_service,
-    mail_template::MailTemplatePayload,
+    mail::outbox,
+    mail::template::MailTemplatePayload,
 };
 use crate::types::{UserInvitationStatus, UserRole, UserStatus};
 use crate::utils::{hash, id, numbers::u64_to_i64};
@@ -97,7 +97,7 @@ pub async fn create_invitation(
         )
         .await?;
 
-        mail_outbox_service::enqueue(
+        outbox::enqueue(
             &txn,
             &email,
             None,

@@ -1,4 +1,4 @@
-//! 服务模块：`mail_outbox_service`。
+//! 服务模块：`mail::outbox`。
 
 use std::sync::Arc;
 
@@ -11,9 +11,9 @@ use crate::entities::mail_outbox;
 use crate::errors::Result;
 use crate::runtime::MailRuntimeState;
 use crate::services::{
-    mail_audit_service, mail_service,
-    mail_service::MailSender,
-    mail_template::{self, MailTemplatePayload},
+    mail::audit,
+    mail::sender::{self, MailSender},
+    mail::template::{self, MailTemplatePayload},
 };
 use crate::types::MailOutboxStatus;
 
@@ -114,10 +114,10 @@ pub async fn dispatch_due_with(
                 match mark_sent_with_retry(db, claimed_row.id).await {
                     Ok(true) => {
                         stats.sent += 1;
-                        mail_audit_service::log_send_with_db(
+                        audit::log_send_with_db(
                             db,
                             runtime_config,
-                            mail_audit_service::MailAuditInput {
+                            audit::MailAuditInput {
                                 actor_user_id: 0,
                                 ip_address: None,
                                 user_agent: None,
@@ -167,10 +167,10 @@ pub async fn dispatch_due_with(
                     .await?
                     {
                         stats.failed += 1;
-                        mail_audit_service::log_delivery_failed_with_db(
+                        audit::log_delivery_failed_with_db(
                             db,
                             runtime_config,
-                            mail_audit_service::MailAuditInput {
+                            audit::MailAuditInput {
                                 actor_user_id: 0,
                                 ip_address: None,
                                 user_agent: None,
@@ -256,12 +256,12 @@ async fn deliver_one(
     mail_sender: &Arc<dyn MailSender>,
     row: &mail_outbox::Model,
 ) -> Result<String> {
-    let rendered = mail_template::render(runtime_config, row.template_code, &row.payload_json)?;
+    let rendered = template::render(runtime_config, row.template_code, &row.payload_json)?;
     let subject = rendered.subject.clone();
-    mail_service::send_rendered_with(
+    sender::send_rendered_with(
         runtime_config,
         mail_sender,
-        mail_service::MailRecipient {
+        sender::MailRecipient {
             address: row.to_address.clone(),
             display_name: row.to_name.clone(),
         },

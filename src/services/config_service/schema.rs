@@ -260,7 +260,7 @@ fn config_schema_invalidates(key: &str) -> Vec<ConfigInvalidationTarget> {
 }
 
 pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
-    crate::services::mail_template::list_template_variable_groups()
+    crate::services::mail::template::list_template_variable_groups()
         .into_iter()
         .map(|group| TemplateVariableGroup {
             category: group.category,
