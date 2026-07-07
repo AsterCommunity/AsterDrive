@@ -166,4 +166,4 @@ You can rotate the SSH password by editing the policy. When editing a saved poli
 | Capacity observation | No unified capacity query |
 | Range reads | Efficient range reads are supported |
 
-SFTP connection pooling is tracked separately; the current implementation prioritizes host key verification and correct basic read/write behavior.
+SFTP connections are reused through a connection pool (default 4 connections, idle connections reclaimed after 60s), reducing repeated handshake overhead; the implementation still prioritizes host key verification and read/write correctness.

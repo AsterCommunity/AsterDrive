@@ -5314,7 +5314,7 @@ export interface components {
             discovery_url?: string | null;
             /**
              * @description Optional transient config values for test actions such as
-             *     [`ConfigActionType::TestAria2Rpc`](crate::services::config_service::ConfigActionType::TestAria2Rpc).
+             *     [`ConfigActionType::TestAria2Rpc`](crate::services::ops::config::ConfigActionType::TestAria2Rpc).
              *     These override persisted config for the action without writing to the DB.
              *     Runtime action handlers validate the accepted keys for their action.
              */

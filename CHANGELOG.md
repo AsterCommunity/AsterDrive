@@ -7,6 +7,122 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.1] - 2026-07-08
+
+### Release Highlights
+
+**AsterDrive `v0.3.1` 是 `0.3.0` 系列的架构整理与性能打磨版本，主线是服务层领域模块化重组、WebDAV 性能与 HTTP 条件请求合规性提升、以及上传 finalize 路径契约化。** 服务层从扁平的 `*_service` 文件重组为按领域嵌套的模块树（`auth` / `files` / `share` / `user` / `mail` / `remote` / `workspace` / `preview` / `webdav` / `media` 等），纯路径迁移不改 API 与 schema；WebDAV 落地 RFC 9110 条件请求（`If-Match` / `If-None-Match` / `If-Modified-Since` / `If-Unmodified-Since`）与 `Last-Modified` 响应，range 读取与大型 PROPFIND 显著提速，读写 DB 分离修复写后读一致性；上传 finalize 路径引入 `VerifiedUploadedBlob` 等不可变值对象，把 size / policy / path 校验与清理计划收敛到类型层。配套把 "managed ingress profile" 重命名为语义更清晰的 "remote storage target"，远程存储策略可绑定到具体 target；本版本还顺带合并了贡献者提交的 SFTP 存储后端。
+
+- **服务层领域模块化重组** — 扁平 `*_service` 文件按领域嵌套为模块树，纯路径迁移，无 API / schema 变化
+- **WebDAV 性能与合规性** — RFC 9110 条件请求与 `Last-Modified` 响应、range 读取与大型 PROPFIND 显著提速、读写 DB 分离修复写后读一致性、下载审计窗口合并
+- **上传 finalize 路径契约化** — `VerifiedUploadedBlob` / `VerifiedTempStoreBlob` 等不可变值对象收敛校验与清理计划，固化 complete 重试幂等与配额超限不扣配额不变量
+- **远程存储 target 化** — `managed ingress profile` 重命名为 `remote storage target`，远程策略绑定具体 target，旧 API 路径与配置 key 保留兼容（deprecated）
+- **SFTP 存储后端** — 基于 `russh`，支持连接池、host key 强制固定（TOFU）、高效 range 读；纯服务端中继上传，不支持 presigned / multipart
+
+### Added
+
+- **远程节点 driver descriptor 发现**
+  - 新增 `ManagedIngressDriverDescriptor` 与字段 descriptor（Text / Secret / Boolean / Number + required / secret / label_key / placeholder / help_key），内置 local + S3 两个 driver 描述
+  - 新 API 从远程节点拉取支持的 driver 描述，管理后台按当前 driver 动态渲染字段、显示 driver 专属 help / placeholder，选远程不支持的 driver 时给出校验错误
+  - 远程内部协议版本 v4 → v5；`RemoteStorageCapabilities` 新增 `managed_ingress` 能力字段；v4 兼容层保留（`MIN_SUPPORTED_PROTOCOL_VERSION` 仍为 v4）
+
+- **远程存储策略绑定 target**
+  - `storage_policies` 表新增 `remote_storage_target_key` 列与索引；策略创建 / 更新时校验 target 已 applied 且无错误，非远程策略拒绝带 target key
+  - 内部 / presigned 请求按策略指定的 target 路由，而非总走 binding 默认
+  - 管理后台策略对话框新增 target 二级选择（loading / empty / error / hint），支持在策略表单内直接快速创建 target
+
+- **下载 disposition 参数 + resource-handle 端点**
+  - `DownloadQuery` 新增可选 `disposition`（`inline` / `attachment`），非法值返回校验错误；贯穿 personal / team / share 下载链路（空值 = attachment 旧行为，向后兼容）
+  - 新端点 `POST /api/v1/files/{id}/resource-handle` 与 team 对应端点，返回 `FileResourceHandle`；`Auto` 模式下为不可渲染图片（HEIC / RAW / TIFF）选派生 WebP 表示、HTML 等沙箱 MIME 强制同源
+
+- **WebDAV HTTP 条件请求合规**
+  - 新增 `src/utils/http_validators.rs` 实现 RFC 9110 的 `If-Match`（强 ETag）/ `If-None-Match`（弱 ETag）/ `If-Modified-Since` / `If-Unmodified-Since` 求值与 header 优先级；GET / HEAD 响应携带 `Last-Modified`
+
+- **WebDAV 下载审计合并**
+  - 新配置项 `webdav_download_audit_coalesce_window_secs`（默认 30s）；同一账号 + 文件 + 请求类型（full / ranged）+ 客户端指纹（IP + User-Agent 的 SHA256）在窗口内的重复下载合并为一条审计记录，设为 0 表示每次都记录
+
+- **SFTP 存储后端**
+  - 新增 `DriverType::Sftp`（持久化字符串 `"sftp"`，sea-orm 以字符串存储，老库无需 migration），基于 `russh 0.62.1` + `russh-sftp 2.3.0`
+  - 连接池（默认 4，空闲 TTL 60s，获取超时 30s，RAII lease 归还）、强制 host key 固定（TOFU，未配置指纹直接拒绝并回传服务器实际 `SHA256:` 指纹）、高效 range 读（SFTP seek + take）
+  - 上传走服务端中继流式，**不支持** presigned / multipart / 浏览器直传——能力边界与 S3 不同
+
+### Changed
+
+- **服务层重组为领域模块**（纯内部，无 API / schema 变化）
+  - `src/services/` 下扁平 `*_service` 文件 → 按领域嵌套模块树，绝大部分是 `use` 路径迁移
+  - 新增 `developer-docs/{en,zh-CN}/backend-service-ownership.md` 服务层责任边界文档
+
+- **术语统一：managed ingress profile → remote storage target**
+  - API 端点 `/ingress-profiles` → `/storage-targets`，旧路径保留为 deprecated 别名（计划于 `0.4.0` 移除）
+  - 配置项 `server.follower.managed_ingress_local_root` → `server.follower.remote_storage_target_local_root`，loader 同时接受新旧两个键；默认值 `managed-ingress` → `remote-storage-targets`
+  - 保留兼容项：API 错误码仍为 `managed_ingress.*`；审计日志 entity type / action 仍为 `RemoteIngressProfile`；wire protocol capabilities 仍用 `managed_ingress` 字段名
+
+- **`max_file_size` 从 target 层上移到 policy 层**
+  - 删除 `remote_storage_targets.max_file_size` 列；改从请求的 `max_file_size` 签名查询参数读取（值来源于存储策略），负值 clamp 到 0
+  - target 创建表单移除 max_file_size，target 卡片移除 revision 显示
+
+- **WebDAV 读写 DB 分离与缓存精细化**
+  - `resolve_path_cached_in_scope` 拆 read / write 两变体：写操作（PUT / MKCOL / COPY / MOVE / DELETE / LOCK）走 `writer_db()`，读操作走 `reader_db()`，避免写后读命中过期缓存
+  - 引入 `CacheInvalidationTargets` 支持 prefix + 定向 key 删除；文件夹变更改为定向删 key 而非全前缀刷；PROPFIND 只请求标准 live property 时跳过 dead property 与锁发现加载
+
+- **WebDAV range 读与 PROPFIND 路径优化**
+  - 下载路径一次解析 file + blob + meta，消除重复 metadata 查询；流式块大小 16 KiB → 64 KiB
+  - `read_dir` 去 N+1：直接用 `file` 记录构造目录项；ETag 改用结构化 `file_etag`，不再依赖 blob hash
+  - 团队成员变更触发的 WebDAV auth 缓存失效改为 fire-and-forget（带重试 + 日志），不再阻塞成员操作
+
+- **上传 finalize 路径契约化**（纯内部，无 API / 行为变化）
+  - 新增 `VerifiedUploadedBlob` / `VerifiedTempStoreBlob` / `VerifiedPreuploadedNondedupStoreBlob` 不可变值对象，把 size / policy / path 校验与清理计划收敛到类型层
+  - 新增回归测试固化不变量：complete 重试不重复扣配额、配额超限时 session 置 Failed 且不扣配额（错误码 `E032`）
+
+- **前端 admin / 文件操作改造为插件可扩展**
+  - 新增 admin settings action / editor / invalidation / save-transaction 四个 registry；文件操作 `fileActionRegistry`（声明式 action descriptor，支持 builtin + plugin action）
+  - `AdminPoliciesPage` 从 1595 行减到 235 行（抽 5 个 controller hook + 3 个工具模块）；12 个 controller 迁移到通用 `useManagedListQueryState` / `useManagedAdminList`，减少约 800 行样板
+
+- **S3 remote target 编辑强制输入 access_key**
+  - 新增 `src/storage/field_contract.rs` 统一 required / secret / boolean 字段语义；编辑 S3 remote target 时每次必须输入 `access_key`，`secret_key` 未变更时保留原值
+  - 前端从硬编码 `driver_type === "s3"` 改为查 descriptor `secretKeyField?.secret === true`
+
+### Fixed
+
+- **WebDAV 写后读一致性** — 写操作走 `writer_db()` 权威解析，新增测试覆盖 PUT / COPY / MOVE / LOCK / DELETE 后立即 GET / PROPFIND
+- **音乐播放 metadata 刷新打断播放** — track metadata 按 resource path 而非全对象做 key；跨域重定向资源跳过 range probe
+- **WebDAV 团队归档 / 恢复后 auth 缓存陈旧** — 归档 / 恢复团队时失效 WebDAV auth 缓存
+- **k6 基准测试 token 复用** — `refreshSession` 原本一直复用旧 refresh token；`mixed-ramp.js` / `soak-mixed.js` 每个 VU 改为单独 `login()`
+
+### Security
+
+- **SFTP host key 强制固定** — 从盲信任意 host key 收紧到 TOFU + pin，防 MITM；未配置指纹时拒绝连接并回传服务器实际 `SHA256:` 指纹引导管理员确认
+- **S3 remote target 编辑强制 access_key** — 公开凭证每次必须输入，仅 `secret_key` 在未变更时保留原值
+- **负值 `max_file_size` 被拒** — `normalize_storage_policy_max_file_size` 拒绝负值
+- **remote target 相对路径逃逸检测** — `normalize_relative_local_target_path` 检测路径逃逸段
+
+### Database Migrations
+
+- `m20260704_000001_rename_managed_ingress_profiles_to_remote_storage_targets`（表 / 列改名，可回滚）
+- `m20260704_000002_add_remote_storage_target_key_to_storage_policies`（加列 + 索引）
+- `m20260705_000001_drop_remote_storage_target_max_file_size`（删 `max_file_size` 列，改走策略查询参数）
+
+### Configuration Changes
+
+- `server.follower.managed_ingress_local_root` → `server.follower.remote_storage_target_local_root`（loader 同时接受新旧 key，旧 key deprecated，计划于 `0.4.0` 移除）
+- 默认值 `managed-ingress` → `remote-storage-targets`
+- 新增 `webdav_download_audit_coalesce_window_secs`（默认 30s，设为 0 表示每次下载都记录审计）
+
+### Statistics
+
+- 916 files changed, 45826 insertions(+), 17459 deletions(-)
+- 30 commits（含若干 `[skip ci]` 仓库迁移 / 测试镜像固定）
+- 3 个数据库 migration（自动执行，可回滚）
+- 新增后端驱动：1（SFTP）
+
+### Notes
+
+- 从 `v0.3.0` 升级：3 个 DB migration 在启动时自动执行；API 旧路径 `/ingress-profiles` 与旧配置 key 保留兼容（deprecated），建议尽快迁移到 `/storage-targets` / `remote_storage_target_local_root`
+- SFTP 策略首次配置需走 host key TOFU 确认流程：未配 `sftp_host_key_fingerprint` 时连接测试会返回服务器实际 `SHA256:` 指纹，确认后写入即可
+- SFTP 后端为纯服务端中继，不支持 presigned / multipart / 浏览器直传，能力边界与 S3 不同
+- 远程内部协议 v4 → v5：`MIN_SUPPORTED_PROTOCOL_VERSION` 仍为 v4，旧 follower 靠兼容层继续工作；primary + follower 混合部署建议一并升级
+- Docker 用户建议使用 `v0.3.1` / `stable` / `latest` 镜像标签
+
 ## [v0.3.0] - 2026-06-23
 
 ### Release Highlights
