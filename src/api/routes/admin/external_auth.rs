@@ -6,20 +6,20 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::audit_service;
-use crate::services::auth_service::Claims;
-use crate::services::external_auth_service::{
-    self as external_auth_service, AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
+use crate::services::auth::external::{
+    self as external, AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
     ExternalAuthProviderAuditDetails, ExternalAuthProviderTestParamsInput,
     UpdateExternalAuthProviderInput,
 };
+use crate::services::auth::local::Claims;
+use crate::services::ops::audit;
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde::Serialize;
 
 fn external_auth_provider_audit_details(
     provider: &AdminExternalAuthProviderInfo,
 ) -> Option<serde_json::Value> {
-    audit_service::details(ExternalAuthProviderAuditDetails {
+    audit::details(ExternalAuthProviderAuditDetails {
         key: &provider.key,
         icon_url: provider.icon_url.as_deref(),
         issuer_url: provider.issuer_url.as_deref(),
@@ -44,7 +44,7 @@ struct ExternalAuthProviderTestParamsAuditDetails<'a> {
     operation_id = "admin_list_external_auth_providers",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "External auth providers", body = inline(ApiResponse<OffsetPage<external_auth_service::AdminExternalAuthProviderInfo>>)),
+        (status = 200, description = "External auth providers", body = inline(ApiResponse<OffsetPage<external::AdminExternalAuthProviderInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -54,12 +54,9 @@ pub async fn list_external_auth_providers(
     state: web::Data<PrimaryAppState>,
     page: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let providers = external_auth_service::list_admin_providers(
-        state.get_ref(),
-        page.limit_or(50, 100),
-        page.offset(),
-    )
-    .await?;
+    let providers =
+        external::list_admin_providers(state.get_ref(), page.limit_or(50, 100), page.offset())
+            .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
 }
 
@@ -69,14 +66,14 @@ pub async fn list_external_auth_providers(
     tag = "admin",
     operation_id = "admin_list_external_auth_provider_kinds",
     responses(
-        (status = 200, description = "Supported external auth provider kinds", body = inline(ApiResponse<Vec<external_auth_service::ExternalAuthProviderKindInfo>>)),
+        (status = 200, description = "Supported external auth provider kinds", body = inline(ApiResponse<Vec<external::ExternalAuthProviderKindInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
     security(("bearer" = [])),
 )]
 pub async fn list_external_auth_provider_kinds() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(external_auth_service::list_provider_kinds())))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(external::list_provider_kinds())))
 }
 
 #[api_docs_macros::path(
@@ -86,7 +83,7 @@ pub async fn list_external_auth_provider_kinds() -> Result<HttpResponse> {
     operation_id = "admin_create_external_auth_provider",
     request_body = CreateExternalAuthProviderInput,
     responses(
-        (status = 201, description = "External auth provider created", body = inline(ApiResponse<external_auth_service::AdminExternalAuthProviderInfo>)),
+        (status = 201, description = "External auth provider created", body = inline(ApiResponse<external::AdminExternalAuthProviderInfo>)),
         (status = 400, description = "Invalid provider configuration"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -99,14 +96,13 @@ pub async fn create_external_auth_provider(
     req: HttpRequest,
     body: web::Json<CreateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider =
-        external_auth_service::create_provider(state.get_ref(), body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let provider = external::create_provider(state.get_ref(), body.into_inner()).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminCreateExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -122,7 +118,7 @@ pub async fn create_external_auth_provider(
     operation_id = "admin_get_external_auth_provider",
     params(("id" = i64, Path, description = "External auth provider ID")),
     responses(
-        (status = 200, description = "External auth provider", body = inline(ApiResponse<external_auth_service::AdminExternalAuthProviderInfo>)),
+        (status = 200, description = "External auth provider", body = inline(ApiResponse<external::AdminExternalAuthProviderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "External auth provider not found"),
@@ -133,7 +129,7 @@ pub async fn get_external_auth_provider(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external_auth_service::get_admin_provider(state.get_ref(), *path).await?;
+    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(provider)))
 }
 
@@ -145,7 +141,7 @@ pub async fn get_external_auth_provider(
     params(("id" = i64, Path, description = "External auth provider ID")),
     request_body = UpdateExternalAuthProviderInput,
     responses(
-        (status = 200, description = "External auth provider updated", body = inline(ApiResponse<external_auth_service::AdminExternalAuthProviderInfo>)),
+        (status = 200, description = "External auth provider updated", body = inline(ApiResponse<external::AdminExternalAuthProviderInfo>)),
         (status = 400, description = "Invalid provider configuration"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -160,14 +156,13 @@ pub async fn update_external_auth_provider(
     path: web::Path<i64>,
     body: web::Json<UpdateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
-    let provider =
-        external_auth_service::update_provider(state.get_ref(), *path, body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let provider = external::update_provider(state.get_ref(), *path, body.into_inner()).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminUpdateExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminUpdateExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -196,14 +191,14 @@ pub async fn delete_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external_auth_service::get_admin_provider(state.get_ref(), *path).await?;
-    external_auth_service::delete_provider(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
+    external::delete_provider(state.get_ref(), *path).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminDeleteExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -219,7 +214,7 @@ pub async fn delete_external_auth_provider(
     operation_id = "admin_test_external_auth_provider_params",
     request_body = ExternalAuthProviderTestParamsInput,
     responses(
-        (status = 200, description = "External auth provider parameters tested", body = inline(ApiResponse<external_auth_service::ExternalAuthProviderTestResult>)),
+        (status = 200, description = "External auth provider parameters tested", body = inline(ApiResponse<external::ExternalAuthProviderTestResult>)),
         (status = 400, description = "Discovery failed"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -234,18 +229,18 @@ pub async fn test_external_auth_provider_params(
 ) -> Result<HttpResponse> {
     let input = body.into_inner();
     let provider_kind = input.provider_kind.as_str();
-    let result = external_auth_service::test_provider_params(state.get_ref(), input).await;
+    let result = external::test_provider_params(state.get_ref(), input).await;
     let success = result.is_ok();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminTestExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         None,
         Some("draft"),
         || {
-            audit_service::details(ExternalAuthProviderTestParamsAuditDetails {
+            audit::details(ExternalAuthProviderTestParamsAuditDetails {
                 provider_kind,
                 key: "draft",
                 success,
@@ -264,7 +259,7 @@ pub async fn test_external_auth_provider_params(
     operation_id = "admin_test_external_auth_provider",
     params(("id" = i64, Path, description = "External auth provider ID")),
     responses(
-        (status = 200, description = "External auth provider tested", body = inline(ApiResponse<external_auth_service::ExternalAuthProviderTestResult>)),
+        (status = 200, description = "External auth provider tested", body = inline(ApiResponse<external::ExternalAuthProviderTestResult>)),
         (status = 400, description = "Discovery failed"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -278,14 +273,14 @@ pub async fn test_external_auth_provider(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let provider = external_auth_service::get_admin_provider(state.get_ref(), *path).await?;
-    let result = external_auth_service::test_provider(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let provider = external::get_admin_provider(state.get_ref(), *path).await?;
+    let result = external::test_provider(state.get_ref(), *path).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminTestExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),

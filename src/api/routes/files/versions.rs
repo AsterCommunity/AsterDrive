@@ -4,7 +4,7 @@ use crate::api::dto::files::VersionPath;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service::AuditContext, auth_service::Claims, version_service};
+use crate::services::{auth::local::Claims, content::version, ops::audit::AuditContext};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -14,7 +14,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "list_versions",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace_models::FileVersion>>)),
+        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -24,7 +24,7 @@ pub async fn list_versions(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let versions = version_service::list_versions(state.get_ref(), *path, claims.user_id).await?;
+    let versions = version::list_versions(state.get_ref(), *path, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
@@ -38,7 +38,7 @@ pub async fn list_versions(
         ("version_id" = i64, Path, description = "Version ID"),
     ),
     responses(
-        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Version not found"),
     ),
@@ -51,7 +51,7 @@ pub async fn restore_version(
     path: web::Path<VersionPath>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = version_service::restore_version_with_audit(
+    let file = version::restore_version_with_audit(
         state.get_ref(),
         path.id,
         path.version_id,
@@ -85,7 +85,7 @@ pub async fn delete_version(
     path: web::Path<VersionPath>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(&req, &claims);
-    version_service::delete_version_with_audit(
+    version::delete_version_with_audit(
         state.get_ref(),
         path.id,
         path.version_id,
@@ -106,7 +106,7 @@ pub async fn delete_version(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace_models::FileVersion>>)),
+        (status = 200, description = "File versions", body = inline(ApiResponse<Vec<crate::services::workspace::models::FileVersion>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -119,8 +119,7 @@ pub(crate) async fn team_list_versions(
 ) -> Result<HttpResponse> {
     let (team_id, file_id) = path.into_inner();
     let versions =
-        version_service::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id)
-            .await?;
+        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 
@@ -135,7 +134,7 @@ pub(crate) async fn team_list_versions(
         ("version_id" = i64, Path, description = "Version ID"),
     ),
     responses(
-        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Version restored", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Version not found"),
@@ -150,7 +149,7 @@ pub(crate) async fn team_restore_version(
 ) -> Result<HttpResponse> {
     let (team_id, file_id, version_id) = path.into_inner();
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = version_service::restore_version_for_team_with_audit(
+    let file = version::restore_version_for_team_with_audit(
         state.get_ref(),
         team_id,
         file_id,
@@ -188,7 +187,7 @@ pub(crate) async fn team_delete_version(
 ) -> Result<HttpResponse> {
     let (team_id, file_id, version_id) = path.into_inner();
     let ctx = AuditContext::from_request(&req, &claims);
-    version_service::delete_version_for_team_with_audit(
+    version::delete_version_for_team_with_audit(
         state.get_ref(),
         team_id,
         file_id,

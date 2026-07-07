@@ -6,7 +6,7 @@ use crate::config::media_processing;
 use crate::db::repository::pagination_repo::fetch_offset_page;
 use crate::entities::system_config::{self, Entity as SystemConfig};
 use crate::errors::{AsterError, Result};
-use crate::services::preview_app_service;
+use crate::services::preview::apps;
 use crate::types::{
     MediaProcessorKind, SystemConfigSource, SystemConfigValueType, SystemConfigVisibility,
 };
@@ -380,7 +380,7 @@ where
             MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
                 normalize_existing_media_processing_registry_config_value(&mut active);
             }
-            preview_app_service::PREVIEW_APPS_CONFIG_KEY => {
+            apps::PREVIEW_APPS_CONFIG_KEY => {
                 normalize_existing_preview_apps_config_value(&mut active);
             }
             _ => {}
@@ -430,26 +430,24 @@ fn normalize_existing_preview_apps_config_value(active: &mut system_config::Acti
         sea_orm::ActiveValue::NotSet => return,
     };
 
-    match preview_app_service::public_preview_apps_config_has_missing_required_builtins(&existing) {
+    match apps::public_preview_apps_config_has_missing_required_builtins(&existing) {
         Ok(false) => {}
-        Ok(true) => {
-            match preview_app_service::normalize_public_preview_apps_config_value(&existing) {
-                Ok(normalized) => {
-                    active.value = Set(normalized);
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error = %error,
-                        key = preview_app_service::PREVIEW_APPS_CONFIG_KEY,
-                        "failed to normalize existing preview app registry during default config sync"
-                    );
-                }
+        Ok(true) => match apps::normalize_public_preview_apps_config_value(&existing) {
+            Ok(normalized) => {
+                active.value = Set(normalized);
             }
-        }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    key = apps::PREVIEW_APPS_CONFIG_KEY,
+                    "failed to normalize existing preview app registry during default config sync"
+                );
+            }
+        },
         Err(error) => {
             tracing::warn!(
                 error = %error,
-                key = preview_app_service::PREVIEW_APPS_CONFIG_KEY,
+                key = apps::PREVIEW_APPS_CONFIG_KEY,
                 "failed to normalize existing preview app registry during default config sync"
             );
         }
@@ -461,7 +459,7 @@ mod tests {
     use super::*;
     use crate::config::DatabaseConfig;
     use crate::db;
-    use crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY;
+    use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
     use migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
@@ -709,7 +707,7 @@ mod tests {
             .await
             .expect("preview app config lookup should succeed")
             .expect("preview app config should exist");
-        let config: preview_app_service::PublicPreviewAppsConfig =
+        let config: apps::PublicPreviewAppsConfig =
             serde_json::from_str(&stored.value).expect("stored preview apps should parse");
 
         assert!(config.apps.iter().any(|app| {

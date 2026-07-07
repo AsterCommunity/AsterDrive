@@ -65,7 +65,7 @@ async fn upload_same_content_direct_and_chunked(
     aster_drive::entities::file_blob::Model,
 ) {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{file_service, upload_service};
+    use aster_drive::services::{files::file, files::upload};
 
     let pattern = b"same content across direct and chunked upload paths\n";
     let content = pattern.repeat((10_485_760 / pattern.len()) + 1);
@@ -79,20 +79,15 @@ async fn upload_same_content_direct_and_chunked(
         .unwrap();
     tokio::fs::write(&temp_path, content).await.unwrap();
 
-    let direct_file = file_service::store_from_temp(
+    let direct_file = file::store_from_temp(
         state,
         user_id,
-        file_service::StoreFromTempRequest::new(
-            None,
-            "same-direct.txt",
-            &temp_path,
-            content.len() as i64,
-        ),
+        file::StoreFromTempRequest::new(None, "same-direct.txt", &temp_path, content.len() as i64),
     )
     .await
     .unwrap();
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         state,
         user_id,
         "same-chunked.txt",
@@ -111,11 +106,11 @@ async fn upload_same_content_direct_and_chunked(
         let start = chunk_number as usize * chunk_size;
         let end = ((chunk_number as usize + 1) * chunk_size).min(content.len());
         let chunk = &content[start..end];
-        upload_service::upload_chunk(state, &upload_id, chunk_number, user_id, chunk)
+        upload::upload_chunk(state, &upload_id, chunk_number, user_id, chunk)
             .await
             .unwrap();
     }
-    let chunked_file = upload_service::complete_upload(state, &upload_id, user_id, None)
+    let chunked_file = upload::complete_upload(state, &upload_id, user_id, None)
         .await
         .unwrap();
 
@@ -235,7 +230,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "trycreateuser",
         "trycreate@test.com",
@@ -296,7 +291,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         )
         .await
         .unwrap();
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "trycreateuniq",
         "trycreateuniq@test.com",
@@ -653,15 +648,15 @@ async fn create_s3_default_policy(
 ) -> aster_drive::entities::storage_policy::Model {
     let policy = create_s3_policy(state, name, endpoint, bucket, options, chunk_size).await;
 
-    let group = aster_drive::services::policy_service::create_group(
+    let group = aster_drive::services::storage_policy::policy::create_group(
         state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: format!("S3 Test Group · {}", policy.id),
             description: Some(format!("Single-policy S3 group for policy #{}", policy.id)),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: policy.id,
                     priority: 1,
                     min_file_size: 0,
@@ -673,9 +668,9 @@ async fn create_s3_default_policy(
     .await
     .unwrap();
 
-    aster_drive::services::user_service::update(
+    aster_drive::services::user::account::update(
         state,
-        aster_drive::services::user_service::UpdateUserInput {
+        aster_drive::services::user::account::UpdateUserInput {
             id: user_id,
             email_verified: None,
             role: None,
@@ -731,10 +726,10 @@ async fn store_temp_file_in_personal_space(
         .await
         .unwrap();
     tokio::fs::write(&temp_path, data).await.unwrap();
-    let file = aster_drive::services::file_service::store_from_temp(
+    let file = aster_drive::services::files::file::store_from_temp(
         state,
         user_id,
-        aster_drive::services::file_service::StoreFromTempRequest::new(
+        aster_drive::services::files::file::StoreFromTempRequest::new(
             None,
             filename,
             &temp_path,
@@ -750,11 +745,11 @@ async fn store_temp_file_in_personal_space(
 #[tokio::test]
 async fn test_concurrent_store_from_temp_same_name_auto_renames() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use std::sync::Arc;
 
     let state = Arc::new(common::setup().await);
-    let user = auth_service::register(
+    let user = local::register(
         state.as_ref(),
         "raceuser",
         "concurrent-store@test.com",
@@ -794,10 +789,10 @@ async fn test_concurrent_store_from_temp_same_name_auto_renames() {
     let (first, second) = tokio::join!(
         async move {
             barrier_1.wait().await;
-            file_service::store_from_temp(
+            file::store_from_temp(
                 &state_1,
                 user.id,
-                file_service::StoreFromTempRequest::new(
+                file::StoreFromTempRequest::new(
                     None,
                     &name_1,
                     &path_1,
@@ -808,10 +803,10 @@ async fn test_concurrent_store_from_temp_same_name_auto_renames() {
         },
         async move {
             barrier_2.wait().await;
-            file_service::store_from_temp(
+            file::store_from_temp(
                 &state_2,
                 user.id,
-                file_service::StoreFromTempRequest::new(
+                file::StoreFromTempRequest::new(
                     None,
                     &name_2,
                     &path_2,
@@ -1276,13 +1271,12 @@ async fn test_empty_file_upload_flow_uses_direct_and_creates_file() {
 }
 
 #[actix_web::test]
-async fn test_upload_service_init_upload_normalizes_nfd_filename_and_rejects_windows_reserved_name()
-{
+async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_windows_reserved_name() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "unicodeupload",
         "unicodeupload@test.com",
@@ -1291,10 +1285,9 @@ async fn test_upload_service_init_upload_normalizes_nfd_filename_and_rejects_win
     .await
     .unwrap();
 
-    let init =
-        upload_service::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
     let upload_id = init
         .upload_id
@@ -1304,9 +1297,7 @@ async fn test_upload_service_init_upload_normalizes_nfd_filename_and_rejects_win
         .unwrap();
     assert_eq!(session.filename, "caf\u{00e9}.txt");
 
-    let err = match upload_service::init_upload(&state, user.id, "COM1.txt", 10_485_760, None, None)
-        .await
-    {
+    let err = match upload::init_upload(&state, user.id, "COM1.txt", 10_485_760, None, None).await {
         Ok(_) => panic!("COM1.txt should be rejected"),
         Err(err) => err,
     };
@@ -1316,10 +1307,10 @@ async fn test_upload_service_init_upload_normalizes_nfd_filename_and_rejects_win
 #[actix_web::test]
 async fn test_update_storage_used_is_atomic_under_concurrency() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "quotauser", "quota@test.com", "password123")
+    let user = local::register(&state, "quotauser", "quota@test.com", "password123")
         .await
         .unwrap();
 
@@ -1368,11 +1359,11 @@ async fn test_update_storage_used_is_atomic_under_concurrency() {
 async fn test_concurrent_quota_overrun_is_rejected_by_cas() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::entities::user;
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let registered = auth_service::register(&state, "quotaov", "quotaov@test.com", "password123")
+    let registered = local::register(&state, "quotaov", "quotaov@test.com", "password123")
         .await
         .unwrap();
 
@@ -1419,11 +1410,11 @@ async fn test_concurrent_quota_overrun_is_rejected_by_cas() {
 async fn test_check_quota_rejects_integer_overflow() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::entities::user;
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let registered = auth_service::register(&state, "ovflu", "ovflu@test.com", "password123")
+    let registered = local::register(&state, "ovflu", "ovflu@test.com", "password123")
         .await
         .unwrap();
 
@@ -1727,14 +1718,14 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
 #[actix_web::test]
 async fn test_chunked_upload_streaming_assembly_preserves_content() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "streamuser", "stream@test.com", "password123")
+    let user = local::register(&state, "streamuser", "stream@test.com", "password123")
         .await
         .unwrap();
 
-    let init = upload_service::init_upload(&state, user.id, "streamed.txt", 10_485_760, None, None)
+    let init = upload::init_upload(&state, user.id, "streamed.txt", 10_485_760, None, None)
         .await
         .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
@@ -1743,16 +1734,16 @@ async fn test_chunked_upload_streaming_assembly_preserves_content() {
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
     let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
 
-    let resp0 = upload_service::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
+    let resp0 = upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
         .await
         .unwrap();
     assert_eq!(resp0.received_count, 1);
-    let resp1 = upload_service::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
+    let resp1 = upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
         .await
         .unwrap();
     assert_eq!(resp1.received_count, 2);
 
-    let file = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let file = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
     assert_eq!(file.name, "streamed.txt");
@@ -1773,10 +1764,10 @@ async fn test_chunked_upload_streaming_assembly_preserves_content() {
 
 #[actix_web::test]
 async fn test_direct_and_chunked_upload_do_not_dedup_local_by_default() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "compareuser", "compare@test.com", "password123")
+    let user = local::register(&state, "compareuser", "compare@test.com", "password123")
         .await
         .unwrap();
 
@@ -1791,11 +1782,11 @@ async fn test_direct_and_chunked_upload_do_not_dedup_local_by_default() {
 
 #[actix_web::test]
 async fn test_direct_and_chunked_upload_share_blob_when_local_dedup_enabled() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
     set_default_local_content_dedup(&state, true).await;
-    let user = auth_service::register(&state, "compareuser", "compare@test.com", "password123")
+    let user = local::register(&state, "compareuser", "compare@test.com", "password123")
         .await
         .unwrap();
 
@@ -1810,11 +1801,11 @@ async fn test_direct_and_chunked_upload_share_blob_when_local_dedup_enabled() {
 #[actix_web::test]
 async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
     set_default_local_content_dedup(&state, true).await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "chunkeddedupuser",
         "chunkeddedup@test.com",
@@ -1829,17 +1820,16 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
     let mut upload_ids = Vec::new();
 
     for name in ["dedup-a.bin", "dedup-b.bin"] {
-        let init =
-            upload_service::init_upload(&state, user.id, name, content.len() as i64, None, None)
-                .await
-                .unwrap();
+        let init = upload::init_upload(&state, user.id, name, content.len() as i64, None, None)
+            .await
+            .unwrap();
         let upload_id = init.upload_id.unwrap();
         let total_chunks = init.total_chunks.unwrap();
         let chunk_size = init.chunk_size.unwrap() as usize;
         for chunk_number in 0..total_chunks {
             let start = chunk_number as usize * chunk_size;
             let end = ((chunk_number as usize + 1) * chunk_size).min(content.len());
-            upload_service::upload_chunk(
+            upload::upload_chunk(
                 &state,
                 &upload_id,
                 chunk_number,
@@ -1856,7 +1846,7 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
     for upload_id in upload_ids {
         let state = state.clone();
         tasks.spawn(async move {
-            upload_service::complete_upload(&state, &upload_id, user.id, None)
+            upload::complete_upload(&state, &upload_id, user.id, None)
                 .await
                 .unwrap()
         });
@@ -2029,11 +2019,11 @@ async fn test_init_upload_local_never_presigned() {
 /// 并发上传同一分片不会导致 received_count 多算（TOCTOU 修复验证）
 #[tokio::test]
 async fn test_concurrent_chunk_upload_idempotent() {
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use std::sync::Arc;
 
     let state = Arc::new(common::setup().await);
-    let user = auth_service::register(
+    let user = local::register(
         state.as_ref(),
         "testuser",
         "test@example.com",
@@ -2069,13 +2059,13 @@ async fn test_concurrent_chunk_upload_idempotent() {
     let chunk2 = chunk_data.clone();
 
     let (first, second) = tokio::join!(
-        upload_service::upload_chunk(&state1, &upload_id1, 0, user.id, &chunk1),
-        upload_service::upload_chunk(&state2, &upload_id2, 0, user.id, &chunk2),
+        upload::upload_chunk(&state1, &upload_id1, 0, user.id, &chunk1),
+        upload::upload_chunk(&state2, &upload_id2, 0, user.id, &chunk2),
     );
 
     let first = first.unwrap();
     let second = second.unwrap();
-    let final_progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let final_progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
 
@@ -2088,7 +2078,7 @@ async fn test_concurrent_chunk_upload_idempotent() {
         "duplicate concurrent chunk upload should not increment count twice"
     );
 
-    let third = upload_service::upload_chunk(&state, &upload_id, 0, user.id, &chunk_data)
+    let third = upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk_data)
         .await
         .unwrap();
     assert_eq!(
@@ -2099,10 +2089,10 @@ async fn test_concurrent_chunk_upload_idempotent() {
 
 #[tokio::test]
 async fn test_upload_chunk_replaces_stale_partial_local_chunk() {
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "stalechunk", "stale-chunk@test.com", "password123")
+    let user = local::register(&state, "stalechunk", "stale-chunk@test.com", "password123")
         .await
         .unwrap();
     let upload_id = new_test_upload_id();
@@ -2130,7 +2120,7 @@ async fn test_upload_chunk_replaces_stale_partial_local_chunk() {
     );
     tokio::fs::write(&chunk_path, b"bad").await.unwrap();
 
-    let response = upload_service::upload_chunk(&state, &upload_id, 0, user.id, b"12345")
+    let response = upload::upload_chunk(&state, &upload_id, 0, user.id, b"12345")
         .await
         .unwrap();
     assert_eq!(response.received_count, 1);
@@ -2138,7 +2128,7 @@ async fn test_upload_chunk_replaces_stale_partial_local_chunk() {
     let stored = tokio::fs::read(&chunk_path).await.unwrap();
     assert_eq!(stored, b"12345");
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.received_count, 1);
@@ -2148,10 +2138,10 @@ async fn test_upload_chunk_replaces_stale_partial_local_chunk() {
 #[tokio::test]
 async fn test_upload_session_part_upsert_updates_existing_row_without_duplicates() {
     use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "partuser", "part@test.com", "password123")
+    let user = local::register(&state, "partuser", "part@test.com", "password123")
         .await
         .unwrap();
     let upload_id = new_test_upload_id();
@@ -2200,28 +2190,27 @@ async fn test_upload_session_part_upsert_updates_existing_row_without_duplicates
 
 #[actix_web::test]
 async fn test_upload_chunk_rejects_wrong_chunk_size() {
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "sizeuser", "size@test.com", "password123")
+    let user = local::register(&state, "sizeuser", "size@test.com", "password123")
         .await
         .unwrap();
 
-    let init =
-        upload_service::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
-    let err = match upload_service::upload_chunk(&state, &upload_id, 0, user.id, b"short").await {
+    let err = match upload::upload_chunk(&state, &upload_id, 0, user.id, b"short").await {
         Ok(_) => panic!("wrong-sized chunk upload should fail"),
         Err(err) => err,
     };
     assert_eq!(err.code(), "E056");
     assert!(err.message().contains("size mismatch"));
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.received_count, 0);
@@ -2231,34 +2220,33 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
 #[actix_web::test]
 async fn test_complete_upload_is_idempotent_after_completion() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "idemuser", "idem@test.com", "password123")
+    let user = local::register(&state, "idemuser", "idem@test.com", "password123")
         .await
         .unwrap();
 
-    let init =
-        upload_service::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
     assert_eq!(init.total_chunks, Some(2));
 
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
     let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
-    upload_service::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
         .await
         .unwrap();
-    upload_service::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
+    upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
         .await
         .unwrap();
 
-    let first = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let first = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
-    let second = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let second = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
 
@@ -2279,14 +2267,14 @@ async fn test_complete_upload_is_idempotent_after_completion() {
 #[actix_web::test]
 async fn test_complete_upload_marks_session_failed_after_assembly_error() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "faileduser", "failed@test.com", "password123")
+    let user = local::register(&state, "faileduser", "failed@test.com", "password123")
         .await
         .unwrap();
 
-    let init = upload_service::init_upload(&state, user.id, "broken.txt", 10_485_760, None, None)
+    let init = upload::init_upload(&state, user.id, "broken.txt", 10_485_760, None, None)
         .await
         .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
@@ -2294,10 +2282,10 @@ async fn test_complete_upload_marks_session_failed_after_assembly_error() {
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
     let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
-    upload_service::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
         .await
         .unwrap();
-    upload_service::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
+    upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
         .await
         .unwrap();
 
@@ -2309,7 +2297,7 @@ async fn test_complete_upload_marks_session_failed_after_assembly_error() {
     .await
     .unwrap();
 
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E057");
@@ -2324,7 +2312,7 @@ async fn test_complete_upload_marks_session_failed_after_assembly_error() {
     );
     assert_eq!(session.file_id, None);
 
-    let retry_err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let retry_err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(retry_err.code(), "E057");
@@ -2334,11 +2322,11 @@ async fn test_complete_upload_marks_session_failed_after_assembly_error() {
 #[actix_web::test]
 async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_storage_error() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "presigretry",
         "presigned-retry@test.com",
@@ -2370,7 +2358,7 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
         (1, "\"etag-1\"".to_string()),
         (2, "\"etag-2\"".to_string()),
     ]);
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, parts.clone())
+    let err = upload::complete_upload(&state, &upload_id, user.id, parts.clone())
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E031");
@@ -2381,7 +2369,7 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
     assert_eq!(session.status, UploadSessionStatus::Presigned);
     assert_eq!(session.file_id, None);
 
-    let retry_err = upload_service::complete_upload(&state, &upload_id, user.id, parts)
+    let retry_err = upload::complete_upload(&state, &upload_id, user.id, parts)
         .await
         .unwrap_err();
     assert_eq!(retry_err.code(), "E031");
@@ -2396,11 +2384,11 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
 #[actix_web::test]
 async fn test_complete_upload_keeps_remote_chunked_session_retryable_after_storage_error() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "rchunkretry",
         "remote-chunk-retry@test.com",
@@ -2441,7 +2429,7 @@ async fn test_complete_upload_keeps_remote_chunked_session_retryable_after_stora
     tokio::fs::write(&chunk0, b"12345").await.unwrap();
     tokio::fs::write(&chunk1, b"67890").await.unwrap();
 
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E031");
@@ -2452,7 +2440,7 @@ async fn test_complete_upload_keeps_remote_chunked_session_retryable_after_stora
     assert_eq!(session.status, UploadSessionStatus::Uploading);
     assert_eq!(session.file_id, None);
 
-    let retry_err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let retry_err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(retry_err.code(), "E031");
@@ -2465,11 +2453,11 @@ async fn test_complete_upload_keeps_remote_chunked_session_retryable_after_stora
 }
 
 #[actix_web::test]
-async fn test_upload_service_complete_rejects_assembling_session() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_complete_rejects_assembling_session() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "assemblinguser",
         "assembling@test.com",
@@ -2490,18 +2478,18 @@ async fn test_upload_service_complete_rejects_assembling_session() {
     )
     .await;
 
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert!(err.message().contains("being processed"));
 }
 
 #[actix_web::test]
-async fn test_upload_service_complete_completed_without_file_id_returns_refresh_hint() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_complete_completed_without_file_id_returns_refresh_hint() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "completeuser", "complete@test.com", "password123")
+    let user = local::register(&state, "completeuser", "complete@test.com", "password123")
         .await
         .unwrap();
     let upload_id = new_test_upload_id();
@@ -2517,7 +2505,7 @@ async fn test_upload_service_complete_completed_without_file_id_returns_refresh_
     )
     .await;
 
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert!(err.message().contains("file_id not found"));
@@ -2525,11 +2513,11 @@ async fn test_upload_service_complete_completed_without_file_id_returns_refresh_
 }
 
 #[actix_web::test]
-async fn test_upload_service_complete_presigned_multipart_requires_parts() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_complete_presigned_multipart_requires_parts() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "partsuser",
         "multipartparts@test.com",
@@ -2551,18 +2539,18 @@ async fn test_upload_service_complete_presigned_multipart_requires_parts() {
     )
     .await;
 
-    let err = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert!(err.message().contains("parts required"));
 }
 
 #[actix_web::test]
-async fn test_upload_service_get_progress_scans_and_sorts_local_chunks() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_get_progress_scans_and_sorts_local_chunks() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "progressuser", "progress@test.com", "password123")
+    let user = local::register(&state, "progressuser", "progress@test.com", "password123")
         .await
         .unwrap();
     let upload_id = new_test_upload_id();
@@ -2596,7 +2584,7 @@ async fn test_upload_service_get_progress_scans_and_sorts_local_chunks() {
         .await
         .unwrap();
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.upload_id, upload_id);
@@ -2606,15 +2594,15 @@ async fn test_upload_service_get_progress_scans_and_sorts_local_chunks() {
 }
 
 #[actix_web::test]
-async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multipart_sessions() {
+async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipart_sessions() {
     use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
     use chrono::Utc;
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "relayprog",
         "relay-progress@test.com",
@@ -2673,7 +2661,7 @@ async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multi
             .await
             .unwrap();
 
-        let progress = upload_service::get_progress(&state, &upload_id, user.id)
+        let progress = upload::get_progress(&state, &upload_id, user.id)
             .await
             .unwrap();
         assert_eq!(progress.status, status);
@@ -2685,7 +2673,7 @@ async fn test_upload_service_get_progress_uses_db_parts_for_terminal_relay_multi
 
 #[actix_web::test]
 async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use aster_drive::utils::raii::TempDirGuard;
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
@@ -2701,11 +2689,11 @@ async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
     );
 
     let app = create_test_app!(state.clone());
-    let user = auth_service::register(&state, "readerroute", "readerroute@test.com", "password123")
+    let user = local::register(&state, "readerroute", "readerroute@test.com", "password123")
         .await
         .unwrap();
     let (access_token, _) =
-        auth_service::issue_tokens_for_session(&state, user.id, user.session_version, None, None)
+        local::issue_tokens_for_session(&state, user.id, user.session_version, None, None)
             .await
             .unwrap();
     let upload_id = new_test_upload_id();
@@ -2757,11 +2745,11 @@ async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
 }
 
 #[actix_web::test]
-async fn test_upload_service_presign_parts_rejects_non_multipart_session() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_presign_parts_rejects_non_multipart_session() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "presignuser", "presign@test.com", "password123")
+    let user = local::register(&state, "presignuser", "presign@test.com", "password123")
         .await
         .unwrap();
     let upload_id = new_test_upload_id();
@@ -2778,18 +2766,18 @@ async fn test_upload_service_presign_parts_rejects_non_multipart_session() {
     )
     .await;
 
-    let err = upload_service::presign_parts(&state, &upload_id, user.id, vec![1])
+    let err = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await
         .unwrap_err();
     assert!(err.message().contains("not a multipart upload session"));
 }
 
 #[actix_web::test]
-async fn test_upload_service_presign_parts_validates_part_number_batch() {
-    use aster_drive::services::{auth_service, upload_service};
+async fn test_file_upload_presign_parts_validates_part_number_batch() {
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "presignbatch",
         "presignbatch@test.com",
@@ -2811,12 +2799,12 @@ async fn test_upload_service_presign_parts_validates_part_number_batch() {
     )
     .await;
 
-    let err = upload_service::presign_parts(&state, &upload_id, user.id, vec![])
+    let err = upload::presign_parts(&state, &upload_id, user.id, vec![])
         .await
         .unwrap_err();
     assert_eq!(err.api_error_code(), ApiErrorCode::UploadPartNumbersEmpty);
 
-    let err = upload_service::presign_parts(&state, &upload_id, user.id, vec![0])
+    let err = upload::presign_parts(&state, &upload_id, user.id, vec![0])
         .await
         .unwrap_err();
     assert_eq!(
@@ -2825,19 +2813,19 @@ async fn test_upload_service_presign_parts_validates_part_number_batch() {
     );
 
     let too_many = (1..=65).collect();
-    let err = upload_service::presign_parts(&state, &upload_id, user.id, too_many)
+    let err = upload::presign_parts(&state, &upload_id, user.id, too_many)
         .await
         .unwrap_err();
     assert_eq!(err.api_error_code(), ApiErrorCode::UploadPartNumbersTooMany);
 }
 
 #[actix_web::test]
-async fn test_upload_service_cleanup_expired_removes_local_sessions_only() {
+async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "cleanupuser", "cleanup@test.com", "password123")
+    let user = local::register(&state, "cleanupuser", "cleanup@test.com", "password123")
         .await
         .unwrap();
 
@@ -2898,7 +2886,7 @@ async fn test_upload_service_cleanup_expired_removes_local_sessions_only() {
         .await
         .unwrap();
 
-    let cleaned = upload_service::cleanup_expired(&state).await.unwrap();
+    let cleaned = upload::cleanup_expired(&state).await.unwrap();
     assert_eq!(cleaned, 1);
     assert!(
         upload_session_repo::find_by_id(state.writer_db(), &expired_id)
@@ -2927,13 +2915,13 @@ async fn test_upload_service_cleanup_expired_removes_local_sessions_only() {
 }
 
 #[actix_web::test]
-async fn test_upload_service_cleanup_expired_keeps_remote_sessions_when_storage_is_unavailable() {
+async fn test_file_upload_cleanup_expired_keeps_remote_sessions_when_storage_is_unavailable() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "cleanrem", "cleanup-remote@test.com", "password123")
+    let user = local::register(&state, "cleanrem", "cleanup-remote@test.com", "password123")
         .await
         .unwrap();
     let remote_policy = create_dead_remote_policy(&state).await;
@@ -2965,7 +2953,7 @@ async fn test_upload_service_cleanup_expired_keeps_remote_sessions_when_storage_
         .await
         .unwrap();
 
-    let cleaned = upload_service::cleanup_expired(&state).await.unwrap();
+    let cleaned = upload::cleanup_expired(&state).await.unwrap();
     assert_eq!(cleaned, 0);
 
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
@@ -2981,7 +2969,7 @@ async fn test_upload_service_cleanup_expired_keeps_remote_sessions_when_storage_
 #[tokio::test]
 async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aws_sdk_s3::error::ProvideErrorMetadata;
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
@@ -2999,7 +2987,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "cancelmpuser",
         "cancel-multipart@test.com",
@@ -3020,7 +3008,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
 
     let part1 = vec![b'A'; TEST_CHUNK_SIZE];
     let data_len = i64::try_from(TEST_CHUNK_SIZE + 11).unwrap();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &state,
         user.id,
         "cancel-multipart.bin",
@@ -3051,7 +3039,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     let object_key =
         aster_drive::storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
 
-    let urls = upload_service::presign_parts(&state, &upload_id, user.id, vec![1])
+    let urls = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await
         .unwrap();
     let part_url = urls.get(&1).expect("part 1 URL missing");
@@ -3069,7 +3057,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         response.status()
     );
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -3087,7 +3075,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .await
         .unwrap();
 
-    upload_service::cancel_upload(&state, &upload_id, user.id)
+    upload::cancel_upload(&state, &upload_id, user.id)
         .await
         .unwrap();
 
@@ -3126,11 +3114,11 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
 #[actix_web::test]
 async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavailable() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "cancelrem", "cancel-remote@test.com", "password123")
+    let user = local::register(&state, "cancelrem", "cancel-remote@test.com", "password123")
         .await
         .unwrap();
     let remote_policy = create_dead_remote_policy(&state).await;
@@ -3159,7 +3147,7 @@ async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavaila
         .unwrap();
 
     let canceled_at = chrono::Utc::now();
-    upload_service::cancel_upload(&state, &upload_id, user.id)
+    upload::cancel_upload(&state, &upload_id, user.id)
         .await
         .unwrap();
     let cancel_completed_at = chrono::Utc::now();
@@ -3185,11 +3173,11 @@ async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavaila
 #[actix_web::test]
 async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session() {
     use aster_drive::db::repository::upload_session_part_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "failedchunkuser",
         "failed-chunk@test.com",
@@ -3211,7 +3199,7 @@ async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session(
     )
     .await;
 
-    let err = match upload_service::upload_chunk(&state, &upload_id, 0, user.id, &[b'x'; 5]).await {
+    let err = match upload::upload_chunk(&state, &upload_id, 0, user.id, &[b'x'; 5]).await {
         Ok(_) => panic!("expected failed session to reject late chunk"),
         Err(err) => err,
     };
@@ -3229,7 +3217,7 @@ async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session(
 /// S3 presigned upload 端到端测试（需要 testcontainers + rustfs）
 #[tokio::test]
 async fn test_presigned_upload_s3_e2e() {
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     // 启动 rustfs 容器
@@ -3250,7 +3238,7 @@ async fn test_presigned_upload_s3_e2e() {
     // 创建 state（内存 SQLite）
     let state = common::setup().await;
 
-    let user = auth_service::register(&state, "s3user", "s3@test.com", "pass1234")
+    let user = local::register(&state, "s3user", "s3@test.com", "pass1234")
         .await
         .unwrap();
     let s3_policy = create_s3_default_policy(
@@ -3266,10 +3254,9 @@ async fn test_presigned_upload_s3_e2e() {
 
     // 1. init_upload → 应返回 presigned 模式
     let data = b"hello presigned world!";
-    let init =
-        upload_service::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
     assert!(init.presigned_url.is_some());
     assert!(init.upload_id.is_some());
@@ -3293,7 +3280,7 @@ async fn test_presigned_upload_s3_e2e() {
     );
 
     // 3. complete → 服务端 hash + dedup + 建记录
-    let file = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let file = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
     assert_eq!(file.name, "hello.txt");
@@ -3325,10 +3312,9 @@ async fn test_presigned_upload_s3_e2e() {
 
     // 5. 上传相同内容 → S3 presigned 不做 blob 去重（避免回拉 SHA256 抵消直传优势）
     //    每次上传产生独立 blob，各自 ref_count=1
-    let init2 =
-        upload_service::init_upload(&state, user.id, "hello2.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init2 = upload::init_upload(&state, user.id, "hello2.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     let url2 = init2.presigned_url.unwrap();
     let id2 = init2.upload_id.unwrap();
     client
@@ -3338,7 +3324,7 @@ async fn test_presigned_upload_s3_e2e() {
         .send()
         .await
         .unwrap();
-    let file2 = upload_service::complete_upload(&state, &id2, user.id, None)
+    let file2 = upload::complete_upload(&state, &id2, user.id, None)
         .await
         .unwrap();
     assert_ne!(
@@ -3364,7 +3350,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
     use aster_drive::services::{
-        auth_service, folder_service, policy_service, task_service, upload_service,
+        auth::local, files::folder, files::upload, storage_policy::policy, task,
     };
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
@@ -3384,7 +3370,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "latepresigneds3",
         "late-presigned-s3@test.com",
@@ -3401,13 +3387,13 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         5_242_880,
     )
     .await;
-    let folder = folder_service::create(&state, user.id, "late-s3-presigned", None)
+    let folder = folder::create(&state, user.id, "late-s3-presigned", None)
         .await
         .unwrap();
     common::bind_policy_to_folder(&state, folder.id, policy.id).await;
 
     let data = b"late s3 presigned write after force delete".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &state,
         user.id,
         "late.bin",
@@ -3434,7 +3420,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
         "temp object should not exist before the late PUT"
     );
 
-    policy_service::delete(&state, policy.id, true)
+    policy::delete(&state, policy.id, true)
         .await
         .expect("force deleting policy with pending presigned session should succeed");
     assert!(
@@ -3477,7 +3463,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     due_task.next_run_at = Set(chrono::Utc::now() - chrono::Duration::seconds(1));
     due_task.update(state.writer_db()).await.unwrap();
 
-    let stats = task_service::dispatch_due(&state).await.unwrap();
+    let stats = task::dispatch_due(&state).await.unwrap();
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.succeeded, 1);
     assert!(
@@ -3494,7 +3480,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
 #[tokio::test]
 async fn test_presigned_multipart_upload_s3_e2e() {
     use aster_drive::db::repository::{file_repo, policy_repo};
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
@@ -3513,7 +3499,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
 
     let state = common::setup().await;
 
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "s3multipartuser",
         "s3multipart@test.com",
@@ -3536,7 +3522,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     data.extend_from_slice(b"multipart tail");
     let (part1, part2) = data.split_at(5_242_880);
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &state,
         user.id,
         "multipart.bin",
@@ -3554,7 +3540,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     assert!(init.presigned_url.is_none());
 
     let upload_id = init.upload_id.unwrap();
-    let urls = upload_service::presign_parts(&state, &upload_id, user.id, vec![2, 1])
+    let urls = upload::presign_parts(&state, &upload_id, user.id, vec![2, 1])
         .await
         .unwrap();
     assert_eq!(urls.len(), 2);
@@ -3590,7 +3576,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         .map(str::to_string)
         .expect("part 2 etag missing");
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(
@@ -3600,7 +3586,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     assert_eq!(progress.total_chunks, 2);
     assert_eq!(progress.chunks_on_disk, vec![1, 2]);
 
-    let file = upload_service::complete_upload(
+    let file = upload::complete_upload(
         &state,
         &upload_id,
         user.id,
@@ -3625,7 +3611,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
 #[tokio::test]
 async fn test_create_empty_file_s3_no_dedup() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
@@ -3643,7 +3629,7 @@ async fn test_create_empty_file_s3_no_dedup() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "s3empty", "s3-empty@test.com", "pass1234")
+    let user = local::register(&state, "s3empty", "s3-empty@test.com", "pass1234")
         .await
         .unwrap();
     let policy = create_s3_default_policy(
@@ -3656,7 +3642,7 @@ async fn test_create_empty_file_s3_no_dedup() {
         5_242_880,
     )
     .await;
-    let login = auth_service::login(&state, "s3empty", "pass1234", None, None)
+    let login = local::login(&state, "s3empty", "pass1234", None, None)
         .await
         .unwrap();
     let login = common::expect_authenticated_login(login);
@@ -3719,7 +3705,7 @@ async fn test_create_empty_file_s3_no_dedup() {
 #[tokio::test]
 async fn test_relay_stream_direct_upload_s3_e2e() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
@@ -3737,7 +3723,7 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "relaydirect", "relay-direct@test.com", "pass1234")
+    let user = local::register(&state, "relaydirect", "relay-direct@test.com", "pass1234")
         .await
         .unwrap();
     let policy = create_s3_default_policy(
@@ -3750,17 +3736,16 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
         5_242_880,
     )
     .await;
-    let login = auth_service::login(&state, "relaydirect", "pass1234", None, None)
+    let login = local::login(&state, "relaydirect", "pass1234", None, None)
         .await
         .unwrap();
     let login = common::expect_authenticated_login(login);
     common::seed_csrf_token(&login.access_token);
 
     let data = b"hello relay stream!";
-    let init =
-        upload_service::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
-            .await
-            .unwrap();
+    let init = upload::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
+        .await
+        .unwrap();
     assert_eq!(init.mode, aster_drive::types::UploadMode::Direct);
 
     let db = state.writer_db().clone();
@@ -3843,7 +3828,7 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
 async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     use aster_drive::db::repository::file_repo;
     use aster_drive::entities::{upload_session, upload_session_part};
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use sea_orm::{
         ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QuerySelect, RelationTrait,
     };
@@ -3864,7 +3849,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "relayexact", "relay-exact@test.com", "pass1234")
+    let user = local::register(&state, "relayexact", "relay-exact@test.com", "pass1234")
         .await
         .unwrap();
     let policy = create_s3_default_policy(
@@ -3877,7 +3862,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
         5_242_880,
     )
     .await;
-    let login = auth_service::login(&state, "relayexact", "pass1234", None, None)
+    let login = local::login(&state, "relayexact", "pass1234", None, None)
         .await
         .unwrap();
     let login = common::expect_authenticated_login(login);
@@ -3900,7 +3885,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
         .unwrap();
 
     let data = vec![b'Z'; 5_242_880];
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &state,
         user.id,
         "relay-exact.bin",
@@ -3987,7 +3972,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
 #[tokio::test]
 async fn test_relay_stream_chunked_upload_s3_e2e() {
     use aster_drive::db::repository::{file_repo, upload_session_part_repo, upload_session_repo};
-    use aster_drive::services::{auth_service, upload_service};
+    use aster_drive::services::{auth::local, files::upload};
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
     let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
@@ -4005,7 +3990,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let state = common::setup().await;
-    let user = auth_service::register(&state, "relaychunked", "relay-chunked@test.com", "pass1234")
+    let user = local::register(&state, "relaychunked", "relay-chunked@test.com", "pass1234")
         .await
         .unwrap();
     let policy = create_s3_default_policy(
@@ -4018,7 +4003,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         1_048_576,
     )
     .await;
-    let login = auth_service::login(&state, "relaychunked", "pass1234", None, None)
+    let login = local::login(&state, "relaychunked", "pass1234", None, None)
         .await
         .unwrap();
     let login = common::expect_authenticated_login(login);
@@ -4029,7 +4014,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     let mut data = part1.clone();
     data.extend_from_slice(&part2);
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &state,
         user.id,
         "relay-multipart.bin",
@@ -4046,7 +4031,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     let upload_id = init.upload_id.unwrap();
     let app = create_test_app!(state.clone());
 
-    let oversized_init = upload_service::init_upload(
+    let oversized_init = upload::init_upload(
         &state,
         user.id,
         "relay-oversized-multipart.bin",
@@ -4078,7 +4063,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
             .is_empty(),
         "oversized relay chunk must release the claimed part row"
     );
-    let oversized_progress = upload_service::get_progress(&state, &oversized_upload_id, user.id)
+    let oversized_progress = upload::get_progress(&state, &oversized_upload_id, user.id)
         .await
         .unwrap();
     assert!(oversized_progress.chunks_on_disk.is_empty());
@@ -4133,7 +4118,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         "duplicate relay part upload should be idempotent"
     );
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.chunks_on_disk, vec![0]);
@@ -4162,7 +4147,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["received_count"], 2);
 
-    let progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.chunks_on_disk, vec![0, 1]);
@@ -4186,7 +4171,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         aster_drive::types::UploadSessionStatus::Uploading
     );
 
-    let file = upload_service::complete_upload(&state, &upload_id, user.id, None)
+    let file = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
     assert_eq!(file.name, "relay-multipart.bin");
@@ -4211,7 +4196,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     let stored = driver.get(&blob.storage_path).await.unwrap();
     assert_eq!(stored, data);
 
-    let completed_progress = upload_service::get_progress(&state, &upload_id, user.id)
+    let completed_progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(

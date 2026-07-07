@@ -222,7 +222,7 @@ pub struct ExecuteSavedStoragePolicyActionReq {
 pub struct StartStorageAuthorizationReq {
     pub provider: crate::types::StorageCredentialProvider,
     pub microsoft_graph:
-        Option<crate::services::storage_credential_service::MicrosoftGraphAuthorizationInput>,
+        Option<crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput>,
 }
 
 /// Promote an S3-compatible storage policy to a specialized S3-compatible driver.
@@ -335,7 +335,7 @@ fn default_true() -> bool {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetConfigReq {
-    pub value: crate::services::config_service::SystemConfigValue,
+    pub value: crate::services::ops::config::SystemConfigValue,
     pub visibility: Option<crate::types::SystemConfigVisibility>,
 }
 
@@ -343,10 +343,10 @@ pub struct SetConfigReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteConfigActionReq {
-    pub action: crate::services::config_service::ConfigActionType,
+    pub action: crate::services::ops::config::ConfigActionType,
     pub discovery_url: Option<String>,
     /// Optional transient config values for test actions such as
-    /// [`ConfigActionType::TestAria2Rpc`](crate::services::config_service::ConfigActionType::TestAria2Rpc).
+    /// [`ConfigActionType::TestAria2Rpc`](crate::services::ops::config::ConfigActionType::TestAria2Rpc).
     /// These override persisted config for the action without writing to the DB.
     /// Runtime action handlers validate the accepted keys for their action.
     #[validate(length(max = 50, message = "draft_values cannot exceed 50 entries"))]
@@ -645,7 +645,7 @@ pub struct AdminFileInfo {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
-    pub created_by: Option<crate::services::user_service::UserSummary>,
+    pub created_by: Option<crate::services::user::account::UserSummary>,
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
@@ -721,7 +721,7 @@ pub struct AdminFileBlobInfo {
     pub actual_ref_count: i64,
     pub health: AdminFileBlobHealth,
     pub uploader_count: i64,
-    pub uploaders: Vec<crate::services::user_service::UserSummary>,
+    pub uploaders: Vec<crate::services::user::account::UserSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -734,7 +734,7 @@ pub struct AdminFileBlobReferenceFile {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
-    pub created_by: Option<crate::services::user_service::UserSummary>,
+    pub created_by: Option<crate::services::user::account::UserSummary>,
     pub size: i64,
     pub mime_type: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -768,7 +768,7 @@ pub struct AdminFileBlobDetail {
 #[derive(Debug, Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateBlobMaintenanceTaskReq {
-    pub action: crate::services::task_service::types::BlobMaintenanceAction,
+    pub action: crate::services::task::types::BlobMaintenanceAction,
     #[validate(length(min = 1, max = 1000, message = "blob_ids must contain 1 to 1000 items"))]
     pub blob_ids: Option<Vec<i64>>,
 }
@@ -932,7 +932,7 @@ fn validate_admin_patch_team(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::storage_credential_service::MicrosoftGraphAuthorizationInput;
+    use crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput;
     use crate::types::{DriverType, StorageCredentialProvider};
 
     #[test]

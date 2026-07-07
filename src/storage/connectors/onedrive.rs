@@ -216,7 +216,7 @@ impl StorageConnector for OneDriveConnector {
         let _ = application_config;
         // Microsoft Graph application credentials are connector-owned config,
         // not S3-style policy access keys. Clear the legacy columns at the
-        // storage boundary so policy_service never has to know this rule.
+        // storage boundary so storage_policy::policy never has to know this rule.
         input.access_key.clear();
         input.secret_key.clear();
         Ok(input)
@@ -242,7 +242,7 @@ impl StorageConnector for OneDriveConnector {
         let Some(microsoft_graph) = application_config.microsoft_graph else {
             return Ok(());
         };
-        crate::services::storage_credential_service::upsert_microsoft_graph_application_config(
+        crate::services::storage_policy::credential::upsert_microsoft_graph_application_config(
             db,
             encryption_key,
             policy_id,
@@ -315,7 +315,7 @@ impl StorageConnector for OneDriveConnector {
                 }
             };
         let token_provider =
-            match crate::services::storage_credential_service::build_microsoft_graph_credential_token_provider(
+            match crate::services::storage_policy::credential::build_microsoft_graph_credential_token_provider(
                 db.clone(),
                 config.auth.storage_credential_secret_key.clone(),
                 policy,
@@ -421,7 +421,7 @@ impl StorageConnector for OneDriveConnector {
                 )
             })?;
         let token_provider =
-            crate::services::storage_credential_service::build_microsoft_graph_credential_token_provider(
+            crate::services::storage_policy::credential::build_microsoft_graph_credential_token_provider(
                 db.clone(),
                 config.auth.storage_credential_secret_key.clone(),
                 policy,
@@ -433,13 +433,13 @@ impl StorageConnector for OneDriveConnector {
             options.effective_onedrive_cloud().graph_base_url(),
             token_provider,
         ))?;
-        let location = crate::services::storage_credential_service::resolve_onedrive_location(
+        let location = crate::services::storage_policy::credential::resolve_onedrive_location(
             &client, &options,
         )
         .await?;
         let root_item = location.root_item;
-        let metadata = crate::services::storage_credential_service::storage_credential_metadata(
-            crate::services::storage_credential_service::StorageCredentialMetadataInput {
+        let metadata = crate::services::storage_policy::credential::storage_credential_metadata(
+            crate::services::storage_policy::credential::StorageCredentialMetadataInput {
                 cloud: options.effective_onedrive_cloud(),
                 drive_id: &location.drive_id,
                 root_item_id: &root_item.id,
@@ -491,10 +491,10 @@ impl OneDriveConnector {
         snapshots: StoragePolicyCleanupSnapshots<'_>,
     ) -> Result<Arc<dyn StorageDriver>> {
         let credential = onedrive_snapshot_from_cleanup_input(snapshots)?;
-        let token_provider = crate::services::storage_credential_service::build_microsoft_graph_cleanup_token_provider(
+        let token_provider = crate::services::storage_policy::credential::build_microsoft_graph_cleanup_token_provider(
             state.config().auth.storage_credential_secret_key.clone(),
             policy,
-            crate::services::storage_credential_service::MicrosoftGraphCleanupTokenSnapshot {
+            crate::services::storage_policy::credential::MicrosoftGraphCleanupTokenSnapshot {
                 cloud: credential.cloud,
                 tenant_id: credential.tenant_id.clone(),
                 client_id: credential.client_id.clone(),

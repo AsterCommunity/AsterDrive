@@ -20,12 +20,12 @@ If you only want to know where requests enter and which layer to modify, start w
 
 Main code paths:
 
-- `src/services/workspace_scope_service.rs`
-- `src/services/workspace_storage_service/`
-- `src/services/workspace_storage_core.rs`
-- `src/services/workspace_storage_core/`
-- `src/services/file_service/*`
-- `src/services/folder_service/*`
+- `src/services/workspace/scope/`
+- `src/services/workspace/storage/`
+- `src/services/workspace/models.rs`
+- `src/services/workspace/storage_core/`
+- `src/services/files/file/*`
+- `src/services/files/folder/*`
 
 ### Design goal
 
@@ -63,11 +63,11 @@ So a function that accepts only `scope` already receives the minimum complete co
 
 The unified storage pipeline is currently split into three layers:
 
-1. `workspace_scope_service`
+1. `workspace::scope`
    Handles scope access checks and whether a file/folder belongs to that workspace
-2. `workspace_storage_service`
+2. `workspace::storage`
    Assembles upload, persistence, pre-upload blob, and multipart entry points into one workflow
-3. `workspace_storage_core`
+3. `workspace::storage_core`
    Handles more stable core actions such as policy resolution, quota read/write, and blob / file-record creation
 
 The point of this split is not file size. It is to separate logic with different change rates:
@@ -142,10 +142,10 @@ If you add a new file entry point later, the first question is not “where shou
 
 Main code paths:
 
-- `src/services/share_service/mod.rs`
-- `src/services/share_service/management.rs`
-- `src/services/share_service/content.rs`
-- `src/services/share_service/shared.rs`
+- `src/services/share/mod.rs`
+- `src/services/share/management.rs`
+- `src/services/share/content.rs`
+- `src/services/share/shared.rs`
 
 ### Design goal
 
@@ -240,11 +240,11 @@ If we ever introduce “immutable sharing” or “version-pinned public snapsho
 
 Main code paths:
 
-- `src/services/task_service/mod.rs`
-- `src/services/task_service/dispatch.rs` and `src/services/task_service/dispatch/`
-- `src/services/task_service/runtime.rs`
-- `src/services/task_service/storage_policy_cleanup.rs`
-- `src/services/task_service/storage_migration.rs`
+- `src/services/task/mod.rs`
+- `src/services/task/dispatch.rs` and `src/services/task/dispatch/`
+- `src/services/task/runtime.rs`
+- `src/services/task/storage_policy_cleanup.rs`
+- `src/services/task/storage_migration.rs`
 - `src/db/repository/background_task_repo/`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
 
@@ -400,7 +400,7 @@ So the system behaves more like a persisted state machine snapshot than a full o
 Main code paths:
 
 - `src/api/routes/admin/storage_migrations.rs`
-- `src/services/task_service/storage_migration.rs`
+- `src/services/task/storage_migration.rs`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
 - `src/entities/storage_migration_checkpoint.rs`
 
@@ -446,7 +446,7 @@ The first version does not support `delete_source_after_success = true`. The fie
 Main code paths:
 
 - `src/api/routes/admin/files.rs`
-- `src/services/admin_file_service.rs`
+- `src/services/admin.rs`
 - `src/db/repository/file_repo/`
 
 This surface is for admin debugging and migration validation, not ordinary file business flows.
@@ -471,7 +471,7 @@ Main code paths:
 
 - `src/cli/doctor.rs`
 - `src/cli/doctor/execute.rs`
-- `src/services/integrity_service.rs`
+- `src/services/ops/integrity.rs`
 - `src/storage/driver.rs`
 
 ### Design goal
@@ -493,7 +493,7 @@ Those questions should not be buried inside online requests or hidden behind bac
 
 1. `src/cli/doctor.rs`
    handles argument parsing, mode selection, report aggregation, human-readable output, and JSON output
-2. `src/services/integrity_service.rs`
+2. `src/services/ops/integrity.rs`
    handles the real deep audit and some repair logic
 
 The point is to separate “how the result is shown” from “how the actual system state is calculated.”

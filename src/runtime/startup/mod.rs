@@ -4,7 +4,7 @@ mod follower;
 mod primary;
 
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service;
+use crate::services::ops::audit;
 
 pub use common::initialize_database_state;
 pub use follower::{PreparedFollowerRuntime, prepare_follower};
@@ -12,11 +12,11 @@ pub use primary::{PreparedPrimaryRuntime, prepare_primary};
 
 /// 记录服务器启动事件。
 pub async fn record_server_start<S: SharedRuntimeState>(state: &S) {
-    audit_service::log(
+    audit::log(
         state,
-        &audit_service::AuditContext::system(),
-        audit_service::AuditAction::ServerStart,
-        audit_service::AuditEntityType::SystemConfig,
+        &audit::AuditContext::system(),
+        audit::AuditAction::ServerStart,
+        audit::AuditEntityType::SystemConfig,
         None,
         None,
         None,

@@ -8,7 +8,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::{ApiResponse, RemovedCountResponse};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, task_service};
+use crate::services::{auth::local::Claims, ops::audit, task};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -18,7 +18,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "admin_list_tasks",
     params(LimitOffsetQuery, AdminTaskListQuery),
     responses(
-        (status = 200, description = "All background tasks", body = inline(ApiResponse<OffsetPage<task_service::types::TaskInfo>>)),
+        (status = 200, description = "All background tasks", body = inline(ApiResponse<OffsetPage<task::types::TaskInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -29,11 +29,11 @@ pub async fn list_tasks(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminTaskListQuery>,
 ) -> Result<HttpResponse> {
-    let page = task_service::list_tasks_paginated_for_admin(
+    let page = task::list_tasks_paginated_for_admin(
         state.get_ref(),
         page.limit_or(20, 100),
         page.offset(),
-        task_service::AdminTaskListFilters {
+        task::AdminTaskListFilters {
             kind: query.kind,
             status: query.status,
         },
@@ -65,25 +65,25 @@ pub async fn cleanup_tasks(
     body: web::Json<AdminTaskCleanupReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let removed = task_service::cleanup_tasks_for_admin(
+    let removed = task::cleanup_tasks_for_admin(
         state.get_ref(),
-        task_service::AdminTaskCleanupFilters {
+        task::AdminTaskCleanupFilters {
             finished_before: body.finished_before,
             kind: body.kind,
             status: body.status,
         },
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCleanupTasks,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::AdminCleanupTasks,
+        crate::services::ops::audit::AuditEntityType::Task,
         None,
         None,
         || {
-            audit_service::details(audit_service::AdminTaskCleanupAuditDetails {
+            audit::details(audit::AdminTaskCleanupAuditDetails {
                 removed,
                 finished_before: body.finished_before,
                 kind: body.kind,

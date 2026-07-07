@@ -7,7 +7,7 @@ This document records the current development contract for AsterDrive storage po
 AsterDrive currently has two related but distinct descriptor surfaces:
 
 - `src/storage/connector_descriptor.rs` and `src/storage/connectors/`: storage policy management forms, connection tests, authorization, policy actions, upload workflows, and connector capabilities.
-- `src/services/remote_storage_target_service/driver.rs`: follower-side remote storage target drivers, fields, and local normalization rules.
+- `src/services/remote/storage_target/driver.rs`: follower-side remote storage target drivers, fields, and local normalization rules.
 
 Do not collapse these into one universal descriptor. Storage policy descriptors describe primary-side policy behavior and upload/download workflows. Remote storage target descriptors describe follower-side ingress target configuration.
 
@@ -42,7 +42,7 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 - Route layers only adapt protocol shape, authenticate/authorize, extract parameters, call services, and map responses. They do not build descriptors or run driver-specific normalization.
 - Service layers orchestrate use cases: load context, call normalization helpers, check capabilities, call repositories, and run required side effects.
 - `src/storage/connectors/` owns storage policy connector descriptors, connection field normalization, connection tests, authorization, and connector actions.
-- `src/services/remote_storage_target_service/driver.rs` owns remote storage target driver descriptors, driver-field normalization, target-to-policy materialization, and driver build/validate.
+- `src/services/remote/storage_target/driver.rs` owns remote storage target driver descriptors, driver-field normalization, target-to-policy materialization, and driver build/validate.
 - `src/storage/remote_protocol/` handles wire models, signing, path encoding, transport, and response parsing. It does not decide UI fields or policy target selection.
 
 ## Tests
@@ -53,5 +53,5 @@ When descriptor or normalization behavior changes, add focused unit tests:
 - Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
 - SFTP coverage must include bare host, `host:port`, `sftp://host:port`, wrong schemes, host key fingerprint format, unknown-host-key rejection, and accepted pinned fingerprints.
 - For storage policy descriptor behavior, run `cargo test --lib storage::connectors` or a narrower filter.
-- For remote storage target normalization, run `cargo test --lib remote_storage_target_service::tests::<filter>`.
+- For remote storage target normalization, run `cargo test --lib remote::storage_target::tests::<filter>`.
 - OpenAPI schema changes require OpenAPI export and frontend SDK regeneration. This contract slice does not change public API shapes.

@@ -23,12 +23,12 @@ System and operations keep the service stable, configurable, observable, and rec
 
 | Module | Owns |
 | --- | --- |
-| `config::loader`, `config_service` | Static configuration loading and runtime system settings |
+| `config::loader`, `ops::config` | Static configuration loading and runtime system settings |
 | `runtime::startup`, `runtime::tasks` | Primary/follower startup and periodic background tasks |
-| `task_service` | User-visible background tasks, scheduling, retries, cleanup |
-| `mail_service`, `mail_outbox_service`, `mail_template` | Mail delivery and templates |
-| `health_service`, `readiness_service`, `metrics` | Health checks, readiness, metrics |
-| `audit_service` | Audit log recording, querying, presentation |
+| `task` | User-visible background tasks, scheduling, retries, cleanup |
+| `mail::sender`, `mail::outbox`, `mail::template` | Mail delivery and templates |
+| `ops::health`, `api::routes::health`, `metrics` | Health checks, readiness, metrics |
+| `ops::audit` | Audit log recording, querying, presentation |
 | `cli::*` | Offline operations commands |
 
 ## Configuration Boundaries
@@ -36,7 +36,7 @@ System and operations keep the service stable, configurable, observable, and rec
 - Anything required before startup belongs in `config.toml` or `ASTER__...` environment variables.
 - Administrator-adjustable runtime behavior belongs in the database-backed `system_config` table.
 - System default definitions are centralized in `src/config/definitions.rs`.
-- New user-visible background tasks should use `task_service::create_task_record()` and wake the dispatcher.
+- New user-visible background tasks should use `task::create_task_record()` and wake the dispatcher.
 
 ## Troubleshooting Direction
 

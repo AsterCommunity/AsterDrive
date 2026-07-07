@@ -4,8 +4,8 @@
 
 上传路径分成两组：
 
-- 普通 HTTP multipart 上传：入口在 `workspace_storage_service::multipart`，直接在一次请求内落到正式文件。
-- upload session 型上传：入口在 `upload_service::{init, chunk, complete}`，先持久化 `upload_session`，complete 阶段再把临时对象、分片或 assembled 文件收口成正式文件。
+- 普通 HTTP multipart 上传：入口在 `storage::multipart`，直接在一次请求内落到正式文件。
+- upload session 型上传：入口在 `upload::{init, chunk, complete}`，先持久化 `upload_session`，complete 阶段再把临时对象、分片或 assembled 文件收口成正式文件。
 
 最终落文件时必须保持三个不变量：
 
@@ -17,11 +17,11 @@
 
 | 锚点 | 当前职责 | 备注 |
 | --- | --- | --- |
-| `workspace_storage_service::store_from_temp_with_hints` | 从服务端临时文件创建或覆盖文件；可走本地 dedup 或 non-dedup preuploaded blob | 普通 multipart server path、local direct 会落到这里 |
-| `workspace_storage_service::store_preuploaded_nondedup` | 从已经写入 driver 的 non-dedup blob 创建或覆盖文件 | streaming direct 会落到这里 |
-| `workspace_storage_core::finalize_upload_session_blob_with_actor_username` | 在一个 DB 边界里创建文件、更新配额、把 session 标记 completed | local chunked、stream relay chunked 直接使用 |
-| `workspace_storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart 使用 |
-| `upload_service::shared::run_upload_completion_stage` | complete 前把 session 从 expected status 切到 assembling；失败后按错误类型恢复或标 failed | 所有 upload session complete 路径共享 |
+| `storage::store_from_temp_with_hints` | 从服务端临时文件创建或覆盖文件；可走本地 dedup 或 non-dedup preuploaded blob | 普通 multipart server path、local direct 会落到这里 |
+| `storage::store_preuploaded_nondedup` | 从已经写入 driver 的 non-dedup blob 创建或覆盖文件 | streaming direct 会落到这里 |
+| `storage_core::finalize_upload_session_blob_with_actor_username` | 在一个 DB 边界里创建文件、更新配额、把 session 标记 completed | local chunked、stream relay chunked 直接使用 |
+| `storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart 使用 |
+| `upload::shared::run_upload_completion_stage` | complete 前把 session 从 expected status 切到 assembling；失败后按错误类型恢复或标 failed | 所有 upload session complete 路径共享 |
 
 ## 模式矩阵
 
@@ -38,7 +38,7 @@
 
 ## session status 与完成计划
 
-`upload_service::complete::plan::determine_completion_plan` 当前用 session 状态和 object 字段选择完成计划：
+`upload::complete::plan::determine_completion_plan` 当前用 session 状态和 object 字段选择完成计划：
 
 - `completed` -> `ReturnCompleted`，通过 `find_file_by_session` 幂等返回已有文件，不应再次 charge quota。
 - `presigned` + `object_multipart_id = None` -> `CompletePresigned`。

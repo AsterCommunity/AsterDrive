@@ -7,14 +7,14 @@ use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
-use crate::services::auth_service::Claims;
-use crate::services::external_auth_service::{
-    self as external_auth_service, ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery,
+use crate::services::auth::external::{
+    self as external, ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery,
     ExternalAuthEmailVerificationConfirmQuery, ExternalAuthEmailVerificationStartRequest,
     ExternalAuthLoginAuditDetails, ExternalAuthPasswordLinkRequest, ExternalAuthStartLoginRequest,
 };
-use crate::services::mfa_service::{self, PrimaryLoginCompletion};
+use crate::services::auth::local::Claims;
+use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
+use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::types::ExternalAuthProviderKind;
 use crate::utils::numbers::u64_to_i64;
 use actix_web::http::header;
@@ -32,11 +32,11 @@ fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {
     tag = "auth",
     operation_id = "list_external_auth_providers",
     responses(
-        (status = 200, description = "Enabled external auth providers", body = inline(ApiResponse<Vec<external_auth_service::ExternalAuthPublicProvider>>)),
+        (status = 200, description = "Enabled external auth providers", body = inline(ApiResponse<Vec<external::ExternalAuthPublicProvider>>)),
     ),
 )]
 pub async fn list_providers(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let providers = external_auth_service::list_public_providers(state.get_ref()).await?;
+    let providers = external::list_public_providers(state.get_ref()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(providers)))
 }
 
@@ -51,7 +51,7 @@ pub async fn list_providers(state: web::Data<PrimaryAppState>) -> Result<HttpRes
     ),
     request_body = ExternalAuthStartLoginRequest,
     responses(
-        (status = 200, description = "External auth authorization URL", body = inline(ApiResponse<external_auth_service::ExternalAuthStartLoginResponse>)),
+        (status = 200, description = "External auth authorization URL", body = inline(ApiResponse<external::ExternalAuthStartLoginResponse>)),
         (status = 400, description = "Invalid request"),
         (status = 404, description = "Provider not found"),
     ),
@@ -69,7 +69,7 @@ pub async fn start_login(
     )?;
     let (kind, provider) = path.into_inner();
     let provider_kind = parse_provider_kind(&kind)?;
-    let response = external_auth_service::start_login(
+    let response = external::start_login(
         state.get_ref(),
         &req,
         provider_kind,
@@ -115,7 +115,7 @@ pub async fn finish_login(
             ));
         }
     };
-    let result = match external_auth_service::finish_callback(
+    let result = match external::finish_callback(
         state.get_ref(),
         provider_kind,
         &provider,
@@ -151,7 +151,7 @@ pub async fn finish_login(
     operation_id = "start_external_auth_email_verification",
     request_body = ExternalAuthEmailVerificationStartRequest,
     responses(
-        (status = 200, description = "External auth email verification email queued", body = inline(ApiResponse<external_auth_service::ExternalAuthEmailVerificationStartResponse>)),
+        (status = 200, description = "External auth email verification email queued", body = inline(ApiResponse<external::ExternalAuthEmailVerificationStartResponse>)),
         (status = 400, description = "Invalid flow or email"),
         (status = 403, description = "External auth linking or registration is not allowed"),
     ),
@@ -166,8 +166,7 @@ pub async fn start_email_verification(
         state.get_ref().runtime_config(),
         RequestSourceMode::Required,
     )?;
-    let response =
-        external_auth_service::start_email_verification(state.get_ref(), body.into_inner()).await?;
+    let response = external::start_email_verification(state.get_ref(), body.into_inner()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
 }
 
@@ -197,7 +196,7 @@ pub async fn link_with_password(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    let result = external_auth_service::link_with_password(
+    let result = external::link_with_password(
         state.get_ref(),
         body.into_inner(),
         audit_info.ip_address.as_deref(),
@@ -238,7 +237,7 @@ pub async fn confirm_email_verification(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    let result = match external_auth_service::confirm_email_verification(
+    let result = match external::confirm_email_verification(
         state.get_ref(),
         token,
         audit_info.ip_address.as_deref(),
@@ -277,15 +276,15 @@ async fn external_auth_login_json_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLogin,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLogin,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -308,15 +307,15 @@ async fn external_auth_login_redirect_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLogin,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLogin,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -342,15 +341,15 @@ async fn log_external_auth_link_if_needed(
         return;
     }
 
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLink,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLink,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -363,7 +362,7 @@ async fn log_external_auth_link_if_needed(
 }
 
 struct ExternalAuthLoginRedirectResult {
-    primary_login: external_auth_service::ExternalAuthPrimaryLogin,
+    primary_login: external::ExternalAuthPrimaryLogin,
 }
 
 async fn complete_external_primary_login(
@@ -371,7 +370,7 @@ async fn complete_external_primary_login(
     audit_info: &AuditRequestInfo,
     result: &ExternalAuthLoginRedirectResult,
 ) -> Result<PrimaryLoginCompletion> {
-    mfa_service::complete_primary_login_or_start_mfa(
+    mfa::complete_primary_login_or_start_mfa(
         state,
         &result.primary_login.user,
         crate::types::MfaFirstFactor::ExternalAuth,
@@ -440,28 +439,26 @@ fn external_auth_redirect_completion_response(
     }
 }
 
-impl From<external_auth_service::ExternalAuthCallbackResult> for ExternalAuthLoginRedirectResult {
-    fn from(value: external_auth_service::ExternalAuthCallbackResult) -> Self {
+impl From<external::ExternalAuthCallbackResult> for ExternalAuthLoginRedirectResult {
+    fn from(value: external::ExternalAuthCallbackResult) -> Self {
         Self {
             primary_login: value.primary_login,
         }
     }
 }
 
-impl From<external_auth_service::ExternalAuthEmailVerificationConfirmResult>
+impl From<external::ExternalAuthEmailVerificationConfirmResult>
     for ExternalAuthLoginRedirectResult
 {
-    fn from(value: external_auth_service::ExternalAuthEmailVerificationConfirmResult) -> Self {
+    fn from(value: external::ExternalAuthEmailVerificationConfirmResult) -> Self {
         Self {
             primary_login: value.primary_login,
         }
     }
 }
 
-impl From<external_auth_service::ExternalAuthPasswordLinkResult>
-    for ExternalAuthLoginRedirectResult
-{
-    fn from(value: external_auth_service::ExternalAuthPasswordLinkResult) -> Self {
+impl From<external::ExternalAuthPasswordLinkResult> for ExternalAuthLoginRedirectResult {
+    fn from(value: external::ExternalAuthPasswordLinkResult) -> Self {
         Self {
             primary_login: value.primary_login,
         }
@@ -474,7 +471,7 @@ impl From<external_auth_service::ExternalAuthPasswordLinkResult>
     tag = "auth",
     operation_id = "list_external_auth_links",
     responses(
-        (status = 200, description = "Linked external auth identities", body = inline(ApiResponse<Vec<external_auth_service::ExternalAuthLinkInfo>>)),
+        (status = 200, description = "Linked external auth identities", body = inline(ApiResponse<Vec<external::ExternalAuthLinkInfo>>)),
         (status = 401, description = "Not authenticated"),
     ),
     security(("bearer" = [])),
@@ -483,7 +480,7 @@ pub async fn list_links(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
-    let links = external_auth_service::list_links(state.get_ref(), claims.user_id).await?;
+    let links = external::list_links(state.get_ref(), claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(links)))
 }
 
@@ -507,26 +504,26 @@ pub async fn delete_link(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let id = path.into_inner();
-    let link = external_auth_service::list_links(state.get_ref(), claims.user_id)
+    let link = external::list_links(state.get_ref(), claims.user_id)
         .await?
         .into_iter()
         .find(|link| link.id == id);
-    if !external_auth_service::delete_link(state.get_ref(), claims.user_id, id).await? {
+    if !external::delete_link(state.get_ref(), claims.user_id, id).await? {
         return Err(AsterError::record_not_found(format!(
             "external auth identity link #{id}"
         )));
     }
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserExternalAuthUnlink,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthUnlink,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         Some(id),
         link.as_ref().map(|link| link.provider_key.as_str()),
         || {
             link.as_ref().and_then(|link| {
-                audit_service::details(audit_service::ExternalAuthUnlinkAuditDetails {
+                audit::details(audit::ExternalAuthUnlinkAuditDetails {
                     provider_key: &link.provider_key,
                     issuer: &link.issuer,
                     subject: &link.subject,

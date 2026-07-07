@@ -1,6 +1,6 @@
 //! API 路由聚合入口。
 
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub mod admin;
 pub mod auth;

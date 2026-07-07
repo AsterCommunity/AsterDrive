@@ -11,7 +11,7 @@ use aster_drive::entities::{
     audit_log, folder, system_config, team, team_member, user, webdav_account,
 };
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::services::audit_service;
+use aster_drive::services::ops::audit;
 use aster_drive::types::{
     AuditAction, EntityType, SystemConfigSource, SystemConfigValueType, SystemConfigVisibility,
     TeamMemberRole, UserRole, UserStatus,
@@ -39,7 +39,7 @@ fn webdav_test_password(label: &str) -> String {
 }
 
 async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
-    audit_service::flush_global_audit_log_manager().await;
+    audit::flush_global_audit_log_manager().await;
     audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
         .filter(audit_log::Column::EntityName.eq(entity_name))
@@ -1543,7 +1543,7 @@ async fn test_webdav_real_http_team_account_is_rejected_after_team_archive() {
     let team = aster_drive::db::repository::team_repo::find_by_id(state.writer_db(), team_id)
         .await
         .expect("team should exist");
-    aster_drive::services::team_service::archive_team(&state, team_id, team.created_by)
+    aster_drive::services::workspace::team::archive_team(&state, team_id, team.created_by)
         .await
         .expect("team should archive");
     let after_archive = client
@@ -4185,7 +4185,7 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
 
 #[actix_web::test]
 async fn test_webdav_hides_and_rejects_system_property_namespace() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
     let db1 = state.writer_db().clone();
@@ -4205,7 +4205,7 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
     .await;
 
     let (token, _) = register_and_login!(app);
-    let claims = auth_service::verify_token(&token, &state.config.auth.jwt_secret)
+    let claims = local::verify_token(&token, &state.config.auth.jwt_secret)
         .expect("access token should verify");
     let auth = create_webdav_basic_auth!(app, token);
 

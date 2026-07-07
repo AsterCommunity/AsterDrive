@@ -1,13 +1,13 @@
 //! `aster_drive doctor` 的聚合入口。
 //!
 //! 这里负责把环境检查、运行时配置检查和深度一致性审计组合成一份结构化报告；
-//! 真正的全局数据核对逻辑则下沉在 `integrity_service`。
+//! 真正的全局数据核对逻辑则下沉在 `ops::integrity`。
 
 mod execute;
 mod storage_scan;
 
 use crate::errors::Result;
-use crate::services::integrity_service;
+use crate::services::ops::integrity;
 use clap::{Args, ValueEnum};
 use serde::Serialize;
 
@@ -404,14 +404,14 @@ async fn doctor_storage_usage_check(
     db: &sea_orm::DatabaseConnection,
     fix: bool,
 ) -> Result<DoctorCheck> {
-    let mut drifts = integrity_service::audit_storage_usage(db).await?;
+    let mut drifts = integrity::audit_storage_usage(db).await?;
     let detected = drifts.len();
     let mut fixed = 0usize;
 
     if fix && !drifts.is_empty() {
-        integrity_service::fix_storage_usage_drifts(db, &drifts).await?;
+        integrity::fix_storage_usage_drifts(db, &drifts).await?;
         fixed = drifts.len();
-        drifts = integrity_service::audit_storage_usage(db).await?;
+        drifts = integrity::audit_storage_usage(db).await?;
     }
 
     if drifts.is_empty() {
@@ -440,8 +440,8 @@ async fn doctor_storage_usage_check(
             format!(
                 "{}#{} recorded={} actual={} delta={}",
                 match drift.owner_kind {
-                    integrity_service::StorageOwnerKind::User => "user",
-                    integrity_service::StorageOwnerKind::Team => "team",
+                    integrity::StorageOwnerKind::User => "user",
+                    integrity::StorageOwnerKind::Team => "team",
                 },
                 drift.owner_id,
                 drift.recorded_bytes,
@@ -469,14 +469,14 @@ async fn doctor_blob_ref_count_check(
     fix: bool,
     policy_id: Option<i64>,
 ) -> Result<DoctorCheck> {
-    let mut drifts = integrity_service::audit_blob_ref_counts(db, policy_id).await?;
+    let mut drifts = integrity::audit_blob_ref_counts(db, policy_id).await?;
     let detected = drifts.len();
     let mut fixed = 0usize;
 
     if fix && !drifts.is_empty() {
-        integrity_service::fix_blob_ref_count_drifts(db, &drifts).await?;
+        integrity::fix_blob_ref_count_drifts(db, &drifts).await?;
         fixed = drifts.len();
-        drifts = integrity_service::audit_blob_ref_counts(db, policy_id).await?;
+        drifts = integrity::audit_blob_ref_counts(db, policy_id).await?;
     }
 
     if drifts.is_empty() {
@@ -543,7 +543,7 @@ async fn doctor_storage_scan_checks(
 }
 
 async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<DoctorCheck> {
-    let issues = integrity_service::audit_folder_tree(db).await?;
+    let issues = integrity::audit_folder_tree(db).await?;
     if issues.is_empty() {
         return Ok(DoctorCheck {
             name: "folder_tree_integrity",
@@ -557,17 +557,16 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
 
     let has_cycle = issues
         .iter()
-        .any(|issue| issue.kind == integrity_service::FolderTreeIssueKind::Cycle);
+        .any(|issue| issue.kind == integrity::FolderTreeIssueKind::Cycle);
     let details = issues
         .into_iter()
         .map(|issue| {
             format!(
                 "{} folder#{} {}",
                 match issue.kind {
-                    integrity_service::FolderTreeIssueKind::MissingParent => "missing_parent",
-                    integrity_service::FolderTreeIssueKind::CrossScopeParent =>
-                        "cross_scope_parent",
-                    integrity_service::FolderTreeIssueKind::Cycle => "cycle",
+                    integrity::FolderTreeIssueKind::MissingParent => "missing_parent",
+                    integrity::FolderTreeIssueKind::CrossScopeParent => "cross_scope_parent",
+                    integrity::FolderTreeIssueKind::Cycle => "cycle",
                 },
                 issue.folder_id,
                 issue.detail
@@ -768,12 +767,11 @@ fn doctor_mail_check(runtime_config: &crate::config::RuntimeConfig) -> DoctorChe
 
 fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> DoctorCheck {
     let raw = runtime_config
-        .get(crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY)
-        .unwrap_or_else(crate::services::preview_app_service::default_public_preview_apps_json);
+        .get(crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY)
+        .unwrap_or_else(crate::services::preview::apps::default_public_preview_apps_json);
 
     let normalized =
-        match crate::services::preview_app_service::normalize_public_preview_apps_config_value(&raw)
-        {
+        match crate::services::preview::apps::normalize_public_preview_apps_config_value(&raw) {
             Ok(normalized) => normalized,
             Err(err) => {
                 return DoctorCheck {
@@ -790,11 +788,12 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
             }
         };
 
-    let parsed: crate::services::preview_app_service::PublicPreviewAppsConfig =
-        match serde_json::from_str(&normalized) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                return DoctorCheck {
+    let parsed: crate::services::preview::apps::PublicPreviewAppsConfig = match serde_json::from_str(
+        &normalized,
+    ) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return DoctorCheck {
                     name: "preview_apps",
                     label: "Preview app registry",
                     status: DoctorStatus::Fail,
@@ -805,8 +804,8 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
                             .to_string(),
                     ),
                 };
-            }
-        };
+        }
+    };
 
     let total_apps = parsed.apps.len();
     let enabled_apps = parsed.apps.iter().filter(|app| app.enabled).count();
@@ -814,8 +813,7 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
         .apps
         .iter()
         .filter(|app| {
-            app.enabled
-                && app.provider == crate::services::preview_app_service::PreviewAppProvider::Wopi
+            app.enabled && app.provider == crate::services::preview::apps::PreviewAppProvider::Wopi
         })
         .count();
     let details = vec![

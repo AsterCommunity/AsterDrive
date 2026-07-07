@@ -13,7 +13,7 @@ use crate::entities::{
     folder::{self, Entity as Folder},
 };
 use crate::errors::{AsterError, Result};
-use crate::services::tag_service::TAG_PROPERTY_NAMESPACE;
+use crate::services::content::tag::TAG_PROPERTY_NAMESPACE;
 use crate::types::{EntityType, FileCategory};
 use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Query;

@@ -98,7 +98,7 @@ pub async fn initialize_database_state(
 
     ensure_default_policy(database).await?;
     if matches!(mode, NodeRuntimeMode::Primary) {
-        crate::services::policy_service::ensure_policy_groups_seeded(database).await?;
+        crate::services::storage_policy::policy::ensure_policy_groups_seeded(database).await?;
     }
 
     let bootstrap_cookie_secure = (!cfg.auth.bootstrap_insecure_cookies).to_string();
@@ -114,7 +114,7 @@ pub async fn initialize_database_state(
     .await?;
     if matches!(mode, NodeRuntimeMode::Follower) {
         handle_optional_follower_bootstrap(
-            crate::services::node_enrollment_service::bootstrap_from_env_if_configured(database)
+            crate::services::remote::node_enrollment::bootstrap_from_env_if_configured(database)
                 .await,
         );
     }
@@ -129,8 +129,8 @@ fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
     if let Err(error) = result {
         tracing::warn!(
             error = %error,
-            master_url_env = crate::services::node_enrollment_service::BOOTSTRAP_REMOTE_MASTER_URL_ENV,
-            token_env = crate::services::node_enrollment_service::BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV,
+            master_url_env = crate::services::remote::node_enrollment::BOOTSTRAP_REMOTE_MASTER_URL_ENV,
+            token_env = crate::services::remote::node_enrollment::BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN_ENV,
             "follower enrollment bootstrap from environment failed; continuing startup without applying bootstrap env"
         );
     }

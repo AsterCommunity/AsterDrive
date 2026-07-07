@@ -10,7 +10,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{admin_file_service, audit_service, auth_service::Claims, task_service};
+use crate::services::{auth::local::Claims, files::admin, ops::audit, task};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -31,7 +31,7 @@ pub async fn list_files(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminFileListQuery>,
 ) -> Result<HttpResponse> {
-    let page = admin_file_service::list_files(
+    let page = admin::list_files(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -59,7 +59,7 @@ pub async fn get_file(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let file = admin_file_service::get_file(state.get_ref(), *path).await?;
+    let file = admin::get_file(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
@@ -81,7 +81,7 @@ pub async fn list_file_blobs(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminFileBlobListQuery>,
 ) -> Result<HttpResponse> {
-    let page = admin_file_service::list_blobs(
+    let page = admin::list_blobs(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -109,7 +109,7 @@ pub async fn get_file_blob(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let blob = admin_file_service::get_blob(state.get_ref(), *path).await?;
+    let blob = admin::get_blob(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(blob)))
 }
 
@@ -120,7 +120,7 @@ pub async fn get_file_blob(
     operation_id = "admin_create_blob_maintenance_task",
     request_body = CreateBlobMaintenanceTaskReq,
     responses(
-        (status = 200, description = "Blob maintenance task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Blob maintenance task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 400, description = "Validation error"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -135,23 +135,23 @@ pub async fn create_blob_maintenance_task(
     body: web::Json<CreateBlobMaintenanceTaskReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let task = task_service::blob_maintenance::create_blob_maintenance_task_for_admin(
+    let task = task::blob_maintenance::create_blob_maintenance_task_for_admin(
         state.get_ref(),
         claims.user_id,
         body.action,
         body.blob_ids.clone(),
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateBlobMaintenanceTask,
-        audit_service::AuditEntityType::Task,
+        audit::AuditAction::AdminCreateBlobMaintenanceTask,
+        audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::AdminBlobMaintenanceAuditDetails {
+            audit::details(audit::AdminBlobMaintenanceAuditDetails {
                 action: body.action,
                 blob_ids: body.blob_ids.as_deref(),
             })

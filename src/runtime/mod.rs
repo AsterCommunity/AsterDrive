@@ -11,8 +11,8 @@ use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
-    mail_service::MailSender, share_service::ShareDownloadRollbackQueue,
-    storage_change_service::StorageChangeEvent,
+    events::storage_change::StorageChangeEvent, mail::sender::MailSender,
+    share::ShareDownloadRollbackQueue,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use sea_orm::DatabaseConnection;
@@ -290,7 +290,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
     use crate::config::{CacheConfig, Config, RuntimeConfig};
-    use crate::services::share_service::build_share_download_rollback_queue;
+    use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use migration::Migrator;
     use std::sync::Arc;
@@ -314,7 +314,7 @@ mod tests {
         .await;
         let runtime_config = Arc::new(RuntimeConfig::new());
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) = build_share_download_rollback_queue(
             db.clone(),
@@ -330,7 +330,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: crate::services::mail_service::memory_sender(),
+            mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

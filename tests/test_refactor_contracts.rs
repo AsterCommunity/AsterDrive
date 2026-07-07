@@ -42,7 +42,7 @@ async fn test_login_returns_correct_user_id_and_tokens() {
 
     // service 层验证 user_id（用独立 state）
     let state_svc = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state_svc,
         "logintest",
         "login@test.com",
@@ -52,7 +52,7 @@ async fn test_login_returns_correct_user_id_and_tokens() {
     .unwrap();
 
     let result =
-        aster_drive::services::auth_service::login(&state_svc, "logintest", "pass1234", None, None)
+        aster_drive::services::auth::local::login(&state_svc, "logintest", "pass1234", None, None)
             .await
             .unwrap();
     let result = common::expect_authenticated_login(result);
@@ -102,7 +102,7 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
     // service 层：错误密码返回 Err
     let state2 = common::setup().await;
     let err =
-        aster_drive::services::auth_service::login(&state2, "wrongpw", "wrongpassword", None, None)
+        aster_drive::services::auth::local::login(&state2, "wrongpw", "wrongpassword", None, None)
             .await;
     assert!(err.is_err());
 }
@@ -113,17 +113,15 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
 #[actix_web::test]
 async fn test_share_cookie_signatures_are_token_specific_and_deterministic() {
     let secret = "test-secret-key-for-integration-tests";
-    let binding = aster_drive::services::share_service::ShareCookieBinding::from_request_parts(
+    let binding = aster_drive::services::share::ShareCookieBinding::from_request_parts(
         Some("AsterDrive Test/1.0"),
         Some("203.0.113.42"),
     );
 
-    let sig1 =
-        aster_drive::services::share_service::sign_share_cookie("token-alpha", &binding, secret);
-    let sig2 =
-        aster_drive::services::share_service::sign_share_cookie("token-beta", &binding, secret);
+    let sig1 = aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
+    let sig2 = aster_drive::services::share::sign_share_cookie("token-beta", &binding, secret);
     let sig1_replay =
-        aster_drive::services::share_service::sign_share_cookie("token-alpha", &binding, secret);
+        aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
 
     assert_ne!(
         sig1, sig2,
@@ -139,12 +137,11 @@ async fn test_share_cookie_signatures_are_token_specific_and_deterministic() {
 #[actix_web::test]
 async fn test_share_cookie_signature_format_is_sha256_hex() {
     let secret = "test-secret-key-for-integration-tests";
-    let binding = aster_drive::services::share_service::ShareCookieBinding::from_request_parts(
+    let binding = aster_drive::services::share::ShareCookieBinding::from_request_parts(
         Some("AsterDrive Test/1.0"),
         Some("203.0.113.42"),
     );
-    let sig =
-        aster_drive::services::share_service::sign_share_cookie("any-token", &binding, secret);
+    let sig = aster_drive::services::share::sign_share_cookie("any-token", &binding, secret);
 
     assert_eq!(sig.len(), 64, "SHA256 hex digest should be 64 characters");
     assert!(
@@ -157,14 +154,14 @@ async fn test_share_cookie_signature_format_is_sha256_hex() {
 #[actix_web::test]
 async fn test_share_cookie_forged_signature_rejected() {
     let secret = "test-secret-key-for-integration-tests";
-    let binding = aster_drive::services::share_service::ShareCookieBinding::from_request_parts(
+    let binding = aster_drive::services::share::ShareCookieBinding::from_request_parts(
         Some("AsterDrive Test/1.0"),
         Some("203.0.113.42"),
     );
     let sig_wrong =
-        aster_drive::services::share_service::sign_share_cookie("wrong-token", &binding, secret);
+        aster_drive::services::share::sign_share_cookie("wrong-token", &binding, secret);
 
-    let valid = aster_drive::services::share_service::verify_share_cookie(
+    let valid = aster_drive::services::share::verify_share_cookie(
         "correct-token",
         &sig_wrong,
         &binding,
@@ -218,7 +215,7 @@ async fn test_config_schema_returns_non_empty_with_required_fields() {
     assert!(!schema.is_empty(), "schema should not be empty");
 
     // service 层验证字段完整性
-    let full_schema = aster_drive::services::config_service::get_schema();
+    let full_schema = aster_drive::services::ops::config::get_schema();
     assert!(!full_schema.is_empty());
 
     for item in &full_schema {

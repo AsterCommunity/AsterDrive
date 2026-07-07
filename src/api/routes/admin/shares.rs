@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, auth_service::Claims, share_service};
+use crate::services::{auth::local::Claims, ops::audit, share};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -17,7 +17,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "list_all_shares",
     params(LimitOffsetQuery, AdminShareListQuery),
     responses(
-        (status = 200, description = "All shares", body = inline(ApiResponse<OffsetPage<share_service::ShareInfo>>)),
+        (status = 200, description = "All shares", body = inline(ApiResponse<OffsetPage<share::ShareInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -28,7 +28,7 @@ pub async fn list_all_shares(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminShareListQuery>,
 ) -> Result<HttpResponse> {
-    let shares = share_service::list_paginated(
+    let shares = share::list_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -60,8 +60,8 @@ pub async fn admin_delete_share(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let share = crate::db::repository::share_repo::find_by_id(state.writer_db(), *path).await?;
-    share_service::admin_delete_share(state.get_ref(), *path).await?;
-    let target = match share_service::share_target_for_share(&share) {
+    share::admin_delete_share(state.get_ref(), *path).await?;
+    let target = match share::share_target_for_share(&share) {
         Ok(target) => Some(target),
         Err(error) => {
             tracing::warn!(
@@ -71,16 +71,16 @@ pub async fn admin_delete_share(
             None
         }
     };
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteShare,
-        crate::services::audit_service::AuditEntityType::Share,
+        audit::AuditAction::AdminDeleteShare,
+        crate::services::ops::audit::AuditEntityType::Share,
         Some(*path),
         Some(&share.token),
         || {
-            audit_service::details(audit_service::ShareDeleteAuditDetails {
+            audit::details(audit::ShareDeleteAuditDetails {
                 token: &share.token,
                 target_type: target.as_ref().map(|target| target.r#type),
                 target_id: target.as_ref().map(|target| target.id),

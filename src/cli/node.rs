@@ -67,9 +67,9 @@ async fn execute_enroll(args: &NodeEnrollArgs) -> Result<NodeEnrollReport> {
     let config = crate::config::get_config();
     let database_url = resolve_database_url(args.database_url.as_deref())?;
     let db = prepare_database(&database_url).await?;
-    let result = crate::services::node_enrollment_service::enroll(
+    let result = crate::services::remote::node_enrollment::enroll(
         &db,
-        crate::services::node_enrollment_service::NodeEnrollmentInput {
+        crate::services::remote::node_enrollment::NodeEnrollmentInput {
             master_url: args.master_url.clone(),
             token: args.token.clone(),
         },
@@ -93,7 +93,7 @@ async fn execute_enroll(args: &NodeEnrollArgs) -> Result<NodeEnrollReport> {
 }
 
 fn ensure_follower_start_mode() -> Result<String> {
-    let default = crate::services::node_enrollment_service::follower_seed_config();
+    let default = crate::services::remote::node_enrollment::follower_seed_config();
     let config_path = crate::config::ensure_default_config_for_current_dir(&default)?;
     let config_path = config_path.display().to_string();
 
@@ -227,12 +227,12 @@ mod tests {
 
     #[test]
     fn follower_seed_config_uses_public_bind_host() {
-        let config = crate::services::node_enrollment_service::follower_seed_config();
+        let config = crate::services::remote::node_enrollment::follower_seed_config();
 
         assert_eq!(config.server.start_mode, super::NodeRuntimeMode::Follower);
         assert_eq!(
             config.server.host,
-            crate::services::node_enrollment_service::FOLLOWER_DEFAULT_SERVER_HOST
+            crate::services::remote::node_enrollment::FOLLOWER_DEFAULT_SERVER_HOST
         );
     }
 }

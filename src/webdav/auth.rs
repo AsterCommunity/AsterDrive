@@ -10,7 +10,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{user_repo, webdav_account_repo};
 use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::utils::hash;
 
 /// WebDAV 认证结果
@@ -158,7 +158,7 @@ async fn authenticate_basic(
 
     let scope = match account.team_id {
         Some(team_id) => {
-            crate::services::workspace_storage_service::require_team_access(
+            crate::services::workspace::storage::require_team_access(
                 state,
                 team_id,
                 account.user_id,
@@ -202,7 +202,7 @@ mod tests {
     use crate::entities::{user, webdav_account};
     use crate::errors::AsterError;
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-    use crate::services::mail_service;
+    use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::{UserRole, UserStatus};
     use crate::utils::hash;
@@ -231,10 +231,10 @@ mod tests {
         let runtime_config = Arc::new(RuntimeConfig::new());
         let cache = cache::create_cache(&CacheConfig::default()).await;
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
-            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            crate::services::share::spawn_detached_share_download_rollback_queue(
                 db.clone(),
                 crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
             );
@@ -247,7 +247,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

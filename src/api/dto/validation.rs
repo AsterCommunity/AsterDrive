@@ -28,19 +28,19 @@ pub(crate) fn validate_non_blank(value: &str) -> std::result::Result<(), Validat
 }
 
 pub(crate) fn validate_auth_username(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::services::auth_service::validate_username(value).map_err(aster_to_validation_error)
+    crate::services::auth::local::validate_username(value).map_err(aster_to_validation_error)
 }
 
 pub(crate) fn validate_auth_email(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::services::auth_service::validate_email(value).map_err(aster_to_validation_error)
+    crate::services::auth::local::validate_email(value).map_err(aster_to_validation_error)
 }
 
 pub(crate) fn validate_auth_password(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::services::auth_service::validate_password(value).map_err(aster_to_validation_error)
+    crate::services::auth::local::validate_password(value).map_err(aster_to_validation_error)
 }
 
 pub(crate) fn validate_team_name(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::services::team_service::validate_team_name(value)
+    crate::services::workspace::team::validate_team_name(value)
         .map(|_| ())
         .map_err(aster_to_validation_error)
 }

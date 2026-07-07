@@ -5,7 +5,7 @@ mod common;
 
 use actix_web::test;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::{entities::audit_log, services::audit_service, types::AuditAction};
+use aster_drive::{entities::audit_log, services::ops::audit, types::AuditAction};
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use serde_json::Value;
 
@@ -45,15 +45,15 @@ fn assert_action_present<'a>(items: &'a [Value], action: &str) -> &'a Value {
 async fn test_audit_log_persists_long_entity_type_values() {
     let state = common::setup().await;
 
-    audit_service::log(
+    audit::log(
         &state,
-        &audit_service::AuditContext {
+        &audit::AuditContext {
             user_id: 42,
             ip_address: None,
             user_agent: None,
         },
         AuditAction::AdminTestExternalAuthProvider,
-        audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditEntityType::ExternalAuthProvider,
         None,
         Some("draft"),
         Some(serde_json::json!({
@@ -63,7 +63,7 @@ async fn test_audit_log_persists_long_entity_type_values() {
         })),
     )
     .await;
-    audit_service::flush_global_audit_log_manager().await;
+    audit::flush_global_audit_log_manager().await;
 
     let entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
@@ -304,7 +304,7 @@ async fn test_audit_cleanup_retention_zero_keeps_logs() {
     .await
     .unwrap();
 
-    let deleted = audit_service::cleanup_expired(&state).await.unwrap();
+    let deleted = audit::cleanup_expired(&state).await.unwrap();
     assert_eq!(deleted, 0);
 
     let remaining = audit_log::Entity::find()
@@ -1048,7 +1048,7 @@ async fn test_audit_log_recorded_on_team_archive_cleanup() {
         .await
         .unwrap();
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
     assert_eq!(deleted, 1);

@@ -9,8 +9,8 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth_service::Claims, batch_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    auth::local::Claims, files::batch, ops::audit::AuditContext,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
@@ -35,7 +35,7 @@ pub fn routes(
     operation_id = "workspace_transfer_copy",
     request_body = WorkspaceTransferCopyReq,
     responses(
-        (status = 200, description = "Workspace transfer copy result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Workspace transfer copy result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -54,7 +54,7 @@ pub async fn copy_to_workspace(
     let source_scope = workspace_ref_to_scope(&body.source_workspace, claims.user_id);
     let dest_scope = workspace_ref_to_scope(&body.destination_workspace, claims.user_id);
     let ctx = AuditContext::from_request(&req, &claims);
-    let result = batch_service::batch_copy_between_scopes_with_audit(
+    let result = batch::batch_copy_between_scopes_with_audit(
         state.get_ref(),
         source_scope,
         dest_scope,

@@ -8,7 +8,7 @@ use actix_web::test;
 use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::entities::{file, file_blob};
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::storage_change_service::StorageChangeKind;
+use aster_drive::services::events::storage_change::StorageChangeKind;
 use aster_drive::types::FileCategory;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};

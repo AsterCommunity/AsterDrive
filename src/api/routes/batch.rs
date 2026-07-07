@@ -12,10 +12,12 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
-    auth_service::Claims,
-    batch_service, stream_ticket_service, task_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    auth::local::Claims,
+    files::batch,
+    ops::audit::{self, AuditContext},
+    share::ticket,
+    task,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
@@ -61,7 +63,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "batch_delete",
     request_body = BatchDeleteReq,
     responses(
-        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -93,7 +95,7 @@ pub async fn batch_delete(
     operation_id = "batch_move",
     request_body = BatchMoveReq,
     responses(
-        (status = 200, description = "Batch move result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch move result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -125,7 +127,7 @@ pub async fn batch_move(
     operation_id = "batch_copy",
     request_body = BatchCopyReq,
     responses(
-        (status = 200, description = "Batch copy result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Batch copy result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -157,7 +159,7 @@ pub async fn batch_copy(
     operation_id = "batch_archive_download",
     request_body = ArchiveDownloadReq,
     responses(
-        (status = 200, description = "Archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 200, description = "Archive download ticket", body = inline(ApiResponse<ticket::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "ArchiveDownloadUserDisabled"),
@@ -190,7 +192,7 @@ pub async fn archive_download(
     operation_id = "batch_archive_compress",
     request_body = ArchiveCompressReq,
     responses(
-        (status = 200, description = "Archive compress task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Archive compress task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -253,7 +255,7 @@ pub async fn archive_download_stream(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchDeleteReq,
     responses(
-        (status = 200, description = "Team batch delete result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch delete result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -287,7 +289,7 @@ pub(crate) async fn team_batch_delete(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchMoveReq,
     responses(
-        (status = 200, description = "Team batch move result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch move result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -321,7 +323,7 @@ pub(crate) async fn team_batch_move(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = BatchCopyReq,
     responses(
-        (status = 200, description = "Team batch copy result", body = inline(ApiResponse<batch_service::BatchResult>)),
+        (status = 200, description = "Team batch copy result", body = inline(ApiResponse<batch::BatchResult>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -355,7 +357,7 @@ pub(crate) async fn team_batch_copy(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = ArchiveDownloadReq,
     responses(
-        (status = 200, description = "Team archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 200, description = "Team archive download ticket", body = inline(ApiResponse<ticket::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden or ArchiveDownloadUserDisabled"),
@@ -389,7 +391,7 @@ pub(crate) async fn team_archive_download(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = ArchiveCompressReq,
     responses(
-        (status = 200, description = "Team archive compress task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Team archive compress task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -451,7 +453,7 @@ pub(crate) async fn batch_delete_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_delete_in_scope_with_audit(
+    let result = batch::batch_delete_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,
@@ -471,7 +473,7 @@ pub(crate) async fn batch_move_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_move_in_scope_with_audit(
+    let result = batch::batch_move_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,
@@ -492,7 +494,7 @@ pub(crate) async fn batch_copy_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let result = batch_service::batch_copy_in_scope_with_audit(
+    let result = batch::batch_copy_in_scope_with_audit(
         state,
         scope,
         &body.file_ids,
@@ -513,10 +515,10 @@ pub(crate) async fn archive_download_ticket_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     ensure_user_archive_download_enabled(state)?;
-    let ticket = stream_ticket_service::create_archive_download_ticket_in_scope(
+    let ticket = ticket::create_archive_download_ticket_in_scope(
         state,
         scope,
-        &task_service::types::CreateArchiveTaskParams {
+        &task::types::CreateArchiveTaskParams {
             file_ids: body.file_ids.clone(),
             folder_ids: body.folder_ids.clone(),
             archive_name: body.archive_name.clone(),
@@ -524,15 +526,15 @@ pub(crate) async fn archive_download_ticket_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::ArchiveDownload,
-        crate::services::audit_service::AuditEntityType::StreamTicket,
+        audit::AuditAction::ArchiveDownload,
+        crate::services::ops::audit::AuditEntityType::StreamTicket,
         None,
         Some(&ticket.token),
         || {
-            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+            audit::details(audit::ArchiveSelectionAuditDetails {
                 file_ids: &body.file_ids,
                 folder_ids: &body.folder_ids,
                 archive_name: body.archive_name.as_deref(),
@@ -553,10 +555,10 @@ pub(crate) async fn archive_compress_response(
     body: &ArchiveCompressReq,
 ) -> Result<HttpResponse> {
     validate_request(body)?;
-    let task = task_service::archive::create_archive_compress_task_in_scope(
+    let task = task::archive::create_archive_compress_task_in_scope(
         state,
         scope,
-        task_service::types::CreateArchiveCompressTaskParams {
+        task::types::CreateArchiveCompressTaskParams {
             file_ids: body.file_ids.clone(),
             folder_ids: body.folder_ids.clone(),
             archive_name: body.archive_name.clone(),
@@ -565,15 +567,15 @@ pub(crate) async fn archive_compress_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::ArchiveCompress,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::ArchiveCompress,
+        crate::services::ops::audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+            audit::details(audit::ArchiveSelectionAuditDetails {
                 file_ids: &body.file_ids,
                 folder_ids: &body.folder_ids,
                 archive_name: body.archive_name.as_deref(),
@@ -591,10 +593,8 @@ pub(crate) async fn archive_download_stream_response(
     token: &str,
 ) -> Result<HttpResponse> {
     ensure_user_archive_download_enabled(state)?;
-    let params =
-        stream_ticket_service::resolve_archive_download_ticket_in_scope(state, scope, token)
-            .await?;
-    task_service::archive::stream_archive_download_in_scope(state, scope, params).await
+    let params = ticket::resolve_archive_download_ticket_in_scope(state, scope, token).await?;
+    task::archive::stream_archive_download_in_scope(state, scope, params).await
 }
 
 fn ensure_user_archive_download_enabled(state: &PrimaryAppState) -> Result<()> {

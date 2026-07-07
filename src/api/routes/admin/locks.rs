@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::{ApiResponse, RemovedCountResponse};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, lock_service};
+use crate::services::{auth::local::Claims, files::lock, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -17,7 +17,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "list_locks",
     params(LimitOffsetQuery, AdminLockListQuery),
     responses(
-        (status = 200, description = "All WebDAV locks", body = inline(ApiResponse<OffsetPage<lock_service::ResourceLock>>)),
+        (status = 200, description = "All WebDAV locks", body = inline(ApiResponse<OffsetPage<lock::ResourceLock>>)),
         (status = 403, description = "Admin required"),
     ),
     security(("bearer" = [])),
@@ -27,7 +27,7 @@ pub async fn list_locks(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminLockListQuery>,
 ) -> Result<HttpResponse> {
-    let locks = lock_service::list_paginated(
+    let locks = lock::list_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -57,8 +57,8 @@ pub async fn force_unlock(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    lock_service::force_unlock_with_audit(state.get_ref(), *path, &ctx).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    lock::force_unlock_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -78,7 +78,7 @@ pub async fn cleanup_expired_locks(
     claims: web::ReqData<Claims>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let count = lock_service::cleanup_expired_with_audit(state.get_ref(), &ctx).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let count = lock::cleanup_expired_with_audit(state.get_ref(), &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(RemovedCountResponse { removed: count })))
 }

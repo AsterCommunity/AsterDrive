@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, config_service};
+use crate::services::{ops::audit, ops::config};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -17,7 +17,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "list_config",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "List config entries", body = inline(ApiResponse<OffsetPage<config_service::SystemConfig>>)),
+        (status = 200, description = "List config entries", body = inline(ApiResponse<OffsetPage<config::SystemConfig>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -28,8 +28,7 @@ pub async fn list_config(
     query: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
     let configs =
-        config_service::list_paginated(state.get_ref(), query.limit_or(50, 100), query.offset())
-            .await?;
+        config::list_paginated(state.get_ref(), query.limit_or(50, 100), query.offset()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(configs)))
 }
 
@@ -39,14 +38,14 @@ pub async fn list_config(
     tag = "admin",
     operation_id = "config_schema",
     responses(
-        (status = 200, description = "Config schema", body = ApiResponse<Vec<config_service::ConfigSchemaItem>>),
+        (status = 200, description = "Config schema", body = ApiResponse<Vec<config::ConfigSchemaItem>>),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
     security(("bearer" = [])),
 )]
 pub async fn config_schema() -> Result<HttpResponse> {
-    let schema = config_service::get_schema();
+    let schema = config::get_schema();
     Ok(HttpResponse::Ok().json(ApiResponse::ok(schema)))
 }
 
@@ -56,14 +55,14 @@ pub async fn config_schema() -> Result<HttpResponse> {
     tag = "admin",
     operation_id = "config_template_variables",
     responses(
-        (status = 200, description = "Template variables", body = ApiResponse<Vec<config_service::TemplateVariableGroup>>),
+        (status = 200, description = "Template variables", body = ApiResponse<Vec<config::TemplateVariableGroup>>),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
     security(("bearer" = [])),
 )]
 pub async fn config_template_variables() -> Result<HttpResponse> {
-    let groups = config_service::list_template_variable_groups();
+    let groups = config::list_template_variable_groups();
     Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
 }
 
@@ -74,7 +73,7 @@ pub async fn config_template_variables() -> Result<HttpResponse> {
     operation_id = "get_config",
     params(("key" = String, Path, description = "Config key")),
     responses(
-        (status = 200, description = "Config entry", body = inline(ApiResponse<config_service::SystemConfig>)),
+        (status = 200, description = "Config entry", body = inline(ApiResponse<config::SystemConfig>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Config key not found"),
@@ -85,7 +84,7 @@ pub async fn get_config(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let config = config_service::get_by_key(state.get_ref(), &path).await?;
+    let config = config::get_by_key(state.get_ref(), &path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(config)))
 }
 
@@ -97,7 +96,7 @@ pub async fn get_config(
     params(("key" = String, Path, description = "Config key")),
     request_body = SetConfigReq,
     responses(
-        (status = 200, description = "Config value set", body = inline(ApiResponse<config_service::SystemConfig>)),
+        (status = 200, description = "Config value set", body = inline(ApiResponse<config::SystemConfig>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -106,13 +105,13 @@ pub async fn get_config(
 )]
 pub async fn set_config(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
     body: web::Json<SetConfigReq>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let config = config_service::set_with_audit_and_visibility(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let config = config::set_with_audit_and_visibility(
         state.get_ref(),
         &path,
         &body.value,
@@ -140,12 +139,12 @@ pub async fn set_config(
 )]
 pub async fn delete_config(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    config_service::delete_with_audit(state.get_ref(), &path, &ctx).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    config::delete_with_audit(state.get_ref(), &path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -168,17 +167,17 @@ pub async fn delete_config(
 )]
 pub async fn execute_config_action(
     state: web::Data<PrimaryAppState>,
-    claims: web::ReqData<crate::services::auth_service::Claims>,
+    claims: web::ReqData<crate::services::auth::local::Claims>,
     req: HttpRequest,
     path: web::Path<String>,
     body: web::Json<ExecuteConfigActionReq>,
 ) -> Result<HttpResponse> {
     crate::api::dto::validate_request(&*body)?;
     let key = path.into_inner();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let action_result = config_service::execute_action_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let action_result = config::execute_action_with_audit(
         state.get_ref(),
-        config_service::ExecuteConfigActionInput {
+        config::ExecuteConfigActionInput {
             key: &key,
             action: body.action,
             actor_user_id: claims.user_id,

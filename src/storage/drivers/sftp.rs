@@ -244,12 +244,11 @@ impl SftpConnectionPool {
 }
 
 impl SftpConnectionLease {
-    fn sftp(&self) -> &SftpSession {
-        &self
-            .connection
+    fn sftp(&self) -> Result<&SftpSession> {
+        self.connection
             .as_ref()
-            .expect("SFTP connection lease must hold a connection")
-            .sftp
+            .map(|connection| &connection.sftp)
+            .ok_or_else(|| AsterError::internal_error("SFTP connection lease is empty"))
     }
 
     fn mark_reusable(&mut self) {
@@ -351,10 +350,12 @@ impl SftpDriver {
     }
 
     async fn connect_new_connection(&self) -> Result<SftpConnection> {
-        let mut config = russh::client::Config::default();
-        config.inactivity_timeout = Some(IO_TIMEOUT);
-        config.keepalive_interval = Some(SSH_KEEPALIVE_INTERVAL);
-        config.nodelay = true;
+        let config = russh::client::Config {
+            inactivity_timeout: Some(IO_TIMEOUT),
+            keepalive_interval: Some(SSH_KEEPALIVE_INTERVAL),
+            nodelay: true,
+            ..Default::default()
+        };
 
         let address = (self.endpoint.host.clone(), self.endpoint.port);
         let host_key_rejection = Arc::new(Mutex::new(None));
@@ -427,7 +428,7 @@ impl SftpDriver {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         let mut file = connection
-            .sftp()
+            .sftp()?
             .open(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP open failed", error))?;
@@ -446,9 +447,9 @@ impl StorageDriver for SftpDriver {
     async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
-        ensure_remote_parent_dir(connection.sftp(), &remote_path).await?;
+        ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
         let mut file = connection
-            .sftp()
+            .sftp()?
             .create(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;
@@ -469,7 +470,7 @@ impl StorageDriver for SftpDriver {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         let data = connection
-            .sftp()
+            .sftp()?
             .read(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP read failed", error))?;
@@ -506,7 +507,7 @@ impl StorageDriver for SftpDriver {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         connection
-            .sftp()
+            .sftp()?
             .remove_file(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP delete failed", error))?;
@@ -517,7 +518,7 @@ impl StorageDriver for SftpDriver {
     async fn exists(&self, path: &str) -> Result<bool> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
-        match connection.sftp().metadata(remote_path).await {
+        match connection.sftp()?.metadata(remote_path).await {
             Ok(_) => {
                 connection.mark_reusable();
                 Ok(true)
@@ -534,7 +535,7 @@ impl StorageDriver for SftpDriver {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         let stat = connection
-            .sftp()
+            .sftp()?
             .metadata(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP stat failed", error))?;
@@ -549,14 +550,14 @@ impl StorageDriver for SftpDriver {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
         let mut connection = self.acquire_connection().await?;
-        ensure_remote_parent_dir(connection.sftp(), &dest_remote_path).await?;
+        ensure_remote_parent_dir(connection.sftp()?, &dest_remote_path).await?;
         let mut src = connection
-            .sftp()
+            .sftp()?
             .open(src_remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP source open failed", error))?;
         let mut dest = connection
-            .sftp()
+            .sftp()?
             .create(dest_remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP destination create failed", error))?;
@@ -588,9 +589,9 @@ impl StreamUploadDriver for SftpDriver {
     ) -> Result<String> {
         let remote_path = self.full_path(storage_path)?;
         let mut connection = self.acquire_connection().await?;
-        ensure_remote_parent_dir(connection.sftp(), &remote_path).await?;
+        ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
         let mut remote_file = connection
-            .sftp()
+            .sftp()?
             .create(remote_path)
             .await
             .map_err(|error| connection.map_sftp_error("SFTP create failed", error))?;

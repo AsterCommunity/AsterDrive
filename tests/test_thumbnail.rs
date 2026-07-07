@@ -370,9 +370,7 @@ async fn test_thumbnail_returns_200_after_generation() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task = latest_thumbnail_task(&state, file_id).await;
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
@@ -417,9 +415,7 @@ async fn test_thumbnail_returns_304_for_matching_if_none_match() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let resp = request_thumbnail!(app, token, file_id);
     assert_eq!(resp.status(), 200);
@@ -493,9 +489,7 @@ async fn test_thumbnail_dedup_same_blob() {
 
     assert_eq!(thumbnail_task_count(&state, file_id).await, 1);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let resp = request_thumbnail!(app, token, file_id);
     assert_eq!(resp.status(), 200);
@@ -514,9 +508,7 @@ async fn test_thumbnail_failed_task_returns_not_found_without_requeue() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task = latest_thumbnail_task(&state, file_id).await;
     assert_eq!(task.status, BackgroundTaskStatus::Failed);
@@ -554,9 +546,7 @@ async fn test_thumbnail_vips_cli_missing_command_falls_back_to_images() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task = latest_thumbnail_task(&state, file_id).await;
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);
@@ -606,9 +596,7 @@ async fn test_thumbnail_heic_uses_vips_cli_processor_when_extension_matches() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task =
         latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::VipsCli).await;
@@ -677,9 +665,7 @@ async fn test_thumbnail_mp4_uses_ffmpeg_cli_processor_when_extension_matches() {
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task =
         latest_thumbnail_task_for_processor(&state, file_id, MediaProcessorKind::FfmpegCli).await;
@@ -720,9 +706,7 @@ async fn test_thumbnail_storage_native_processor_without_driver_capability_skips
     let first = request_thumbnail!(app, token, file_id);
     assert_eq!(first.status(), 202);
 
-    aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    aster_drive::services::task::drain(&state).await.unwrap();
 
     let task = latest_thumbnail_task(&state, file_id).await;
     assert_eq!(task.status, BackgroundTaskStatus::Succeeded);

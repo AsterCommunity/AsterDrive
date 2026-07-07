@@ -5,7 +5,7 @@ use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, folder_service};
+use crate::services::{auth::local::Claims, files::folder, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -16,7 +16,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     params(("id" = i64, Path, description = "Folder ID")),
     request_body = SetFolderPolicyReq,
     responses(
-        (status = 200, description = "Folder policy binding updated", body = inline(ApiResponse<crate::services::workspace_models::FolderInfo>)),
+        (status = 200, description = "Folder policy binding updated", body = inline(ApiResponse<crate::services::workspace::models::FolderInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Folder or policy not found"),
@@ -31,9 +31,8 @@ pub async fn set_folder_policy(
     body: web::Json<SetFolderPolicyReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let folder =
-        folder_service::admin_set_policy_with_audit(state.get_ref(), *path, body.policy_id, &ctx)
-            .await?;
+        folder::admin_set_policy_with_audit(state.get_ref(), *path, body.policy_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))
 }

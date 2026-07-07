@@ -271,7 +271,7 @@ mod tests {
     use super::{FrontendAssets, routes};
     use crate::config::{CacheConfig, Config, RuntimeConfig};
     use crate::runtime::PrimaryAppState;
-    use crate::services::share_service::build_share_download_rollback_queue;
+    use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{App, http::StatusCode, http::header, test};
     use migration::Migrator;
@@ -302,7 +302,7 @@ mod tests {
             .await
             .expect("frontend test runtime config should load");
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) = build_share_download_rollback_queue(
             db.clone(),
@@ -318,7 +318,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: crate::services::mail_service::memory_sender(),
+            mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup: PrimaryAppState::new_background_task_dispatch_wakeup(),

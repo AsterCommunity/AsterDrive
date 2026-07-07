@@ -1247,15 +1247,15 @@ async fn test_admin_team_crud() {
             .unwrap()
             .expect("default policy should exist")
             .id;
-    let alternate_group_id = aster_drive::services::policy_service::create_group(
+    let alternate_group_id = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Operations Archive".to_string(),
             description: Some("Secondary team routing".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,
@@ -2114,15 +2114,15 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
         .unwrap()
         .expect("default policy should exist")
         .id;
-    let source_group = aster_drive::services::policy_service::create_group(
+    let source_group = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Migration Source Group".to_string(),
             description: Some("source assignments".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,
@@ -2133,15 +2133,15 @@ async fn test_admin_policy_group_migration_updates_users_and_teams() {
     )
     .await
     .expect("source policy group should be created");
-    let target_group = aster_drive::services::policy_service::create_group(
+    let target_group = aster_drive::services::storage_policy::policy::create_group(
         &state,
-        aster_drive::services::policy_service::CreateStoragePolicyGroupInput {
+        aster_drive::services::storage_policy::policy::CreateStoragePolicyGroupInput {
             name: "Migration Target Group".to_string(),
             description: Some("target assignments".to_string()),
             is_enabled: true,
             is_default: false,
             items: vec![
-                aster_drive::services::policy_service::StoragePolicyGroupItemInput {
+                aster_drive::services::storage_policy::policy::StoragePolicyGroupItemInput {
                     policy_id: default_policy_id,
                     priority: 1,
                     min_file_size: 0,
@@ -4187,7 +4187,7 @@ async fn test_admin_config_action_sends_test_email() {
         "Test email sent to deliver@example.com"
     );
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()
@@ -4215,7 +4215,7 @@ async fn test_admin_config_action_defaults_to_admin_email() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let memory_sender = aster_drive::services::mail_service::memory_sender_ref(&mail_sender)
+    let memory_sender = aster_drive::services::mail::sender::memory_sender_ref(&mail_sender)
         .expect("memory mail sender should be available in tests");
     let message = memory_sender
         .last_message()
@@ -4494,15 +4494,10 @@ async fn test_admin_config_action_tests_aria2_rpc_wrong_secret_returns_auth_code
 async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent_as_draft() {
     let state = common::setup().await;
     let rpc_url = spawn_aria2_secret_check_server("***REDACTED***").await;
-    aster_drive::services::config_service::set(
-        &state,
-        "offline_download_aria2_rpc_url",
-        &rpc_url,
-        1,
-    )
-    .await
-    .expect("saved aria2 RPC URL should update");
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(&state, "offline_download_aria2_rpc_url", &rpc_url, 1)
+        .await
+        .expect("saved aria2 RPC URL should update");
+    aster_drive::services::ops::config::set(
         &state,
         "offline_download_aria2_rpc_secret",
         "saved-secret",
@@ -4510,7 +4505,7 @@ async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent
     )
     .await
     .expect("saved aria2 RPC secret should update");
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         "offline_download_aria2_request_timeout_secs",
         "2",

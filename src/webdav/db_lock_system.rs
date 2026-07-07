@@ -12,8 +12,8 @@ use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
 use crate::entities::resource_lock;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::ops::audit::{self, AuditContext};
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
 use crate::webdav::dav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
@@ -69,23 +69,23 @@ impl DbLockSystem {
             return;
         };
         let action = match (entity_type, locked) {
-            (EntityType::File, true) => audit_service::AuditAction::FileLock,
-            (EntityType::File, false) => audit_service::AuditAction::FileUnlock,
-            (EntityType::Folder, true) => audit_service::AuditAction::FolderLock,
-            (EntityType::Folder, false) => audit_service::AuditAction::FolderUnlock,
+            (EntityType::File, true) => audit::AuditAction::FileLock,
+            (EntityType::File, false) => audit::AuditAction::FileUnlock,
+            (EntityType::Folder, true) => audit::AuditAction::FolderLock,
+            (EntityType::Folder, false) => audit::AuditAction::FolderUnlock,
         };
         match entity_type {
             EntityType::File => match file_repo::find_by_id(&self.db, entity_id).await {
                 Ok(file) => {
-                    let details = crate::services::file_service::audit_location_details_for_model(
+                    let details = crate::services::files::file::audit_location_details_for_model(
                         state, self.scope, &file,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::File,
+                        audit::AuditEntityType::File,
                         Some(entity_id),
                         Some(&file.name),
                         || details.clone(),
@@ -97,11 +97,11 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV file lock audit target: {error}"
                     );
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::File,
+                        audit::AuditEntityType::File,
                         Some(entity_id),
                         None,
                         || None,
@@ -111,16 +111,15 @@ impl DbLockSystem {
             },
             EntityType::Folder => match folder_repo::find_by_id(&self.db, entity_id).await {
                 Ok(folder) => {
-                    let details =
-                        crate::services::folder_service::audit_location_details_for_model(
-                            state, self.scope, &folder,
-                        )
-                        .await;
-                    audit_service::log_with_details(
+                    let details = crate::services::files::folder::audit_location_details_for_model(
+                        state, self.scope, &folder,
+                    )
+                    .await;
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::Folder,
+                        audit::AuditEntityType::Folder,
                         Some(entity_id),
                         Some(&folder.name),
                         || details.clone(),
@@ -132,11 +131,11 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV folder lock audit target: {error}"
                     );
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::Folder,
+                        audit::AuditEntityType::Folder,
                         Some(entity_id),
                         None,
                         || None,
@@ -276,8 +275,8 @@ impl DavLockSystem for DbLockSystem {
                 let timeout_at = lock_timeout_at(now, timeout_dur)
                     .map_err(|_| DavLockError::Backend)?;
                 let owner_info = owner_xml.clone().map(|xml| {
-                    crate::services::lock_service::ResourceLockOwnerInfo::Webdav(
-                        crate::services::lock_service::WebdavLockOwnerInfo { xml },
+                    crate::services::files::lock::ResourceLockOwnerInfo::Webdav(
+                        crate::services::files::lock::WebdavLockOwnerInfo { xml },
                     )
                 });
 
@@ -288,10 +287,10 @@ impl DavLockSystem for DbLockSystem {
                     path: sea_orm::Set(path_str.clone()),
                     // WebDAV 协议层用 token 判定持锁者；业务存储层用 owner_id
                     // 区分“自己的锁”和“其他用户的锁”，否则 Finder 持锁 PUT 会被
-                    // workspace_storage_service 误判为被其他用户锁定。
+                    // workspace::storage 误判为被其他用户锁定。
                     owner_id: sea_orm::Set(Some(self.scope.actor_user_id())),
                     owner_info: sea_orm::Set(
-                        crate::services::lock_service::serialize_resource_lock_owner_info(
+                        crate::services::files::lock::serialize_resource_lock_owner_info(
                             owner_info.as_ref(),
                         )
                         .map_err(|error| {
@@ -312,7 +311,7 @@ impl DavLockSystem for DbLockSystem {
                         tracing::warn!(error = %error, path = %path_str, "failed to create WebDAV lock");
                         DavLockError::Backend
                     })?;
-                crate::services::lock_service::set_entity_locked(
+                crate::services::files::lock::set_entity_locked(
                     &txn,
                     entity_type,
                     entity_id,
@@ -384,7 +383,7 @@ impl DavLockSystem for DbLockSystem {
                 .await
                 .map_err(|_| ())?;
 
-            if let Err(e) = crate::services::lock_service::clear_entity_locked_if_unlocked(
+            if let Err(e) = crate::services::files::lock::clear_entity_locked_if_unlocked(
                 &self.db,
                 lock.entity_type,
                 lock.entity_id,
@@ -688,7 +687,7 @@ async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_l
         tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
         return;
     }
-    if let Err(error) = crate::services::lock_service::clear_entity_locked_if_unlocked(
+    if let Err(error) = crate::services::files::lock::clear_entity_locked_if_unlocked(
         db,
         lock.entity_type,
         lock.entity_id,
@@ -794,8 +793,8 @@ fn deserialize_element(xml: &str) -> Option<Element> {
 }
 
 fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {
-    match crate::services::lock_service::deserialize_resource_lock_owner_info(lock).ok()? {
-        Some(crate::services::lock_service::ResourceLockOwnerInfo::Webdav(payload)) => {
+    match crate::services::files::lock::deserialize_resource_lock_owner_info(lock).ok()? {
+        Some(crate::services::files::lock::ResourceLockOwnerInfo::Webdav(payload)) => {
             Some(payload.xml)
         }
         _ => None,

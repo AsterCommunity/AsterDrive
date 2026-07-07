@@ -9,8 +9,8 @@ use crate::api::response::ApiResponse;
 use crate::db::repository::passkey_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
-use crate::services::{auth_service::Claims, passkey_service};
+use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
+use crate::services::{auth::local::Claims, auth::passkey};
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde_json::json;
 
@@ -20,7 +20,7 @@ use serde_json::json;
     tag = "auth",
     operation_id = "list_passkeys",
     responses(
-        (status = 200, description = "Registered passkeys for current user", body = inline(ApiResponse<Vec<passkey_service::PasskeyInfo>>)),
+        (status = 200, description = "Registered passkeys for current user", body = inline(ApiResponse<Vec<passkey::PasskeyInfo>>)),
         (status = 401, description = "Not authenticated"),
     ),
     security(("bearer" = [])),
@@ -29,7 +29,7 @@ pub async fn list_passkeys(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
 ) -> Result<HttpResponse> {
-    let items = passkey_service::list_passkeys(state.get_ref(), claims.user_id).await?;
+    let items = passkey::list_passkeys(state.get_ref(), claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(items)))
 }
 
@@ -40,7 +40,7 @@ pub async fn list_passkeys(
     operation_id = "start_passkey_registration",
     request_body = PasskeyRegisterStartReq,
     responses(
-        (status = 200, description = "Passkey registration challenge", body = inline(ApiResponse<passkey_service::PasskeyRegisterStartResp>)),
+        (status = 200, description = "Passkey registration challenge", body = inline(ApiResponse<passkey::PasskeyRegisterStartResp>)),
         (status = 401, description = "Not authenticated"),
     ),
     security(("bearer" = [])),
@@ -51,8 +51,7 @@ pub async fn start_registration(
     body: web::Json<PasskeyRegisterStartReq>,
 ) -> Result<HttpResponse> {
     let resp =
-        passkey_service::start_registration(state.get_ref(), claims.user_id, body.name.as_deref())
-            .await?;
+        passkey::start_registration(state.get_ref(), claims.user_id, body.name.as_deref()).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -63,7 +62,7 @@ pub async fn start_registration(
     operation_id = "finish_passkey_registration",
     request_body = PasskeyRegisterFinishReq,
     responses(
-        (status = 200, description = "Passkey registered", body = inline(ApiResponse<passkey_service::PasskeyInfo>)),
+        (status = 200, description = "Passkey registered", body = inline(ApiResponse<passkey::PasskeyInfo>)),
         (status = 400, description = "Invalid passkey registration"),
         (status = 401, description = "Not authenticated"),
     ),
@@ -75,7 +74,7 @@ pub async fn finish_registration(
     claims: web::ReqData<Claims>,
     body: web::Json<PasskeyRegisterFinishReq>,
 ) -> Result<HttpResponse> {
-    let passkey = passkey_service::finish_registration(
+    let passkey = passkey::finish_registration(
         state.get_ref(),
         claims.user_id,
         &body.flow_id,
@@ -85,11 +84,11 @@ pub async fn finish_registration(
     .await?;
     let ctx = AuditContext::from_request(&req, &claims);
     let details = passkey_info_audit_details(&passkey);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserPasskeyRegister,
-        crate::services::audit_service::AuditEntityType::Passkey,
+        audit::AuditAction::UserPasskeyRegister,
+        crate::services::ops::audit::AuditEntityType::Passkey,
         Some(passkey.id),
         Some(&passkey.name),
         || Some(details.clone()),
@@ -106,7 +105,7 @@ pub async fn finish_registration(
     params(("id" = i64, Path, description = "Passkey ID")),
     request_body = PatchPasskeyReq,
     responses(
-        (status = 200, description = "Passkey renamed", body = inline(ApiResponse<passkey_service::PasskeyInfo>)),
+        (status = 200, description = "Passkey renamed", body = inline(ApiResponse<passkey::PasskeyInfo>)),
         (status = 400, description = "Invalid passkey name"),
         (status = 401, description = "Not authenticated"),
         (status = 404, description = "Passkey not found"),
@@ -124,8 +123,7 @@ pub async fn rename_passkey(
     let previous = passkey_repo::find_by_id_for_user(state.writer_db(), id, claims.user_id)
         .await?
         .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
-    let passkey =
-        passkey_service::rename_passkey(state.get_ref(), claims.user_id, id, &body.name).await?;
+    let passkey = passkey::rename_passkey(state.get_ref(), claims.user_id, id, &body.name).await?;
     let ctx = AuditContext::from_request(&req, &claims);
     let details = json!({
         "passkey_id": passkey.id,
@@ -134,11 +132,11 @@ pub async fn rename_passkey(
         "backup_eligible": passkey.backup_eligible,
         "backed_up": passkey.backed_up,
     });
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserPasskeyRename,
-        crate::services::audit_service::AuditEntityType::Passkey,
+        audit::AuditAction::UserPasskeyRename,
+        crate::services::ops::audit::AuditEntityType::Passkey,
         Some(passkey.id),
         Some(&passkey.name),
         || Some(details.clone()),
@@ -171,7 +169,7 @@ pub async fn delete_passkey(
         .await?
         .ok_or_else(|| AsterError::record_not_found(format!("passkey #{id}")))?;
     let passkey_name = passkey.name.clone();
-    if !passkey_service::delete_passkey(state.get_ref(), claims.user_id, id).await? {
+    if !passkey::delete_passkey(state.get_ref(), claims.user_id, id).await? {
         return Err(AsterError::record_not_found(format!("passkey #{id}")));
     }
     let ctx = AuditContext::from_request(&req, &claims);
@@ -182,11 +180,11 @@ pub async fn delete_passkey(
         "backed_up": passkey.backed_up,
         "last_used_at": passkey.last_used_at,
     });
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserPasskeyDelete,
-        crate::services::audit_service::AuditEntityType::Passkey,
+        audit::AuditAction::UserPasskeyDelete,
+        crate::services::ops::audit::AuditEntityType::Passkey,
         Some(id),
         Some(&passkey_name),
         || Some(details.clone()),
@@ -202,7 +200,7 @@ pub async fn delete_passkey(
     operation_id = "start_passkey_login",
     request_body = PasskeyLoginStartReq,
     responses(
-        (status = 200, description = "Passkey login challenge", body = inline(ApiResponse<passkey_service::PasskeyLoginStartResp>)),
+        (status = 200, description = "Passkey login challenge", body = inline(ApiResponse<passkey::PasskeyLoginStartResp>)),
         (status = 401, description = "Invalid credentials"),
     ),
 )]
@@ -216,7 +214,7 @@ pub async fn start_login(
         state.get_ref().runtime_config(),
         RequestSourceMode::Required,
     )?;
-    let resp = passkey_service::start_login(
+    let resp = passkey::start_login(
         state.get_ref(),
         body.identifier.as_deref(),
         body.conditional.unwrap_or(false),
@@ -250,7 +248,7 @@ pub async fn finish_login(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    let result = passkey_service::finish_login(
+    let result = passkey::finish_login(
         state.get_ref(),
         &body.flow_id,
         body.credential.clone(),
@@ -264,11 +262,11 @@ pub async fn finish_login(
         "name": &result.passkey_name,
         "password_change_required": result.login.password_change_required,
     });
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &audit_ctx,
-        audit_service::AuditAction::UserPasskeyLogin,
-        audit_service::AuditEntityType::Passkey,
+        audit::AuditAction::UserPasskeyLogin,
+        audit::AuditEntityType::Passkey,
         Some(result.passkey_id),
         Some(&result.passkey_name),
         || Some(details.clone()),
@@ -283,7 +281,7 @@ pub async fn finish_login(
     )
 }
 
-fn passkey_info_audit_details(passkey: &passkey_service::PasskeyInfo) -> serde_json::Value {
+fn passkey_info_audit_details(passkey: &passkey::PasskeyInfo) -> serde_json::Value {
     json!({
         "passkey_id": passkey.id,
         "name": &passkey.name,

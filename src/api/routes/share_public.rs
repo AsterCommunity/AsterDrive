@@ -15,12 +15,17 @@ use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::AuditRequestInfo;
-use crate::services::file_service::ResolvedDownloadRange;
+use crate::services::files::file::ResolvedDownloadRange;
+use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::{
-    archive_preview_service, direct_link_service, file_service, media_metadata_service,
-    preview_link_service, profile_service, share_service, share_stream_service,
-    stream_ticket_service, task_service,
+    files::archive::preview,
+    files::{direct_link, file, preview_link},
+    media::metadata,
+    share,
+    share::stream,
+    share::ticket,
+    task,
+    user::profile,
 };
 use actix_governor::Governor;
 use actix_web::http::header;
@@ -35,12 +40,12 @@ fn thumbnail_pending_response() -> HttpResponse {
         .finish()
 }
 
-fn media_metadata_response(lookup: media_metadata_service::MediaMetadataLookup) -> HttpResponse {
+fn media_metadata_response(lookup: metadata::MediaMetadataLookup) -> HttpResponse {
     match lookup {
-        media_metadata_service::MediaMetadataLookup::Ready(info) => {
+        metadata::MediaMetadataLookup::Ready(info) => {
             HttpResponse::Ok().json(ApiResponse::ok(info))
         }
-        media_metadata_service::MediaMetadataLookup::Pending => HttpResponse::Accepted()
+        metadata::MediaMetadataLookup::Pending => HttpResponse::Accepted()
             .insert_header((header::RETRY_AFTER, "2"))
             .json(ApiResponse::<()>::ok_empty()),
     }
@@ -81,12 +86,12 @@ fn share_cookie_value(req: &actix_web::HttpRequest, token: &str) -> Option<Strin
 fn share_cookie_binding(
     req: &actix_web::HttpRequest,
     state: &PrimaryAppState,
-) -> share_service::ShareCookieBinding {
+) -> share::ShareCookieBinding {
     let request_info = AuditRequestInfo::from_request_with_trusted_proxies(
         req,
         &state.config().network_trust.trusted_proxies,
     );
-    share_service::ShareCookieBinding::from_request_parts(
+    share::ShareCookieBinding::from_request_parts(
         request_info.user_agent.as_deref(),
         request_info.ip_address.as_deref(),
     )
@@ -99,8 +104,7 @@ async fn check_share_cookie(
 ) -> Result<()> {
     let cookie_value = share_cookie_value(req, token);
     let binding = share_cookie_binding(req, state);
-    share_service::check_share_password_cookie(state, token, cookie_value.as_deref(), &binding)
-        .await
+    share::check_share_password_cookie(state, token, cookie_value.as_deref(), &binding).await
 }
 
 async fn check_share_cookie_ignoring_download_limit(
@@ -110,7 +114,7 @@ async fn check_share_cookie_ignoring_download_limit(
 ) -> Result<()> {
     let cookie_value = share_cookie_value(req, token);
     let binding = share_cookie_binding(req, state);
-    share_service::check_share_password_cookie_ignoring_download_limit(
+    share::check_share_password_cookie_ignoring_download_limit(
         state,
         token,
         cookie_value.as_deref(),
@@ -127,8 +131,8 @@ async fn shared_file_range(
     if !req.headers().contains_key(header::RANGE) {
         return Ok(None);
     }
-    let (_, file) = share_service::load_preview_shared_file(state, token).await?;
-    file_service::parse_range_header(req.headers().get(header::RANGE), file.size)
+    let (_, file) = share::load_preview_shared_file(state, token).await?;
+    file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
 async fn shared_folder_file_range(
@@ -140,8 +144,8 @@ async fn shared_folder_file_range(
     if !req.headers().contains_key(header::RANGE) {
         return Ok(None);
     }
-    let (_, file) = share_service::load_preview_shared_folder_file(state, token, file_id).await?;
-    file_service::parse_range_header(req.headers().get(header::RANGE), file.size)
+    let (_, file) = share::load_preview_shared_folder_file(state, token, file_id).await?;
+    file::parse_range_header(req.headers().get(header::RANGE), file.size)
 }
 
 /// Extension methods for `DirectLinkQuery`.
@@ -256,7 +260,7 @@ pub fn direct_routes(
     operation_id = "get_share_info",
     params(("token" = String, Path, description = "Share token")),
     responses(
-        (status = 200, description = "Share info", body = inline(ApiResponse<share_service::SharePublicInfo>)),
+        (status = 200, description = "Share info", body = inline(ApiResponse<share::SharePublicInfo>)),
         (status = 404, description = "Share not found or expired"),
     ),
 )]
@@ -264,7 +268,7 @@ pub async fn get_share_info(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let info = share_service::get_share_info(state.get_ref(), &path).await?;
+    let info = share::get_share_info(state.get_ref(), &path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
 }
 
@@ -289,8 +293,7 @@ pub async fn verify_password(
 ) -> Result<HttpResponse> {
     let binding = share_cookie_binding(&req, state.get_ref());
     let result =
-        share_service::verify_password_and_sign(state.get_ref(), &path, &body.password, &binding)
-            .await?;
+        share::verify_password_and_sign(state.get_ref(), &path, &body.password, &binding).await?;
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.get_ref().runtime_config());
     let cookie = build_share_cookie(
         path.as_str(),
@@ -310,7 +313,7 @@ pub async fn verify_password(
     operation_id = "create_shared_file_preview_link",
     params(("token" = String, Path, description = "Share token")),
     responses(
-        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 403, description = "Password required"),
         (status = 404, description = "Share not found"),
     ),
@@ -324,10 +327,10 @@ pub async fn create_preview_link(
     check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let link = preview_link_service::create_token_for_shared_file_for_origin(
+    let link = preview_link::create_token_for_shared_file_for_origin(
         state.get_ref(),
         &token,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -343,7 +346,7 @@ pub async fn create_preview_link(
     operation_id = "get_shared_file_archive_preview",
     params(("token" = String, Path, description = "Share token"), ArchivePreviewQuery),
     responses(
-        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -360,14 +363,8 @@ pub async fn archive_preview(
     let token = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    match archive_preview_service::preview_shared_file(
-        state.get_ref(),
-        &token,
-        query.filename_encoding,
-    )
-    .await?
-    {
-        archive_preview_service::ArchivePreviewManifestLookup::Ready(manifest) => {
+    match preview::preview_shared_file(state.get_ref(), &token, query.filename_encoding).await? {
+        preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             files::archive_preview_manifest_response(
                 manifest,
                 req.headers()
@@ -376,7 +373,7 @@ pub async fn archive_preview(
                 "public, max-age=0, must-revalidate",
             )
         }
-        archive_preview_service::ArchivePreviewManifestLookup::Pending => {
+        preview::ArchivePreviewManifestLookup::Pending => {
             Ok(files::archive_preview_pending_response())
         }
     }
@@ -390,7 +387,7 @@ pub async fn archive_preview(
     params(("token" = String, Path, description = "Share token")),
     request_body = ArchiveDownloadReq,
     responses(
-        (status = 200, description = "Shared archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 200, description = "Shared archive download ticket", body = inline(ApiResponse<ticket::StreamTicketInfo>)),
         (status = 400, description = "Invalid archive selection"),
         (status = 403, description = "Password required, download limit, file outside shared folder, or archive downloads disabled"),
         (status = 404, description = "Share not found"),
@@ -408,10 +405,10 @@ pub async fn archive_download(
 
     let body = body.into_inner();
     validate_request(&body)?;
-    let ticket = stream_ticket_service::create_shared_archive_download_ticket(
+    let ticket = ticket::create_shared_archive_download_ticket(
         state.get_ref(),
         &token,
-        &task_service::types::CreateArchiveTaskParams {
+        &task::types::CreateArchiveTaskParams {
             file_ids: body.file_ids,
             folder_ids: body.folder_ids,
             archive_name: body.archive_name,
@@ -445,13 +442,9 @@ pub async fn archive_download_stream(
     ensure_share_archive_download_enabled(state.get_ref())?;
     let (token, ticket) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
-    let params = stream_ticket_service::resolve_shared_archive_download_ticket(
-        state.get_ref(),
-        &token,
-        &ticket,
-    )
-    .await?;
-    task_service::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
+    let params =
+        ticket::resolve_shared_archive_download_ticket(state.get_ref(), &token, &ticket).await?;
+    task::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
 }
 
 #[api_docs_macros::path(
@@ -461,7 +454,7 @@ pub async fn archive_download_stream(
     operation_id = "create_shared_file_stream_session",
     params(("token" = String, Path, description = "Share token")),
     responses(
-        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share_stream_service::ShareStreamSessionInfo>)),
+        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share::stream::ShareStreamSessionInfo>)),
         (status = 403, description = "Password required or download limit"),
         (status = 404, description = "Share not found"),
     ),
@@ -475,10 +468,10 @@ pub async fn create_stream_session(
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let session = share_stream_service::create_session_for_shared_file_for_origin(
+    let session = stream::create_session_for_shared_file_for_origin(
         state.get_ref(),
         &token,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -520,11 +513,11 @@ pub async fn download_shared(
     let range = shared_file_range(state.get_ref(), path.as_str(), &req).await?;
     let has_range = range.is_some();
 
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
-        share_service::download_shared_file_with_disposition_and_range(
+        share::download_shared_file_with_disposition_and_range(
             state.get_ref(),
             &path,
             files::access::download_disposition_from_query(&query)?,
@@ -535,7 +528,7 @@ pub async fn download_shared(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 pub async fn download_direct(
@@ -545,15 +538,14 @@ pub async fn download_direct(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file =
-        direct_link_service::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file = direct_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "direct_link",
         has_range,
-        direct_link_service::download_file(
+        direct_link::download_file(
             state.get_ref(),
             &token,
             &filename,
@@ -565,7 +557,7 @@ pub async fn download_direct(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 pub async fn download_preview(
@@ -574,15 +566,14 @@ pub async fn download_preview(
     req: actix_web::HttpRequest,
 ) -> Result<HttpResponse> {
     let (token, filename) = path.into_inner();
-    let file =
-        preview_link_service::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file = preview_link::resolve_file_for_download(state.get_ref(), &token, &filename).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "preview_link",
         has_range,
-        preview_link_service::download_file(
+        preview_link::download_file(
             state.get_ref(),
             &token,
             &filename,
@@ -593,7 +584,7 @@ pub async fn download_preview(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -620,29 +611,18 @@ pub async fn stream_shared_video(
 ) -> Result<HttpResponse> {
     let (token, session_token, filename) = path.into_inner();
     check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
-    let file = share_stream_service::resolve_file_for_stream(
-        state.get_ref(),
-        &token,
-        &session_token,
-        &filename,
-    )
-    .await?;
-    let range = file_service::parse_range_header(req.headers().get(header::RANGE), file.size)?;
+    let file =
+        stream::resolve_file_for_stream(state.get_ref(), &token, &session_token, &filename).await?;
+    let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
     let has_range = range.is_some();
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share_stream",
         has_range,
-        share_stream_service::stream_file(
-            state.get_ref(),
-            &token,
-            &session_token,
-            &filename,
-            range,
-        ),
+        stream::stream_file(state.get_ref(), &token, &session_token, &filename, range),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -673,11 +653,11 @@ pub async fn download_shared_folder_file_handler(
     let range = shared_folder_file_range(state.get_ref(), &token, file_id, &req).await?;
     let has_range = range.is_some();
 
-    let outcome = file_service::record_download_result(
+    let outcome = file::record_download_result(
         state.get_ref(),
         "share",
         has_range,
-        share_service::download_shared_folder_file_with_disposition_and_range(
+        share::download_shared_folder_file_with_disposition_and_range(
             state.get_ref(),
             &token,
             file_id,
@@ -689,7 +669,7 @@ pub async fn download_shared_folder_file_handler(
         ),
     )
     .await?;
-    Ok(file_service::outcome_to_response(outcome))
+    Ok(file::outcome_to_response(outcome))
 }
 
 #[api_docs_macros::path(
@@ -702,7 +682,7 @@ pub async fn download_shared_folder_file_handler(
         ("file_id" = i64, Path, description = "File ID inside shared folder")
     ),
     responses(
-        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::preview_link_service::PreviewLinkInfo>)),
+        (status = 200, description = "Preview link", body = inline(ApiResponse<crate::services::files::preview_link::PreviewLinkInfo>)),
         (status = 403, description = "Password required or file outside shared folder"),
         (status = 404, description = "Share or file not found"),
     )
@@ -716,11 +696,11 @@ pub async fn create_folder_file_preview_link(
     check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let link = preview_link_service::create_token_for_shared_folder_file_for_origin(
+    let link = preview_link::create_token_for_shared_folder_file_for_origin(
         state.get_ref(),
         &token,
         file_id,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -740,7 +720,7 @@ pub async fn create_folder_file_preview_link(
         ArchivePreviewQuery
     ),
     responses(
-        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<archive_preview_service::ArchivePreviewManifest>)),
+        (status = 200, description = "Archive preview manifest", body = inline(ApiResponse<preview::ArchivePreviewManifest>)),
         (status = 202, description = "Archive preview generation has been queued"),
         (status = 304, description = "Archive preview not modified"),
         (status = 400, description = "Not a supported archive or archive rejected by limits"),
@@ -757,7 +737,7 @@ pub async fn folder_file_archive_preview(
     let (token, file_id) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    match archive_preview_service::preview_shared_folder_file(
+    match preview::preview_shared_folder_file(
         state.get_ref(),
         &token,
         file_id,
@@ -765,7 +745,7 @@ pub async fn folder_file_archive_preview(
     )
     .await?
     {
-        archive_preview_service::ArchivePreviewManifestLookup::Ready(manifest) => {
+        preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             files::archive_preview_manifest_response(
                 manifest,
                 req.headers()
@@ -774,7 +754,7 @@ pub async fn folder_file_archive_preview(
                 "public, max-age=0, must-revalidate",
             )
         }
-        archive_preview_service::ArchivePreviewManifestLookup::Pending => {
+        preview::ArchivePreviewManifestLookup::Pending => {
             Ok(files::archive_preview_pending_response())
         }
     }
@@ -790,7 +770,7 @@ pub async fn folder_file_archive_preview(
         ("file_id" = i64, Path, description = "File ID inside shared folder")
     ),
     responses(
-        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share_stream_service::ShareStreamSessionInfo>)),
+        (status = 200, description = "Stream session", body = inline(ApiResponse<crate::services::share::stream::ShareStreamSessionInfo>)),
         (status = 403, description = "Password required or file outside shared folder"),
         (status = 404, description = "Share or file not found"),
     )
@@ -804,11 +784,11 @@ pub async fn create_folder_file_stream_session(
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
-    let session = share_stream_service::create_session_for_shared_folder_file_for_origin(
+    let session = stream::create_session_for_shared_folder_file_for_origin(
         state.get_ref(),
         &token,
         file_id,
-        preview_link_service::RequestOrigin {
+        preview_link::RequestOrigin {
             scheme: &scheme,
             host: &host,
         },
@@ -824,7 +804,7 @@ pub async fn create_folder_file_stream_session(
     operation_id = "list_shared_content",
     params(("token" = String, Path, description = "Share token"), FolderListQuery),
     responses(
-        (status = 200, description = "Folder contents", body = inline(ApiResponse<crate::services::folder_service::FolderContents>)),
+        (status = 200, description = "Folder contents", body = inline(ApiResponse<crate::services::files::folder::FolderContents>)),
         (status = 403, description = "Password required"),
         (status = 404, description = "Share not found"),
     ),
@@ -837,8 +817,8 @@ pub async fn list_shared_content(
 ) -> Result<HttpResponse> {
     check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
 
-    let params = crate::services::folder_service::FolderListParams::from(&query.0);
-    let contents = share_service::list_shared_folder(state.get_ref(), &path, &params).await?;
+    let params = crate::services::files::folder::FolderListParams::from(&query.0);
+    let contents = share::list_shared_folder(state.get_ref(), &path, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
@@ -853,7 +833,7 @@ pub async fn list_shared_content(
         FolderListQuery,
     ),
     responses(
-        (status = 200, description = "Subfolder contents", body = inline(ApiResponse<crate::services::folder_service::FolderContents>)),
+        (status = 200, description = "Subfolder contents", body = inline(ApiResponse<crate::services::files::folder::FolderContents>)),
         (status = 403, description = "Password required or folder outside shared scope"),
         (status = 404, description = "Share or folder not found"),
     )
@@ -867,9 +847,9 @@ pub async fn list_shared_subfolder_content(
     let (token, folder_id) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let params = crate::services::folder_service::FolderListParams::from(&query.0);
+    let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents =
-        share_service::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
+        share::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
 }
 
@@ -896,8 +876,8 @@ pub async fn shared_avatar(
     let (token, size) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let bytes = share_service::get_share_avatar_bytes(state.get_ref(), &token, size).await?;
-    Ok(profile_service::avatar_image_response(bytes))
+    let bytes = share::get_share_avatar_bytes(state.get_ref(), &token, size).await?;
+    Ok(profile::avatar_image_response(bytes))
 }
 
 #[api_docs_macros::path(
@@ -924,7 +904,7 @@ pub async fn shared_thumbnail(
 ) -> Result<HttpResponse> {
     check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
 
-    let result = share_service::get_shared_thumbnail(state.get_ref(), &path).await?;
+    let result = share::get_shared_thumbnail(state.get_ref(), &path).await?;
     let if_none_match = req
         .headers()
         .get("If-None-Match")
@@ -965,7 +945,7 @@ pub async fn shared_image_preview(
     let token = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let result = share_service::get_shared_image_preview(state.get_ref(), &token).await?;
+    let result = share::get_shared_image_preview(state.get_ref(), &token).await?;
     let if_none_match = req
         .headers()
         .get("If-None-Match")
@@ -988,7 +968,7 @@ pub async fn shared_image_preview(
     operation_id = "shared_file_media_metadata",
     params(("token" = String, Path, description = "Share token")),
     responses(
-        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<metadata::MediaMetadataInfo>)),
         (status = 202, description = "Media metadata extraction in progress"),
         (status = 403, description = "Password required"),
         (status = 404, description = "Share or file not found"),
@@ -1002,7 +982,7 @@ pub async fn shared_media_metadata(
     let token = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let lookup = share_service::get_shared_media_metadata(state.get_ref(), &token).await?;
+    let lookup = share::get_shared_media_metadata(state.get_ref(), &token).await?;
     Ok(media_metadata_response(lookup))
 }
 
@@ -1034,8 +1014,7 @@ pub async fn shared_folder_file_thumbnail(
     let (token, file_id) = path.into_inner();
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
-    let result =
-        share_service::get_shared_folder_file_thumbnail(state.get_ref(), &token, file_id).await?;
+    let result = share::get_shared_folder_file_thumbnail(state.get_ref(), &token, file_id).await?;
     let if_none_match = req
         .headers()
         .get("If-None-Match")
@@ -1061,7 +1040,7 @@ pub async fn shared_folder_file_thumbnail(
         ("file_id" = i64, Path, description = "File ID inside shared folder")
     ),
     responses(
-        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<metadata::MediaMetadataInfo>)),
         (status = 202, description = "Media metadata extraction in progress"),
         (status = 403, description = "Password required or file outside shared scope"),
         (status = 404, description = "Share or file not found"),
@@ -1076,8 +1055,7 @@ pub async fn shared_folder_file_media_metadata(
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let lookup =
-        share_service::get_shared_folder_file_media_metadata(state.get_ref(), &token, file_id)
-            .await?;
+        share::get_shared_folder_file_media_metadata(state.get_ref(), &token, file_id).await?;
     Ok(media_metadata_response(lookup))
 }
 
@@ -1110,8 +1088,7 @@ pub async fn shared_folder_file_image_preview(
     check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let result =
-        share_service::get_shared_folder_file_image_preview(state.get_ref(), &token, file_id)
-            .await?;
+        share::get_shared_folder_file_image_preview(state.get_ref(), &token, file_id).await?;
     let if_none_match = req
         .headers()
         .get("If-None-Match")
@@ -1135,7 +1112,7 @@ mod tests {
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
     use crate::entities::{file, file_blob, folder, storage_policy, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-    use crate::services::{mail_service, media_processing_service, share_service};
+    use crate::services::{mail::sender, media::processing, share};
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
     use crate::types::{
@@ -1326,10 +1303,10 @@ mod tests {
         config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
-            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            crate::services::share::spawn_detached_share_download_rollback_queue(
                 db.clone(),
                 crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
             );
@@ -1342,7 +1319,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:
@@ -1407,10 +1384,10 @@ mod tests {
     #[actix_web::test]
     async fn shared_image_preview_enqueues_background_task_on_cache_miss() {
         let (state, user, file, _) = build_share_image_preview_route_state().await;
-        let share = share_service::create_share(
+        let share = share::create_share(
             &state,
             user.id,
-            share_service::ShareTarget::file(file.id),
+            share::ShareTarget::file(file.id),
             None,
             None,
             0,
@@ -1450,10 +1427,10 @@ mod tests {
     #[actix_web::test]
     async fn shared_image_preview_returns_cached_webp_and_honors_if_none_match() {
         let (state, user, file, _) = build_share_image_preview_route_state().await;
-        let share = share_service::create_share(
+        let share = share::create_share(
             &state,
             user.id,
-            share_service::ShareTarget::file(file.id),
+            share::ShareTarget::file(file.id),
             None,
             None,
             0,
@@ -1463,14 +1440,9 @@ mod tests {
         let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
             .await
             .expect("share image preview route blob should load");
-        media_processing_service::generate_and_store_image_preview(
-            &state,
-            &blob,
-            &file.name,
-            &file.mime_type,
-        )
-        .await
-        .expect("share image preview route cache should pre-generate");
+        processing::generate_and_store_image_preview(&state, &blob, &file.name, &file.mime_type)
+            .await
+            .expect("share image preview route cache should pre-generate");
         let app = init_share_app(state.clone()).await;
 
         let response = test::call_service(
@@ -1499,10 +1471,10 @@ mod tests {
             .to_string();
         let expected_etag = format!(
             "\"{}\"",
-            media_processing_service::image_preview_etag_value_for(
+            processing::image_preview_etag_value_for(
                 &image_preview_blob_hash(),
-                crate::services::thumbnail_service::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
-                crate::services::thumbnail_service::CURRENT_IMAGE_PREVIEW_VERSION,
+                crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
+                crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
             )
         );
         assert_eq!(etag, expected_etag);
@@ -1534,10 +1506,10 @@ mod tests {
     #[actix_web::test]
     async fn shared_folder_file_image_preview_enqueues_background_task_on_cache_miss() {
         let (state, user, file, folder) = build_share_image_preview_route_state().await;
-        let share = share_service::create_share(
+        let share = share::create_share(
             &state,
             user.id,
-            share_service::ShareTarget::folder(folder.id),
+            share::ShareTarget::folder(folder.id),
             None,
             None,
             0,

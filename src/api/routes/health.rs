@@ -3,7 +3,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse, SystemInfoResponse};
 use crate::runtime::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
-use crate::services::health_service;
+use crate::services::ops::health;
 use actix_web::{HttpResponse, web};
 
 const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
@@ -65,22 +65,22 @@ pub async fn health() -> HttpResponse {
     ),
 )]
 pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
-    if let Err(error) = health_service::ping_database(state.get_ref().writer_db()).await {
+    if let Err(error) = health::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
 
-    match health_service::check_primary_ready(state.get_ref()).await {
+    match health::check_primary_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
 }
 
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
-    if let Err(error) = health_service::ping_database(state.get_ref().writer_db()).await {
+    if let Err(error) = health::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
 
-    match health_service::check_follower_ready(state.get_ref()).await {
+    match health::check_follower_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
         Err(error) => ready_storage_error(error),
     }
@@ -160,7 +160,7 @@ mod tests {
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::storage_policy;
     use crate::runtime::PrimaryAppState;
-    use crate::services::mail_service;
+    use crate::services::mail::sender;
     use crate::storage::BlobMetadata;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
     use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
@@ -294,10 +294,10 @@ mod tests {
         })
         .await;
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-            crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
-            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            crate::services::share::spawn_detached_share_download_rollback_queue(
                 db.clone(),
                 crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
             );
@@ -310,7 +310,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             metrics: crate::metrics_core::NoopMetrics::arc(),
-            mail_sender: mail_service::runtime_sender(runtime_config),
+            mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,
             background_task_dispatch_wakeup:

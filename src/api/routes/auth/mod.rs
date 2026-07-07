@@ -14,7 +14,7 @@ use crate::api::request_auth::access_token;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{auth_service, storage_change_service};
+use crate::services::{auth::local, events::storage_change};
 use actix_governor::Governor;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
@@ -52,10 +52,10 @@ pub use self::session::{
     delete_other_sessions, delete_session, get_storage_events, list_sessions, login, logout, me,
     put_password, refresh,
 };
-pub use crate::services::profile_service::{AvatarInfo, UserProfileInfo};
-pub use crate::services::user_service::{
+pub use crate::services::user::account::{
     MePartialResponse, MeResponse, UpdatePreferencesReq, UserInfo, UserPreferences,
 };
+pub use crate::services::user::profile::{AvatarInfo, UserProfileInfo};
 pub use crate::types::{
     AvatarSource, BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode,
 };
@@ -289,7 +289,7 @@ async fn request_has_active_access_session(state: &PrimaryAppState, req: &HttpRe
         return false;
     };
 
-    auth_service::authenticate_access_token(state, &token)
+    local::authenticate_access_token(state, &token)
         .await
         .is_ok()
 }
@@ -324,7 +324,7 @@ fn contact_verification_redirect_response(
         .finish()
 }
 
-fn storage_event_frame(event: &storage_change_service::StorageChangeEvent) -> Option<Bytes> {
+fn storage_event_frame(event: &storage_change::StorageChangeEvent) -> Option<Bytes> {
     serde_json::to_string(event)
         .map(|json| Bytes::from(format!("data: {json}\n\n")))
         .map_err(|e| tracing::warn!("failed to serialize storage change event: {e}"))

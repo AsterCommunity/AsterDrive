@@ -134,7 +134,7 @@ fn validate_batch_selection(
 ) -> std::result::Result<(), ValidationError> {
     validate_positive_ids(file_ids, "file_ids")?;
     validate_positive_ids(folder_ids, "folder_ids")?;
-    crate::services::batch_service::validate_batch_ids(file_ids, folder_ids)
+    crate::services::files::batch::validate_batch_ids(file_ids, folder_ids)
         .map_err(|error| crate::api::dto::validation::message_validation_error(error.message()))
 }
 

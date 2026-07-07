@@ -390,11 +390,11 @@ async fn create_policy_upload_session(
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
-    use aster_drive::services::{auth_service, file_service, policy_service, user_service};
+    use aster_drive::services::{auth::local, files::file, storage_policy::policy, user::account};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "policysnapsw",
         "policy-snapshot-switch@example.com",
@@ -403,17 +403,17 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    let initial_policy = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let initial_policy = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
 
     let alternate_base_path = format!("/tmp/asterdrive-policy-switch-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&alternate_base_path).unwrap();
-    let alternate_policy = policy_service::create(
+    let alternate_policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Alternate Local".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Local,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -438,14 +438,14 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
 
     assert_ne!(alternate_policy.id, initial_policy.id);
 
-    let alternate_group = policy_service::create_group(
+    let alternate_group = policy::create_group(
         &state,
-        policy_service::CreateStoragePolicyGroupInput {
+        policy::CreateStoragePolicyGroupInput {
             name: "Alternate Group".to_string(),
             description: Some("Snapshot switch target".to_string()),
             is_enabled: true,
             is_default: false,
-            items: vec![policy_service::StoragePolicyGroupItemInput {
+            items: vec![policy::StoragePolicyGroupItemInput {
                 policy_id: alternate_policy.id,
                 priority: 1,
                 min_file_size: 0,
@@ -456,9 +456,9 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,
@@ -476,7 +476,7 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
         Some(alternate_policy.id)
     );
 
-    let resolved_after_switch = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let resolved_after_switch = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap();
     assert_eq!(resolved_after_switch.id, alternate_policy.id);
@@ -485,11 +485,11 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
 #[actix_web::test]
 async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::{auth_service, policy_service};
+    use aster_drive::services::{auth::local, storage_policy::policy};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "policybackfill",
         "policy-backfill@example.com",
@@ -506,7 +506,7 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
     user_active.policy_group_id = Set(None);
     user_active.update(state.writer_db()).await.unwrap();
 
-    policy_service::ensure_policy_groups_seeded(state.writer_db())
+    policy::ensure_policy_groups_seeded(state.writer_db())
         .await
         .unwrap();
 
@@ -614,7 +614,7 @@ async fn test_policy_crud() {
 
 #[actix_web::test]
 async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::{
         DriverType, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
         StoragePolicyOptions, parse_storage_policy_options,
@@ -625,11 +625,11 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "COS via S3".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::S3,
                 endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
                 bucket: "bucket-1250000000".to_string(),
@@ -706,18 +706,18 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
 
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_bucket_change() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Bucket Guard S3".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::S3,
                 endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
                 bucket: "bucket-1250000000".to_string(),
@@ -768,7 +768,7 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
 
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -780,11 +780,11 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
         uuid::Uuid::new_v4()
     );
     std::fs::create_dir_all(&base_path).unwrap();
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Local Source".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Local,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -835,7 +835,7 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
 
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -843,11 +843,11 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Unsupported Target S3".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::S3,
                 endpoint: "https://s3.amazonaws.com".to_string(),
                 bucket: "bucket-a".to_string(),
@@ -903,7 +903,7 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
 
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -911,11 +911,11 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Active Session S3".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::S3,
                 endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
                 bucket: "bucket-1250000000".to_string(),
@@ -985,7 +985,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
 
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
-    use aster_drive::services::policy_service;
+    use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -993,11 +993,11 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Expired Session S3".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::S3,
                 endpoint: "https://cos.ap-guangzhou.myqcloud.com".to_string(),
                 bucket: "bucket-1250000000".to_string(),
@@ -1175,7 +1175,7 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
 async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
-    use aster_drive::services::task_service;
+    use aster_drive::services::task;
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -1272,7 +1272,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     active.next_run_at = Set(Utc::now() - Duration::seconds(1));
     active.update(&db).await.unwrap();
 
-    let stats = task_service::dispatch_due(&state).await.unwrap();
+    let stats = task::dispatch_due(&state).await.unwrap();
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.succeeded, 1);
     assert!(
@@ -1293,7 +1293,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
 #[actix_web::test]
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
-    use aster_drive::services::{file_service, policy_service, user_service};
+    use aster_drive::services::{files::file, storage_policy::policy, user::account};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -1307,11 +1307,11 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
 
     let base_path = format!("/tmp/asterdrive-policy-force-blob-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&base_path).unwrap();
-    let policy = policy_service::create(
+    let policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Blob Guard Policy".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Local,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -1334,14 +1334,14 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     .await
     .unwrap();
 
-    let group = policy_service::create_group(
+    let group = policy::create_group(
         &state,
-        policy_service::CreateStoragePolicyGroupInput {
+        policy::CreateStoragePolicyGroupInput {
             name: "Blob Guard Group".to_string(),
             description: None,
             is_enabled: true,
             is_default: false,
-            items: vec![policy_service::StoragePolicyGroupItemInput {
+            items: vec![policy::StoragePolicyGroupItemInput {
                 policy_id: policy.id,
                 priority: 1,
                 min_file_size: 0,
@@ -1352,9 +1352,9 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     .await
     .unwrap();
 
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,
@@ -1377,10 +1377,10 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     tokio::fs::write(&temp_path, b"blob reference")
         .await
         .unwrap();
-    let file = file_service::store_from_temp(
+    let file = file::store_from_temp(
         &state,
         user.id,
-        file_service::StoreFromTempRequest::new(
+        file::StoreFromTempRequest::new(
             None,
             "blob-reference.txt",
             &temp_path,
@@ -1396,9 +1396,9 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
         .await
         .unwrap()
         .expect("default policy group should exist");
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,
@@ -1411,9 +1411,7 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     .await
     .unwrap();
 
-    policy_service::delete_group(&state, group.id)
-        .await
-        .unwrap();
+    policy::delete_group(&state, group.id).await.unwrap();
 
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/admin/policies/{}?force=true", policy.id))
@@ -2070,10 +2068,10 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
 
 #[actix_web::test]
 async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_default() {
-    use aster_drive::services::auth_service;
+    use aster_drive::services::auth::local;
 
     let state = common::setup().await;
-    let admin_user = auth_service::register(
+    let admin_user = local::register(
         &state,
         "pgmigrate-admin",
         "pgmigrate-admin@example.com",
@@ -2081,7 +2079,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
     )
     .await
     .unwrap();
-    let user_with_source_only = auth_service::register(
+    let user_with_source_only = local::register(
         &state,
         "pgmigrate1",
         "pgmigrate1@example.com",
@@ -2089,7 +2087,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
     )
     .await
     .unwrap();
-    let user_with_existing_target = auth_service::register(
+    let user_with_existing_target = local::register(
         &state,
         "pgmigrate2",
         "pgmigrate2@example.com",
@@ -2478,11 +2476,11 @@ async fn test_cannot_unset_only_default_policy() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_without_user_policy_group() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "nogroup-user",
         "nogroup-user@example.com",
@@ -2504,7 +2502,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E030");
@@ -2514,11 +2512,11 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::{auth_service, file_service};
+    use aster_drive::services::{auth::local, files::file};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "disabledgrpusr",
         "disabled-group-user@example.com",
@@ -2584,7 +2582,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 0)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 0)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E005");
@@ -2594,12 +2592,12 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
-    use aster_drive::services::{auth_service, file_service, policy_service};
+    use aster_drive::services::{auth::local, files::file, storage_policy::policy};
     use aster_drive::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = auth_service::register(
+    let user = local::register(
         &state,
         "gappolicyuser",
         "gap-policy-user@example.com",
@@ -2614,11 +2612,11 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
         .unwrap();
     let overflow_path = format!("/tmp/asterdrive-gap-policy-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&overflow_path).unwrap();
-    let overflow_policy = policy_service::create(
+    let overflow_policy = policy::create(
         &state,
-        policy_service::CreateStoragePolicyInput {
+        policy::CreateStoragePolicyInput {
             name: "Gap Overflow Policy".to_string(),
-            connection: policy_service::StoragePolicyConnectionInput {
+            connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Local,
                 endpoint: String::new(),
                 bucket: String::new(),
@@ -2689,7 +2687,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
         .await
         .unwrap();
 
-    let err = file_service::resolve_policy_for_size(&state, user.id, None, 15)
+    let err = file::resolve_policy_for_size(&state, user.id, None, 15)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E005");
@@ -3607,16 +3605,16 @@ async fn test_policy_create_rejects_remote_node_for_non_remote_policy_with_stabl
 
 #[actix_web::test]
 async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
-    use aster_drive::services::managed_follower_service;
+    use aster_drive::services::remote::remote_node;
     use aster_drive::types::RemoteNodeTransportMode;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let disabled_node = managed_follower_service::create(
+    let disabled_node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "disabled-policy-node".to_string(),
             base_url: "https://disabled-policy-node.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -3644,9 +3642,9 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         ApiErrorCode::PolicyRemoteNodeDisabled.as_str()
     );
 
-    let direct_node_without_url = managed_follower_service::create(
+    let direct_node_without_url = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "direct-empty-url-policy-node".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -3674,9 +3672,9 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         ApiErrorCode::PolicyRemoteNodeBaseUrlRequired.as_str()
     );
 
-    let reverse_node = managed_follower_service::create(
+    let reverse_node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-presigned-policy-node".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,

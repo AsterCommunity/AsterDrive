@@ -7,7 +7,7 @@ use aster_drive::db::repository::config_repo;
 use aster_drive::db::repository::user_repo;
 use aster_drive::entities::user;
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::services::profile_service;
+use aster_drive::services::user::profile;
 use aster_drive::types::AvatarSource;
 
 async fn load_user_model(state: &PrimaryAppState, user_id: i64) -> user::Model {
@@ -19,7 +19,7 @@ async fn load_user_model(state: &PrimaryAppState, user_id: i64) -> user::Model {
 #[actix_web::test]
 async fn test_gravatar_default_url() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "gravatar_default",
         "default@example.com",
@@ -29,18 +29,14 @@ async fn test_gravatar_default_url() {
     .unwrap();
 
     // 设置 avatar source 为 gravatar
-    profile_service::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
+    profile::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
         .await
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile_service::get_profile_info(
-        &state,
-        &user_model,
-        profile_service::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     assert_eq!(info.avatar.source, AvatarSource::Gravatar);
     let url = info.avatar.url_512.unwrap();
@@ -56,7 +52,7 @@ async fn test_gravatar_default_url() {
 #[actix_web::test]
 async fn test_gravatar_custom_base_url() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "gravatar_custom",
         "custom@example.com",
@@ -76,18 +72,14 @@ async fn test_gravatar_custom_base_url() {
     .unwrap();
     state.runtime_config.apply(config);
 
-    profile_service::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
+    profile::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
         .await
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile_service::get_profile_info(
-        &state,
-        &user_model,
-        profile_service::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -100,7 +92,7 @@ async fn test_gravatar_custom_base_url() {
 #[actix_web::test]
 async fn test_gravatar_empty_config_fallback() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "gravatar_empty",
         "empty@example.com",
@@ -115,18 +107,14 @@ async fn test_gravatar_empty_config_fallback() {
         .unwrap();
     state.runtime_config.apply(config);
 
-    profile_service::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
+    profile::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
         .await
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile_service::get_profile_info(
-        &state,
-        &user_model,
-        profile_service::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -138,7 +126,7 @@ async fn test_gravatar_empty_config_fallback() {
 #[actix_web::test]
 async fn test_gravatar_trailing_slash_normalization() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "gravatar_slash",
         "slash@example.com",
@@ -158,18 +146,14 @@ async fn test_gravatar_trailing_slash_normalization() {
     .unwrap();
     state.runtime_config.apply(config);
 
-    profile_service::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
+    profile::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
         .await
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile_service::get_profile_info(
-        &state,
-        &user_model,
-        profile_service::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -187,7 +171,7 @@ async fn test_gravatar_trailing_slash_normalization() {
 #[actix_web::test]
 async fn test_gravatar_whitespace_only_config_fallback() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth_service::register(
+    let user = aster_drive::services::auth::local::register(
         &state,
         "gravatar_ws",
         "whitespace@example.com",
@@ -202,18 +186,14 @@ async fn test_gravatar_whitespace_only_config_fallback() {
         .unwrap();
     state.runtime_config.apply(config);
 
-    profile_service::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
+    profile::set_avatar_source(&state, user.id, AvatarSource::Gravatar)
         .await
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile_service::get_profile_info(
-        &state,
-        &user_model,
-        profile_service::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(

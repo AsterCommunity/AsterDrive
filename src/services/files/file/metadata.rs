@@ -1,0 +1,183 @@
+//! 文件服务子模块：`metadata`。
+
+use chrono::Utc;
+use sea_orm::{ActiveModelTrait, Set};
+
+use crate::db::repository::{file_repo, version_repo};
+use crate::entities::file;
+use crate::errors::{AsterError, Result};
+use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
+use crate::services::{
+    content::tag,
+    events::storage_change,
+    workspace::models::FileInfo,
+    workspace::storage::{self, WorkspaceStorageScope},
+};
+use crate::types::NullablePatch;
+
+pub(crate) async fn get_info_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    id: i64,
+) -> Result<file::Model> {
+    storage::verify_file_access_for_read(state, scope, id).await
+}
+
+pub(crate) async fn get_info_with_storage_used_in_scope(
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    id: i64,
+) -> Result<FileInfo> {
+    let file = get_info_in_scope(state, scope, id).await?;
+    let version_bytes = version_repo::sum_sizes_by_file_id(state.reader_db(), file.id).await?;
+    let storage_used = file.size.checked_add(version_bytes).ok_or_else(|| {
+        AsterError::internal_error(format!(
+            "file storage_used overflow while reading file #{}",
+            file.id
+        ))
+    })?;
+    let tags = tag::load_entity_tag_map(state, scope.into(), &[file.id], &[])
+        .await?
+        .remove(&(crate::types::EntityType::File, file.id))
+        .unwrap_or_default();
+    Ok(FileInfo::from_model_with_storage_used(file, storage_used).with_tags(tags))
+}
+
+pub(crate) async fn update_in_scope(
+    state: &impl StorageChangeRuntimeState,
+    scope: WorkspaceStorageScope,
+    id: i64,
+    name: Option<String>,
+    folder_id: NullablePatch<i64>,
+) -> Result<file::Model> {
+    let db = state.writer_db();
+    tracing::debug!(
+        scope = ?scope,
+        file_id = id,
+        target_name = name.as_deref().unwrap_or(""),
+        folder_patch = ?folder_id,
+        "updating file metadata"
+    );
+    let f = storage::verify_file_access(state, scope, id).await?;
+    if f.is_locked {
+        return Err(AsterError::resource_locked("file is locked"));
+    }
+
+    let target_folder = match folder_id {
+        NullablePatch::Absent => f.folder_id,
+        NullablePatch::Null => None,
+        NullablePatch::Value(fid) => Some(fid),
+    };
+    if let NullablePatch::Value(fid) = folder_id {
+        storage::verify_folder_access(state, scope, fid).await?;
+    }
+
+    let name = match name {
+        Some(name) => Some(crate::utils::normalize_validate_name(&name)?),
+        None => None,
+    };
+
+    let final_name = name.clone().unwrap_or_else(|| f.name.clone());
+    let existing = match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            file_repo::find_by_name_in_folder(db, user_id, target_folder, &final_name).await?
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => {
+            file_repo::find_by_name_in_team_folder(db, team_id, target_folder, &final_name).await?
+        }
+    };
+    if let Some(existing) = existing
+        && existing.id != id
+    {
+        return Err(file_repo::duplicate_name_error(&final_name));
+    }
+
+    let previous_folder_id = f.folder_id;
+    let mime_type = f.mime_type.clone();
+    let mut active: file::ActiveModel = f.into();
+    if let Some(n) = name {
+        let classification = crate::utils::file_classification::classify_file(&n, &mime_type);
+        active.name = Set(n);
+        active.extension = Set(classification.extension);
+        active.compound_extension = Set(classification.compound_extension);
+        active.file_category = Set(classification.category);
+    }
+    match folder_id {
+        NullablePatch::Absent => {}
+        NullablePatch::Null => active.folder_id = Set(None),
+        NullablePatch::Value(fid) => active.folder_id = Set(Some(fid)),
+    }
+    active.updated_at = Set(Utc::now());
+    let updated = active
+        .update(db)
+        .await
+        .map_err(|err| file_repo::map_name_db_err(err, &final_name))?;
+    storage_change::publish(
+        state,
+        storage_change::StorageChangeEvent::new(
+            storage_change::StorageChangeKind::FileUpdated,
+            scope,
+            vec![updated.id],
+            vec![],
+            vec![previous_folder_id, updated.folder_id],
+        ),
+    );
+    tracing::debug!(
+        scope = ?scope,
+        file_id = updated.id,
+        folder_id = updated.folder_id,
+        name = %updated.name,
+        "updated file metadata"
+    );
+    Ok(updated)
+}
+
+/// 获取文件信息
+pub async fn get_info(state: &impl SharedRuntimeState, id: i64, user_id: i64) -> Result<FileInfo> {
+    get_info_with_storage_used_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id)
+        .await
+}
+
+/// 更新文件（重命名/移动）
+pub async fn update(
+    state: &impl StorageChangeRuntimeState,
+    id: i64,
+    user_id: i64,
+    name: Option<String>,
+    folder_id: NullablePatch<i64>,
+) -> Result<FileInfo> {
+    update_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        id,
+        name,
+        folder_id,
+    )
+    .await
+    .map(Into::into)
+}
+
+/// 移动文件到指定文件夹（None = 根目录）
+///
+/// 与 `update()` 的区别：`update()` 用 `NullablePatch<i64>` 区分
+/// “未传字段”和“显式传 null”，而本函数的 `target_folder_id: None`
+/// 明确表示“移到根目录”。
+pub async fn move_file(
+    state: &impl StorageChangeRuntimeState,
+    id: i64,
+    user_id: i64,
+    target_folder_id: Option<i64>,
+) -> Result<FileInfo> {
+    update_in_scope(
+        state,
+        WorkspaceStorageScope::Personal { user_id },
+        id,
+        None,
+        match target_folder_id {
+            Some(folder_id) => NullablePatch::Value(folder_id),
+            None => NullablePatch::Null,
+        },
+    )
+    .await
+    .map(Into::into)
+}

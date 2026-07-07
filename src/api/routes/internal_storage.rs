@@ -5,7 +5,7 @@ use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
-use crate::services::{audit_service, master_binding_service, remote_storage_target_service};
+use crate::services::{ops::audit, remote::master_binding, remote::storage_target};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
@@ -283,8 +283,8 @@ fn parse_range_bound(value: &str, name: &str) -> Result<u64> {
     })
 }
 
-fn follower_audit_context(req: &HttpRequest) -> audit_service::AuditContext {
-    audit_service::AuditRequestInfo::from_request(req).to_context(0)
+fn follower_audit_context(req: &HttpRequest) -> audit::AuditContext {
+    audit::AuditRequestInfo::from_request(req).to_context(0)
 }
 
 fn object_audit_details<'a>(
@@ -296,7 +296,7 @@ fn object_audit_details<'a>(
     partial: Option<bool>,
     parts: Option<&'a [String]>,
 ) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::FollowerObjectAuditDetails {
+    audit::details(audit::FollowerObjectAuditDetails {
         binding_id,
         object_key,
         storage_path,
@@ -311,15 +311,14 @@ async fn get_capabilities(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_internal_binding_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_internal_binding_request(state.get_ref(), &req).await?;
     tracing::debug!(
         binding_id = binding.id,
         "follower internal storage capabilities requested"
     );
     let capabilities = RemoteStorageCapabilities::current()
         .with_remote_storage_target_driver_types(
-            remote_storage_target_service::registered_remote_storage_target_driver_types(),
+            storage_target::registered_remote_storage_target_driver_types(),
         );
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capabilities)))
 }
@@ -328,7 +327,7 @@ async fn get_capacity(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let capacity = ctx.ingress_driver.capacity_info().await?;
     tracing::debug!(
         binding_id = ctx.binding.id,
@@ -342,12 +341,11 @@ async fn sync_binding(
     req: HttpRequest,
     body: web::Json<RemoteBindingSyncRequest>,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_binding_sync_request(state.get_ref(), &req).await?;
-    let synced = master_binding_service::sync_from_primary(
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let synced = master_binding::sync_from_primary(
         state.get_ref(),
         &binding.access_key,
-        master_binding_service::SyncMasterBindingInput {
+        master_binding::SyncMasterBindingInput {
             name: body.name.clone(),
             is_enabled: body.is_enabled,
         },
@@ -358,15 +356,15 @@ async fn sync_binding(
         is_enabled = synced.is_enabled,
         "follower binding synchronized"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerBindingSync,
-        audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::FollowerBindingSync,
+        audit::AuditEntityType::RemoteNode,
         Some(binding.id),
         Some(&body.name),
         || {
-            audit_service::details(audit_service::FollowerBindingAuditDetails {
+            audit::details(audit::FollowerBindingAuditDetails {
                 binding_id: binding.id,
                 name: &body.name,
                 is_enabled: body.is_enabled,
@@ -382,7 +380,7 @@ async fn list_objects(
     req: HttpRequest,
     query: web::Query<ObjectQuery>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let list_driver = ctx.ingress_driver.as_list().ok_or_else(|| {
         storage_driver_error(
             StorageErrorKind::Unsupported,
@@ -393,7 +391,7 @@ async fn list_objects(
     let prefix = query
         .prefix
         .as_deref()
-        .map(|value| master_binding_service::provider_storage_prefix(&ctx.binding, value))
+        .map(|value| master_binding::provider_storage_prefix(&ctx.binding, value))
         .transpose()?;
     let items = list_driver
         .list_paths(prefix.as_deref())
@@ -422,12 +420,12 @@ async fn put_object(
     const RELAY_UPLOAD_BUFFER_SIZE: usize = 64 * 1024;
 
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-        master_binding_service::authorize_internal_write_request(state.get_ref(), &req).await?
+        master_binding::authorize_internal_write_request(state.get_ref(), &req).await?
     } else {
-        master_binding_service::authorize_presigned_put_request(state.get_ref(), &req).await?
+        master_binding::authorize_presigned_put_request(state.get_ref(), &req).await?
     };
     let object_key = path.into_inner();
-    let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let content_length = content_length_header(req.headers())?;
     if content_length < 0 {
         return Err(internal_storage_validation_error(
@@ -489,15 +487,12 @@ async fn put_object(
         content_length,
         "follower object written"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectWrite,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectWrite) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectWrite,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectWrite,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -526,8 +521,7 @@ async fn compose_objects(
 ) -> Result<HttpResponse> {
     const COMPOSE_BUFFER_SIZE: usize = 64 * 1024;
 
-    let ctx =
-        master_binding_service::authorize_internal_write_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_write_request(state.get_ref(), &req).await?;
     if body.part_keys.is_empty() {
         return Err(internal_storage_validation_error(
             ApiErrorCode::InternalStorageComposePartsRequired,
@@ -554,8 +548,7 @@ async fn compose_objects(
         )
     })?;
     let target_key = body.target_key.clone();
-    let target_storage_path =
-        master_binding_service::provider_storage_path(&ctx.binding, &target_key)?;
+    let target_storage_path = master_binding::provider_storage_path(&ctx.binding, &target_key)?;
     tracing::debug!(
         binding_id = ctx.binding.id,
         target_key = %target_key,
@@ -566,7 +559,7 @@ async fn compose_objects(
     let part_storage_paths: Vec<String> = body
         .part_keys
         .iter()
-        .map(|key| master_binding_service::provider_storage_path(&ctx.binding, key))
+        .map(|key| master_binding::provider_storage_path(&ctx.binding, key))
         .collect::<Result<_>>()?;
     let cleanup_part_storage_paths = part_storage_paths.clone();
     let expected_size = body.expected_size;
@@ -650,15 +643,12 @@ async fn compose_objects(
         "follower object composed"
     );
 
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectCompose,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectCompose) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectCompose,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectCompose,
+            audit::AuditEntityType::File,
             None,
             Some(&target_key),
             || {
@@ -690,19 +680,19 @@ async fn get_object(
     query: web::Query<ObjectQuery>,
 ) -> Result<HttpResponse> {
     let ctx = if req.headers().contains_key(INTERNAL_AUTH_SIGNATURE_HEADER) {
-        master_binding_service::authorize_internal_request(state.get_ref(), &req).await?
+        master_binding::authorize_internal_request(state.get_ref(), &req).await?
     } else if req
         .query_string()
         .split('&')
         .filter(|segment| !segment.is_empty())
         .any(|segment| segment.split('=').next() == Some(PRESIGNED_AUTH_ACCESS_KEY_QUERY))
     {
-        master_binding_service::authorize_presigned_get_request(state.get_ref(), &req).await?
+        master_binding::authorize_presigned_get_request(state.get_ref(), &req).await?
     } else {
-        master_binding_service::authorize_internal_request(state.get_ref(), &req).await?
+        master_binding::authorize_internal_request(state.get_ref(), &req).await?
     };
     let object_key = path.into_inner();
-    let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let metadata = metadata_or_not_found(ctx.ingress_driver.as_ref(), &storage_path).await?;
     let partial_range = requested_partial_content_range(&req, metadata.size, &query)?;
     let stream = match partial_range.as_ref() {
@@ -760,15 +750,12 @@ async fn get_object(
         partial = partial_range.is_some(),
         "follower object read prepared"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectRead,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectRead) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectRead,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectRead,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -793,9 +780,9 @@ async fn head_object(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
-    let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let metadata = metadata_or_not_found(ctx.ingress_driver.as_ref(), &storage_path).await?;
     tracing::debug!(
         binding_id = ctx.binding.id,
@@ -818,9 +805,9 @@ async fn get_object_metadata(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
-    let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     let metadata = metadata_or_not_found(ctx.ingress_driver.as_ref(), &storage_path).await?;
     tracing::debug!(
         binding_id = ctx.binding.id,
@@ -842,24 +829,21 @@ async fn delete_object(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let ctx = master_binding_service::authorize_internal_request(state.get_ref(), &req).await?;
+    let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let object_key = path.into_inner();
-    let storage_path = master_binding_service::provider_storage_path(&ctx.binding, &object_key)?;
+    let storage_path = master_binding::provider_storage_path(&ctx.binding, &object_key)?;
     ctx.ingress_driver.delete(&storage_path).await?;
     tracing::info!(
         binding_id = ctx.binding.id,
         object_key = %object_key,
         "follower object deleted"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectDelete,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectDelete) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectDelete,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectDelete,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -890,9 +874,8 @@ async fn list_storage_targets(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_binding_sync_request(state.get_ref(), &req).await?;
-    let targets = remote_storage_target_service::list(state.get_ref(), &binding).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let targets = storage_target::list(state.get_ref(), &binding).await?;
     tracing::debug!(
         binding_id = binding.id,
         target_count = targets.len(),
@@ -914,10 +897,8 @@ async fn create_storage_target(
     req: HttpRequest,
     body: web::Json<RemoteCreateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_binding_sync_request(state.get_ref(), &req).await?;
-    let target =
-        remote_storage_target_service::create(state.get_ref(), &binding, body.into_inner()).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let target = storage_target::create(state.get_ref(), &binding, body.into_inner()).await?;
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
@@ -925,15 +906,15 @@ async fn create_storage_target(
         is_default = target.is_default,
         "follower remote storage target created"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileCreate,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileCreate,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target.target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: target.driver_type.as_str(),
@@ -960,16 +941,10 @@ async fn update_storage_target(
     path: web::Path<String>,
     body: web::Json<RemoteUpdateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
-    let target = remote_storage_target_service::update(
-        state.get_ref(),
-        &binding,
-        &target_key,
-        body.into_inner(),
-    )
-    .await?;
+    let target =
+        storage_target::update(state.get_ref(), &binding, &target_key, body.into_inner()).await?;
     tracing::info!(
         binding_id = binding.id,
         target_key = %target.target_key,
@@ -977,15 +952,15 @@ async fn update_storage_target(
         is_default = target.is_default,
         "follower remote storage target updated"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileUpdate,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileUpdate,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target.target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: target.driver_type.as_str(),
@@ -1010,25 +985,23 @@ async fn delete_storage_target(
     req: HttpRequest,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let binding =
-        master_binding_service::authorize_binding_sync_request(state.get_ref(), &req).await?;
+    let binding = master_binding::authorize_binding_sync_request(state.get_ref(), &req).await?;
     let target_key = path.into_inner();
-    let deleted_target =
-        remote_storage_target_service::delete(state.get_ref(), &binding, &target_key).await?;
+    let deleted_target = storage_target::delete(state.get_ref(), &binding, &target_key).await?;
     tracing::info!(
         binding_id = binding.id,
         target_key = %target_key,
         "follower remote storage target deleted"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileDelete,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileDelete,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &deleted_target.target_key,
                 driver_type: deleted_target.driver_type.as_str(),

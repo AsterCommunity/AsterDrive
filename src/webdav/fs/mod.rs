@@ -9,9 +9,12 @@ use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, us
 use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
-    file_service, folder_service, property_service, storage_change_service, webdav_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    content::property,
+    events::storage_change,
+    files::{file as file_ops, folder},
+    ops::audit::{self, AuditContext},
+    webdav::tree,
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
 use crate::utils::numbers::i64_to_u64;
@@ -200,7 +203,7 @@ impl AsterDavFs {
         )
         .await?;
 
-        let created = folder_service::create_in_scope_with_audit(
+        let created = folder::create_in_scope_with_audit(
             &state,
             self.scope(),
             &dest_name,
@@ -220,18 +223,18 @@ impl AsterDavFs {
         let target_folder = folder_repo::find_by_id(state.reader_db(), created.id)
             .await
             .map_err(to_fs_error)?;
-        let details = folder_service::audit_transfer_details_for_models(
+        let details = folder::audit_transfer_details_for_models(
             &state,
             self.scope(),
             &src_folder,
             &target_folder,
         )
         .await;
-        audit_service::log_with_details(
+        audit::log_with_details(
             &state,
             &self.audit_ctx,
-            audit_service::AuditAction::FolderCopy,
-            crate::services::audit_service::AuditEntityType::Folder,
+            audit::AuditAction::FolderCopy,
+            crate::services::ops::audit::AuditEntityType::Folder,
             Some(created.id),
             Some(&created.name),
             || details.clone(),
@@ -318,7 +321,7 @@ impl DavFileSystem for AsterDavFs {
             let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
 
             let folders_started_at = Instant::now();
-            let folders = crate::services::workspace_storage_service::list_folders_in_parent(
+            let folders = crate::services::workspace::storage::list_folders_in_parent(
                 &self.state,
                 self.scope,
                 folder_id,
@@ -328,7 +331,7 @@ impl DavFileSystem for AsterDavFs {
             let folders_elapsed_ms = folders_started_at.elapsed().as_millis();
 
             let files_started_at = Instant::now();
-            let files = crate::services::workspace_storage_service::list_files_in_folder(
+            let files = crate::services::workspace::storage::list_files_in_folder(
                 &self.state,
                 self.scope,
                 folder_id,
@@ -403,7 +406,7 @@ impl DavFileSystem for AsterDavFs {
             .await?;
 
             let state = self.app_state();
-            folder_service::create_in_scope_with_audit(
+            folder::create_in_scope_with_audit(
                 &state,
                 self.scope(),
                 &name,
@@ -433,15 +436,15 @@ impl DavFileSystem for AsterDavFs {
 
             let state = self.app_state();
             let details =
-                folder_service::audit_location_details_for_model(&state, self.scope, &folder).await;
-            webdav_service::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
+                folder::audit_location_details_for_model(&state, self.scope, &folder).await;
+            tree::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
                 .await
                 .map_err(to_fs_error)?;
-            audit_service::log_with_details(
+            audit::log_with_details(
                 &state,
                 &self.audit_ctx,
-                audit_service::AuditAction::FolderDelete,
-                crate::services::audit_service::AuditEntityType::Folder,
+                audit::AuditAction::FolderDelete,
+                crate::services::ops::audit::AuditEntityType::Folder,
                 Some(folder.id),
                 Some(&folder.name),
                 || details.clone(),
@@ -467,14 +470,9 @@ impl DavFileSystem for AsterDavFs {
             };
 
             let state = self.app_state();
-            file_service::delete_in_scope_with_audit(
-                &state,
-                self.scope(),
-                file.id,
-                &self.audit_ctx,
-            )
-            .await
-            .map_err(to_fs_error)?;
+            file_ops::delete_in_scope_with_audit(&state, self.scope(), file.id, &self.audit_ctx)
+                .await
+                .map_err(to_fs_error)?;
 
             Ok(())
         })
@@ -510,7 +508,7 @@ impl DavFileSystem for AsterDavFs {
 
             match node {
                 ResolvedNode::File(f) => {
-                    file_service::update_in_scope_with_audit(
+                    file_ops::update_in_scope_with_audit(
                         &state,
                         self.scope(),
                         f.id,
@@ -522,7 +520,7 @@ impl DavFileSystem for AsterDavFs {
                     .map_err(to_fs_error)?;
                 }
                 ResolvedNode::Folder(f) => {
-                    folder_service::update_in_scope_with_audit(
+                    folder::update_in_scope_with_audit(
                         &state,
                         self.scope(),
                         f.id,
@@ -570,7 +568,7 @@ impl DavFileSystem for AsterDavFs {
 
             match node {
                 ResolvedNode::File(f) => {
-                    let copied = file_service::duplicate_file_record_in_scope(
+                    let copied = file_ops::duplicate_file_record_in_scope(
                         &state,
                         self.scope(),
                         &f,
@@ -587,10 +585,10 @@ impl DavFileSystem for AsterDavFs {
                         copied.id,
                     )
                     .await?;
-                    storage_change_service::publish(
+                    storage_change::publish(
                         &state,
-                        storage_change_service::StorageChangeEvent::new(
-                            storage_change_service::StorageChangeKind::FileCreated,
+                        storage_change::StorageChangeEvent::new(
+                            storage_change::StorageChangeKind::FileCreated,
                             self.scope(),
                             vec![copied.id],
                             vec![],
@@ -598,18 +596,18 @@ impl DavFileSystem for AsterDavFs {
                         )
                         .with_storage_delta(copied.size),
                     );
-                    let details = file_service::audit_transfer_details_for_models(
+                    let details = file_ops::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
                         &f,
                         &copied,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         &state,
                         &self.audit_ctx,
-                        audit_service::AuditAction::FileCopy,
-                        crate::services::audit_service::AuditEntityType::File,
+                        audit::AuditAction::FileCopy,
+                        crate::services::ops::audit::AuditEntityType::File,
                         Some(copied.id),
                         Some(&copied.name),
                         || details.clone(),
@@ -617,7 +615,7 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let copied = webdav_service::copy_folder_tree_in_scope(
+                    let copied = tree::copy_folder_tree_in_scope(
                         &state,
                         self.scope,
                         f.id,
@@ -628,18 +626,18 @@ impl DavFileSystem for AsterDavFs {
                     .map_err(to_fs_error)?;
                     copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
                         .await?;
-                    let details = folder_service::audit_transfer_details_for_models(
+                    let details = folder::audit_transfer_details_for_models(
                         &state,
                         self.scope(),
                         &f,
                         &copied,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         &state,
                         &self.audit_ctx,
-                        audit_service::AuditAction::FolderCopy,
-                        crate::services::audit_service::AuditEntityType::Folder,
+                        audit::AuditAction::FolderCopy,
+                        crate::services::ops::audit::AuditEntityType::Folder,
                         Some(copied.id),
                         Some(&copied.name),
                         || details.clone(),
@@ -702,7 +700,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property_service::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -748,7 +746,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property_service::is_protected_namespace(&prop.namespace) {
+                if property::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -787,7 +785,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property_service::is_protected_namespace(&prop.namespace) {
+                if property::is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -821,7 +819,7 @@ impl DavFileSystem for AsterDavFs {
             let mut protected_failure = false;
             for (_, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
-                if property_service::is_protected_namespace(ns) {
+                if property::is_protected_namespace(ns) {
                     protected_failure = true;
                     break;
                 }
@@ -832,7 +830,7 @@ impl DavFileSystem for AsterDavFs {
                     .into_iter()
                     .map(|(_, prop)| {
                         let ns = prop.namespace.as_deref().unwrap_or("");
-                        let status = if property_service::is_protected_namespace(ns) {
+                        let status = if property::is_protected_namespace(ns) {
                             http::StatusCode::FORBIDDEN
                         } else {
                             http::StatusCode::FAILED_DEPENDENCY
@@ -874,19 +872,19 @@ impl DavFileSystem for AsterDavFs {
             for (set, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
                 let entity_type_label = entity_type.as_str();
-                audit_service::log_with_details(
+                audit::log_with_details(
                     &self.state,
                     &self.audit_ctx,
                     if *set {
-                        audit_service::AuditAction::PropertySet
+                        audit::AuditAction::PropertySet
                     } else {
-                        audit_service::AuditAction::PropertyDelete
+                        audit::AuditAction::PropertyDelete
                     },
-                    audit_service::AuditEntityType::from_entity_type(entity_type),
+                    audit::AuditEntityType::from_entity_type(entity_type),
                     Some(entity_id),
                     None,
                     || {
-                        audit_service::details(audit_service::PropertyAuditDetails {
+                        audit::details(audit::PropertyAuditDetails {
                             entity_type: entity_type_label,
                             namespace: ns,
                             name: &prop.name,
@@ -910,7 +908,7 @@ fn entity_props_to_dav_props(
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property_service::is_protected_namespace(&p.namespace))
+        .filter(|p| !property::is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -976,7 +974,7 @@ async fn copy_visible_entity_properties(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property_service::is_protected_namespace(&prop.namespace) {
+        if property::is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(
@@ -1164,25 +1162,25 @@ async fn delete_existing_destination_for_overwrite(
     audit_ctx: &AuditContext,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details = file_service::audit_location_details_for_model(state, scope, &existing).await;
+        let details = file_ops::audit_location_details_for_model(state, scope, &existing).await;
         file_repo::soft_delete(state.writer_db(), existing.id)
             .await
             .map_err(to_fs_error)?;
-        storage_change_service::publish(
+        storage_change::publish(
             state,
-            storage_change_service::StorageChangeEvent::new(
-                storage_change_service::StorageChangeKind::FileTrashed,
+            storage_change::StorageChangeEvent::new(
+                storage_change::StorageChangeKind::FileTrashed,
                 scope,
                 vec![existing.id],
                 vec![],
                 vec![existing.folder_id],
             ),
         );
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::FileDelete,
-            crate::services::audit_service::AuditEntityType::File,
+            audit::AuditAction::FileDelete,
+            crate::services::ops::audit::AuditEntityType::File,
             Some(existing.id),
             Some(&existing.name),
             || details.clone(),
@@ -1191,16 +1189,15 @@ async fn delete_existing_destination_for_overwrite(
     }
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
-        let details =
-            folder_service::audit_location_details_for_model(state, scope, &existing).await;
-        webdav_service::recursive_soft_delete_in_scope(state, scope, existing.id)
+        let details = folder::audit_location_details_for_model(state, scope, &existing).await;
+        tree::recursive_soft_delete_in_scope(state, scope, existing.id)
             .await
             .map_err(to_fs_error)?;
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::FolderDelete,
-            crate::services::audit_service::AuditEntityType::Folder,
+            audit::AuditAction::FolderDelete,
+            crate::services::ops::audit::AuditEntityType::Folder,
             Some(existing.id),
             Some(&existing.name),
             || details.clone(),

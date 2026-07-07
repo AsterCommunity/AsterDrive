@@ -7,7 +7,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use futures::StreamExt;
 use tokio_util::io::ReaderStream;
 
-use crate::services::file_service;
+use crate::services::files::file;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavMetaData, FsError, OpenOptions};
 use crate::webdav::{
     ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, format_http_date, fs,
@@ -90,7 +90,7 @@ pub(crate) async fn handle_get_head(
     let range = if head_only {
         None
     } else {
-        match file_service::parse_range_header(
+        match file::parse_range_header(
             req.headers().get(header::RANGE),
             i64::try_from(meta.len()).unwrap_or(i64::MAX),
         ) {

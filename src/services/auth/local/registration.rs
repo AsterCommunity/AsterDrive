@@ -1,0 +1,259 @@
+//! 认证服务子模块：`registration`。
+
+use chrono::Utc;
+
+use crate::api::api_error_code::ApiErrorCode;
+use crate::config::{
+    auth_runtime::{RuntimeAuthPolicy, RuntimeContactVerificationPolicy},
+    branding,
+    local_email_policy::LocalEmailPolicy,
+};
+use crate::db::repository::user_repo;
+use crate::errors::{Result, auth_forbidden_with_code, validation_error_with_code};
+use crate::runtime::SharedRuntimeState;
+use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
+use crate::types::{UserRole, UserStatus, VerificationPurpose};
+
+use super::shared::{
+    CreateUserWithRoleInput, create_first_admin, create_user_with_role, find_user_by_identifier,
+    is_active_verification_request_error, issue_contact_verification_token, resend_allowed,
+};
+use super::{AuthUserInfo, UserAuditInfo, is_email_verified, user_audit_info};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RegisterActivationResendOutcome {
+    Sent(UserAuditInfo),
+    EmailNotFound,
+    AlreadyActive,
+    AccountDisabled,
+    Cooldown,
+    EmailPolicyRejected,
+}
+
+impl RegisterActivationResendOutcome {
+    pub fn metric_reason(&self) -> &'static str {
+        match self {
+            Self::Sent(_) => "pending_activation",
+            Self::EmailNotFound => "email_not_found",
+            Self::AlreadyActive => "already_active",
+            Self::AccountDisabled => "account_disabled",
+            Self::Cooldown => "rate_limited",
+            Self::EmailPolicyRejected => "email_policy_rejected",
+        }
+    }
+
+    pub fn metric_status(&self) -> &'static str {
+        match self {
+            Self::Sent(_) => "sent",
+            Self::EmailNotFound
+            | Self::AlreadyActive
+            | Self::AccountDisabled
+            | Self::Cooldown
+            | Self::EmailPolicyRejected => "skipped",
+        }
+    }
+}
+
+pub async fn create_user_by_admin(
+    state: &impl SharedRuntimeState,
+    username: &str,
+    email: &str,
+    password: &str,
+    must_change_password: bool,
+) -> Result<AuthUserInfo> {
+    let user = create_user_with_role(
+        state.writer_db(),
+        state,
+        CreateUserWithRoleInput {
+            username,
+            email,
+            password,
+            role: UserRole::User,
+            status: UserStatus::Active,
+            must_change_password,
+            email_verified_at: Some(Utc::now()),
+        },
+    )
+    .await?;
+    if let Some(policy_group_id) = user.policy_group_id {
+        state
+            .policy_snapshot()
+            .set_user_policy_group(user.id, policy_group_id);
+    }
+    Ok(AuthUserInfo::from(user))
+}
+
+pub async fn register(
+    state: &impl SharedRuntimeState,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> Result<AuthUserInfo> {
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
+    tracing::debug!(
+        registration_enabled = auth_policy.allow_user_registration,
+        activation_enabled = auth_policy.register_activation_enabled,
+        "registering user"
+    );
+    if !auth_policy.allow_user_registration {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::AuthRegistrationDisabled,
+            "new user registration is disabled",
+        ));
+    }
+
+    if user_repo::count_all(state.writer_db()).await? == 0 {
+        return create_first_admin(state, username, email, password)
+            .await
+            .map(AuthUserInfo::from);
+    }
+
+    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(email)?;
+
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
+    let site_name = branding::title_or_default(state.runtime_config());
+    let txn = crate::db::transaction::begin(state.writer_db()).await?;
+    let email_verified_at = (!auth_policy.register_activation_enabled).then_some(Utc::now());
+    let user = create_user_with_role(
+        &txn,
+        state,
+        CreateUserWithRoleInput {
+            username,
+            email,
+            password,
+            role: UserRole::User,
+            status: UserStatus::Active,
+            must_change_password: false,
+            email_verified_at,
+        },
+    )
+    .await?;
+    if auth_policy.register_activation_enabled {
+        let token = issue_contact_verification_token(
+            &txn,
+            user.id,
+            VerificationPurpose::RegisterActivation,
+            &user.email,
+            policy.register_activation_ttl_secs,
+        )
+        .await?;
+        outbox::enqueue(
+            &txn,
+            &user.email,
+            Some(&user.username),
+            MailTemplatePayload::register_activation(&user.username, &token, &site_name),
+        )
+        .await?;
+    }
+    crate::db::transaction::commit(txn).await?;
+    if let Some(policy_group_id) = user.policy_group_id {
+        state
+            .policy_snapshot()
+            .set_user_policy_group(user.id, policy_group_id);
+    }
+
+    tracing::debug!(
+        user_id = user.id,
+        activation_enabled = auth_policy.register_activation_enabled,
+        email_verified = user.email_verified_at.is_some(),
+        "registered user"
+    );
+    Ok(AuthUserInfo::from(user))
+}
+
+pub async fn resend_register_activation(
+    state: &impl SharedRuntimeState,
+    identifier: &str,
+) -> Result<RegisterActivationResendOutcome> {
+    let Some(user) = find_user_by_identifier(state.writer_db(), identifier).await? else {
+        return Ok(RegisterActivationResendOutcome::EmailNotFound);
+    };
+
+    if !user.status.is_active() {
+        return Ok(RegisterActivationResendOutcome::AccountDisabled);
+    }
+    if is_email_verified(&user) {
+        return Ok(RegisterActivationResendOutcome::AlreadyActive);
+    }
+
+    if let Err(error) =
+        LocalEmailPolicy::from_runtime_config(state.runtime_config()).check_not_blocked(&user.email)
+    {
+        tracing::debug!(
+            user_id = user.id,
+            error = %error,
+            "register activation resend skipped due to email policy"
+        );
+        return Ok(RegisterActivationResendOutcome::EmailPolicyRejected);
+    }
+
+    if !resend_allowed(
+        state,
+        state.writer_db(),
+        user.id,
+        VerificationPurpose::RegisterActivation,
+    )
+    .await?
+    {
+        tracing::debug!(
+            user_id = user.id,
+            "register activation resend skipped due to cooldown"
+        );
+        return Ok(RegisterActivationResendOutcome::Cooldown);
+    }
+    let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
+    let site_name = branding::title_or_default(state.runtime_config());
+
+    let txn = crate::db::transaction::begin(state.writer_db()).await?;
+    let token = match issue_contact_verification_token(
+        &txn,
+        user.id,
+        VerificationPurpose::RegisterActivation,
+        &user.email,
+        policy.register_activation_ttl_secs,
+    )
+    .await
+    {
+        Ok(token) => token,
+        Err(err) if is_active_verification_request_error(&err) => {
+            return Ok(RegisterActivationResendOutcome::Cooldown);
+        }
+        Err(err) => return Err(err),
+    };
+    outbox::enqueue(
+        &txn,
+        &user.email,
+        Some(&user.username),
+        MailTemplatePayload::register_activation(&user.username, &token, &site_name),
+    )
+    .await?;
+    crate::db::transaction::commit(txn).await?;
+
+    Ok(RegisterActivationResendOutcome::Sent(user_audit_info(
+        &user,
+    )))
+}
+
+pub async fn check_auth_state(state: &impl SharedRuntimeState) -> Result<bool> {
+    Ok(user_repo::count_all(state.writer_db()).await? > 0)
+}
+
+pub async fn setup(
+    state: &impl SharedRuntimeState,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> Result<AuthUserInfo> {
+    tracing::debug!("running initial setup");
+    if user_repo::count_all(state.writer_db()).await? > 0 {
+        return Err(validation_error_with_code(
+            ApiErrorCode::ValidationSystemAlreadyInitialized,
+            "system already initialized",
+        ));
+    }
+    let user = create_first_admin(state, username, email, password)
+        .await
+        .map(AuthUserInfo::from)?;
+    tracing::debug!(user_id = user.id, "completed initial setup");
+    Ok(user)
+}

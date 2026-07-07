@@ -13,7 +13,7 @@ use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::errors::{AsterError, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::auth_service;
+use crate::services::auth::local;
 
 /// JWT 认证中间件
 /// 优先从 cookie 取 token，fallback 到 Authorization: Bearer header
@@ -86,8 +86,7 @@ where
 
             match token {
                 None => Err(AsterError::auth_token_missing("missing token").into()),
-                Some(t) => match auth_service::authenticate_access_token(state.get_ref(), &t).await
-                {
+                Some(t) => match local::authenticate_access_token(state.get_ref(), &t).await {
                     Ok((claims, snapshot)) => {
                         if claims.password_change && !password_change_session_allowed(&req) {
                             return Err(auth_forbidden_with_code(

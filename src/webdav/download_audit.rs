@@ -3,9 +3,9 @@
 use crate::entities::file;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    audit_service::{self, AuditContext, AuditEntityType},
-    file_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    files::file as file_ops,
+    ops::audit::{self, AuditContext, AuditEntityType},
+    workspace::storage::WorkspaceStorageScope,
 };
 use crate::utils::hash;
 
@@ -42,7 +42,7 @@ pub(crate) async fn record_download<S>(
 ) where
     S: SharedRuntimeState,
 {
-    if !audit_service::should_record(state, audit_service::AuditAction::FileDownload) {
+    if !audit::should_record(state, audit::AuditAction::FileDownload) {
         return;
     }
 
@@ -50,11 +50,11 @@ pub(crate) async fn record_download<S>(
         return;
     }
 
-    let details = file_service::audit_location_details_for_model(state, identity.scope, file).await;
-    audit_service::log_with_details(
+    let details = file_ops::audit_location_details_for_model(state, identity.scope, file).await;
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileDownload,
+        audit::AuditAction::FileDownload,
         AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
@@ -143,9 +143,7 @@ mod tests {
         WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, download_audit_cache_key,
         request_fingerprint,
     };
-    use crate::services::{
-        audit_service::AuditContext, workspace_storage_service::WorkspaceStorageScope,
-    };
+    use crate::services::{ops::audit::AuditContext, workspace::storage::WorkspaceStorageScope};
 
     fn audit_ctx() -> AuditContext {
         AuditContext {

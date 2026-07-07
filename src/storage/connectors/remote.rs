@@ -8,7 +8,7 @@ use crate::db::repository::managed_follower_repo;
 use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::services::storage_credential_service::crypto;
+use crate::services::storage_policy::credential::crypto;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,

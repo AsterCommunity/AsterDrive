@@ -7,10 +7,10 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::{self, AuditContext},
-    auth_service::Claims,
-    file_service,
-    workspace_storage_service::WorkspaceStorageScope,
+    auth::local::Claims,
+    files::file,
+    ops::audit::{self, AuditContext},
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -21,7 +21,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "create_empty_file",
     request_body(content = CreateEmptyRequest, content_type = "application/json"),
     responses(
-        (status = 201, description = "Empty file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Empty file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 400, description = "Invalid name"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
@@ -53,7 +53,7 @@ pub async fn create_empty(
     params(("id" = i64, Path, description = "File ID")),
     request_body = ExtractArchiveRequest,
     responses(
-        (status = 200, description = "Archive extract task created", body = inline(ApiResponse<crate::services::task_service::types::TaskInfo>)),
+        (status = 200, description = "Archive extract task created", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 400, description = "Unsupported archive format"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
@@ -119,7 +119,7 @@ pub async fn delete_file(
     params(("id" = i64, Path, description = "File ID")),
     request_body = PatchFileReq,
     responses(
-        (status = 200, description = "File updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "File updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -153,7 +153,7 @@ pub async fn patch_file(
     params(("id" = i64, Path, description = "File ID")),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
         (status = 412, description = "Precondition failed (ETag mismatch)"),
@@ -189,7 +189,7 @@ pub async fn update_content(
     params(("id" = i64, Path, description = "File ID")),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -223,7 +223,7 @@ pub async fn set_lock(
     params(("id" = i64, Path, description = "Source file ID")),
     request_body = CopyFileReq,
     responses(
-        (status = 201, description = "File copied", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File copied", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -257,7 +257,7 @@ pub async fn copy_file(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateEmptyRequest,
     responses(
-        (status = 201, description = "Empty team file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Empty team file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -291,7 +291,7 @@ pub(crate) async fn team_create_empty(
     ),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Content updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -330,7 +330,7 @@ pub(crate) async fn team_update_content(
     ),
     request_body = ExtractArchiveRequest,
     responses(
-        (status = 200, description = "Team archive extract task created", body = inline(ApiResponse<crate::services::task_service::types::TaskInfo>)),
+        (status = 200, description = "Team archive extract task created", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 400, description = "Unsupported archive format"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -368,7 +368,7 @@ pub(crate) async fn team_extract_archive(
     ),
     request_body = SetLockReq,
     responses(
-        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Lock state updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -405,7 +405,7 @@ pub(crate) async fn team_set_lock(
     ),
     request_body = PatchFileReq,
     responses(
-        (status = 200, description = "Team file updated", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 200, description = "Team file updated", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -442,7 +442,7 @@ pub(crate) async fn team_patch_file(
     ),
     request_body = CopyFileReq,
     responses(
-        (status = 201, description = "Team file copied", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file copied", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -511,14 +511,9 @@ pub(crate) async fn create_empty_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let file = file_service::create_empty_in_scope_with_audit(
-        state,
-        scope,
-        body.folder_id,
-        &body.name,
-        &ctx,
-    )
-    .await?;
+    let file =
+        file::create_empty_in_scope_with_audit(state, scope, body.folder_id, &body.name, &ctx)
+            .await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
 }
 
@@ -530,11 +525,11 @@ pub(crate) async fn extract_archive_response(
     file_id: i64,
     body: &ExtractArchiveRequest,
 ) -> Result<HttpResponse> {
-    let task = crate::services::task_service::archive::create_archive_extract_task_in_scope(
+    let task = crate::services::task::archive::create_archive_extract_task_in_scope(
         state,
         scope,
         file_id,
-        crate::services::task_service::types::CreateArchiveExtractTaskParams {
+        crate::services::task::types::CreateArchiveExtractTaskParams {
             target_folder_id: body.target_folder_id,
             output_folder_name: body.output_folder_name.clone(),
             filename_encoding: body.filename_encoding,
@@ -543,15 +538,15 @@ pub(crate) async fn extract_archive_response(
     .await?;
     let ctx = AuditContext::from_request(req, claims);
     let file_ids = [file_id];
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::ArchiveExtract,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::ArchiveExtract,
+        crate::services::ops::audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+            audit::details(audit::ArchiveSelectionAuditDetails {
                 file_ids: &file_ids,
                 folder_ids: &[],
                 archive_name: body.output_folder_name.as_deref(),
@@ -571,7 +566,7 @@ pub(crate) async fn delete_file_response(
     file_id: i64,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    file_service::delete_in_scope_with_audit(state, scope, file_id, &ctx).await?;
+    file::delete_in_scope_with_audit(state, scope, file_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -585,7 +580,7 @@ pub(crate) async fn patch_file_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let file = file_service::update_in_scope_with_audit(
+    let file = file::update_in_scope_with_audit(
         state,
         scope,
         file_id,
@@ -611,7 +606,7 @@ pub(crate) async fn update_content_response(
         .and_then(|value| value.to_str().ok());
     let declared_size = request_content_length(req);
     let ctx = AuditContext::from_request(req, claims);
-    let (file, new_hash) = file_service::update_content_stream_in_scope_with_audit(
+    let (file, new_hash) = file::update_content_stream_in_scope_with_audit(
         state,
         scope,
         file_id,
@@ -644,8 +639,7 @@ pub(crate) async fn set_lock_response(
     locked: bool,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    let file =
-        file_service::set_lock_in_scope_with_audit(state, scope, file_id, locked, &ctx).await?;
+    let file = file::set_lock_in_scope_with_audit(state, scope, file_id, locked, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(file)))
 }
 
@@ -659,7 +653,6 @@ pub(crate) async fn copy_file_response(
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
     let file =
-        file_service::copy_file_in_scope_with_audit(state, scope, file_id, body.folder_id, &ctx)
-            .await?;
+        file::copy_file_in_scope_with_audit(state, scope, file_id, body.folder_id, &ctx).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(file)))
 }

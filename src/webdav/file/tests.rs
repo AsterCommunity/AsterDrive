@@ -6,7 +6,7 @@ use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::mail_service;
+use crate::services::mail::sender;
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{DriverType, UserRole, UserStatus};
@@ -224,7 +224,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
     .await
     .expect("test user should be inserted");
 
-    crate::services::policy_service::ensure_policy_groups_seeded(&db)
+    crate::services::storage_policy::policy::ensure_policy_groups_seeded(&db)
         .await
         .expect("policy groups should be seeded for direct S3 test");
 
@@ -249,10 +249,10 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
     driver_registry.insert_for_test(policy.id, Arc::new(mock_driver.clone()));
 
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+        crate::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
         );
@@ -265,7 +265,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
         config: Arc::new(config),
         cache,
         metrics: crate::metrics_core::NoopMetrics::arc(),
-        mail_sender: mail_service::runtime_sender(runtime_config),
+        mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
         background_task_dispatch_wakeup:

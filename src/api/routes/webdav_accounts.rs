@@ -13,7 +13,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::db::repository::webdav_account_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, auth_service::Claims, webdav_account_service};
+use crate::services::{auth::local::Claims, ops::audit, webdav::account};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -76,7 +76,7 @@ pub async fn get_settings(
     operation_id = "list_webdav_accounts",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "WebDAV accounts", body = inline(ApiResponse<OffsetPage<webdav_account_service::WebdavAccountInfo>>)),
+        (status = 200, description = "WebDAV accounts", body = inline(ApiResponse<OffsetPage<account::WebdavAccountInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -86,7 +86,7 @@ pub async fn list_accounts(
     claims: web::ReqData<Claims>,
     query: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let accounts = webdav_account_service::list_paginated(
+    let accounts = account::list_paginated(
         state.get_ref(),
         claims.user_id,
         query.limit_or(50, 100),
@@ -103,7 +103,7 @@ pub async fn list_accounts(
     operation_id = "create_webdav_account",
     request_body = CreateWebdavAccountReq,
     responses(
-        (status = 201, description = "Account created (password shown once)", body = inline(ApiResponse<webdav_account_service::WebdavAccountCreated>)),
+        (status = 201, description = "Account created (password shown once)", body = inline(ApiResponse<account::WebdavAccountCreated>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -115,7 +115,7 @@ pub async fn create_account(
     body: web::Json<CreateWebdavAccountReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let result = webdav_account_service::create(
+    let result = account::create(
         state.get_ref(),
         claims.user_id,
         &body.username,
@@ -123,13 +123,13 @@ pub async fn create_account(
         body.root_folder_id,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = webdav_created_audit_details(&result, body.root_folder_id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::WebdavAccountCreate,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::WebdavAccountCreate,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(result.id),
         Some(&result.username),
         || Some(details.clone()),
@@ -156,7 +156,7 @@ pub struct TeamWebdavAccountIdPath {
     operation_id = "list_team_webdav_accounts",
     params(("team_id" = i64, Path, description = "Team ID"), LimitOffsetQuery),
     responses(
-        (status = 200, description = "Team WebDAV accounts", body = inline(ApiResponse<OffsetPage<webdav_account_service::WebdavAccountInfo>>)),
+        (status = 200, description = "Team WebDAV accounts", body = inline(ApiResponse<OffsetPage<account::WebdavAccountInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -167,7 +167,7 @@ pub async fn list_team_accounts(
     path: web::Path<TeamWebdavAccountPath>,
     query: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let accounts = webdav_account_service::list_team_paginated(
+    let accounts = account::list_team_paginated(
         state.get_ref(),
         claims.user_id,
         path.team_id,
@@ -186,7 +186,7 @@ pub async fn list_team_accounts(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateWebdavAccountReq,
     responses(
-        (status = 201, description = "Team WebDAV account created", body = inline(ApiResponse<webdav_account_service::WebdavAccountCreated>)),
+        (status = 201, description = "Team WebDAV account created", body = inline(ApiResponse<account::WebdavAccountCreated>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -199,7 +199,7 @@ pub async fn create_team_account(
     body: web::Json<CreateWebdavAccountReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let result = webdav_account_service::create_for_team(
+    let result = account::create_for_team(
         state.get_ref(),
         claims.user_id,
         path.team_id,
@@ -208,13 +208,13 @@ pub async fn create_team_account(
         body.root_folder_id,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = webdav_created_audit_details(&result, body.root_folder_id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::TeamWebdavAccountCreate,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::TeamWebdavAccountCreate,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(result.id),
         Some(&result.username),
         || Some(details.clone()),
@@ -247,19 +247,19 @@ pub async fn delete_team_account(
 ) -> Result<HttpResponse> {
     let account = webdav_account_repo::find_by_id(state.writer_db(), path.account_id).await?;
     let details = webdav_account_audit_details(&account);
-    webdav_account_service::delete_for_team(
+    account::delete_for_team(
         state.get_ref(),
         path.account_id,
         claims.user_id,
         path.team_id,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::TeamWebdavAccountDelete,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::TeamWebdavAccountDelete,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(path.account_id),
         Some(&account.username),
         || Some(details.clone()),
@@ -278,7 +278,7 @@ pub async fn delete_team_account(
         ("account_id" = i64, Path, description = "Account ID"),
     ),
     responses(
-        (status = 200, description = "Team WebDAV account toggled", body = inline(ApiResponse<webdav_account_service::WebdavAccount>)),
+        (status = 200, description = "Team WebDAV account toggled", body = inline(ApiResponse<account::WebdavAccount>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
     ),
@@ -290,23 +290,23 @@ pub async fn toggle_team_account(
     req: HttpRequest,
     path: web::Path<TeamWebdavAccountIdPath>,
 ) -> Result<HttpResponse> {
-    let account = webdav_account_service::toggle_team_active(
+    let account = account::toggle_team_active(
         state.get_ref(),
         path.account_id,
         claims.user_id,
         path.team_id,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::TeamWebdavAccountToggle,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::TeamWebdavAccountToggle,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(account.id),
         Some(&account.username),
         || {
-            audit_service::details(serde_json::json!({
+            audit::details(serde_json::json!({
                 "team_id": path.team_id,
                 "is_active": account.is_active,
             }))
@@ -337,13 +337,13 @@ pub async fn delete_account(
 ) -> Result<HttpResponse> {
     let account = webdav_account_repo::find_by_id(state.writer_db(), *path).await?;
     let details = webdav_account_audit_details(&account);
-    webdav_account_service::delete(state.get_ref(), *path, claims.user_id).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    account::delete(state.get_ref(), *path, claims.user_id).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::WebdavAccountDelete,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::WebdavAccountDelete,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(*path),
         Some(&account.username),
         || Some(details.clone()),
@@ -359,7 +359,7 @@ pub async fn delete_account(
     operation_id = "toggle_webdav_account",
     params(("id" = i64, Path, description = "Account ID")),
     responses(
-        (status = 200, description = "Account toggled", body = inline(ApiResponse<webdav_account_service::WebdavAccount>)),
+        (status = 200, description = "Account toggled", body = inline(ApiResponse<account::WebdavAccount>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
     ),
@@ -371,18 +371,17 @@ pub async fn toggle_account(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let account =
-        webdav_account_service::toggle_active(state.get_ref(), *path, claims.user_id).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let account = account::toggle_active(state.get_ref(), *path, claims.user_id).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::WebdavAccountToggle,
-        crate::services::audit_service::AuditEntityType::WebdavAccount,
+        audit::AuditAction::WebdavAccountToggle,
+        crate::services::ops::audit::AuditEntityType::WebdavAccount,
         Some(account.id),
         Some(&account.username),
         || {
-            audit_service::details(serde_json::json!({
+            audit::details(serde_json::json!({
                 "is_active": account.is_active,
             }))
         },
@@ -408,13 +407,12 @@ pub async fn test_connection(
     body: web::Json<TestConnectionReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    webdav_account_service::test_credentials(state.get_ref(), &body.username, &body.password)
-        .await?;
+    account::test_credentials(state.get_ref(), &body.username, &body.password).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
 fn webdav_created_audit_details(
-    account: &webdav_account_service::WebdavAccountCreated,
+    account: &account::WebdavAccountCreated,
     root_folder_id: Option<i64>,
 ) -> serde_json::Value {
     json!({

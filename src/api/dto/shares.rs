@@ -10,7 +10,7 @@ use validator::{Validate, ValidationError};
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CreateShareReq {
     #[validate(nested)]
-    pub target: crate::services::share_service::ShareTarget,
+    pub target: crate::services::share::ShareTarget,
     pub password: Option<String>,
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -53,6 +53,6 @@ fn validate_batch_share_ids(value: &[i64]) -> std::result::Result<(), Validation
             "share_ids must contain only positive IDs",
         ));
     }
-    crate::services::share_service::validate_batch_share_ids(value)
+    crate::services::share::validate_batch_share_ids(value)
         .map_err(|error| crate::api::dto::validation::message_validation_error(error.message()))
 }

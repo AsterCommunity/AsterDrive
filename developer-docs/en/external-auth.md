@@ -12,7 +12,7 @@ External authentication lets users sign in through external identity providers s
 | --- | --- | --- |
 | Route | `src/api/routes/auth/external_auth.rs` | Anonymous provider list, login start, callback, email verification fallback, password linking, user unbinding |
 | Admin route | `src/api/routes/admin/external_auth.rs` | Provider kind list, provider CRUD, draft testing, saved provider testing |
-| Service | `src/services/external_auth_service/` | Provider config, login flow, identity binding, and account provisioning |
+| Service | `src/services/auth/external/` | Provider config, login flow, identity binding, and account provisioning |
 | Entity / repo | `src/entities/external_auth_*`, `src/db/repository/external_auth_*` | Persistent provider and identity storage |
 | Driver trait | `src/external_auth/driver.rs` | Shared driver interface and descriptors |
 | Driver registry | `src/external_auth/registry.rs` | Registers `oidc`, `generic_oauth2`, `github`, `qq`, `google`, and `microsoft` |

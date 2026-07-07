@@ -1,6 +1,6 @@
 //! `tags` API DTO 定义。
 
-use crate::services::tag_service::TAG_NAME_MAX_CHARS;
+use crate::services::content::tag::TAG_NAME_MAX_CHARS;
 use crate::utils::char_count;
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]

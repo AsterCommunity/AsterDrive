@@ -7,8 +7,8 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth_service::Claims, upload_service, workspace_models::FileInfo,
-    workspace_storage_service::WorkspaceStorageScope,
+    auth::local::Claims, files::upload, ops::audit::AuditContext, workspace::models::FileInfo,
+    workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -34,7 +34,7 @@ fn upload_file_created_response(file: FileInfo) -> HttpResponse {
     params(FileQuery),
     request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
     responses(
-        (status = 201, description = "File uploaded", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -70,7 +70,7 @@ pub async fn upload(
     operation_id = "init_chunked_upload",
     request_body = InitUploadReq,
     responses(
-        (status = 201, description = "Upload session created", body = inline(ApiResponse<upload_service::InitUploadResponse>)),
+        (status = 201, description = "Upload session created", body = inline(ApiResponse<upload::InitUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -81,10 +81,10 @@ pub async fn init_chunked_upload(
     body: web::Json<InitUploadReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let resp = upload_service::init_upload_with_frontend_client(
+    let resp = upload::init_upload_with_frontend_client(
         state.get_ref(),
         claims.user_id,
-        upload_service::InitUploadParams::new(
+        upload::InitUploadParams::new(
             &body.filename,
             body.total_size,
             body.folder_id,
@@ -103,7 +103,7 @@ pub async fn init_chunked_upload(
     operation_id = "list_recoverable_upload_sessions",
     params(UploadSessionsQuery),
     responses(
-        (status = 200, description = "Recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
+        (status = 200, description = "Recoverable upload sessions", body = inline(ApiResponse<Vec<upload::RecoverableUploadSessionResponse>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -114,7 +114,7 @@ pub async fn list_recoverable_upload_sessions(
     query: web::Query<UploadSessionsQuery>,
 ) -> Result<HttpResponse> {
     validate_request(&*query)?;
-    let resp = upload_service::list_recoverable_sessions(
+    let resp = upload::list_recoverable_sessions(
         state.get_ref(),
         claims.user_id,
         query.frontend_client_id.as_deref(),
@@ -134,7 +134,7 @@ pub async fn list_recoverable_upload_sessions(
     ),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Chunk uploaded", body = inline(ApiResponse<upload_service::ChunkUploadResponse>)),
+        (status = 200, description = "Chunk uploaded", body = inline(ApiResponse<upload::ChunkUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Session not found"),
     ),
@@ -146,7 +146,7 @@ pub async fn upload_chunk(
     path: web::Path<ChunkPath>,
     payload: web::Payload,
 ) -> Result<HttpResponse> {
-    let resp = upload_service::upload_chunk_payload(
+    let resp = upload::upload_chunk_payload(
         state.get_ref(),
         &path.upload_id,
         path.chunk_number,
@@ -165,7 +165,7 @@ pub async fn upload_chunk(
     params(("upload_id" = String, Path, description = "Upload session ID")),
     request_body(content = CompleteUploadReq, description = "Multipart completion data (optional, only for presigned_multipart mode)", content_type = "application/json"),
     responses(
-        (status = 201, description = "File created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "File created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Session not found"),
     ),
@@ -187,7 +187,7 @@ pub async fn complete_upload(
                 .collect()
         });
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = upload_service::complete_upload_with_audit(
+    let file = upload::complete_upload_with_audit(
         state.get_ref(),
         &path.upload_id,
         claims.user_id,
@@ -205,7 +205,7 @@ pub async fn complete_upload(
     operation_id = "get_upload_progress",
     params(("upload_id" = String, Path, description = "Upload session ID")),
     responses(
-        (status = 200, description = "Upload progress", body = ApiResponse<upload_service::UploadProgressResponse>),
+        (status = 200, description = "Upload progress", body = ApiResponse<upload::UploadProgressResponse>),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Session not found"),
     ),
@@ -216,8 +216,7 @@ pub async fn get_upload_progress(
     claims: web::ReqData<Claims>,
     path: web::Path<UploadIdPath>,
 ) -> Result<HttpResponse> {
-    let resp =
-        upload_service::get_progress(state.get_ref(), &path.upload_id, claims.user_id).await?;
+    let resp = upload::get_progress(state.get_ref(), &path.upload_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -240,18 +239,18 @@ pub async fn cancel_upload(
     req: HttpRequest,
     path: web::Path<UploadIdPath>,
 ) -> Result<HttpResponse> {
-    upload_service::cancel_upload(state.get_ref(), &path.upload_id, claims.user_id).await?;
+    upload::cancel_upload(state.get_ref(), &path.upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log_with_details(
+    crate::services::ops::audit::log_with_details(
         state.get_ref(),
         &ctx,
-        crate::services::audit_service::AuditAction::FileUploadCancel,
-        crate::services::audit_service::AuditEntityType::UploadSession,
+        crate::services::ops::audit::AuditAction::FileUploadCancel,
+        crate::services::ops::audit::AuditEntityType::UploadSession,
         None,
         Some(&path.upload_id),
         || {
-            crate::services::audit_service::details(
-                crate::services::audit_service::UploadCancelAuditDetails {
+            crate::services::ops::audit::details(
+                crate::services::ops::audit::UploadCancelAuditDetails {
                     upload_id: &path.upload_id,
                 },
             )
@@ -281,7 +280,7 @@ pub async fn presign_parts(
     path: web::Path<UploadIdPath>,
     body: web::Json<PresignPartsReq>,
 ) -> Result<HttpResponse> {
-    let urls = upload_service::presign_parts(
+    let urls = upload::presign_parts(
         state.get_ref(),
         &path.upload_id,
         claims.user_id,
@@ -302,7 +301,7 @@ pub async fn presign_parts(
     ),
     request_body(content = String, content_type = "multipart/form-data", description = "File to upload"),
     responses(
-        (status = 201, description = "Team file uploaded", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file uploaded", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -339,7 +338,7 @@ pub(crate) async fn team_upload(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = InitUploadReq,
     responses(
-        (status = 201, description = "Team upload session created", body = inline(ApiResponse<upload_service::InitUploadResponse>)),
+        (status = 201, description = "Team upload session created", body = inline(ApiResponse<upload::InitUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -352,11 +351,11 @@ pub(crate) async fn team_init_chunked_upload(
     body: web::Json<InitUploadReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let resp = upload_service::init_upload_for_team_with_frontend_client(
+    let resp = upload::init_upload_for_team_with_frontend_client(
         state.get_ref(),
         *path,
         claims.user_id,
-        upload_service::InitUploadParams::new(
+        upload::InitUploadParams::new(
             &body.filename,
             body.total_size,
             body.folder_id,
@@ -375,7 +374,7 @@ pub(crate) async fn team_init_chunked_upload(
     operation_id = "list_team_recoverable_upload_sessions",
     params(("team_id" = i64, Path, description = "Team ID"), UploadSessionsQuery),
     responses(
-        (status = 200, description = "Team recoverable upload sessions", body = inline(ApiResponse<Vec<upload_service::RecoverableUploadSessionResponse>>)),
+        (status = 200, description = "Team recoverable upload sessions", body = inline(ApiResponse<Vec<upload::RecoverableUploadSessionResponse>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -388,7 +387,7 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
     query: web::Query<UploadSessionsQuery>,
 ) -> Result<HttpResponse> {
     validate_request(&*query)?;
-    let resp = upload_service::list_recoverable_sessions_for_team(
+    let resp = upload::list_recoverable_sessions_for_team(
         state.get_ref(),
         *path,
         claims.user_id,
@@ -410,7 +409,7 @@ pub(crate) async fn team_list_recoverable_upload_sessions(
     ),
     request_body(content = Vec<u8>, content_type = "application/octet-stream"),
     responses(
-        (status = 200, description = "Chunk uploaded", body = inline(ApiResponse<upload_service::ChunkUploadResponse>)),
+        (status = 200, description = "Chunk uploaded", body = inline(ApiResponse<upload::ChunkUploadResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Session not found"),
@@ -424,7 +423,7 @@ pub(crate) async fn team_upload_chunk(
     payload: web::Payload,
 ) -> Result<HttpResponse> {
     let (team_id, upload_id, chunk_number) = path.into_inner();
-    let resp = upload_service::upload_chunk_payload_for_team(
+    let resp = upload::upload_chunk_payload_for_team(
         state.get_ref(),
         team_id,
         &upload_id,
@@ -447,7 +446,7 @@ pub(crate) async fn team_upload_chunk(
     ),
     request_body(content = CompleteUploadReq, description = "Multipart completion data (optional, only for presigned_multipart mode)", content_type = "application/json"),
     responses(
-        (status = 201, description = "Team file created", body = inline(ApiResponse<crate::services::workspace_models::FileInfo>)),
+        (status = 201, description = "Team file created", body = inline(ApiResponse<crate::services::workspace::models::FileInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Session not found"),
@@ -471,7 +470,7 @@ pub(crate) async fn team_complete_upload(
                 .collect()
         });
     let ctx = AuditContext::from_request(&req, &claims);
-    let file = upload_service::complete_upload_for_team_with_audit(
+    let file = upload::complete_upload_for_team_with_audit(
         state.get_ref(),
         team_id,
         &upload_id,
@@ -493,7 +492,7 @@ pub(crate) async fn team_complete_upload(
         ("upload_id" = String, Path, description = "Upload session ID")
     ),
     responses(
-        (status = 200, description = "Upload progress", body = inline(ApiResponse<upload_service::UploadProgressResponse>)),
+        (status = 200, description = "Upload progress", body = inline(ApiResponse<upload::UploadProgressResponse>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Session not found"),
@@ -507,8 +506,7 @@ pub(crate) async fn team_get_upload_progress(
 ) -> Result<HttpResponse> {
     let (team_id, upload_id) = path.into_inner();
     let resp =
-        upload_service::get_progress_for_team(state.get_ref(), team_id, &upload_id, claims.user_id)
-            .await?;
+        upload::get_progress_for_team(state.get_ref(), team_id, &upload_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
 }
 
@@ -536,19 +534,18 @@ pub(crate) async fn team_cancel_upload(
     path: web::Path<(i64, String)>,
 ) -> Result<HttpResponse> {
     let (team_id, upload_id) = path.into_inner();
-    upload_service::cancel_upload_for_team(state.get_ref(), team_id, &upload_id, claims.user_id)
-        .await?;
+    upload::cancel_upload_for_team(state.get_ref(), team_id, &upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log_with_details(
+    crate::services::ops::audit::log_with_details(
         state.get_ref(),
         &ctx,
-        crate::services::audit_service::AuditAction::FileUploadCancel,
-        crate::services::audit_service::AuditEntityType::UploadSession,
+        crate::services::ops::audit::AuditAction::FileUploadCancel,
+        crate::services::ops::audit::AuditEntityType::UploadSession,
         None,
         Some(&upload_id),
         || {
-            crate::services::audit_service::details(
-                crate::services::audit_service::UploadCancelAuditDetails {
+            crate::services::ops::audit::details(
+                crate::services::ops::audit::UploadCancelAuditDetails {
                     upload_id: &upload_id,
                 },
             )
@@ -583,7 +580,7 @@ pub(crate) async fn team_presign_parts(
     body: web::Json<PresignPartsReq>,
 ) -> Result<HttpResponse> {
     let (team_id, upload_id) = path.into_inner();
-    let urls = upload_service::presign_parts_for_team(
+    let urls = upload::presign_parts_for_team(
         state.get_ref(),
         team_id,
         &upload_id,
@@ -602,10 +599,10 @@ pub(crate) async fn upload_response(
     params: UploadResponseParams<'_>,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    let file = upload_service::upload_in_scope_with_audit(
+    let file = upload::upload_in_scope_with_audit(
         state,
         payload,
-        upload_service::UploadInScopeParams {
+        upload::UploadInScopeParams {
             scope: params.scope,
             folder_id: params.folder_id,
             relative_path: params.relative_path,

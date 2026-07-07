@@ -5,9 +5,7 @@ use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{
-    audit_service, auth_service, config_service, managed_follower_enrollment_service,
-};
+use crate::services::{auth::local, ops::audit, ops::config, remote::enrollment};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -51,11 +49,11 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
     tag = "public",
     operation_id = "get_public_frontend_config",
     responses(
-        (status = 200, description = "Public frontend bootstrap config", body = inline(ApiResponse<config_service::PublicFrontendConfig>)),
+        (status = 200, description = "Public frontend bootstrap config", body = inline(ApiResponse<config::PublicFrontendConfig>)),
     ),
 )]
 pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let config = config_service::get_public_frontend_config(state.get_ref());
+    let config = config::get_public_frontend_config(state.get_ref());
     Ok(public_config_response(config))
 }
 
@@ -65,11 +63,11 @@ pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<Ht
     tag = "public",
     operation_id = "get_public_preview_apps",
     responses(
-        (status = 200, description = "Public preview app config", body = inline(ApiResponse<crate::services::preview_app_service::PublicPreviewAppsConfig>)),
+        (status = 200, description = "Public preview app config", body = inline(ApiResponse<crate::services::preview::apps::PublicPreviewAppsConfig>)),
     ),
 )]
 pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let preview_apps = config_service::get_public_preview_apps(state.get_ref());
+    let preview_apps = config::get_public_preview_apps(state.get_ref());
     Ok(public_config_response(preview_apps))
 }
 
@@ -79,7 +77,7 @@ pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpR
     tag = "public",
     operation_id = "get_public_custom_config",
     responses(
-        (status = 200, description = "Custom config visible to the current request identity", body = inline(ApiResponse<config_service::PublicCustomConfig>)),
+        (status = 200, description = "Custom config visible to the current request identity", body = inline(ApiResponse<config::PublicCustomConfig>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
 )]
@@ -89,7 +87,7 @@ pub async fn get_custom_config(
 ) -> Result<HttpResponse> {
     let include_authenticated = request_has_valid_access_token(state.get_ref(), &req).await?;
     let custom_config =
-        config_service::get_public_custom_config(state.get_ref(), include_authenticated).await?;
+        config::get_public_custom_config(state.get_ref(), include_authenticated).await?;
     if include_authenticated {
         return Ok(HttpResponse::Ok()
             .insert_header((header::CACHE_CONTROL, "private, max-age=60"))
@@ -109,7 +107,7 @@ pub async fn get_custom_config(
     ),
 )]
 pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let support = config_service::get_public_thumbnail_support(state.get_ref()).await?;
+    let support = config::get_public_thumbnail_support(state.get_ref()).await?;
     Ok(public_config_response(support))
 }
 
@@ -123,16 +121,13 @@ pub async fn get_thumbnail_support(state: web::Data<PrimaryAppState>) -> Result<
     ),
 )]
 pub async fn get_media_data_support(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {
-    let support = config_service::get_public_media_data_support(state.get_ref()).await?;
+    let support = config::get_public_media_data_support(state.get_ref()).await?;
     Ok(public_config_response(support))
 }
 
 fn public_config_response<T: serde::Serialize>(data: T) -> HttpResponse {
     HttpResponse::Ok()
-        .insert_header((
-            header::CACHE_CONTROL,
-            config_service::PUBLIC_CONFIG_CACHE_CONTROL,
-        ))
+        .insert_header((header::CACHE_CONTROL, config::PUBLIC_CONFIG_CACHE_CONTROL))
         .insert_header((header::VARY, "Authorization, Cookie"))
         .json(ApiResponse::ok(data))
 }
@@ -146,7 +141,7 @@ async fn request_has_valid_access_token(
         return Ok(false);
     };
 
-    auth_service::authenticate_access_token(state, &token).await?;
+    local::authenticate_access_token(state, &token).await?;
     Ok(true)
 }
 
@@ -157,7 +152,7 @@ async fn request_has_valid_access_token(
     operation_id = "redeem_remote_enrollment",
     request_body = RedeemRemoteEnrollmentReq,
     responses(
-        (status = 200, description = "Redeem a remote enrollment token", body = ApiResponse<managed_follower_enrollment_service::RemoteEnrollmentBootstrap>),
+        (status = 200, description = "Redeem a remote enrollment token", body = ApiResponse<enrollment::RemoteEnrollmentBootstrap>),
     ),
 )]
 pub async fn redeem_remote_enrollment(
@@ -166,19 +161,17 @@ pub async fn redeem_remote_enrollment(
     body: web::Json<RedeemRemoteEnrollmentReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let bootstrap =
-        managed_follower_enrollment_service::redeem_enrollment_token(state.get_ref(), &body.token)
-            .await?;
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let bootstrap = enrollment::redeem_enrollment_token(state.get_ref(), &body.token).await?;
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let ctx = audit_info.to_context(0);
-    audit_service::log(
+    audit::log(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::RemoteEnrollmentRedeem,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::RemoteEnrollmentRedeem,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(bootstrap.remote_node_id),
         Some(&bootstrap.remote_node_name),
-        audit_service::details(audit_service::RemoteEnrollmentAuditDetails {
+        audit::details(audit::RemoteEnrollmentAuditDetails {
             phase: "redeemed",
             remote_node_id: bootstrap.remote_node_id,
             remote_node_name: &bootstrap.remote_node_name,
@@ -205,19 +198,17 @@ pub async fn ack_remote_enrollment(
     body: web::Json<AckRemoteEnrollmentReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ack =
-        managed_follower_enrollment_service::ack_enrollment_token(state.get_ref(), &body.ack_token)
-            .await?;
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let ack = enrollment::ack_enrollment_token(state.get_ref(), &body.ack_token).await?;
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let ctx = audit_info.to_context(0);
-    audit_service::log(
+    audit::log(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::RemoteEnrollmentAck,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::RemoteEnrollmentAck,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(ack.remote_node_id),
         Some(&ack.remote_node_name),
-        audit_service::details(audit_service::RemoteEnrollmentAuditDetails {
+        audit::details(audit::RemoteEnrollmentAuditDetails {
             phase: "acked",
             remote_node_id: ack.remote_node_id,
             remote_node_name: &ack.remote_node_name,

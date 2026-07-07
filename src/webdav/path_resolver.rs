@@ -9,7 +9,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace_storage_service::WorkspaceStorageScope;
+use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::utils::hash;
 use crate::webdav::dav::{DavPath, FsError};
 
@@ -202,7 +202,7 @@ async fn validate_cached_folder_path(
         return Ok(false);
     }
     for folder in &chain {
-        if crate::services::workspace_storage_service::ensure_folder_scope(folder, scope).is_err() {
+        if crate::services::workspace::storage::ensure_folder_scope(folder, scope).is_err() {
             return Ok(false);
         }
     }
@@ -247,8 +247,7 @@ async fn load_cached_resolved_node(
                 Err(_) => return Err(FsError::GeneralFailure),
             };
             if folder.deleted_at.is_some()
-                || crate::services::workspace_storage_service::ensure_folder_scope(&folder, scope)
-                    .is_err()
+                || crate::services::workspace::storage::ensure_folder_scope(&folder, scope).is_err()
             {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
@@ -280,8 +279,7 @@ async fn load_cached_resolved_node(
                 Err(_) => return Err(FsError::GeneralFailure),
             };
             if file.deleted_at.is_some()
-                || crate::services::workspace_storage_service::ensure_file_scope(&file, scope)
-                    .is_err()
+                || crate::services::workspace::storage::ensure_file_scope(&file, scope).is_err()
             {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);

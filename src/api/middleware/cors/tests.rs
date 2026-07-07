@@ -72,10 +72,10 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
     })
     .await;
     let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+        crate::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
         );
@@ -88,7 +88,7 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
         config: Arc::new(Config::default()),
         cache,
         metrics: crate::metrics_core::NoopMetrics::arc(),
-        mail_sender: crate::services::mail_service::runtime_sender(runtime_config.clone()),
+        mail_sender: crate::services::mail::sender::runtime_sender(runtime_config.clone()),
         storage_change_tx,
         share_download_rollback,
         background_task_dispatch_wakeup:

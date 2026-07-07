@@ -34,7 +34,7 @@ If you are new to the repository, read this page first and then [`module-designs
 | How data is queried and written | `src/db/repository/**` | Repository code encapsulates database access and cross-database compatibility details |
 | How file content reaches disk, object storage, OneDrive, or remote nodes | `src/storage/**` | Connector descriptors, driver abstractions, concrete drivers, and remote protocol code live here |
 | Why WebDAV is different from REST | `src/webdav/**` | This is a separate protocol entry layer |
-| Why team spaces reuse personal-space semantics | `src/services/workspace_scope_service.rs`, `src/services/workspace_storage_service/`, `src/services/workspace_storage_core.rs`, `src/services/folder_service/`, `src/services/file_service/` | Scope switching, upload orchestration, and the unified storage core all live here |
+| Why team spaces reuse personal-space semantics | `src/services/workspace/scope/`, `src/services/workspace/storage/`, `src/services/workspace/models.rs`, `src/services/workspace/storage_core/`, `src/services/files/folder/`, `src/services/files/file/` | Scope switching, upload orchestration, and the unified storage core all live here |
 | How the schema evolves | `migration/`, `src/entities/**` | Migration files and entities need to be read together |
 
 When you are chasing a specific feature, the fastest path is usually:
@@ -101,7 +101,7 @@ Things to remember:
 
 1. `src/api/follower.rs` only registers `/api/v1/internal/storage/*`
 2. `src/api/routes/internal_storage.rs` validates internal signatures or presigned access
-3. `master_binding_service` resolves primary-node bindings and ingress policies
+3. `remote::master_binding` resolves primary-node bindings and ingress policies
 4. `driver_registry` returns the actual storage driver
 5. The request is handled by the local / object-storage / remote driver capability interface
 

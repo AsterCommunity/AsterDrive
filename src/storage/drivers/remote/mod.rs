@@ -10,7 +10,7 @@ mod tests;
 
 use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result};
-use crate::services::remote_capability_service::RemoteCapabilityResolver;
+use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::object_key;
 use crate::storage::remote_protocol::RemoteStorageClient;
 

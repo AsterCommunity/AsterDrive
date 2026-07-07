@@ -240,9 +240,7 @@ async fn test_shared_thumbnail_returns_304_for_matching_if_none_match() {
         "pending thumbnail response should have an empty body"
     );
 
-    let stats = aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    let stats = aster_drive::services::task::drain(&state).await.unwrap();
     assert_eq!(stats.succeeded, 1);
 
     let req = test::TestRequest::get()
@@ -331,9 +329,7 @@ async fn test_shared_folder_file_thumbnail_returns_202_until_background_generati
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
-        .await
-        .unwrap();
+    let stats = aster_drive::services::task::drain(&state).await.unwrap();
     assert_eq!(stats.succeeded, 1);
 
     let tasks =

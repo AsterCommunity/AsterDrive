@@ -176,7 +176,7 @@ remote protocol 不应该决定：
 - remote storage target descriptor 的 UI 呈现
 - 产品级错误是否应该阻止策略变更
 
-这些决定属于 `managed_follower_service`、`remote_storage_target_service`、`policy_service` 或后续抽出的 capability / target resolver。
+这些决定属于 `remote::remote_node`、`remote::storage_target`、`storage_policy::policy` 或后续抽出的 capability / target resolver。
 
 ### WebDAV / WOPI 协议接入
 
@@ -184,8 +184,8 @@ remote protocol 不应该决定：
 
 - `src/webdav/*`
 - `src/api/routes/wopi.rs`
-- `src/services/webdav_service.rs`
-- `src/services/wopi_service/*`
+- `src/services/webdav::tree.rs`
+- `src/services/preview::wopi/*`
 
 WebDAV 和 WOPI 是协议入口，不是 REST 文件接口的普通变体。
 
@@ -197,8 +197,8 @@ WebDAV 和 WOPI 是协议入口，不是 REST 文件接口的普通变体。
 
 它们不应该：
 
-- 绕过 `workspace_storage_service` / `workspace_storage_core` 自己写一套文件落账
-- 绕过 `file_service` / `folder_service` 自己维护 blob 引用、版本、回收站语义
+- 绕过 `workspace::storage` / `workspace::storage_core` 自己写一套文件落账
+- 绕过 `file` / `folder` 自己维护 blob 引用、版本、回收站语义
 - 把 WOPI/WebDAV 专用错误格式塞回通用 service 错误模型
 
 ## 什么时候必须拆模块
@@ -229,7 +229,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 本清单用于 review 时快速判断“这段逻辑该不该留在当前 service”。它不是要求一次性重写。
 
-### `upload_service`
+### `files::upload`
 
 当前职责：
 
@@ -250,7 +250,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 应该下沉或继续收口：
 
 - finalization contract：trusted size、actual size、hash、blob、file version、quota charge、cleanup 必须形成可审查的统一契约
-- 不同 completion path 对 `workspace_storage_service` 的调用差异，后续应尽量收敛到同一 finalization shape
+- 不同 completion path 对 `workspace::storage` 的调用差异，后续应尽量收敛到同一 finalization shape
 - remote / object multipart 细节应留在 `init/remote.rs`、`complete/object_multipart.rs` 等子模块，不回流到 facade
 
 必须显式的副作用：
@@ -262,7 +262,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - audit
 - storage change / cache invalidation，如果某条上传路径触发文件变更
 
-### `workspace_storage_service`
+### `workspace::storage`
 
 当前职责：
 
@@ -291,7 +291,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - storage change
 - audit 调用方传入的 actor attribution
 
-### `workspace_storage_core`
+### `workspace::storage_core`
 
 当前职责：
 
@@ -320,7 +320,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - 数据库事务内的文件、blob、version、quota 一致性
 - upload session 完成态和正式文件之间的绑定
 
-### `policy_service`
+### `storage_policy::policy`
 
 当前职责：
 
@@ -351,7 +351,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - upload session cleanup task 创建
 - audit
 
-### `managed_follower_service`
+### `remote::remote_node`
 
 当前职责：
 
@@ -388,7 +388,9 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - policy snapshot reload
 - health test 写回 last capabilities / last error
 
-### `remote_storage_target_service`
+### `remote::storage_target`
+
+这是旧 issue 文案里 “managed ingress profile service” 在当前代码里的落点。少量 wire field 和错误码仍保留 `managed_ingress.*` 名称是兼容层；新的产品所有权应继续使用 remote storage target 语义。
 
 当前职责：
 
@@ -425,7 +427,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - driver registry reload / target validation
 - remote forwarding failure 的协议错误映射
 
-### `master_binding_service`
+### `remote::master_binding`
 
 当前职责：
 
@@ -441,7 +443,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - follower 对 primary 的信任关系
 - internal storage auth 和 presigned auth 的产品级授权
 - binding storage namespace 的路径隔离
-- 调用 `remote_storage_target_service::resolve_effective_target` 取得授权后的 ingress driver
+- 调用 `storage_target::resolve_effective_target` 取得授权后的 ingress driver
 
 不应该承担：
 
@@ -461,7 +463,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - driver registry reload
 - disabled binding / missing ingress target 的 precondition 错误
 
-### `file_service`
+### `file`
 
 当前职责：
 
@@ -469,7 +471,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - 个人空间和团队空间的 file-level use case
 - audit wrapper
 - 下载 outcome 构建：stream、range、conditional request、presigned redirect、inline sandbox
-- 与 `workspace_storage_service` 共享文件写入和 scope 校验
+- 与 `workspace::storage` 共享文件写入和 scope 校验
 
 应该保留：
 
@@ -504,14 +506,14 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 当前职责：
 
 - `src/webdav/*` 处理 WebDAV / DeltaV 协议、Basic Auth、path resolver、lock、property、transfer
-- `src/services/webdav_service.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
-- WebDAV 文件写入通过 `workspace_storage_service` 的统一链路落账
+- `src/services/webdav::tree.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
+- WebDAV 文件写入通过 `workspace::storage` 的统一链路落账
 
 应该保留：
 
 - WebDAV 专用鉴权、路径解析、锁、属性、Depth、Range、DeltaV 行为
 - 协议到 AsterDrive workspace/file/folder 语义的适配
-- 对 `file_service` / `folder_service` / `workspace_storage_service` 的复用
+- 对 `file` / `folder` / `workspace::storage` 的复用
 
 不应该承担：
 
@@ -529,8 +531,8 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 当前职责：
 
 - `src/api/routes/wopi.rs` 处理 WOPI HTTP method/header/status 兼容
-- `src/services/wopi_service/*` 处理 discovery、session、proof、lock、target、operations
-- WOPI 文件读写复用 `file_service` / `workspace_storage_service`
+- `src/services/preview::wopi/*` 处理 discovery、session、proof、lock、target、operations
+- WOPI 文件读写复用 `file` / `workspace::storage`
 
 应该保留：
 

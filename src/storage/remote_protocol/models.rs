@@ -31,12 +31,17 @@ pub struct RemoteStorageCapabilities {
     pub browser_cors: RemoteStorageBrowserCorsContract,
     #[serde(default)]
     pub limits: RemoteStorageProtocolLimits,
-    // TODO(remote-storage-target): this wire field remains `managed_ingress`
-    // for internal protocol v4/v5 compatibility. Keep the Rust payload shape
-    // target-named, but do not rename the serialized field until the primary /
-    // follower protocol can negotiate a successor capability key.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub managed_ingress: Option<RemoteStorageTargetCapabilities>,
+    // TODO(remote-storage-target-v6): switch the primary wire key to
+    // `remote_storage_target` when protocol v6 drops the legacy v4/v5
+    // `managed_ingress` capability key. Until then, serialize the old key for
+    // compatibility while accepting the new key as an alias.
+    #[serde(
+        default,
+        rename = "managed_ingress",
+        alias = "remote_storage_target",
+        skip_serializing_if = "Option::is_none"
+    )]
+    pub remote_storage_target: Option<RemoteStorageTargetCapabilities>,
     #[serde(default)]
     pub supports_list: bool,
     #[serde(default)]
@@ -63,7 +68,7 @@ impl RemoteStorageCapabilities {
             features: RemoteStorageFeatureFlags::current(),
             browser_cors: RemoteStorageBrowserCorsContract::current(),
             limits: RemoteStorageProtocolLimits::default(),
-            managed_ingress: Some(RemoteStorageTargetCapabilities::default()),
+            remote_storage_target: Some(RemoteStorageTargetCapabilities::default()),
             supports_list: true,
             supports_range_read: true,
             supports_stream_upload: true,
@@ -79,7 +84,7 @@ impl RemoteStorageCapabilities {
             features: RemoteStorageFeatureFlags::default(),
             browser_cors: RemoteStorageBrowserCorsContract::default(),
             limits: RemoteStorageProtocolLimits::default(),
-            managed_ingress: None,
+            remote_storage_target: None,
             supports_list: false,
             supports_range_read: false,
             supports_stream_upload: false,
@@ -91,9 +96,9 @@ impl RemoteStorageCapabilities {
         mut self,
         driver_types: Vec<DriverType>,
     ) -> Self {
-        self.managed_ingress = Some(RemoteStorageTargetCapabilities::from_known_driver_types(
-            driver_types,
-        ));
+        self.remote_storage_target = Some(
+            RemoteStorageTargetCapabilities::from_known_driver_types(driver_types),
+        );
         self
     }
 

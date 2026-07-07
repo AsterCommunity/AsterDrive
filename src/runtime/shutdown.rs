@@ -2,7 +2,7 @@
 
 use super::tasks::BackgroundTasks;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service;
+use crate::services::ops::audit;
 use sea_orm::DatabaseConnection;
 
 /// 等待 SIGINT 或 SIGTERM 信号，然后进行优雅关闭
@@ -58,7 +58,7 @@ pub async fn perform_shutdown(background_tasks: BackgroundTasks, db: DatabaseCon
     tracing::info!("background tasks stopped");
 
     tracing::info!("flushing audit logs...");
-    crate::services::audit_service::shutdown_global_audit_log_manager().await;
+    crate::services::ops::audit::shutdown_global_audit_log_manager().await;
 
     tracing::info!("closing database connection...");
     if let Err(e) = db.close().await {
@@ -71,11 +71,11 @@ pub async fn perform_shutdown(background_tasks: BackgroundTasks, db: DatabaseCon
 
 /// 记录服务器关闭事件。
 pub async fn record_server_shutdown<S: SharedRuntimeState>(state: &S) {
-    audit_service::log(
+    audit::log(
         state,
-        &audit_service::AuditContext::system(),
-        audit_service::AuditAction::ServerShutdown,
-        audit_service::AuditEntityType::SystemConfig,
+        &audit::AuditContext::system(),
+        audit::AuditAction::ServerShutdown,
+        audit::AuditEntityType::SystemConfig,
         None,
         None,
         None,

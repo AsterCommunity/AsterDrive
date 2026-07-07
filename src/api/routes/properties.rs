@@ -10,7 +10,7 @@ use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth_service::Claims, property_service};
+use crate::services::{auth::local::Claims, content::property, ops::audit};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -42,7 +42,7 @@ pub fn routes(
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     responses(
-        (status = 200, description = "Properties list", body = inline(ApiResponse<Vec<property_service::EntityProperty>>)),
+        (status = 200, description = "Properties list", body = inline(ApiResponse<Vec<property::EntityProperty>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Entity not found"),
     ),
@@ -55,7 +55,7 @@ pub async fn list_props(
 ) -> Result<HttpResponse> {
     let path = path.into_inner();
     validate_request(&path)?;
-    let props = property_service::list(
+    let props = property::list(
         state.get_ref(),
         path.entity_type,
         path.entity_id,
@@ -76,7 +76,7 @@ pub async fn list_props(
     ),
     request_body = SetPropReq,
     responses(
-        (status = 200, description = "Property set", body = inline(ApiResponse<property_service::EntityProperty>)),
+        (status = 200, description = "Property set", body = inline(ApiResponse<property::EntityProperty>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "DAV: namespace is read-only"),
         (status = 404, description = "Entity not found"),
@@ -94,7 +94,7 @@ pub async fn set_prop(
     let body = body.into_inner();
     validate_request(&path)?;
     validate_request(&body)?;
-    let prop = property_service::set(
+    let prop = property::set(
         state.get_ref(),
         path.entity_type,
         path.entity_id,
@@ -104,17 +104,17 @@ pub async fn set_prop(
         body.value.as_deref(),
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", body.namespace, body.name);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::PropertySet,
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditAction::PropertySet,
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         || {
-            audit_service::details(audit_service::PropertyAuditDetails {
+            audit::details(audit::PropertyAuditDetails {
                 entity_type: path.entity_type.as_str(),
                 namespace: &body.namespace,
                 name: &body.name,
@@ -152,7 +152,7 @@ pub async fn delete_prop(
 ) -> Result<HttpResponse> {
     let path = path.into_inner();
     validate_request(&path)?;
-    property_service::delete(
+    property::delete(
         state.get_ref(),
         path.entity_type,
         path.entity_id,
@@ -161,17 +161,17 @@ pub async fn delete_prop(
         &path.name,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", path.namespace, path.name);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::PropertyDelete,
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditAction::PropertyDelete,
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         || {
-            audit_service::details(audit_service::PropertyAuditDetails {
+            audit::details(audit::PropertyAuditDetails {
                 entity_type: path.entity_type.as_str(),
                 namespace: &path.namespace,
                 name: &path.name,
