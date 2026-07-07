@@ -24,7 +24,7 @@ use crate::services::{
     share,
     share::stream,
     share::ticket,
-    task_service,
+    task,
     user::profile,
 };
 use actix_governor::Governor;
@@ -408,7 +408,7 @@ pub async fn archive_download(
     let ticket = ticket::create_shared_archive_download_ticket(
         state.get_ref(),
         &token,
-        &task_service::types::CreateArchiveTaskParams {
+        &task::types::CreateArchiveTaskParams {
             file_ids: body.file_ids,
             folder_ids: body.folder_ids,
             archive_name: body.archive_name,
@@ -444,7 +444,7 @@ pub async fn archive_download_stream(
     check_share_cookie(state.get_ref(), &req, &token).await?;
     let params =
         ticket::resolve_shared_archive_download_ticket(state.get_ref(), &token, &ticket).await?;
-    task_service::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
+    task::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
 }
 
 #[api_docs_macros::path(

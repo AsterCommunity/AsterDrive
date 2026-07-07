@@ -228,7 +228,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 Use this inventory during review to decide whether logic belongs in the current service. It is not a request to rewrite everything at once.
 
-### `upload_service`
+### `files::upload`
 
 Current responsibilities:
 

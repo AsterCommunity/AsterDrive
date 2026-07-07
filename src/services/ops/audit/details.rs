@@ -283,7 +283,7 @@ pub struct AdminTaskCleanupAuditDetails {
 
 #[derive(Serialize)]
 pub struct AdminBlobMaintenanceAuditDetails<'a> {
-    pub action: crate::services::task_service::types::BlobMaintenanceAction,
+    pub action: crate::services::task::types::BlobMaintenanceAction,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub blob_ids: Option<&'a [i64]>,
 }

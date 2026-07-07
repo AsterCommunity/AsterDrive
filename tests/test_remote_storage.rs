@@ -20,7 +20,7 @@ use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
     auth::local, files::file, files::folder, remote::master_binding, remote::remote_node,
-    remote::storage_target, storage_policy::policy, upload_service,
+    remote::storage_target, storage_policy::policy, files::upload,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_BODY_LIMIT, REMOTE_TUNNEL_COMPLETE_PATH, REMOTE_TUNNEL_JSON_LIMIT,
@@ -1515,7 +1515,7 @@ async fn setup_browser_presigned_cors_fixture(
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         &format!("{label}.bin"),
@@ -5488,7 +5488,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"presigned-remote-upload".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "presigned.bin",
@@ -5555,7 +5555,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
         "single-file remote presigned upload should not create local chunk temp dir"
     );
 
-    let created = upload_service::complete_upload(&consumer_state, &upload_id, user.id, None)
+    let created = upload::complete_upload(&consumer_state, &upload_id, user.id, None)
         .await
         .expect("remote presigned upload should complete");
     let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
@@ -5599,7 +5599,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
 async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     use aster_drive::db::repository::background_task_repo;
     use aster_drive::entities::background_task;
-    use aster_drive::services::task_service;
+    use aster_drive::services::task;
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -5673,7 +5673,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"late remote presigned write after force delete".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "late-remote.bin",
@@ -5750,7 +5750,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     due_task.next_run_at = Set(Utc::now() - ChronoDuration::seconds(1));
     due_task.update(consumer_state.writer_db()).await.unwrap();
 
-    let stats = task_service::dispatch_due(&consumer_state)
+    let stats = task::dispatch_due(&consumer_state)
         .await
         .expect("cleanup task dispatch should succeed");
     assert_eq!(stats.claimed, 1);
@@ -5850,7 +5850,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     common::seed_csrf_token(&login.access_token);
 
     let body = b"remote relay stream direct".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "relay-direct.bin",
@@ -5997,7 +5997,7 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"presigned-browser-cors".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "presigned-browser.bin",
@@ -6519,7 +6519,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"remote-relay-chunked-upload".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "relay-chunked.bin",
@@ -6576,7 +6576,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .is_empty()
     );
 
-    let oversized_init = upload_service::init_upload(
+    let oversized_init = upload::init_upload(
         &consumer_state,
         user.id,
         "relay-chunked-oversized.bin",
@@ -6614,7 +6614,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         "oversized remote relay chunk must release the claimed part row"
     );
     let oversized_progress =
-        upload_service::get_progress(&consumer_state, &oversized_upload_id, user.id)
+        upload::get_progress(&consumer_state, &oversized_upload_id, user.id)
             .await
             .expect("remote relay oversized progress should be queryable");
     assert!(oversized_progress.chunks_on_disk.is_empty());
@@ -6645,7 +6645,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     let duplicate: serde_json::Value = test::read_body_json(resp).await;
     assert_eq!(duplicate["data"]["received_count"], 1);
 
-    let progress = upload_service::get_progress(&consumer_state, &upload_id, user.id)
+    let progress = upload::get_progress(&consumer_state, &upload_id, user.id)
         .await
         .expect("remote relay upload progress should be queryable");
     assert_eq!(progress.chunks_on_disk, vec![0]);
@@ -6674,7 +6674,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
     }
 
-    let progress = upload_service::get_progress(&consumer_state, &upload_id, user.id)
+    let progress = upload::get_progress(&consumer_state, &upload_id, user.id)
         .await
         .expect("completed remote relay upload progress should be queryable");
     assert_eq!(
@@ -6682,7 +6682,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
         (0..i32::try_from(total_chunks).expect("chunk count should fit i32")).collect::<Vec<_>>()
     );
 
-    let created = upload_service::complete_upload(&consumer_state, &upload_id, user.id, None)
+    let created = upload::complete_upload(&consumer_state, &upload_id, user.id, None)
         .await
         .expect("remote relay multipart upload should complete");
     let created_file = file_repo::find_by_id(consumer_state.writer_db(), created.id)
@@ -6810,7 +6810,7 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
         .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "presigned-origin-path.bin",
@@ -6933,7 +6933,7 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     .expect("remote folder should be created");
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "presigned-disabled-binding.bin",
@@ -7368,7 +7368,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     common::bind_policy_to_folder(&consumer_state, folder.id, remote_policy.id).await;
 
     let body = b"multipart-remote-upload".to_vec();
-    let init = upload_service::init_upload(
+    let init = upload::init_upload(
         &consumer_state,
         user.id,
         "multipart.bin",
@@ -7407,7 +7407,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
 
     let requested_parts =
         (1..=i32::try_from(total_chunks).expect("chunk count should fit i32")).collect::<Vec<_>>();
-    let urls = upload_service::presign_parts(&consumer_state, &upload_id, user.id, requested_parts)
+    let urls = upload::presign_parts(&consumer_state, &upload_id, user.id, requested_parts)
         .await
         .expect("presign multipart part URLs should succeed");
 
@@ -7434,7 +7434,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         ));
     }
 
-    let progress = upload_service::get_progress(&consumer_state, &upload_id, user.id)
+    let progress = upload::get_progress(&consumer_state, &upload_id, user.id)
         .await
         .expect("multipart upload progress should be queryable");
     assert_eq!(
@@ -7463,7 +7463,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
         "remote presigned multipart upload should not create local assembled temp file"
     );
 
-    let created = upload_service::complete_upload(
+    let created = upload::complete_upload(
         &consumer_state,
         &upload_id,
         user.id,

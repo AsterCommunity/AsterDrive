@@ -14,7 +14,7 @@ use super::*;
 use crate::config::definitions::CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_PREVIEW;
 use crate::entities::system_config;
 use crate::services::files::archive::core::test_utils::create_single_file_zip_with_raw_name;
-use crate::services::task_service::{TaskExecutionContext, TaskLease};
+use crate::services::task::{TaskExecutionContext, TaskLease};
 use crate::storage::BlobMetadata;
 use crate::storage::StorageDriver;
 use crate::types::{SystemConfigSource, SystemConfigValueType};

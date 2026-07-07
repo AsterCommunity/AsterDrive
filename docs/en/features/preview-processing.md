@@ -22,7 +22,7 @@ Preview and processing turn original files into browser-viewable, openable, or s
 
 | Module | Owns |
 | --- | --- |
-| `thumbnail`, `task_service::thumbnail` | Thumbnail and image-preview cache and task dispatch |
+| `thumbnail`, `task::thumbnail` | Thumbnail and image-preview cache and task dispatch |
 | `media::processing` | VIPS / FFmpeg / FFprobe processor resolution |
 | `media::metadata` | Audio/video metadata parsing |
 | `files::archive::core`, `files::archive::preview` | Archive scanning, path validation, read-only preview |

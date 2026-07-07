@@ -32,7 +32,7 @@ use aster_drive::config::operations::{
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
 use aster_drive::entities::{background_task, file_blob, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::task_service::{
+use aster_drive::services::task::{
     self, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
     types::{
         RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
@@ -715,7 +715,7 @@ async fn run_failing_personal_archive_extract_with_filename(
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -845,7 +845,7 @@ async fn insert_pending_dispatch_task(
         BackgroundTaskKind::ArchiveCompress => (
             "dispatch-archive.zip",
             serde_json::to_string(
-                &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+                &aster_drive::services::task::types::ArchiveCompressTaskPayload {
                     file_ids: Vec::new(),
                     folder_ids: Vec::new(),
                     archive_name: "dispatch-archive.zip".to_string(),
@@ -1045,7 +1045,7 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
         .as_i64()
         .expect("created task id should exist");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("aria2 offline download task should drain");
     let task = background_task_repo::find_by_id(state.writer_db(), task_id)
@@ -1446,7 +1446,7 @@ async fn test_dispatch_due_reclaims_stale_processing_task_with_new_token() {
     .await
     .expect("stale processing dispatch task should be inserted");
 
-    let stats = task_service::dispatch_due(&state)
+    let stats = task::dispatch_due(&state)
         .await
         .expect("dispatch should reclaim stale processing task");
 
@@ -1492,7 +1492,7 @@ async fn test_dispatch_due_fast_continues_thumbnail_lane() {
         .await;
     }
 
-    let stats = task_service::dispatch_due(&state)
+    let stats = task::dispatch_due(&state)
         .await
         .expect("dispatch should fast-continue thumbnail lane");
 
@@ -1520,7 +1520,7 @@ async fn test_dispatch_due_fast_continues_archive_lane_with_backlog() {
         .await;
     }
 
-    let stats = task_service::dispatch_due(&state)
+    let stats = task::dispatch_due(&state)
         .await
         .expect("dispatch should fast-continue archive lane");
 
@@ -1590,7 +1590,7 @@ async fn test_blob_maintenance_integrity_check_reports_missing_and_size_mismatch
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1649,7 +1649,7 @@ async fn test_blob_maintenance_uses_uncached_driver_without_replacing_existing_h
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1708,7 +1708,7 @@ async fn test_blob_maintenance_reuses_existing_shared_driver_cache() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1785,7 +1785,7 @@ async fn test_blob_maintenance_keeps_cached_policy_drivers_stable() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1843,7 +1843,7 @@ async fn test_blob_maintenance_integrity_check_does_not_warm_shared_driver_cache
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1917,7 +1917,7 @@ async fn test_blob_maintenance_orphan_cleanup_does_not_warm_shared_driver_cache(
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1959,7 +1959,7 @@ async fn test_blob_maintenance_empty_scan_keeps_untouched_cached_driver() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("empty blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2006,7 +2006,7 @@ async fn test_blob_maintenance_ref_count_reconcile_fixes_current_and_version_ref
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2065,7 +2065,7 @@ async fn test_blob_maintenance_ref_count_reconcile_without_targets_scans_all_blo
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2146,7 +2146,7 @@ async fn test_blob_maintenance_orphan_cleanup_removes_unreferenced_blob_only() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("blob maintenance task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2229,7 +2229,7 @@ async fn test_cleanup_expired_keeps_terminal_task_records() {
     std::fs::write(format!("{task_temp_dir}/artifact.tmp"), b"expired")
         .expect("task temp artifact should be written");
 
-    let cleaned = task_service::cleanup_expired(&state)
+    let cleaned = task::cleanup_expired(&state)
         .await
         .expect("task cleanup should succeed");
     assert_eq!(cleaned, 1);
@@ -2243,7 +2243,7 @@ async fn test_cleanup_expired_keeps_terminal_task_records() {
         .expect("expired task record should still exist");
     assert_eq!(stored.status, BackgroundTaskStatus::Succeeded);
 
-    let cleaned_again = task_service::cleanup_expired(&state)
+    let cleaned_again = task::cleanup_expired(&state)
         .await
         .expect("repeated task cleanup should still succeed");
     assert_eq!(cleaned_again, 0);
@@ -2300,7 +2300,7 @@ async fn test_cleanup_expired_scans_offline_download_temp_dir() {
     std::fs::write(format!("{task_temp_dir}/source"), b"expired")
         .expect("offline download temp artifact should be written");
 
-    let cleaned = task_service::cleanup_expired(&state)
+    let cleaned = task::cleanup_expired(&state)
         .await
         .expect("task cleanup should succeed");
     assert_eq!(cleaned, 1);
@@ -2321,7 +2321,7 @@ async fn test_record_runtime_task_run_persists_system_runtime_event() {
     let started_at = utc_now_at_db_precision() - Duration::seconds(2);
     let finished_at = utc_now_at_db_precision();
 
-    let recorded = task_service::record_runtime_task_run(
+    let recorded = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::TrashCleanup,
         started_at,
@@ -2389,7 +2389,7 @@ async fn test_record_runtime_task_run_skips_quiet_outcome() {
     let started_at = Utc::now() - Duration::seconds(1);
     let finished_at = Utc::now();
 
-    let recorded = task_service::record_runtime_task_run(
+    let recorded = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::BackgroundTaskDispatch,
         started_at,
@@ -2412,7 +2412,7 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
     let first_started_at = utc_now_at_db_precision() - Duration::seconds(6);
     let first_finished_at = utc_now_at_db_precision() - Duration::seconds(5);
 
-    let first = task_service::record_runtime_task_run(
+    let first = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::SystemHealthCheck,
         first_started_at,
@@ -2428,7 +2428,7 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
 
     let second_started_at = utc_now_at_db_precision() - Duration::seconds(1);
     let second_finished_at = utc_now_at_db_precision();
-    let second = task_service::record_runtime_task_run(
+    let second = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::SystemHealthCheck,
         second_started_at,
@@ -2458,7 +2458,7 @@ async fn test_record_runtime_task_run_refreshes_latest_healthy_system_check() {
 #[actix_web::test]
 async fn test_record_runtime_task_run_keeps_health_failure_history_before_recovery() {
     let state = common::setup().await;
-    let failed = task_service::record_runtime_task_run(
+    let failed = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::SystemHealthCheck,
         Utc::now() - Duration::seconds(5),
@@ -2485,7 +2485,7 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
     assert!(failed.steps_json.is_none());
     assert_eq!(failed.failure_can_retry, Some(false));
 
-    let recovered = task_service::record_runtime_task_run(
+    let recovered = task::record_runtime_task_run(
         &state,
         SystemRuntimeTaskKind::SystemHealthCheck,
         Utc::now() - Duration::seconds(1),
@@ -2515,7 +2515,7 @@ async fn test_dispatch_due_marks_manual_retryable_task_failed_without_auto_retry
     let state = common::setup().await;
     let task = insert_pending_dispatch_task(&state, BackgroundTaskKind::ArchiveCompress, 3).await;
 
-    let stats = task_service::dispatch_due(&state)
+    let stats = task::dispatch_due(&state)
         .await
         .expect("dispatch should succeed");
 
@@ -2541,7 +2541,7 @@ async fn test_dispatch_due_marks_task_failed_after_max_attempts() {
     let state = common::setup().await;
     let task = insert_pending_dispatch_task(&state, BackgroundTaskKind::SystemRuntime, 1).await;
 
-    let stats = task_service::dispatch_due(&state)
+    let stats = task::dispatch_due(&state)
         .await
         .expect("dispatch should succeed");
 
@@ -2979,7 +2979,7 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
         ],
     );
 
-    let stats = aster_drive::services::task_service::drain(state.get_ref())
+    let stats = aster_drive::services::task::drain(state.get_ref())
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -3223,7 +3223,7 @@ async fn test_archive_compress_task_keeps_long_conflict_copy_name_within_limit()
     assert_expanded_task_display_name(&body, &expected_display_name, "archive compress");
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -3296,7 +3296,7 @@ async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -3361,7 +3361,7 @@ async fn test_archive_compress_task_rejects_quota_before_building_archive() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -3493,7 +3493,7 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
 
     let now = Utc::now();
     let payload_json = serde_json::to_string(
-        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+        &aster_drive::services::task::types::ArchiveCompressTaskPayload {
             file_ids: Vec::new(),
             folder_ids: Vec::new(),
             archive_name: "retry-bundle.zip".to_string(),
@@ -3574,7 +3574,7 @@ async fn test_retry_task_rejects_non_failed_task_with_stable_code() {
 
     let now = Utc::now();
     let payload_json = serde_json::to_string(
-        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+        &aster_drive::services::task::types::ArchiveCompressTaskPayload {
             file_ids: Vec::new(),
             folder_ids: Vec::new(),
             archive_name: "pending-task.zip".to_string(),
@@ -3641,7 +3641,7 @@ async fn test_retry_task_rejects_non_retryable_failure_with_stable_code() {
 
     let now = Utc::now();
     let payload_json = serde_json::to_string(
-        &aster_drive::services::task_service::types::ArchiveCompressTaskPayload {
+        &aster_drive::services::task::types::ArchiveCompressTaskPayload {
             file_ids: Vec::new(),
             folder_ids: Vec::new(),
             archive_name: "non-retryable-task.zip".to_string(),
@@ -3781,7 +3781,7 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
         ],
     );
 
-    let stats = aster_drive::services::task_service::drain(state.get_ref())
+    let stats = aster_drive::services::task::drain(state.get_ref())
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -3905,7 +3905,7 @@ async fn test_archive_extract_task_publishes_single_storage_change_event() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -3983,7 +3983,7 @@ async fn test_archive_extract_decodes_gb18030_names_by_default() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -4066,7 +4066,7 @@ async fn test_archive_extract_empty_directories_publish_non_quota_storage_change
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -4157,7 +4157,7 @@ async fn test_archive_extract_task_keeps_long_conflict_folder_copy_name_within_l
     assert_expanded_task_display_name(&body, &expected_display_name, "archive extract");
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -4234,7 +4234,7 @@ async fn test_archive_extract_concurrent_root_name_conflicts_allocate_copy_names
         task_ids.push(body["data"]["id"].as_i64().unwrap());
     }
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 2);
@@ -4326,7 +4326,7 @@ async fn test_archive_extract_task_fails_before_staging_when_quota_is_insufficie
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -4424,7 +4424,7 @@ async fn test_archive_extract_task_fails_when_staging_limit_is_exceeded() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -4509,7 +4509,7 @@ async fn test_archive_extract_task_rejects_entry_size_tampering() {
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -4927,7 +4927,7 @@ async fn test_archive_extract_task_fails_when_downloaded_source_exceeds_declared
     let body: Value = test::read_body_json(resp).await;
     let task_id = body["data"]["id"].as_i64().unwrap();
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.failed, 1);
@@ -5019,7 +5019,7 @@ async fn test_archive_extract_task_cleans_created_root_after_import_failure() {
         std::path::Path::new(&state.config.server.upload_temp_dir),
     ];
     set_storage_data_directories_writable(&storage_root, false, &writable_subtrees);
-    let stats = aster_drive::services::task_service::drain(&state).await;
+    let stats = aster_drive::services::task::drain(&state).await;
     set_storage_data_directories_writable(&storage_root, true, &writable_subtrees);
     let stats = stats.expect("task drain should succeed");
     assert_eq!(stats.failed, 1);

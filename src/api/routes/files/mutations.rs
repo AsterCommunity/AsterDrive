@@ -53,7 +53,7 @@ pub async fn create_empty(
     params(("id" = i64, Path, description = "File ID")),
     request_body = ExtractArchiveRequest,
     responses(
-        (status = 200, description = "Archive extract task created", body = inline(ApiResponse<crate::services::task_service::types::TaskInfo>)),
+        (status = 200, description = "Archive extract task created", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 400, description = "Unsupported archive format"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
@@ -330,7 +330,7 @@ pub(crate) async fn team_update_content(
     ),
     request_body = ExtractArchiveRequest,
     responses(
-        (status = 200, description = "Team archive extract task created", body = inline(ApiResponse<crate::services::task_service::types::TaskInfo>)),
+        (status = 200, description = "Team archive extract task created", body = inline(ApiResponse<crate::services::task::types::TaskInfo>)),
         (status = 400, description = "Unsupported archive format"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -525,11 +525,11 @@ pub(crate) async fn extract_archive_response(
     file_id: i64,
     body: &ExtractArchiveRequest,
 ) -> Result<HttpResponse> {
-    let task = crate::services::task_service::archive::create_archive_extract_task_in_scope(
+    let task = crate::services::task::archive::create_archive_extract_task_in_scope(
         state,
         scope,
         file_id,
-        crate::services::task_service::types::CreateArchiveExtractTaskParams {
+        crate::services::task::types::CreateArchiveExtractTaskParams {
             target_folder_id: body.target_folder_id,
             output_folder_name: body.output_folder_name.clone(),
             filename_encoding: body.filename_encoding,

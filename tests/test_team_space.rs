@@ -1968,7 +1968,7 @@ async fn test_team_trash_purge_all_schedules_background_task() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 1);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("team trash purge task drain should succeed");
     assert_eq!(stats.succeeded, 1);

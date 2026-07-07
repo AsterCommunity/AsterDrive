@@ -229,7 +229,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 本清单用于 review 时快速判断“这段逻辑该不该留在当前 service”。它不是要求一次性重写。
 
-### `upload_service`
+### `files::upload`
 
 当前职责：
 

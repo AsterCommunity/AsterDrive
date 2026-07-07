@@ -1160,7 +1160,7 @@ async fn slow_nondedup_preupload_does_not_block_task_listing() {
 
     let page = tokio::time::timeout(
         Duration::from_millis(250),
-        crate::services::task_service::list_tasks_paginated_in_scope(&state, scope, 20, 0),
+        crate::services::task::list_tasks_paginated_in_scope(&state, scope, 20, 0),
     )
     .await
     .expect("task listing should not wait for blocked blob upload")
@@ -1224,7 +1224,7 @@ async fn slow_dedup_blob_publish_does_not_block_task_listing() {
 
     let page = tokio::time::timeout(
         Duration::from_millis(250),
-        crate::services::task_service::list_tasks_paginated_in_scope(&state, scope, 20, 0),
+        crate::services::task::list_tasks_paginated_in_scope(&state, scope, 20, 0),
     )
     .await
     .expect("task listing should not wait for blocked dedup blob publish")

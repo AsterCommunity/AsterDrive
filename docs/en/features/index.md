@@ -22,11 +22,11 @@ If you are a regular user, start with the [User Manual](/en/guide/user-guide) an
 
 | Module | Area | Notes |
 | --- | --- | --- |
-| `auth_service`, `mfa_service`, `passkey_service`, `external_auth_service` | Identity and Access | Local login, security verification, external identity binding |
-| `file`, `folder`, `workspace::team`, `share`, `files::trash`, `content::version` | Files and Workspaces | File chain, team spaces, shares, trash, versions |
-| `upload_service`, `workspace::storage`, `storage_policy::policy`, `storage::*` | Uploads and Storage | Upload sessions, storage policy selection, blob writes, driver abstraction |
-| `thumbnail`, `media::processing`, `media::metadata`, `files::archive::preview`, `preview::wopi` | Preview and Processing | Derived file results, online opening, preview capabilities |
-| `ops::config`, `task_service`, `mail::sender`, `ops::audit`, `ops::health`, `readiness_service` | System and Operations | Hot config, background tasks, mail, audit, health checks |
+| `auth::local`, `auth::mfa`, `auth::passkey`, `auth::external` | Identity and Access | Local login, security verification, external identity binding |
+| `files::file`, `files::folder`, `workspace::team`, `share`, `files::trash`, `content::version` | Files and Workspaces | File chain, team spaces, shares, trash, versions |
+| `files::upload`, `workspace::storage`, `storage_policy::policy`, `storage::*` | Uploads and Storage | Upload sessions, storage policy selection, blob writes, driver abstraction |
+| `files::thumbnail`, `media::processing`, `media::metadata`, `files::archive::preview`, `preview::wopi` | Preview and Processing | Derived file results, online opening, preview capabilities |
+| `ops::config`, `task`, `mail::sender`, `ops::audit`, `ops::health`, `api::routes::health` | System and Operations | Hot config, background tasks, mail, audit, health checks |
 
 ## How to Use This Section
 

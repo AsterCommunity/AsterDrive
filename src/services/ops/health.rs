@@ -4,10 +4,10 @@ use crate::cache::CacheBackend;
 use crate::config::CacheConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{FollowerRuntimeState, RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::services::task_service::types::{
+use crate::services::task::types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
 };
-use crate::services::{remote::remote_node, task_service};
+use crate::services::{remote::remote_node, task};
 use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +111,7 @@ impl SystemHealthReport {
             .join("; ")
     }
 
-    pub fn into_runtime_outcome(self) -> task_service::RuntimeTaskRunOutcome {
+    pub fn into_runtime_outcome(self) -> task::RuntimeTaskRunOutcome {
         let summary = if self.has_issues() {
             self.issue_summary()
         } else {
@@ -120,13 +120,13 @@ impl SystemHealthReport {
         let system_health = self.to_runtime_result();
 
         if self.has_issues() {
-            task_service::RuntimeTaskRunOutcome::failed_with_system_health(
+            task::RuntimeTaskRunOutcome::failed_with_system_health(
                 Some(summary),
                 self.issue_details(),
                 system_health,
             )
         } else {
-            task_service::RuntimeTaskRunOutcome::succeeded_with_system_health(
+            task::RuntimeTaskRunOutcome::succeeded_with_system_health(
                 Some(summary),
                 system_health,
             )
@@ -315,7 +315,7 @@ mod tests {
     use crate::cache::CacheBackend;
     use crate::config::CacheConfig;
     use crate::errors::{AsterError, Result};
-    use crate::services::task_service::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
+    use crate::services::task::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
     use async_trait::async_trait;
 
     struct FakeCache {

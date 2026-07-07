@@ -11,3 +11,4 @@ pub mod lock;
 pub mod preview_link;
 pub mod thumbnail;
 pub mod trash;
+pub mod upload;

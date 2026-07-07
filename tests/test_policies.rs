@@ -1175,7 +1175,7 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
 async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
     use aster_drive::entities::background_task;
-    use aster_drive::services::task_service;
+    use aster_drive::services::task;
     use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -1272,7 +1272,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     active.next_run_at = Set(Utc::now() - Duration::seconds(1));
     active.update(&db).await.unwrap();
 
-    let stats = task_service::dispatch_due(&state).await.unwrap();
+    let stats = task::dispatch_due(&state).await.unwrap();
     assert_eq!(stats.claimed, 1);
     assert_eq!(stats.succeeded, 1);
     assert!(

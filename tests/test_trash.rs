@@ -282,7 +282,7 @@ async fn test_trash_purge_all() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 2);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("trash purge task drain should succeed");
     assert_eq!(stats.succeeded, 2);
@@ -364,7 +364,7 @@ async fn test_empty_trash_purge_all_task_succeeds_with_zero_result() {
     assert_eq!(body["data"]["kind"], "trash_purge_all");
     assert_eq!(body["data"]["status"], "pending");
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("empty trash purge task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -529,7 +529,7 @@ async fn test_purge_all_nested_no_orphans() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["kind"], "trash_purge_all");
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("trash purge task drain should succeed");
     assert_eq!(stats.succeeded, 1);

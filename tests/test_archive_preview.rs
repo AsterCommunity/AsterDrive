@@ -396,7 +396,7 @@ async fn test_archive_preview_returns_manifest_and_caches_it() {
         .expect("archive preview task should be created");
     assert_eq!(task.status, BackgroundTaskStatus::Pending);
 
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let tasks =
@@ -559,7 +559,7 @@ async fn test_archive_preview_allows_display_only_names_that_extract_rejects() {
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
 
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
 
@@ -602,7 +602,7 @@ async fn test_archive_preview_decodes_gb18030_names_and_reuses_raw_cache() {
     let resp =
         request_personal_archive_preview_with_encoding(&app, &token, file_id, Some("auto")).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
 
@@ -658,7 +658,7 @@ async fn test_archive_preview_reuses_pending_task_for_repeated_requests() {
     assert_eq!(tasks[0].status, BackgroundTaskStatus::Pending);
     assert!(tasks[0].display_name.contains(&format!("file #{file_id}")));
 
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let tasks = archive_preview_tasks(&state).await;
@@ -695,7 +695,7 @@ async fn test_archive_preview_limit_reduction_keeps_generated_cache() {
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
@@ -821,7 +821,7 @@ async fn test_archive_preview_reports_invalid_archive_with_api_code() {
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
@@ -849,7 +849,7 @@ async fn test_archive_preview_failed_task_is_reused_as_friendly_error_without_re
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
 
@@ -915,7 +915,7 @@ async fn test_archive_preview_reports_scan_limit_rejection_with_api_code() {
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
@@ -946,7 +946,7 @@ async fn test_archive_preview_truncates_manifest_to_configured_limit() {
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
@@ -987,7 +987,7 @@ async fn test_archive_preview_caps_high_manifest_limit_to_cache_storage_limit() 
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let tasks = archive_preview_tasks(&state).await;
@@ -1042,7 +1042,7 @@ async fn test_archive_preview_reports_manifest_limit_too_small_with_api_code() {
 
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("archive preview task should drain");
     let resp = request_personal_archive_preview(&app, &token, file_id).await;
@@ -1101,7 +1101,7 @@ async fn test_archive_preview_share_toggle_is_separate_from_user_toggle() {
             .and_then(|value| value.to_str().ok()),
         Some("2")
     );
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("shared archive preview task should drain");
 
@@ -1180,7 +1180,7 @@ async fn test_archive_preview_folder_share_file_uses_public_cache_and_etag() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::ACCEPTED);
-    aster_drive::services::task_service::drain(&state)
+    aster_drive::services::task::drain(&state)
         .await
         .expect("folder shared archive preview task should drain");
 

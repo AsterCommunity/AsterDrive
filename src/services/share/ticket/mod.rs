@@ -11,7 +11,7 @@ use crate::config::site_url;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    task_service,
+    task,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -53,10 +53,10 @@ struct StreamTicketPayload {
 pub(crate) async fn create_archive_download_ticket_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
-    params: &task_service::types::CreateArchiveTaskParams,
+    params: &task::types::CreateArchiveTaskParams,
 ) -> Result<StreamTicketInfo> {
     let prepared =
-        task_service::archive::prepare_archive_download_in_scope(state, scope, params).await?;
+        task::archive::prepare_archive_download_in_scope(state, scope, params).await?;
     let expires_at = Utc::now() + Duration::seconds(STREAM_TICKET_TTL_SECS);
     let token = format!("st_{}", crate::utils::id::new_short_token());
     let payload = StreamTicketPayload {
@@ -82,10 +82,10 @@ pub(crate) async fn create_archive_download_ticket_in_scope(
 pub(crate) async fn create_shared_archive_download_ticket(
     state: &impl SharedRuntimeState,
     share_token: &str,
-    params: &task_service::types::CreateArchiveTaskParams,
+    params: &task::types::CreateArchiveTaskParams,
 ) -> Result<StreamTicketInfo> {
     let prepared =
-        task_service::archive::prepare_shared_archive_download(state, share_token, params).await?;
+        task::archive::prepare_shared_archive_download(state, share_token, params).await?;
     let expires_at = Utc::now() + Duration::seconds(STREAM_TICKET_TTL_SECS);
     let token = format!("st_{}", crate::utils::id::new_short_token());
     let payload = StreamTicketPayload {
@@ -113,7 +113,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
     token: &str,
-) -> Result<task_service::types::CreateArchiveTaskParams> {
+) -> Result<task::types::CreateArchiveTaskParams> {
     let payload = cache::load_ticket(state, token)
         .await
         .ok_or_else(|| AsterError::validation_error("stream ticket not found or expired"))?;
@@ -132,7 +132,7 @@ pub(crate) async fn resolve_archive_download_ticket_in_scope(
             file_ids,
             folder_ids,
             archive_name,
-        } => Ok(task_service::types::CreateArchiveTaskParams {
+        } => Ok(task::types::CreateArchiveTaskParams {
             file_ids,
             folder_ids,
             archive_name: Some(archive_name),
@@ -147,7 +147,7 @@ pub(crate) async fn resolve_shared_archive_download_ticket(
     state: &impl SharedRuntimeState,
     share_token: &str,
     token: &str,
-) -> Result<task_service::types::CreateArchiveTaskParams> {
+) -> Result<task::types::CreateArchiveTaskParams> {
     let payload = cache::load_ticket(state, token)
         .await
         .ok_or_else(|| AsterError::validation_error("stream ticket not found or expired"))?;
@@ -165,7 +165,7 @@ pub(crate) async fn resolve_shared_archive_download_ticket(
             folder_ids,
             archive_name,
         } if ticket_share_token == share_token => {
-            Ok(task_service::types::CreateArchiveTaskParams {
+            Ok(task::types::CreateArchiveTaskParams {
                 file_ids,
                 folder_ids,
                 archive_name: Some(archive_name),

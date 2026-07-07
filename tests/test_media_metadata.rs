@@ -509,7 +509,7 @@ async fn file_media_metadata_extracts_image_and_reuses_blob_cache() {
     assert_eq!(payload["media_kind"], "image");
     assert_eq!(task.max_attempts, 3);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -586,7 +586,7 @@ async fn file_media_metadata_extracts_image_exif_fields() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -642,7 +642,7 @@ async fn file_media_metadata_prefers_full_size_tiff_sub_ifd_dimensions() {
     let resp = request_media_metadata(&app, &token, file_id).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -674,7 +674,7 @@ async fn file_media_metadata_extracts_tiff_like_raw_exif_fields_with_parser_fall
     let resp = request_media_metadata(&app, &token, file_id).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -731,7 +731,7 @@ async fn file_media_metadata_extracts_real_nef_fixture_when_available() {
     let resp = request_media_metadata(&app, &token, file_id).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);
@@ -982,7 +982,7 @@ async fn video_media_metadata_uses_configured_ffprobe_command() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 202);
 
-    let stats = aster_drive::services::task_service::drain(&state)
+    let stats = aster_drive::services::task::drain(&state)
         .await
         .expect("task drain should succeed");
     assert_eq!(stats.succeeded, 1);

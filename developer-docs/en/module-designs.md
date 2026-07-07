@@ -240,11 +240,11 @@ If we ever introduce “immutable sharing” or “version-pinned public snapsho
 
 Main code paths:
 
-- `src/services/task_service/mod.rs`
-- `src/services/task_service/dispatch.rs` and `src/services/task_service/dispatch/`
-- `src/services/task_service/runtime.rs`
-- `src/services/task_service/storage_policy_cleanup.rs`
-- `src/services/task_service/storage_migration.rs`
+- `src/services/task/mod.rs`
+- `src/services/task/dispatch.rs` and `src/services/task/dispatch/`
+- `src/services/task/runtime.rs`
+- `src/services/task/storage_policy_cleanup.rs`
+- `src/services/task/storage_migration.rs`
 - `src/db/repository/background_task_repo/`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
 
@@ -400,7 +400,7 @@ So the system behaves more like a persisted state machine snapshot than a full o
 Main code paths:
 
 - `src/api/routes/admin/storage_migrations.rs`
-- `src/services/task_service/storage_migration.rs`
+- `src/services/task/storage_migration.rs`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
 - `src/entities/storage_migration_checkpoint.rs`
 

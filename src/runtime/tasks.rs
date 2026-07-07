@@ -14,7 +14,7 @@ use tracing::Instrument;
 
 use super::{FollowerAppState, PrimaryAppState};
 use crate::services::share::ShareDownloadRollbackWorker;
-use crate::services::task_service::SystemRuntimeTaskKind;
+use crate::services::task::SystemRuntimeTaskKind;
 use crate::utils::numbers::u128_to_u64;
 
 const BACKGROUND_TASK_SHUTDOWN_GRACE: Duration = Duration::from_secs(30);
@@ -183,7 +183,7 @@ async fn spawn_periodic<F, I, Fut>(
 ) where
     I: Fn(&PrimaryAppState) -> Duration + Send + Sync + 'static,
     F: Fn(web::Data<PrimaryAppState>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = crate::services::task_service::RuntimeTaskRunOutcome> + Send + 'static,
+    Fut: Future<Output = crate::services::task::RuntimeTaskRunOutcome> + Send + 'static,
 {
     let task_name = name.as_str();
     // 每轮迭代独立 span，并发清理任务在 trace 里可按 task.name 区分。
@@ -221,7 +221,7 @@ async fn run_periodic_iteration<F, Fut>(
     task_fn: &F,
 ) where
     F: Fn(web::Data<PrimaryAppState>) -> Fut + Send + Sync + 'static,
-    Fut: Future<Output = crate::services::task_service::RuntimeTaskRunOutcome> + Send + 'static,
+    Fut: Future<Output = crate::services::task::RuntimeTaskRunOutcome> + Send + 'static,
 {
     let task_name = name.as_str();
     let started_at = Utc::now();
@@ -237,7 +237,7 @@ async fn run_periodic_iteration<F, Fut>(
                 "unknown panic payload".to_string()
             };
             tracing::error!("background task '{task_name}' panicked: {panic_message}");
-            crate::services::task_service::RuntimeTaskRunOutcome::failed(
+            crate::services::task::RuntimeTaskRunOutcome::failed(
                 Some("Task panicked".to_string()),
                 panic_message,
             )
@@ -249,7 +249,7 @@ async fn run_periodic_iteration<F, Fut>(
     // 这样管理员面板里的任务表可以同时看到：
     // - 用户创建的后台任务
     // - 系统调度/清理任务的执行历史
-    if let Err(error) = crate::services::task_service::record_runtime_task_run(
+    if let Err(error) = crate::services::task::record_runtime_task_run(
         state.get_ref(),
         name,
         started_at,
@@ -327,7 +327,7 @@ async fn run_background_task_dispatch_iteration(
 ) -> BackgroundTaskDispatchIteration {
     let started_at = Utc::now();
     let (iteration, outcome) = match AssertUnwindSafe(
-        crate::services::task_service::dispatch::dispatch_due_with_shutdown(
+        crate::services::task::dispatch::dispatch_due_with_shutdown(
             state.get_ref(),
             shutdown_token,
         ),
@@ -354,7 +354,7 @@ async fn run_background_task_dispatch_iteration(
             tracing::error!("background task 'background-task-dispatch' panicked: {panic_message}");
             (
                 BackgroundTaskDispatchIteration::failed(),
-                crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                crate::services::task::RuntimeTaskRunOutcome::failed(
                     Some("Task panicked".to_string()),
                     panic_message,
                 ),
@@ -363,7 +363,7 @@ async fn run_background_task_dispatch_iteration(
     };
     let finished_at = Utc::now();
 
-    if let Err(error) = crate::services::task_service::record_runtime_task_run(
+    if let Err(error) = crate::services::task::record_runtime_task_run(
         state.get_ref(),
         SystemRuntimeTaskKind::BackgroundTaskDispatch,
         started_at,
@@ -379,8 +379,8 @@ async fn run_background_task_dispatch_iteration(
 }
 
 fn background_task_dispatch_outcome(
-    result: crate::errors::Result<crate::services::task_service::DispatchStats>,
-) -> crate::services::task_service::RuntimeTaskRunOutcome {
+    result: crate::errors::Result<crate::services::task::DispatchStats>,
+) -> crate::services::task::RuntimeTaskRunOutcome {
     match result {
         Ok(stats) => {
             if stats.has_activity() {
@@ -392,11 +392,11 @@ fn background_task_dispatch_outcome(
                     "processed background task batch"
                 );
             }
-            crate::services::task_service::RuntimeTaskRunOutcome::quiet()
+            crate::services::task::RuntimeTaskRunOutcome::quiet()
         }
         Err(error) => {
             tracing::warn!("background task dispatch failed: {error}");
-            crate::services::task_service::RuntimeTaskRunOutcome::failed(
+            crate::services::task::RuntimeTaskRunOutcome::failed(
                 Some("Background task dispatch failed".to_string()),
                 error.to_string(),
             )
@@ -492,15 +492,15 @@ pub fn spawn_primary_background_tasks(
                         failed = stats.failed,
                         "processed mail outbox batch"
                     );
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "claimed {}, sent {}, retried {}, failed {}",
                         stats.claimed, stats.sent, stats.retried, stats.failed
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("mail outbox dispatch failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Mail outbox dispatch failed".to_string()),
                         error.to_string(),
                     )
@@ -521,17 +521,17 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::upload_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::files::upload::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired upload sessions");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired upload sessions"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("upload cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Upload cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -558,15 +558,15 @@ pub fn spawn_primary_background_tasks(
                         broken = stats.broken_completed_sessions_deleted,
                         "cleaned up expired completed upload sessions"
                     );
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "deleted {} completed sessions ({} broken)",
                         stats.completed_sessions_deleted, stats.broken_completed_sessions_deleted
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("completed upload session cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Completed upload cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -590,15 +590,15 @@ pub fn spawn_primary_background_tasks(
                         orphan_blobs_deleted = stats.orphan_blobs_deleted,
                         "reconciled blob state"
                     );
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "fixed {} ref counts, deleted {} orphan blobs",
                         stats.ref_count_fixed, stats.orphan_blobs_deleted
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("blob reconcile failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Blob reconcile failed".to_string()),
                         error.to_string(),
                     )
@@ -641,14 +641,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::files::trash::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired trash entries");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired trash entries"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("trash cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Trash cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -667,14 +667,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::workspace::team::cleanup_expired_archived_teams(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired archived teams");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired archived teams"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("team archive cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Team archive cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -693,14 +693,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::files::lock::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired locks");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired locks"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("lock cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Lock cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -719,14 +719,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::auth::local::cleanup_expired_auth_sessions(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired auth sessions");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired auth sessions"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("auth session cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Auth session cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -745,14 +745,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::auth::external::cleanup_expired_flows(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired external auth flows");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired external auth flows"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("external auth flow cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("External auth flow cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -771,14 +771,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::auth::mfa::cleanup_expired_flows(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired MFA flows");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired MFA flows"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("MFA flow cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("MFA flow cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -796,14 +796,14 @@ pub fn spawn_primary_background_tasks(
         |s| async move {
             match crate::services::ops::audit::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired audit log entries"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("audit log cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Audit log cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -821,17 +821,17 @@ pub fn spawn_primary_background_tasks(
         |s| async move {
             // task-cleanup 只清理过期任务产物，不删任务记录。
             // 也就是说 admin/tasks 里的历史事件仍然保留，只是 temp 目录会被回收。
-            match crate::services::task_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::task::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired task artifacts");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired task artifacts"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("background task cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("Task artifact cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -850,14 +850,14 @@ pub fn spawn_primary_background_tasks(
             match crate::services::preview::wopi::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired WOPI sessions");
-                    crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
+                    crate::services::task::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired WOPI sessions"
                     )))
                 }
-                Ok(_) => crate::services::task_service::RuntimeTaskRunOutcome::quiet(),
+                Ok(_) => crate::services::task::RuntimeTaskRunOutcome::quiet(),
                 Err(error) => {
                     tracing::warn!("WOPI session cleanup failed: {error}");
-                    crate::services::task_service::RuntimeTaskRunOutcome::failed(
+                    crate::services::task::RuntimeTaskRunOutcome::failed(
                         Some("WOPI session cleanup failed".to_string()),
                         error.to_string(),
                     )
@@ -936,7 +936,7 @@ mod tests {
     };
     use crate::errors::AsterError;
     use crate::runtime::SharedRuntimeState;
-    use crate::services::task_service::{DispatchStats, RuntimeTaskRunOutcome};
+    use crate::services::task::{DispatchStats, RuntimeTaskRunOutcome};
     use chrono::Utc;
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};

@@ -10,7 +10,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{auth::local::Claims, files::admin, ops::audit, task_service};
+use crate::services::{auth::local::Claims, files::admin, ops::audit, task};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -120,7 +120,7 @@ pub async fn get_file_blob(
     operation_id = "admin_create_blob_maintenance_task",
     request_body = CreateBlobMaintenanceTaskReq,
     responses(
-        (status = 200, description = "Blob maintenance task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Blob maintenance task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 400, description = "Validation error"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -135,7 +135,7 @@ pub async fn create_blob_maintenance_task(
     body: web::Json<CreateBlobMaintenanceTaskReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let task = task_service::blob_maintenance::create_blob_maintenance_task_for_admin(
+    let task = task::blob_maintenance::create_blob_maintenance_task_for_admin(
         state.get_ref(),
         claims.user_id,
         body.action,

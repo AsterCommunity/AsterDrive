@@ -136,7 +136,7 @@ pub async fn get_for_file(state: &PrimaryAppState, f: &file::Model) -> Result<Me
         return Ok(MediaMetadataLookup::Ready(info_from_record(&cached)?));
     }
 
-    crate::services::task_service::media_metadata::ensure_media_metadata_task(
+    crate::services::task::media_metadata::ensure_media_metadata_task(
         state, &blob, f, kind,
     )
     .await?;

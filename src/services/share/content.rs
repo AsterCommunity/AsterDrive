@@ -10,7 +10,7 @@ use crate::services::{
     files::{file as file_ops, folder},
     media::metadata,
     media::processing,
-    task_service,
+    task,
 };
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -421,7 +421,7 @@ async fn load_or_enqueue_thumbnail(
             thumbnail_version: Some(thumbnail.thumbnail_version),
         })),
         None => {
-            task_service::thumbnail::ensure_thumbnail_task(
+            task::thumbnail::ensure_thumbnail_task(
                 state,
                 &blob,
                 &file.name,

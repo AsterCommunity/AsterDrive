@@ -3,7 +3,7 @@
 use crate::db::repository::file_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{media::processing, task_service, workspace::storage::WorkspaceStorageScope};
+use crate::services::{media::processing, task, workspace::storage::WorkspaceStorageScope};
 use bytes::Bytes;
 
 use super::get_info_in_scope;
@@ -42,7 +42,7 @@ pub(crate) async fn get_thumbnail_data_in_scope(
             thumbnail_version: Some(thumbnail.thumbnail_version),
         })),
         None => {
-            task_service::thumbnail::ensure_thumbnail_task(state, &blob, &f.name, &f.mime_type)
+            task::thumbnail::ensure_thumbnail_task(state, &blob, &f.name, &f.mime_type)
                 .await
                 .map_err(processing::map_thumbnail_request_error)?;
             Ok(None)
@@ -76,7 +76,7 @@ pub(crate) async fn image_preview_for_file(
             image_preview_version: preview.image_preview_version,
         })),
         None => {
-            task_service::thumbnail::ensure_image_preview_task(state, &blob, &f.name, &f.mime_type)
+            task::thumbnail::ensure_image_preview_task(state, &blob, &f.name, &f.mime_type)
                 .await
                 .map_err(processing::map_thumbnail_request_error)?;
             Ok(None)

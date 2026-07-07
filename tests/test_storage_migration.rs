@@ -24,7 +24,7 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{file, file_blob, file_version, storage_policy};
 use aster_drive::errors::{AsterError, MapAsterErr, Result};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::services::task_service;
+use aster_drive::services::task;
 use aster_drive::storage::{
     BlobMetadata, MultipartStorageDriver, StorageDriver, StorageErrorKind, StreamUploadDriver,
 };
@@ -1223,7 +1223,7 @@ async fn test_storage_migration_resume_reuses_checkpoint_after_failed_task() {
         .await
         .expect("second source object should be tampered before migration starts");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("first migration attempt should drain");
     assert_eq!(stats.failed, 1);
@@ -1248,7 +1248,7 @@ async fn test_storage_migration_resume_reuses_checkpoint_after_failed_task() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["status"], "pending");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("resumed migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1278,7 +1278,7 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1328,7 +1328,7 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
     create_file_for_blob(&state, blob.id, "opaque.txt").await;
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("opaque migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1386,7 +1386,7 @@ async fn test_storage_migration_local_to_rustfs_s3_e2e() {
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("local to rustfs migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1450,7 +1450,7 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     tokio::fs::write(&second_source_path, tampered_second_bytes)
         .await
         .expect("second source object should be tampered before first run");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("first rustfs resume attempt should drain");
     assert_eq!(stats.failed, 1);
@@ -1508,7 +1508,7 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["status"], "pending");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("resumed rustfs migration should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1574,7 +1574,7 @@ async fn test_storage_migration_crosses_batch_boundary_and_merges_existing_targe
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     assert_eq!(body["code"], "success");
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("bulk migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1649,7 +1649,7 @@ async fn test_storage_migration_merges_when_target_blob_already_exists() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1704,7 +1704,7 @@ async fn test_storage_migration_fails_when_content_hash_matches_but_size_differs
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -1744,7 +1744,7 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_same_size() 
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("opaque same-size migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1801,7 +1801,7 @@ async fn test_storage_migration_does_not_merge_opaque_blob_key_with_different_si
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("opaque different-size migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1831,7 +1831,7 @@ async fn test_storage_migration_empty_source_succeeds_with_zero_counts() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("empty migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -1843,7 +1843,7 @@ async fn test_storage_migration_empty_source_succeeds_with_zero_counts() {
     assert_eq!(task.progress_current, 0);
     assert_eq!(task.progress_total, 0);
 
-    let result: aster_drive::services::task_service::types::StoragePolicyMigrationTaskResult =
+    let result: aster_drive::services::task::types::StoragePolicyMigrationTaskResult =
         serde_json::from_str(
             task.result_json
                 .as_ref()
@@ -1887,7 +1887,7 @@ async fn test_storage_migration_cleans_target_object_when_verification_fails() {
         .await
         .expect("source object should be tampered before migration starts");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("failed migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -1947,7 +1947,7 @@ async fn test_storage_migration_cleans_target_object_when_stream_upload_returns_
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("failed migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -1991,7 +1991,7 @@ async fn test_storage_migration_stream_upload_error_without_target_object_stays_
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("failed migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -2030,7 +2030,7 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("failed migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -2090,7 +2090,7 @@ async fn test_storage_migration_stream_upload_error_does_not_delete_referenced_t
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("failed migration task should drain");
     assert_eq!(stats.failed, 1);
@@ -2133,7 +2133,7 @@ async fn test_storage_migration_large_blob_uses_multipart_upload() {
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("multipart migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2181,7 +2181,7 @@ async fn test_storage_migration_multipart_retries_transient_part_upload() {
 
     create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("multipart retry migration task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2214,7 +2214,7 @@ async fn test_storage_migration_multipart_part_failure_aborts_and_keeps_source_b
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("multipart failing task should drain");
     assert_eq!(stats.failed, 1);
@@ -2255,7 +2255,7 @@ async fn test_storage_migration_multipart_complete_timeout_accepts_existing_obje
 
     create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("multipart complete-timeout task should drain");
     assert_eq!(stats.succeeded, 1);
@@ -2287,7 +2287,7 @@ async fn test_storage_migration_multipart_verification_failure_cleans_object_and
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
     let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("multipart verification failure task should drain");
     assert_eq!(stats.failed, 1);
@@ -2338,7 +2338,7 @@ async fn test_storage_migration_fails_when_policy_changes_after_task_creation() 
         .await
         .expect("target policy should update");
 
-    let stats = task_service::drain(&state)
+    let stats = task::drain(&state)
         .await
         .expect("changed migration task should drain");
     assert_eq!(stats.failed, 1);

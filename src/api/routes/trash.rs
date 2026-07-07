@@ -10,7 +10,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task_service,
+    auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -177,7 +177,7 @@ pub async fn purge_one(
     tag = "trash",
     operation_id = "purge_all_trash",
     responses(
-        (status = 200, description = "Trash purge task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Trash purge task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -191,7 +191,7 @@ pub async fn purge_all(
         user_id: claims.user_id,
     };
     let task =
-        task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
+        task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",
@@ -369,7 +369,7 @@ pub(crate) async fn team_purge_one(
     operation_id = "purge_all_team_trash",
     params(("team_id" = i64, Path, description = "Team ID")),
     responses(
-        (status = 200, description = "Team trash purge task created", body = inline(ApiResponse<task_service::types::TaskInfo>)),
+        (status = 200, description = "Team trash purge task created", body = inline(ApiResponse<task::types::TaskInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -387,7 +387,7 @@ pub(crate) async fn team_purge_all(
         actor_user_id: claims.user_id,
     };
     let task =
-        task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
+        task::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
     let ctx = audit::AuditContext::from_request(&req, &claims);
     let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",

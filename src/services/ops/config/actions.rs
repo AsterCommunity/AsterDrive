@@ -10,7 +10,7 @@ use crate::services::{
     media::processing,
     preview::apps,
     preview::wopi,
-    task_service,
+    task,
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -176,8 +176,8 @@ async fn execute_offline_download_action(
                 "config: executing offline download action"
             );
 
-            let message = task_service::offline_download::probe_aria2_rpc(
-                task_service::offline_download::ProbeAria2RpcInput {
+            let message = task::offline_download::probe_aria2_rpc(
+                task::offline_download::ProbeAria2RpcInput {
                     rpc_url,
                     rpc_secret,
                     request_timeout,

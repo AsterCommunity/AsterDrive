@@ -17,7 +17,7 @@ use crate::services::files::archive::core::format::{
 };
 use crate::services::files::archive::core::scan::ArchiveScanLimits;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::services::{share, task_service, workspace::storage};
+use crate::services::{share, task, workspace::storage};
 use crate::types::ArchiveFilenameEncoding;
 
 mod cache;
@@ -178,7 +178,7 @@ async fn preview_verified_file(
         ));
     }
 
-    task_service::archive::ensure_archive_preview_task(
+    task::archive::ensure_archive_preview_task(
         state,
         source_file,
         &blob,
@@ -251,7 +251,7 @@ impl ArchivePreviewLimits {
 
 pub(in crate::services) async fn download_blob_to_temp(
     state: &impl SharedRuntimeState,
-    context: &task_service::TaskExecutionContext,
+    context: &task::TaskExecutionContext,
     source_file: &file::Model,
     blob: &file_blob::Model,
     temp_path: &Path,
@@ -285,7 +285,7 @@ pub(in crate::services) async fn download_blob_to_temp(
 }
 
 async fn copy_async_reader_to_writer_with_execution_and_expected_size<R, W, E>(
-    context: &task_service::TaskExecutionContext,
+    context: &task::TaskExecutionContext,
     reader: &mut R,
     writer: &mut W,
     expected_bytes: u64,
