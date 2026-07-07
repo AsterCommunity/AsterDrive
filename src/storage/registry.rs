@@ -19,7 +19,7 @@ use crate::db::repository::{
 use crate::entities::storage_policy;
 use crate::errors::{Result, precondition_failed_with_code};
 use crate::metrics_core::SharedMetricsRecorder;
-use crate::services::remote_capability_service::RemoteCapabilityResolver;
+use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use crate::types::{DriverType, StorageCredentialStatus, parse_storage_policy_options};

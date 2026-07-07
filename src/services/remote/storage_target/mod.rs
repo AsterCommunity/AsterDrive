@@ -1,4 +1,4 @@
-//! 服务模块：`remote_storage_target_service`。
+//! 服务模块：`remote::storage_target`。
 
 mod driver;
 mod local_profiles;

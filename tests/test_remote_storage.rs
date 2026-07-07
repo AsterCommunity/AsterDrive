@@ -19,8 +19,8 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
-    auth_service, file_service, folder_service, managed_follower_service, master_binding_service,
-    policy_service, remote_storage_target_service, upload_service,
+    auth_service, file_service, folder_service, policy_service, remote::master_binding,
+    remote::remote_node, remote::storage_target, upload_service,
 };
 use aster_drive::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_BODY_LIMIT, REMOTE_TUNNEL_COMPLETE_PATH, REMOTE_TUNNEL_JSON_LIMIT,
@@ -610,10 +610,10 @@ async fn set_policy_max_file_size(
 async fn wait_for_remote_probe(
     state: &aster_drive::runtime::PrimaryAppState,
     node_id: i64,
-) -> managed_follower_service::RemoteNodeInfo {
+) -> remote_node::RemoteNodeInfo {
     mark_remote_node_enrollment_completed(state, node_id).await;
     for attempt in 0..20 {
-        match managed_follower_service::test_connection(state, node_id).await {
+        match remote_node::test_connection(state, node_id).await {
             Ok(info) => return info,
             Err(error) if attempt < 19 => {
                 tracing::debug!(attempt, node_id, "remote probe not ready yet: {error}");
@@ -721,7 +721,7 @@ async fn create_managed_local_ingress_for_binding(
         .await
         .expect("provider master binding lookup should succeed")
         .expect("provider master binding should exist");
-    remote_storage_target_service::create(
+    storage_target::create(
         &provider_state.follower_view(),
         &binding,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -749,9 +749,9 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: format!("managed-ingress-{transport_mode:?}").to_lowercase(),
             base_url: String::new(),
             transport_mode,
@@ -765,9 +765,9 @@ async fn setup_reverse_tunnel_ingress_profile_target(
             .await
             .expect("reverse tunnel ingress target node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-managed-ingress".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -798,7 +798,7 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     )
     .await;
 
-    let listed = remote_storage_target_service::list_remote(&consumer_state, consumer_node.id)
+    let listed = storage_target::list_remote(&consumer_state, consumer_node.id)
         .await
         .expect("reverse tunnel remote storage target list should use tunnel transport");
     assert!(
@@ -831,7 +831,7 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         tunnel_handle,
     ) = setup_reverse_tunnel_ingress_profile_target(RemoteNodeTransportMode::ReverseTunnel).await;
 
-    let created = remote_storage_target_service::create_remote(
+    let created = storage_target::create_remote(
         &consumer_state,
         consumer_node_model.id,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -845,14 +845,13 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
     assert_eq!(created.name, "Reverse Landing");
     assert!(created.is_default);
 
-    let listed =
-        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
-            .await
-            .expect("reverse tunnel remote storage target list should not require base_url");
+    let listed = storage_target::list_remote(&consumer_state, consumer_node_model.id)
+        .await
+        .expect("reverse tunnel remote storage target list should not require base_url");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].target_key, created.target_key);
 
-    let updated = remote_storage_target_service::update_remote(
+    let updated = storage_target::update_remote(
         &consumer_state,
         consumer_node_model.id,
         &created.target_key,
@@ -894,17 +893,12 @@ async fn test_remote_ingress_profiles_use_reverse_tunnel_without_base_url() {
         b"reverse managed ingress"
     );
 
-    remote_storage_target_service::delete_remote(
-        &consumer_state,
-        consumer_node_model.id,
-        &created.target_key,
-    )
-    .await
-    .expect("reverse tunnel remote storage target delete should not require base_url");
-    let listed_after_delete =
-        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
-            .await
-            .expect("reverse tunnel remote storage target list after delete should succeed");
+    storage_target::delete_remote(&consumer_state, consumer_node_model.id, &created.target_key)
+        .await
+        .expect("reverse tunnel remote storage target delete should not require base_url");
+    let listed_after_delete = storage_target::list_remote(&consumer_state, consumer_node_model.id)
+        .await
+        .expect("reverse tunnel remote storage target list after delete should succeed");
     assert!(listed_after_delete.is_empty());
 
     stop_test_reverse_tunnel_worker(tunnel_shutdown, tunnel_handle).await;
@@ -923,7 +917,7 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
         tunnel_handle,
     ) = setup_reverse_tunnel_ingress_profile_target(RemoteNodeTransportMode::Auto).await;
 
-    let profile = remote_storage_target_service::create_remote(
+    let profile = storage_target::create_remote(
         &consumer_state,
         consumer_node_model.id,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -935,12 +929,9 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
     .await
     .expect("auto remote storage target create should use reverse tunnel when base_url is empty");
 
-    let listed =
-        remote_storage_target_service::list_remote(&consumer_state, consumer_node_model.id)
-            .await
-            .expect(
-                "auto remote storage target list should use reverse tunnel when base_url is empty",
-            );
+    let listed = storage_target::list_remote(&consumer_state, consumer_node_model.id)
+        .await
+        .expect("auto remote storage target list should use reverse tunnel when base_url is empty");
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].target_key, profile.target_key);
 
@@ -951,9 +942,9 @@ async fn test_remote_ingress_profiles_auto_empty_base_url_uses_reverse_tunnel() 
 #[tokio::test]
 async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-capability-create-node".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -971,7 +962,7 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
     )
     .await;
 
-    let error = remote_storage_target_service::create_remote(
+    let error = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
         RemoteCreateStorageTargetRequest::S3(RemoteCreateS3StorageTargetRequest {
@@ -1003,9 +994,9 @@ async fn test_remote_ingress_profile_create_rejects_driver_missing_from_capabili
 #[tokio::test]
 async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabilities() {
     let consumer_state = common::setup().await;
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-capability-update-node".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1023,7 +1014,7 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
     )
     .await;
 
-    let error = remote_storage_target_service::update_remote(
+    let error = storage_target::update_remote(
         &consumer_state,
         consumer_node.id,
         "profile-a",
@@ -1058,9 +1049,9 @@ async fn test_remote_ingress_profile_update_rejects_driver_missing_from_capabili
 #[tokio::test]
 async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_authoritative() {
     let consumer_state = common::setup().await;
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-capability-no-driver-update-node".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1077,7 +1068,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
     )
     .await;
 
-    let error = remote_storage_target_service::update_remote(
+    let error = storage_target::update_remote(
         &consumer_state,
         consumer_node.id,
         "profile-a",
@@ -1103,9 +1094,9 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
 #[actix_web::test]
 async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabilities() {
     let consumer_state = common::setup().await;
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-driver-descriptor-node".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1454,9 +1445,9 @@ async fn setup_browser_presigned_cors_fixture(
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: format!("{label}-node"),
             base_url: "http://provider.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1470,9 +1461,9 @@ async fn setup_browser_presigned_cors_fixture(
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: format!("{label}-binding"),
             master_url: master_url.to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -1557,9 +1548,9 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
             .follower
             .remote_storage_target_local_root,
     );
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "managed-ingress-node".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1573,9 +1564,9 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "managed-ingress-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -1599,7 +1590,7 @@ async fn test_remote_storage_target_handles_remote_writes_without_legacy_binding
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
 
-    let profile = remote_storage_target_service::create_remote(
+    let profile = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -1656,9 +1647,9 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
             .follower
             .remote_storage_target_local_root,
     );
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "selected-target-node".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -1672,9 +1663,9 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "selected-target-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -1697,7 +1688,7 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
     .await;
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
 
-    let selected_target = remote_storage_target_service::create_remote(
+    let selected_target = storage_target::create_remote(
         &consumer_state,
         consumer_node.id,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -1769,9 +1760,9 @@ async fn test_remote_policy_uses_selected_remote_storage_target_key() {
 async fn test_follower_internal_storage_records_object_audit_logs() {
     let provider_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
-    let (binding, _) = master_binding_service::upsert_from_enrollment(
+    let (binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "object-audit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: "object-audit-ak".to_string(),
@@ -1903,9 +1894,9 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
 async fn test_follower_internal_storage_records_binding_and_profile_audit_logs() {
     let provider_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
-    let (binding, _) = master_binding_service::upsert_from_enrollment(
+    let (binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "profile-audit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: "profile-audit-ak".to_string(),
@@ -2036,9 +2027,9 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
     let provider_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let (binding_a, _) = master_binding_service::upsert_from_enrollment(
+    let (binding_a, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "primary-a".to_string(),
             master_url: "http://primary-a.example.com".to_string(),
             access_key: "managed-ak-a".to_string(),
@@ -2048,9 +2039,9 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
     )
     .await
     .expect("provider binding a should be created");
-    let (binding_b, _) = master_binding_service::upsert_from_enrollment(
+    let (binding_b, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "primary-b".to_string(),
             master_url: "http://primary-b.example.com".to_string(),
             access_key: "managed-ak-b".to_string(),
@@ -2161,7 +2152,7 @@ async fn test_remote_storage_target_api_isolates_multiple_primary_bindings() {
         vec!["same.bin".to_string()]
     );
 
-    let profile_a = remote_storage_target_service::create(
+    let profile_a = storage_target::create(
         &provider_state.follower_view(),
         &binding_a,
         RemoteCreateStorageTargetRequest::Local(RemoteCreateLocalStorageTargetRequest {
@@ -2194,9 +2185,9 @@ async fn test_internal_storage_presigned_put_rejects_payload_exceeding_ingress_l
 
     let access_key = "limit-access-key";
     let secret_key = "limit-secret-key";
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "limit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.to_string(),
@@ -2252,9 +2243,9 @@ async fn test_internal_storage_presigned_put_ignores_bytes_beyond_declared_conte
 
     let access_key = "declared-length-access-key";
     let secret_key = "declared-length-secret-key";
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "declared-length-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.to_string(),
@@ -2340,9 +2331,9 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
 
     let access_key = "compose-limit-access-key";
     let secret_key = "compose-limit-secret-key";
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "compose-limit-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.to_string(),
@@ -2409,9 +2400,9 @@ async fn test_internal_storage_compose_rejects_expected_size_exceeding_ingress_l
 #[actix_web::test]
 async fn test_remote_node_connection_failure_returns_error_and_persists_last_error() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "broken-remote".to_string(),
             base_url: "http://127.0.0.1:9".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -2422,7 +2413,7 @@ async fn test_remote_node_connection_failure_returns_error_and_persists_last_err
     .expect("broken remote node should be created");
     mark_remote_node_enrollment_completed(&state, node.id).await;
 
-    let error = managed_follower_service::test_connection(&state, node.id)
+    let error = remote_node::test_connection(&state, node.id)
         .await
         .expect_err("connection test should surface probe failures");
     assert_eq!(error.code(), "E031");
@@ -2439,9 +2430,9 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "capability-cache-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -2455,9 +2446,9 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "capability-cache-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -2489,7 +2480,7 @@ async fn test_remote_node_failed_probe_preserves_cached_capabilities() {
 
     provider_server.stop().await;
 
-    let error = managed_follower_service::test_connection(&consumer_state, consumer_node.id)
+    let error = remote_node::test_connection(&consumer_state, consumer_node.id)
         .await
         .expect_err("stopped provider should make probe fail");
     assert_eq!(error.code(), "E031");
@@ -2512,9 +2503,9 @@ async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
         "supports_stream_upload": true,
     }))
     .await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "old-protocol-target".to_string(),
             base_url: capabilities_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -2525,7 +2516,7 @@ async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
     .expect("remote node should be created");
     mark_remote_node_enrollment_completed(&state, node.id).await;
 
-    let error = managed_follower_service::test_connection(&state, node.id)
+    let error = remote_node::test_connection(&state, node.id)
         .await
         .expect_err("incompatible remote protocol should fail probe");
     assert_eq!(error.code(), "E031");
@@ -2560,9 +2551,9 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
     )
     .await;
 
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "missing-range-cors-target".to_string(),
             base_url: capabilities_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -2585,7 +2576,7 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
     )
     .await;
 
-    let error = managed_follower_service::test_connection(&state, node.id)
+    let error = remote_node::test_connection(&state, node.id)
         .await
         .expect_err("missing Range/CORS contract should fail probe for presigned download policy");
     assert_eq!(error.code(), "E031");
@@ -2626,9 +2617,9 @@ async fn create_internal_hmac_binding(
 ) -> (String, String) {
     let access_key = format!("{label}-access-key");
     let secret_key = format!("{label}-secret-key");
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: format!("{label}-binding"),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.clone(),
@@ -2666,9 +2657,9 @@ async fn test_internal_storage_capabilities_probe_does_not_require_ingress_profi
     let access_key = "capabilities-no-ingress-access-key";
     let secret_key = "capabilities-no-ingress-secret-key";
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "capabilities-no-ingress-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.to_string(),
@@ -2927,9 +2918,9 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -2943,9 +2934,9 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3153,9 +3144,9 @@ async fn test_remote_storage_end_to_end_via_reverse_tunnel() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-provider-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3169,9 +3160,9 @@ async fn test_remote_storage_end_to_end_via_reverse_tunnel() {
             .await
             .expect("reverse remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3201,7 +3192,7 @@ async fn test_remote_storage_end_to_end_via_reverse_tunnel() {
     )
     .await;
 
-    let probed = managed_follower_service::test_connection(&consumer_state, consumer_node.id)
+    let probed = remote_node::test_connection(&consumer_state, consumer_node.id)
         .await
         .expect("reverse tunnel remote node should probe through tunnel");
     assert_eq!(
@@ -3320,9 +3311,9 @@ async fn test_reverse_tunnel_handles_concurrent_requests_across_polls() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-concurrent-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3336,9 +3327,9 @@ async fn test_reverse_tunnel_handles_concurrent_requests_across_polls() {
             .await
             .expect("reverse remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-concurrent-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3439,9 +3430,9 @@ async fn test_reverse_tunnel_e2e_over_http_with_follower_worker() {
     .await;
     let primary_server = spawn_reverse_tunnel_primary_server(consumer_state.clone()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-http-provider-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3455,9 +3446,9 @@ async fn test_reverse_tunnel_e2e_over_http_with_follower_worker() {
             .await
             .expect("reverse HTTP remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-http-consumer-access".to_string(),
             master_url: primary_server.base_url.clone(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3487,7 +3478,7 @@ async fn test_reverse_tunnel_e2e_over_http_with_follower_worker() {
     .await;
     wait_for_stream_lane(&consumer_state, &consumer_node_model).await;
 
-    let probed = managed_follower_service::test_connection(&consumer_state, consumer_node.id)
+    let probed = remote_node::test_connection(&consumer_state, consumer_node.id)
         .await
         .expect("HTTP reverse tunnel remote node should probe through production worker");
     assert_eq!(
@@ -3562,9 +3553,9 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
     let primary_server =
         spawn_reverse_tunnel_poll_only_primary_server(consumer_state.clone()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-poll-fallback-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3578,9 +3569,9 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
             .await
             .expect("reverse poll fallback node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-poll-fallback-access".to_string(),
             master_url: primary_server.base_url.clone(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3609,7 +3600,7 @@ async fn test_reverse_tunnel_production_worker_falls_back_to_poll_when_stream_un
     ))
     .await;
 
-    let probed = managed_follower_service::test_connection(&consumer_state, consumer_node.id)
+    let probed = remote_node::test_connection(&consumer_state, consumer_node.id)
         .await
         .expect("poll fallback should probe through production worker");
     assert_eq!(
@@ -3688,9 +3679,9 @@ async fn test_reverse_tunnel_follower_worker_rejects_non_storage_paths() {
     .await;
     let primary_server = spawn_reverse_tunnel_primary_server(consumer_state.clone()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-path-guard-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3704,9 +3695,9 @@ async fn test_reverse_tunnel_follower_worker_rejects_non_storage_paths() {
             .await
             .expect("reverse node should be queryable for path guard test");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-path-guard-access".to_string(),
             master_url: primary_server.base_url.clone(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3747,7 +3738,7 @@ async fn test_reverse_tunnel_follower_worker_rejects_non_storage_paths() {
         response.body.as_ref(),
         b"reverse tunnel can only proxy internal storage paths"
     );
-    let info = managed_follower_service::get(&consumer_state, consumer_node.id)
+    let info = remote_node::get(&consumer_state, consumer_node.id)
         .await
         .expect("remote node info should load after forbidden tunnel target");
     assert!(
@@ -3769,9 +3760,9 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-policy-test-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3785,9 +3776,9 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
             .await
             .expect("reverse remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-policy-test-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -3863,9 +3854,9 @@ async fn test_reverse_tunnel_policy_connection_test_uses_tunnel_registry() {
 async fn test_reverse_tunnel_http_rejects_access_key_mismatch() {
     let state = common::setup().await;
     let primary_server = spawn_reverse_tunnel_primary_server(state.clone()).await;
-    let node_a = managed_follower_service::create(
+    let node_a = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-http-auth-a".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3874,9 +3865,9 @@ async fn test_reverse_tunnel_http_rejects_access_key_mismatch() {
     )
     .await
     .expect("node a should be created");
-    let node_b = managed_follower_service::create(
+    let node_b = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-http-auth-b".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3917,9 +3908,9 @@ async fn test_reverse_tunnel_http_rejects_access_key_mismatch() {
 #[actix_web::test]
 async fn test_reverse_tunnel_completion_from_wrong_node_does_not_consume_pending_request() {
     let state = common::setup().await;
-    let node_a = managed_follower_service::create(
+    let node_a = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-wrong-complete-a".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -3928,9 +3919,9 @@ async fn test_reverse_tunnel_completion_from_wrong_node_does_not_consume_pending
     )
     .await
     .expect("node a should be created");
-    let node_b = managed_follower_service::create(
+    let node_b = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-wrong-complete-b".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4022,9 +4013,9 @@ async fn test_reverse_tunnel_completion_from_wrong_node_does_not_consume_pending
 #[actix_web::test]
 async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-offline-error".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4052,7 +4043,7 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
         .expect_err("offline reverse tunnel send should fail");
     assert!(error.message().contains("reverse tunnel is offline"));
 
-    let info = managed_follower_service::get(&state, node.id)
+    let info = remote_node::get(&state, node.id)
         .await
         .expect("remote node info should load");
     assert!(
@@ -4111,7 +4102,7 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
         .await
         .expect("send task should join")
         .expect("send should complete after success response");
-    let cleared = managed_follower_service::get(&state, node.id)
+    let cleared = remote_node::get(&state, node.id)
         .await
         .expect("remote node info should load after poll");
     assert_eq!(cleared.tunnel.last_error, "");
@@ -4120,9 +4111,9 @@ async fn test_reverse_tunnel_records_offline_error_and_clears_on_poll() {
 #[actix_web::test]
 async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-poll-updated-at".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4199,9 +4190,9 @@ async fn test_reverse_tunnel_polls_do_not_touch_updated_at() {
 #[actix_web::test]
 async fn test_reverse_tunnel_completion_rejects_body_above_cap() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-too-large-complete".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4242,9 +4233,9 @@ async fn test_reverse_tunnel_route_accepts_payload_above_global_json_limit() {
 
     let state = common::setup().await;
     let primary_server = spawn_reverse_tunnel_primary_server(state.clone()).await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-json-limit".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4286,9 +4277,9 @@ async fn test_reverse_tunnel_route_accepts_payload_above_global_json_limit() {
 #[actix_web::test]
 async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-presigned-rejected".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4362,9 +4353,9 @@ async fn test_reverse_tunnel_remote_policy_rejects_presigned_strategies() {
 #[actix_web::test]
 async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "auto-empty-presigned-rejected".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::Auto,
@@ -4419,9 +4410,9 @@ async fn test_auto_empty_url_remote_policy_rejects_presigned_strategies() {
 #[actix_web::test]
 async fn test_reverse_tunnel_remote_policy_update_rejects_presigned_strategies() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-presigned-update-rejected".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -4492,9 +4483,9 @@ async fn test_remote_node_update_rejects_reverse_tunnel_when_referenced_policy_u
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "direct-presigned-update-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -4522,10 +4513,10 @@ async fn test_remote_node_update_rejects_reverse_tunnel_when_referenced_policy_u
     )
     .await;
 
-    let error = managed_follower_service::update(
+    let error = remote_node::update(
         &consumer_state,
         node.id,
-        managed_follower_service::UpdateRemoteNodeInput {
+        remote_node::UpdateRemoteNodeInput {
             base_url: Some(String::new()),
             transport_mode: Some(RemoteNodeTransportMode::ReverseTunnel),
             ..Default::default()
@@ -4553,9 +4544,9 @@ async fn test_remote_presigned_download_redirects_to_follower() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -4569,9 +4560,9 @@ async fn test_remote_presigned_download_redirects_to_follower() {
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -4735,9 +4726,9 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -4751,9 +4742,9 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -4777,10 +4768,10 @@ async fn test_disabling_remote_node_syncs_follower_binding_and_blocks_remote_use
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
 
-    managed_follower_service::update(
+    remote_node::update(
         &consumer_state,
         consumer_node.id,
-        managed_follower_service::UpdateRemoteNodeInput {
+        remote_node::UpdateRemoteNodeInput {
             is_enabled: Some(false),
             ..Default::default()
         },
@@ -4867,9 +4858,9 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -4883,9 +4874,9 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -4909,10 +4900,10 @@ async fn test_saved_remote_node_connection_endpoint_returns_precondition_failed_
 
     wait_for_remote_probe(&consumer_state, consumer_node.id).await;
 
-    master_binding_service::sync_from_primary(
+    master_binding::sync_from_primary(
         &provider_state.follower_view(),
         &consumer_node_model.access_key,
-        master_binding_service::SyncMasterBindingInput {
+        master_binding::SyncMasterBindingInput {
             name: "consumer-access".to_string(),
             is_enabled: false,
         },
@@ -4951,9 +4942,9 @@ async fn test_disabled_remote_nodes_skip_network_during_health_checks() {
     let (provider_server, request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let remote_node = managed_follower_service::create(
+    let remote_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "disabled-health-check-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -4963,7 +4954,7 @@ async fn test_disabled_remote_nodes_skip_network_during_health_checks() {
     .await
     .expect("disabled remote node should be created");
 
-    let stats = managed_follower_service::run_health_tests(&consumer_state)
+    let stats = remote_node::run_health_tests(&consumer_state)
         .await
         .expect("health checks should finish");
 
@@ -4993,9 +4984,9 @@ async fn test_pending_remote_nodes_skip_network_during_health_checks() {
     let (provider_server, request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let remote_node = managed_follower_service::create(
+    let remote_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "pending-health-check-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5005,7 +4996,7 @@ async fn test_pending_remote_nodes_skip_network_during_health_checks() {
     .await
     .expect("pending remote node should be created");
 
-    let stats = managed_follower_service::run_health_tests(&consumer_state)
+    let stats = remote_node::run_health_tests(&consumer_state)
         .await
         .expect("health checks should finish");
 
@@ -5039,9 +5030,9 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
     let (provider_server, request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let remote_node = managed_follower_service::create(
+    let remote_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "pending-connection-test-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5051,13 +5042,13 @@ async fn test_pending_remote_node_connection_test_requires_completed_enrollment_
     .await
     .expect("pending remote node should be created");
 
-    let error = managed_follower_service::test_connection(&consumer_state, remote_node.id)
+    let error = remote_node::test_connection(&consumer_state, remote_node.id)
         .await
         .expect_err("pending remote node should reject connection tests");
 
     assert_eq!(
         error.message(),
-        managed_follower_service::REMOTE_NODE_ENROLLMENT_REQUIRED_MESSAGE,
+        remote_node::REMOTE_NODE_ENROLLMENT_REQUIRED_MESSAGE,
     );
     assert_eq!(
         error.http_status(),
@@ -5086,9 +5077,9 @@ async fn test_remote_ingress_profiles_require_completed_enrollment_before_networ
     let (provider_server, request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let remote_node = managed_follower_service::create(
+    let remote_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "pending-ingress-profile-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5098,13 +5089,13 @@ async fn test_remote_ingress_profiles_require_completed_enrollment_before_networ
     .await
     .expect("pending remote node should be created");
 
-    let error = remote_storage_target_service::list_remote(&consumer_state, remote_node.id)
+    let error = storage_target::list_remote(&consumer_state, remote_node.id)
         .await
         .expect_err("pending remote node should reject remote remote storage target reads");
 
     assert_eq!(
         error.message(),
-        managed_follower_service::REMOTE_NODE_ENROLLMENT_REQUIRED_MESSAGE,
+        remote_node::REMOTE_NODE_ENROLLMENT_REQUIRED_MESSAGE,
     );
     assert_eq!(
         error.http_status(),
@@ -5128,9 +5119,9 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     let (disabled_server, disabled_request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let enabled_node = managed_follower_service::create(
+    let enabled_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "enabled-health-check-target".to_string(),
             base_url: enabled_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5144,9 +5135,9 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
             .await
             .expect("enabled remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "enabled-health-check-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: enabled_node_model.access_key.clone(),
@@ -5169,9 +5160,9 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     .await;
     mark_remote_node_enrollment_completed(&consumer_state, enabled_node.id).await;
 
-    let disabled_node = managed_follower_service::create(
+    let disabled_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "disabled-health-check-target".to_string(),
             base_url: disabled_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5181,7 +5172,7 @@ async fn test_health_checks_only_touch_enabled_remote_nodes_in_mixed_sets() {
     .await
     .expect("disabled remote node should be created");
 
-    let stats = managed_follower_service::run_health_tests(&consumer_state)
+    let stats = remote_node::run_health_tests(&consumer_state)
         .await
         .expect("mixed health checks should finish");
 
@@ -5222,9 +5213,9 @@ async fn test_reverse_tunnel_remote_nodes_are_checked_by_health_tests_without_ba
     let (provider_server, request_count) =
         spawn_counting_internal_storage_server(provider_state.follower_view()).await;
 
-    let remote_node = managed_follower_service::create(
+    let remote_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-health-check-target".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,
@@ -5238,9 +5229,9 @@ async fn test_reverse_tunnel_remote_nodes_are_checked_by_health_tests_without_ba
             .await
             .expect("reverse remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "reverse-health-check-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: remote_node_model.access_key.clone(),
@@ -5270,7 +5261,7 @@ async fn test_reverse_tunnel_remote_nodes_are_checked_by_health_tests_without_ba
     )
     .await;
 
-    let stats = managed_follower_service::run_health_tests(&consumer_state)
+    let stats = remote_node::run_health_tests(&consumer_state)
         .await
         .expect("reverse health checks should finish through tunnel");
 
@@ -5301,9 +5292,9 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5317,9 +5308,9 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -5400,10 +5391,10 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     .await
     .expect("thumbnail should generate while remote node is enabled");
 
-    managed_follower_service::update(
+    remote_node::update(
         &consumer_state,
         consumer_node.id,
-        managed_follower_service::UpdateRemoteNodeInput {
+        remote_node::UpdateRemoteNodeInput {
             is_enabled: Some(false),
             ..Default::default()
         },
@@ -5431,9 +5422,9 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5447,9 +5438,9 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -5617,9 +5608,9 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "late-presigned-provider".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5633,9 +5624,9 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "late-presigned-consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -5785,9 +5776,9 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5801,9 +5792,9 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -5936,9 +5927,9 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: "http://provider.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -5952,9 +5943,9 @@ async fn test_remote_presigned_upload_browser_cors_follows_bound_master_origin()
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -6164,9 +6155,9 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -6180,9 +6171,9 @@ async fn test_remote_presigned_download_browser_cors_allows_get() {
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -6365,9 +6356,9 @@ async fn test_internal_storage_get_honors_range_header() {
     let object_key = "range-header.bin";
     let body = b"0123456789abcdef";
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "range-header-binding".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: access_key.to_string(),
@@ -6457,9 +6448,9 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -6473,9 +6464,9 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -6752,9 +6743,9 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: "http://provider.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -6768,9 +6759,9 @@ async fn test_remote_presigned_upload_browser_cors_accepts_master_url_with_path_
             .await
             .expect("consumer remote node should be queryable");
 
-    master_binding_service::upsert_from_enrollment(
+    master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000/admin/settings/site".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -6870,9 +6861,9 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     let provider_state = common::setup().await;
     let consumer_state = common::setup().await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: "http://provider.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -6886,9 +6877,9 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
             .await
             .expect("consumer remote node should be queryable");
 
-    let binding = master_binding_service::upsert_from_enrollment(
+    let binding = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://localhost:3000".to_string(),
             access_key: consumer_node_model.access_key.clone(),
@@ -6963,10 +6954,10 @@ async fn test_remote_presigned_upload_browser_cors_rejects_disabled_binding() {
     );
 
     let follower_state = provider_state.follower_view();
-    master_binding_service::sync_from_primary(
+    master_binding::sync_from_primary(
         &follower_state,
         &binding.access_key,
-        master_binding_service::SyncMasterBindingInput {
+        master_binding::SyncMasterBindingInput {
             name: binding.name.clone(),
             is_enabled: false,
         },
@@ -7314,9 +7305,9 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     let consumer_state = common::setup().await;
     let provider_server = spawn_internal_storage_server(provider_state.follower_view()).await;
 
-    let consumer_node = managed_follower_service::create(
+    let consumer_node = remote_node::create(
         &consumer_state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "provider-target".to_string(),
             base_url: provider_server.base_url.clone(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -7330,9 +7321,9 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
             .await
             .expect("consumer remote node should be queryable");
 
-    let (provider_binding, _) = master_binding_service::upsert_from_enrollment(
+    let (provider_binding, _) = master_binding::upsert_from_enrollment(
         provider_state.writer_db(),
-        master_binding_service::UpsertMasterBindingInput {
+        master_binding::UpsertMasterBindingInput {
             name: "consumer-access".to_string(),
             master_url: "http://master.example.com".to_string(),
             access_key: consumer_node_model.access_key.clone(),

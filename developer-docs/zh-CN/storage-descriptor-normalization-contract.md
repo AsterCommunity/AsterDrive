@@ -7,7 +7,7 @@
 当前有两类相近但不等价的 descriptor：
 
 - `src/storage/connector_descriptor.rs` 与 `src/storage/connectors/`：描述 storage policy 管理表单、连接测试、授权、policy action、上传工作流和 connector 能力。
-- `src/services/remote_storage_target_service/driver.rs`：描述 follower remote storage target 可用的 driver、字段和本地归一化规则。
+- `src/services/remote/storage_target/driver.rs`：描述 follower remote storage target 可用的 driver、字段和本地归一化规则。
 
 这两类 descriptor 可以共享命名和字段语义，但不要强行合成一个万能 descriptor。storage policy 描述的是主控侧策略和上传/下载工作流；remote storage target 描述的是 follower 接收远端写入时的落点配置。
 
@@ -41,7 +41,7 @@
 - route 层只做协议适配、鉴权、参数提取和响应映射，不拼 descriptor，不做 driver-specific normalization。
 - service 层负责 use case 编排：加载上下文、调用 normalization、检查 capability、调用 repo、执行必要 side effects。
 - `src/storage/connectors/` 负责 storage policy connector descriptor、连接字段规范化、连接测试、授权和 connector action。
-- `src/services/remote_storage_target_service/driver.rs` 负责 remote storage target driver descriptor、driver-field normalization、target-to-policy materialization 和 driver build/validate。
+- `src/services/remote/storage_target/driver.rs` 负责 remote storage target driver descriptor、driver-field normalization、target-to-policy materialization 和 driver build/validate。
 - `src/storage/remote_protocol/` 只处理 wire model、签名、path encoding、transport 和 response parsing，不决定 UI 字段和 policy target 选择。
 
 ## 测试要求
@@ -51,5 +51,5 @@
 - descriptor 必须覆盖每个内置 driver 的字段、secret 标记、action 和关键 capability。
 - normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
 - SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
-- storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote_storage_target_service::tests::<filter>`。
+- storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote::storage_target::tests::<filter>`。
 - 改 OpenAPI schema 后必须重新导出 OpenAPI 并生成前端 SDK。本契约切片不改变 API shape。

@@ -1,12 +1,12 @@
-//! 服务模块：`node_enrollment_service`。
+//! 服务模块：`remote::node_enrollment`。
 
 use std::time::Duration;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::master_binding_repo;
-use crate::entities::master_binding;
+use crate::entities::master_binding as master_binding_entity;
 use crate::errors::{AsterError, Result};
-use crate::services::{managed_follower_enrollment_service, master_binding_service};
+use crate::services::{remote::enrollment, remote::master_binding};
 use crate::storage::remote_protocol::normalize_remote_base_url;
 use crate::utils::OUTBOUND_HTTP_USER_AGENT;
 use sea_orm::DatabaseConnection;
@@ -25,7 +25,7 @@ pub struct NodeEnrollmentInput {
 #[derive(Debug, Clone)]
 pub struct NodeEnrollmentResult {
     pub action: &'static str,
-    pub binding: master_binding::Model,
+    pub binding: master_binding_entity::Model,
 }
 
 #[derive(Debug, Clone)]
@@ -63,9 +63,9 @@ pub async fn enroll(
     let bootstrap = redeem_enrollment(&master_url, &input.token).await?;
 
     let (binding, action) = crate::db::transaction::with_transaction(db, async |txn| {
-        master_binding_service::upsert_from_enrollment(
+        master_binding::upsert_from_enrollment(
             txn,
-            master_binding_service::UpsertMasterBindingInput {
+            master_binding::UpsertMasterBindingInput {
                 name: bootstrap.remote_node_name.clone(),
                 master_url: bootstrap.master_url.clone(),
                 access_key: bootstrap.access_key.clone(),
@@ -180,9 +180,9 @@ where
 fn should_treat_bootstrap_error_as_already_configured(error: &AsterError) -> bool {
     matches!(
         error.message(),
-        managed_follower_enrollment_service::ENROLLMENT_TOKEN_COMPLETED_MESSAGE
-            | managed_follower_enrollment_service::ENROLLMENT_TOKEN_EXPIRED_MESSAGE
-            | managed_follower_enrollment_service::ENROLLMENT_TOKEN_REPLACED_MESSAGE
+        enrollment::ENROLLMENT_TOKEN_COMPLETED_MESSAGE
+            | enrollment::ENROLLMENT_TOKEN_EXPIRED_MESSAGE
+            | enrollment::ENROLLMENT_TOKEN_REPLACED_MESSAGE
     )
 }
 
@@ -196,7 +196,7 @@ async fn has_binding_for_master_url(db: &DatabaseConnection, master_url: &str) -
 async fn redeem_enrollment(
     master_url: &str,
     token: &str,
-) -> Result<managed_follower_enrollment_service::RemoteEnrollmentBootstrap> {
+) -> Result<enrollment::RemoteEnrollmentBootstrap> {
     let url = format!("{master_url}/api/v1/public/remote-enrollment/redeem");
     let response = node_enrollment_http_client()?
         .post(url)
@@ -503,13 +503,13 @@ mod tests {
             actix_web::http::StatusCode::BAD_REQUEST,
             serde_json::json!({
                 "code": "auth.token_expired",
-                "msg": managed_follower_enrollment_service::ENROLLMENT_TOKEN_COMPLETED_MESSAGE,
+                "msg": enrollment::ENROLLMENT_TOKEN_COMPLETED_MESSAGE,
                 "data": null
             }),
             ack_count.clone(),
         )
         .await;
-        master_binding::ActiveModel {
+        master_binding_entity::ActiveModel {
             name: Set("docker-follower".to_string()),
             master_url: Set(server.base_url.clone()),
             access_key: Set("ak_existing".to_string()),

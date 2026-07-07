@@ -101,7 +101,7 @@ Things to remember:
 
 1. `src/api/follower.rs` only registers `/api/v1/internal/storage/*`
 2. `src/api/routes/internal_storage.rs` validates internal signatures or presigned access
-3. `master_binding_service` resolves primary-node bindings and ingress policies
+3. `remote::master_binding` resolves primary-node bindings and ingress policies
 4. `driver_registry` returns the actual storage driver
 5. The request is handled by the local / object-storage / remote driver capability interface
 

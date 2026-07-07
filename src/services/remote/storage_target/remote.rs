@@ -1,8 +1,8 @@
 use crate::entities::managed_follower;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::services::managed_follower_service;
-use crate::services::remote_capability_service::RemoteCapabilityResolver;
+use crate::services::remote::capability::RemoteCapabilityResolver;
+use crate::services::remote::remote_node;
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
@@ -35,7 +35,7 @@ pub async fn create_remote<S: RemoteProtocolRuntimeState>(
 ) -> Result<RemoteStorageTargetInfo> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
     ensure_remote_storage_target_driver_supported(&node, input.driver_type())?;
-    managed_follower_service::remote_storage_client_for_node(state, &node)?
+    remote_node::remote_storage_client_for_node(state, &node)?
         .create_storage_target(&input)
         .await
 }
@@ -50,7 +50,7 @@ pub async fn update_remote<S: RemoteProtocolRuntimeState>(
     if let Some(driver_type) = input.driver_type {
         ensure_remote_storage_target_driver_supported(&node, driver_type)?;
     }
-    managed_follower_service::remote_storage_client_for_node(state, &node)?
+    remote_node::remote_storage_client_for_node(state, &node)?
         .update_storage_target(target_key, &input)
         .await
 }
@@ -82,14 +82,14 @@ async fn remote_client_for_node<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
 ) -> Result<crate::storage::remote_protocol::RemoteStorageClient> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    managed_follower_service::remote_storage_client_for_node(state, &node)
+    remote_node::remote_storage_client_for_node(state, &node)
 }
 
 async fn remote_node_for_storage_target_write<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
 ) -> Result<managed_follower::Model> {
-    managed_follower_service::require_completed_enrollment(state, remote_node_id).await
+    remote_node::require_completed_enrollment(state, remote_node_id).await
 }
 
 fn ensure_remote_storage_target_driver_supported(

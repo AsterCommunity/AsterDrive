@@ -11,7 +11,7 @@ use crate::types::DriverType;
 
 use super::driver::{RemoteStorageTargetDriverFields, normalize_driver_fields};
 
-pub(in crate::services::remote_storage_target_service) struct NormalizedStorageTargetInput {
+pub(in crate::services::remote::storage_target) struct NormalizedStorageTargetInput {
     pub name: String,
     pub driver_type: DriverType,
     pub endpoint: String,
@@ -33,7 +33,7 @@ struct StorageTargetFields {
     is_default: Option<bool>,
 }
 
-pub(in crate::services::remote_storage_target_service) fn normalize_create_input(
+pub(in crate::services::remote::storage_target) fn normalize_create_input(
     input: RemoteCreateStorageTargetRequest,
 ) -> Result<NormalizedStorageTargetInput> {
     match input {
@@ -72,7 +72,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_create_input
     }
 }
 
-pub(in crate::services::remote_storage_target_service) fn normalize_update_input(
+pub(in crate::services::remote::storage_target) fn normalize_update_input(
     existing: remote_storage_target::Model,
     input: RemoteUpdateStorageTargetRequest,
 ) -> Result<NormalizedStorageTargetInput> {
@@ -123,7 +123,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_update_input
     })
 }
 
-pub(in crate::services::remote_storage_target_service) fn new_target_key() -> String {
+pub(in crate::services::remote::storage_target) fn new_target_key() -> String {
     format!("rst_{}", crate::utils::id::new_short_token())
 }
 

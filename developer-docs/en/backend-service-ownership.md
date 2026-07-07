@@ -175,7 +175,7 @@ Remote protocol code must not decide:
 - How remote storage target descriptors are presented in the UI
 - Whether a product-level error should block a policy change
 
-Those decisions belong to `managed_follower_service`, `remote_storage_target_service`, `policy_service`, or a capability / target resolver.
+Those decisions belong to `remote::remote_node`, `remote::storage_target`, `policy_service`, or a capability / target resolver.
 
 ### WebDAV And WOPI Protocol Entry Points
 
@@ -350,7 +350,7 @@ Side effects that must be explicit:
 - Upload session cleanup task creation
 - Audit
 
-### `managed_follower_service`
+### `remote::remote_node`
 
 Current responsibilities:
 
@@ -387,7 +387,7 @@ Side effects that must be explicit:
 - Policy snapshot reload
 - Health test writes for last capabilities and last error
 
-### `remote_storage_target_service`
+### `remote::storage_target`
 
 This is the current implementation home for what older issue text called "managed ingress profile service". Legacy wire fields and error codes may still use `managed_ingress.*` for compatibility, but new product ownership should use remote storage target terminology.
 
@@ -426,7 +426,7 @@ Side effects that must be explicit:
 - Driver registry reload / target validation
 - Protocol error mapping for remote forwarding failures
 
-### `master_binding_service`
+### `remote::master_binding`
 
 Current responsibilities:
 
@@ -442,7 +442,7 @@ Should stay:
 - Follower trust relationship with the primary
 - Product-level internal storage and presigned authorization
 - Path isolation through binding storage namespaces
-- Calling `remote_storage_target_service::resolve_effective_target` for the authorized ingress driver
+- Calling `storage_target::resolve_effective_target` for the authorized ingress driver
 
 Should not own:
 

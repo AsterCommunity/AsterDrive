@@ -5,9 +5,7 @@ use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{
-    audit_service, auth_service, config_service, managed_follower_enrollment_service,
-};
+use crate::services::{audit_service, auth_service, config_service, remote::enrollment};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -157,7 +155,7 @@ async fn request_has_valid_access_token(
     operation_id = "redeem_remote_enrollment",
     request_body = RedeemRemoteEnrollmentReq,
     responses(
-        (status = 200, description = "Redeem a remote enrollment token", body = ApiResponse<managed_follower_enrollment_service::RemoteEnrollmentBootstrap>),
+        (status = 200, description = "Redeem a remote enrollment token", body = ApiResponse<enrollment::RemoteEnrollmentBootstrap>),
     ),
 )]
 pub async fn redeem_remote_enrollment(
@@ -166,9 +164,7 @@ pub async fn redeem_remote_enrollment(
     body: web::Json<RedeemRemoteEnrollmentReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let bootstrap =
-        managed_follower_enrollment_service::redeem_enrollment_token(state.get_ref(), &body.token)
-            .await?;
+    let bootstrap = enrollment::redeem_enrollment_token(state.get_ref(), &body.token).await?;
     let audit_info = audit_service::AuditRequestInfo::from_request(&req);
     let ctx = audit_info.to_context(0);
     audit_service::log(
@@ -205,9 +201,7 @@ pub async fn ack_remote_enrollment(
     body: web::Json<AckRemoteEnrollmentReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ack =
-        managed_follower_enrollment_service::ack_enrollment_token(state.get_ref(), &body.ack_token)
-            .await?;
+    let ack = enrollment::ack_enrollment_token(state.get_ref(), &body.ack_token).await?;
     let audit_info = audit_service::AuditRequestInfo::from_request(&req);
     let ctx = audit_info.to_context(0);
     audit_service::log(

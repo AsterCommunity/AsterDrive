@@ -11,29 +11,25 @@ use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service, auth_service::Claims, managed_follower_enrollment_service,
-    managed_follower_service, remote_storage_target_service,
+    audit_service, auth_service::Claims, remote::enrollment, remote::remote_node,
+    remote::storage_target,
 };
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
-fn enrollment_status_audit_name(
-    status: managed_follower_service::RemoteNodeEnrollmentStatus,
-) -> &'static str {
+fn enrollment_status_audit_name(status: remote_node::RemoteNodeEnrollmentStatus) -> &'static str {
     match status {
-        managed_follower_service::RemoteNodeEnrollmentStatus::NotStarted => "not_started",
-        managed_follower_service::RemoteNodeEnrollmentStatus::Pending => "pending",
-        managed_follower_service::RemoteNodeEnrollmentStatus::Redeemed => "redeemed",
-        managed_follower_service::RemoteNodeEnrollmentStatus::Completed => "completed",
-        managed_follower_service::RemoteNodeEnrollmentStatus::Expired => "expired",
+        remote_node::RemoteNodeEnrollmentStatus::NotStarted => "not_started",
+        remote_node::RemoteNodeEnrollmentStatus::Pending => "pending",
+        remote_node::RemoteNodeEnrollmentStatus::Redeemed => "redeemed",
+        remote_node::RemoteNodeEnrollmentStatus::Completed => "completed",
+        remote_node::RemoteNodeEnrollmentStatus::Expired => "expired",
     }
 }
 
-fn remote_node_audit_details(
-    node: &managed_follower_service::RemoteNodeInfo,
-) -> Option<serde_json::Value> {
+fn remote_node_audit_details(node: &remote_node::RemoteNodeInfo) -> Option<serde_json::Value> {
     audit_service::details(audit_service::RemoteNodeAuditDetails {
         base_url: &node.base_url,
         is_enabled: node.is_enabled,
@@ -53,7 +49,7 @@ fn remote_storage_target_audit_details(
     })
 }
 
-impl From<CreateRemoteNodeReq> for managed_follower_service::CreateRemoteNodeInput {
+impl From<CreateRemoteNodeReq> for remote_node::CreateRemoteNodeInput {
     fn from(value: CreateRemoteNodeReq) -> Self {
         Self {
             name: value.name,
@@ -64,7 +60,7 @@ impl From<CreateRemoteNodeReq> for managed_follower_service::CreateRemoteNodeInp
     }
 }
 
-impl From<PatchRemoteNodeReq> for managed_follower_service::UpdateRemoteNodeInput {
+impl From<PatchRemoteNodeReq> for remote_node::UpdateRemoteNodeInput {
     fn from(value: PatchRemoteNodeReq) -> Self {
         Self {
             name: value.name,
@@ -75,7 +71,7 @@ impl From<PatchRemoteNodeReq> for managed_follower_service::UpdateRemoteNodeInpu
     }
 }
 
-impl From<TestRemoteNodeParamsReq> for managed_follower_service::TestRemoteNodeInput {
+impl From<TestRemoteNodeParamsReq> for remote_node::TestRemoteNodeInput {
     fn from(value: TestRemoteNodeParamsReq) -> Self {
         Self {
             base_url: value.base_url,
@@ -92,7 +88,7 @@ impl From<TestRemoteNodeParamsReq> for managed_follower_service::TestRemoteNodeI
     operation_id = "list_remote_nodes",
     params(LimitOffsetQuery, AdminRemoteNodeListQuery),
     responses(
-        (status = 200, description = "List remote nodes", body = inline(ApiResponse<OffsetPage<managed_follower_service::RemoteNodeInfo>>)),
+        (status = 200, description = "List remote nodes", body = inline(ApiResponse<OffsetPage<remote_node::RemoteNodeInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -103,7 +99,7 @@ pub async fn list_remote_nodes(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminRemoteNodeListQuery>,
 ) -> Result<HttpResponse> {
-    let nodes = managed_follower_service::list_paginated(
+    let nodes = remote_node::list_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
@@ -121,7 +117,7 @@ pub async fn list_remote_nodes(
     operation_id = "create_remote_node",
     request_body = CreateRemoteNodeReq,
     responses(
-        (status = 201, description = "Remote node created", body = inline(ApiResponse<managed_follower_service::RemoteNodeInfo>)),
+        (status = 201, description = "Remote node created", body = inline(ApiResponse<remote_node::RemoteNodeInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -134,7 +130,7 @@ pub async fn create_remote_node(
     body: web::Json<CreateRemoteNodeReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let node = managed_follower_service::create(state.get_ref(), body.into_inner().into()).await?;
+    let node = remote_node::create(state.get_ref(), body.into_inner().into()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -156,7 +152,7 @@ pub async fn create_remote_node(
     operation_id = "get_remote_node",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "Remote node details", body = inline(ApiResponse<managed_follower_service::RemoteNodeInfo>)),
+        (status = 200, description = "Remote node details", body = inline(ApiResponse<remote_node::RemoteNodeInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -167,7 +163,7 @@ pub async fn get_remote_node(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let node = managed_follower_service::get(state.get_ref(), *path).await?;
+    let node = remote_node::get(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(node)))
 }
 
@@ -179,7 +175,7 @@ pub async fn get_remote_node(
     params(("id" = i64, Path, description = "Remote node ID")),
     request_body = PatchRemoteNodeReq,
     responses(
-        (status = 200, description = "Remote node updated", body = inline(ApiResponse<managed_follower_service::RemoteNodeInfo>)),
+        (status = 200, description = "Remote node updated", body = inline(ApiResponse<remote_node::RemoteNodeInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -194,8 +190,7 @@ pub async fn update_remote_node(
     body: web::Json<PatchRemoteNodeReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let node =
-        managed_follower_service::update(state.get_ref(), *path, body.into_inner().into()).await?;
+    let node = remote_node::update(state.get_ref(), *path, body.into_inner().into()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -230,8 +225,8 @@ pub async fn delete_remote_node(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let node = managed_follower_service::get(state.get_ref(), *path).await?;
-    managed_follower_service::delete(state.get_ref(), *path).await?;
+    let node = remote_node::get(state.get_ref(), *path).await?;
+    remote_node::delete(state.get_ref(), *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -253,7 +248,7 @@ pub async fn delete_remote_node(
     operation_id = "test_remote_node_connection",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "Remote node connection tested", body = inline(ApiResponse<managed_follower_service::RemoteNodeInfo>)),
+        (status = 200, description = "Remote node connection tested", body = inline(ApiResponse<remote_node::RemoteNodeInfo>)),
         (status = 400, description = "Connection failed"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -268,7 +263,7 @@ pub async fn test_remote_node(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let node = managed_follower_service::test_connection(state.get_ref(), *path).await?;
+    let node = remote_node::test_connection(state.get_ref(), *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -306,7 +301,7 @@ pub async fn test_remote_node_params(
     validate_request(&*body)?;
     let body = body.into_inner();
     let base_url = body.base_url.clone();
-    let capabilities = managed_follower_service::test_connection_params(body.into()).await?;
+    let capabilities = remote_node::test_connection_params(body.into()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -339,7 +334,7 @@ pub async fn test_remote_node_params(
     operation_id = "create_remote_node_enrollment_token",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 201, description = "Enrollment command created", body = ApiResponse<managed_follower_enrollment_service::RemoteEnrollmentCommandInfo>),
+        (status = 201, description = "Enrollment command created", body = ApiResponse<enrollment::RemoteEnrollmentCommandInfo>),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -352,9 +347,7 @@ pub async fn create_remote_node_enrollment_token(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let command =
-        managed_follower_enrollment_service::create_enrollment_command(state.get_ref(), *path)
-            .await?;
+    let command = enrollment::create_enrollment_command(state.get_ref(), *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -415,7 +408,7 @@ pub async fn list_remote_node_storage_targets(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let targets = remote_storage_target_service::list_remote(state.get_ref(), *path).await?;
+    let targets = storage_target::list_remote(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
 }
 
@@ -426,7 +419,7 @@ pub async fn list_remote_node_storage_targets(
     operation_id = "list_remote_node_ingress_profile_drivers",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "Deprecated since 0.4.0; use /storage-target-drivers. List remote node remote storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote_storage_target_service::RemoteStorageTargetDriverDescriptor>>)),
+        (status = 200, description = "Deprecated since 0.4.0; use /storage-target-drivers. List remote node remote storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote::storage_target::RemoteStorageTargetDriverDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -451,7 +444,7 @@ pub async fn list_remote_node_ingress_profile_drivers(
     operation_id = "list_remote_node_storage_target_drivers",
     params(("id" = i64, Path, description = "Remote node ID")),
     responses(
-        (status = 200, description = "List remote node storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote_storage_target_service::RemoteStorageTargetDriverDescriptor>>)),
+        (status = 200, description = "List remote node storage target driver descriptors", body = inline(ApiResponse<Vec<crate::services::remote::storage_target::RemoteStorageTargetDriverDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "Remote node not found"),
@@ -463,8 +456,7 @@ pub async fn list_remote_node_storage_target_drivers(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let descriptors =
-        remote_storage_target_service::list_remote_driver_descriptors(state.get_ref(), *path)
-            .await?;
+        storage_target::list_remote_driver_descriptors(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(descriptors)))
 }
 
@@ -521,9 +513,7 @@ pub async fn create_remote_node_storage_target(
     path: web::Path<i64>,
     body: web::Json<RemoteCreateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
-    let target =
-        remote_storage_target_service::create_remote(state.get_ref(), *path, body.into_inner())
-            .await?;
+    let target = storage_target::create_remote(state.get_ref(), *path, body.into_inner()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -598,13 +588,8 @@ pub async fn update_remote_node_storage_target(
     body: web::Json<RemoteUpdateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
     let (id, target_key) = path.into_inner();
-    let target = remote_storage_target_service::update_remote(
-        state.get_ref(),
-        id,
-        &target_key,
-        body.into_inner(),
-    )
-    .await?;
+    let target =
+        storage_target::update_remote(state.get_ref(), id, &target_key, body.into_inner()).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -675,7 +660,7 @@ pub async fn delete_remote_node_storage_target(
     path: web::Path<(i64, String)>,
 ) -> Result<HttpResponse> {
     let (id, target_key) = path.into_inner();
-    remote_storage_target_service::delete_remote(state.get_ref(), id, &target_key).await?;
+    storage_target::delete_remote(state.get_ref(), id, &target_key).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),

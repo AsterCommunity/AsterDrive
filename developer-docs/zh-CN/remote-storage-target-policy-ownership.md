@@ -25,8 +25,8 @@ Remote Storage Policy
 
 现有职责大致是：
 
-- `src/services/managed_follower_service.rs`：远端节点记录、enrollment、transport、健康探测、能力缓存，以及删除前检查是否仍被 remote policy 引用。
-- `src/services/remote_storage_target_service/**`：follower 侧接收落点 CRUD、primary 到 follower 的转发、driver descriptor、字段归一化、默认 target、driver 构造和能力过滤。
+- `src/services/remote/remote_node.rs`：远端节点记录、enrollment、transport、健康探测、能力缓存，以及删除前检查是否仍被 remote policy 引用。
+- `src/services/remote/storage_target/**`：follower 侧接收落点 CRUD、primary 到 follower 的转发、driver descriptor、字段归一化、默认 target、driver 构造和能力过滤。
 - `src/services/policy_service/**`：存储策略创建、更新、连接测试、策略组和策略引用约束；remote 策略目前主要绑定 remote node，target 选择语义还没有收回到 policy 工作流。
 - `src/storage/remote_protocol/**`：内部存储协议的签名、HTTP / tunnel transport、wire model、能力响应和对象读写请求。
 - `frontend-panel/src/pages/admin/AdminRemoteNodesPage.tsx`：现在是 remote node 管理和 remote storage target 管理的主要入口。
@@ -84,7 +84,7 @@ Policy service 应该拥有“这条 remote policy 最终写到哪个 node / tar
 
 ### 第二阶段：服务边界（已完成）
 
-- `remote_storage_target_service` 内部拆成 target CRUD、remote forwarding、descriptor、capability、normalization、driver build 等模块。
+- `remote::storage_target` 内部拆成 target CRUD、remote forwarding、descriptor、capability、normalization、driver build 等模块。
 - 纯字段归一化和 descriptor 构造不依赖 `AppState`。
 - primary 到 follower 的转发逻辑不和 follower 本地 target 持久化逻辑混在同一个函数里。
 

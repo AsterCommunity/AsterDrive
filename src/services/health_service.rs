@@ -7,7 +7,7 @@ use crate::runtime::{FollowerRuntimeState, RemoteProtocolRuntimeState, SharedRun
 use crate::services::task_service::types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
 };
-use crate::services::{managed_follower_service, task_service};
+use crate::services::{remote::remote_node, task_service};
 use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -222,7 +222,7 @@ pub async fn check_primary_ready<S: SharedRuntimeState>(state: &S) -> Result<()>
 }
 
 pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<()> {
-    crate::services::master_binding_service::assert_follower_ready(state).await
+    crate::services::remote::master_binding::assert_follower_ready(state).await
 }
 
 pub async fn run_primary_system_health_checks<S: RemoteProtocolRuntimeState>(
@@ -280,7 +280,7 @@ async fn check_cache_backend(
 async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
     state: &S,
 ) -> HealthComponentReport {
-    match managed_follower_service::run_health_tests(state).await {
+    match remote_node::run_health_tests(state).await {
         Ok(stats) if stats.failed > 0 => HealthComponentReport::unhealthy(
             "remote_nodes",
             format!(

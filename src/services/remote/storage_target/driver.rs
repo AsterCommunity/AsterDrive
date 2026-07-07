@@ -19,7 +19,7 @@ use utoipa::ToSchema;
 
 use super::paths::{normalize_relative_local_path, resolve_remote_storage_target_local_path};
 
-pub(in crate::services::remote_storage_target_service) struct RemoteStorageTargetDriverFields {
+pub(in crate::services::remote::storage_target) struct RemoteStorageTargetDriverFields {
     pub driver_type: DriverType,
     pub endpoint: String,
     pub bucket: String,
@@ -28,8 +28,7 @@ pub(in crate::services::remote_storage_target_service) struct RemoteStorageTarge
     pub base_path: String,
 }
 
-pub(in crate::services::remote_storage_target_service) struct NormalizedRemoteStorageTargetDriverFields
-{
+pub(in crate::services::remote::storage_target) struct NormalizedRemoteStorageTargetDriverFields {
     pub driver_type: DriverType,
     pub endpoint: String,
     pub bucket: String,
@@ -452,7 +451,7 @@ pub fn remote_storage_target_driver_descriptor(
     registration_for(driver_type)?.connector.descriptor()
 }
 
-pub(in crate::services::remote_storage_target_service) fn normalize_driver_fields(
+pub(in crate::services::remote::storage_target) fn normalize_driver_fields(
     fields: RemoteStorageTargetDriverFields,
 ) -> Result<NormalizedRemoteStorageTargetDriverFields> {
     registration_for(fields.driver_type)?
@@ -460,7 +459,7 @@ pub(in crate::services::remote_storage_target_service) fn normalize_driver_field
         .normalize_fields(fields)
 }
 
-pub(in crate::services::remote_storage_target_service) fn validate_driver_from_target<
+pub(in crate::services::remote::storage_target) fn validate_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,
@@ -471,7 +470,7 @@ pub(in crate::services::remote_storage_target_service) fn validate_driver_from_t
     registration.connector.validate_policy(&policy)
 }
 
-pub(in crate::services::remote_storage_target_service) fn build_driver_from_target<
+pub(in crate::services::remote::storage_target) fn build_driver_from_target<
     S: FollowerRuntimeState,
 >(
     state: &S,

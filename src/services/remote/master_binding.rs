@@ -1,11 +1,11 @@
-//! 服务模块：`master_binding_service`。
+//! 服务模块：`remote::master_binding`。
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::master_binding_repo;
 use crate::entities::master_binding;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
-use crate::services::remote_storage_target_service;
+use crate::services::remote::storage_target;
 use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
@@ -366,7 +366,7 @@ pub async fn assert_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result
     }
 
     for binding in enabled_bindings {
-        let _ = remote_storage_target_service::resolve_effective_target(state, &binding).await?;
+        let _ = storage_target::resolve_effective_target(state, &binding).await?;
     }
     Ok(())
 }
@@ -379,14 +379,13 @@ async fn resolve_authorized_ingress<S: FollowerRuntimeState>(
 ) -> Result<AuthorizedMasterBinding> {
     let target = match target_key.as_deref() {
         Some(target_key) => {
-            remote_storage_target_service::resolve_target_by_key(state, &binding, target_key)
-                .await?
+            storage_target::resolve_target_by_key(state, &binding, target_key).await?
         }
         // Compatibility only: policies created before remote_storage_target_key
         // existed do not send target_key in signed internal/presigned requests.
         // Keep them on the binding default target instead of guessing a target
         // from primary-side state.
-        None => remote_storage_target_service::resolve_effective_target(state, &binding).await?,
+        None => storage_target::resolve_effective_target(state, &binding).await?,
     };
 
     Ok(AuthorizedMasterBinding {

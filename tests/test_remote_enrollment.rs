@@ -5,16 +5,14 @@ mod common;
 
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url::PUBLIC_SITE_URL_KEY;
-use aster_drive::services::{
-    config_service, managed_follower_enrollment_service, managed_follower_service,
-};
+use aster_drive::services::{config_service, remote::enrollment, remote::remote_node};
 
 #[tokio::test]
 async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
     let state = common::setup().await;
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "node-missing-url".to_string(),
             base_url: "https://node-missing-url.example.com".to_string(),
             transport_mode: aster_drive::types::RemoteNodeTransportMode::Direct,
@@ -24,7 +22,7 @@ async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
     .await
     .expect("remote node should be created");
 
-    let error = managed_follower_enrollment_service::create_enrollment_command(&state, node.id)
+    let error = enrollment::create_enrollment_command(&state, node.id)
         .await
         .expect_err("missing public_site_url should reject enrollment command");
 
@@ -47,9 +45,9 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
     .await
     .expect("public site URL should be configured");
 
-    let node = managed_follower_service::create(
+    let node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "node-a".to_string(),
             base_url: "https://node-a.example.com".to_string(),
             transport_mode: aster_drive::types::RemoteNodeTransportMode::Direct,
@@ -60,43 +58,42 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
     .expect("remote node should be created");
     assert_eq!(
         node.enrollment_status,
-        managed_follower_service::RemoteNodeEnrollmentStatus::NotStarted
+        remote_node::RemoteNodeEnrollmentStatus::NotStarted
     );
 
-    let command = managed_follower_enrollment_service::create_enrollment_command(&state, node.id)
+    let command = enrollment::create_enrollment_command(&state, node.id)
         .await
         .expect("initial enrollment command should be created");
     assert_eq!(
-        managed_follower_service::get(&state, node.id)
+        remote_node::get(&state, node.id)
             .await
             .expect("remote node should be loaded")
             .enrollment_status,
-        managed_follower_service::RemoteNodeEnrollmentStatus::Pending
+        remote_node::RemoteNodeEnrollmentStatus::Pending
     );
 
-    let bootstrap =
-        managed_follower_enrollment_service::redeem_enrollment_token(&state, &command.token)
-            .await
-            .expect("enrollment token should be redeemable");
+    let bootstrap = enrollment::redeem_enrollment_token(&state, &command.token)
+        .await
+        .expect("enrollment token should be redeemable");
     assert_eq!(
-        managed_follower_service::get(&state, node.id)
+        remote_node::get(&state, node.id)
             .await
             .expect("remote node should be loaded")
             .enrollment_status,
-        managed_follower_service::RemoteNodeEnrollmentStatus::Redeemed
+        remote_node::RemoteNodeEnrollmentStatus::Redeemed
     );
 
-    managed_follower_enrollment_service::ack_enrollment_token(&state, &bootstrap.ack_token)
+    enrollment::ack_enrollment_token(&state, &bootstrap.ack_token)
         .await
         .expect("enrollment should be acknowledged");
     assert_eq!(
-        managed_follower_service::get(&state, node.id)
+        remote_node::get(&state, node.id)
             .await
             .expect("remote node should be loaded")
             .enrollment_status,
-        managed_follower_service::RemoteNodeEnrollmentStatus::Completed
+        remote_node::RemoteNodeEnrollmentStatus::Completed
     );
-    let page = managed_follower_service::list_paginated(
+    let page = remote_node::list_paginated(
         &state,
         10,
         0,
@@ -112,14 +109,14 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
         .expect("created remote node should be listed");
     assert_eq!(
         listed.enrollment_status,
-        managed_follower_service::RemoteNodeEnrollmentStatus::Completed
+        remote_node::RemoteNodeEnrollmentStatus::Completed
     );
 
-    let error = managed_follower_enrollment_service::create_enrollment_command(&state, node.id)
+    let error = enrollment::create_enrollment_command(&state, node.id)
         .await
         .expect_err("completed enrollment should reject a new command");
     assert_eq!(
         error.message(),
-        managed_follower_enrollment_service::REMOTE_NODE_ENROLLMENT_ALREADY_COMPLETED_MESSAGE
+        enrollment::REMOTE_NODE_ENROLLMENT_ALREADY_COMPLETED_MESSAGE
     );
 }

@@ -176,7 +176,7 @@ remote protocol 不应该决定：
 - remote storage target descriptor 的 UI 呈现
 - 产品级错误是否应该阻止策略变更
 
-这些决定属于 `managed_follower_service`、`remote_storage_target_service`、`policy_service` 或后续抽出的 capability / target resolver。
+这些决定属于 `remote::remote_node`、`remote::storage_target`、`policy_service` 或后续抽出的 capability / target resolver。
 
 ### WebDAV / WOPI 协议接入
 
@@ -351,7 +351,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - upload session cleanup task 创建
 - audit
 
-### `managed_follower_service`
+### `remote::remote_node`
 
 当前职责：
 
@@ -388,7 +388,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - policy snapshot reload
 - health test 写回 last capabilities / last error
 
-### `remote_storage_target_service`
+### `remote::storage_target`
 
 这是旧 issue 文案里 “managed ingress profile service” 在当前代码里的落点。少量 wire field 和错误码仍保留 `managed_ingress.*` 名称是兼容层；新的产品所有权应继续使用 remote storage target 语义。
 
@@ -427,7 +427,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - driver registry reload / target validation
 - remote forwarding failure 的协议错误映射
 
-### `master_binding_service`
+### `remote::master_binding`
 
 当前职责：
 
@@ -443,7 +443,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 - follower 对 primary 的信任关系
 - internal storage auth 和 presigned auth 的产品级授权
 - binding storage namespace 的路径隔离
-- 调用 `remote_storage_target_service::resolve_effective_target` 取得授权后的 ingress driver
+- 调用 `storage_target::resolve_effective_target` 取得授权后的 ingress driver
 
 不应该承担：
 

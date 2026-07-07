@@ -203,7 +203,7 @@ async fn main() -> std::io::Result<()> {
     }
 
     let bootstrap_config_path =
-        aster_drive::services::node_enrollment_service::prepare_follower_bootstrap_config()
+        aster_drive::services::remote::node_enrollment::prepare_follower_bootstrap_config()
             .map_err(io_other)?;
 
     // 1. 加载配置（会自动创建 data/config.toml）

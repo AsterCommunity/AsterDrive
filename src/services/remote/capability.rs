@@ -1,7 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::managed_follower;
 use crate::errors::{Result, validation_error_with_code};
-use crate::services::remote_storage_target_service::{
+use crate::services::remote::storage_target::{
     RemoteStorageTargetDriverDescriptor, registered_remote_storage_target_driver_types,
     remote_storage_target_driver_descriptor,
 };

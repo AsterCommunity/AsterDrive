@@ -3607,16 +3607,16 @@ async fn test_policy_create_rejects_remote_node_for_non_remote_policy_with_stabl
 
 #[actix_web::test]
 async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
-    use aster_drive::services::managed_follower_service;
+    use aster_drive::services::remote::remote_node;
     use aster_drive::types::RemoteNodeTransportMode;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
-    let disabled_node = managed_follower_service::create(
+    let disabled_node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "disabled-policy-node".to_string(),
             base_url: "https://disabled-policy-node.example.com".to_string(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -3644,9 +3644,9 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         ApiErrorCode::PolicyRemoteNodeDisabled.as_str()
     );
 
-    let direct_node_without_url = managed_follower_service::create(
+    let direct_node_without_url = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "direct-empty-url-policy-node".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::Direct,
@@ -3674,9 +3674,9 @@ async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
         ApiErrorCode::PolicyRemoteNodeBaseUrlRequired.as_str()
     );
 
-    let reverse_node = managed_follower_service::create(
+    let reverse_node = remote_node::create(
         &state,
-        managed_follower_service::CreateRemoteNodeInput {
+        remote_node::CreateRemoteNodeInput {
             name: "reverse-presigned-policy-node".to_string(),
             base_url: String::new(),
             transport_mode: RemoteNodeTransportMode::ReverseTunnel,

@@ -8,7 +8,7 @@ use crate::storage::field_contract::{
     RelativeLocalPathNormalizationError, normalize_relative_local_target_path,
 };
 
-pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage_target_local_path(
+pub(in crate::services::remote::storage_target) fn resolve_remote_storage_target_local_path(
     root: &str,
     relative: &str,
 ) -> Result<PathBuf> {
@@ -92,7 +92,7 @@ pub(in crate::services::remote_storage_target_service) fn resolve_remote_storage
     }
 }
 
-pub(in crate::services::remote_storage_target_service) fn normalize_relative_local_path(
+pub(in crate::services::remote::storage_target) fn normalize_relative_local_path(
     value: &str,
 ) -> Result<String> {
     match normalize_relative_local_target_path(value) {

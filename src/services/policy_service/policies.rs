@@ -9,7 +9,7 @@ use crate::db::repository::{file_repo, policy_group_repo, policy_repo, upload_se
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
-use crate::services::remote_storage_target_service;
+use crate::services::remote::storage_target;
 use crate::types::{DriverType, parse_storage_policy_options};
 
 use super::models::{
@@ -683,7 +683,7 @@ async fn validate_remote_storage_policy_target<S: RemoteProtocolRuntimeState + S
         return Ok(None);
     };
 
-    let targets = remote_storage_target_service::list_remote(state, remote_node_id).await?;
+    let targets = storage_target::list_remote(state, remote_node_id).await?;
     let target = targets
         .into_iter()
         .find(|target| target.target_key == target_key)

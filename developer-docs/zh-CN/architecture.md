@@ -101,7 +101,7 @@ follower 不提供普通用户 API、WebDAV 或前端页面，只注册：
 
 1. `src/api/follower.rs` 只注册 `/api/v1/internal/storage/*`
 2. `src/api/routes/internal_storage.rs` 校验内部签名或预签名访问
-3. `master_binding_service` 解析主节点绑定关系和 ingress 策略
+3. `remote::master_binding` 解析主节点绑定关系和 ingress 策略
 4. 通过 `driver_registry` 取得实际存储驱动
 5. 请求落到本地 / 对象存储 / 远端驱动能力接口
 

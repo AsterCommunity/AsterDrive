@@ -1,4 +1,4 @@
-//! 服务模块：`managed_follower_service`。
+//! 服务模块：`remote::remote_node`。
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminRemoteNodeSortBy, OffsetPage, SortOrder, load_offset_page};
@@ -8,7 +8,7 @@ use crate::errors::{
     AsterError, Result, precondition_failed_with_code, validation_error_with_code,
 };
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::services::remote_capability_service::RemoteCapabilityResolver;
+use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,

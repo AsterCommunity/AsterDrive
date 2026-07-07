@@ -1,4 +1,4 @@
-//! 服务模块：`managed_follower_enrollment_service`。
+//! 服务模块：`remote::enrollment`。
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
