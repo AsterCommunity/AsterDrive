@@ -8,6 +8,8 @@ use aster_drive::storage::{PresignedDownloadOptions, StorageDriver};
 use aster_drive::storage::{PresignedStorageDriver, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
+const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
+
 /// 创建 S3 测试用的 storage_policy model
 fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive::entities::storage_policy::Model {
     use chrono::Utc;
@@ -96,7 +98,7 @@ async fn wait_for_s3_bucket(endpoint: &str, bucket: &str) {
 
 #[tokio::test]
 async fn test_s3_put_get_delete() {
-    let container = GenericImage::new("rustfs/rustfs", "latest")
+    let container = GenericImage::new("rustfs/rustfs", RUSTFS_TEST_IMAGE_TAG)
         .with_exposed_port(testcontainers::core::IntoContainerPort::tcp(9000))
         .with_env_var("RUSTFS_ACCESS_KEY", "rustfsadmin")
         .with_env_var("RUSTFS_SECRET_KEY", "rustfsadmin123")
