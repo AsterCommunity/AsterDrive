@@ -7,11 +7,12 @@ use aster_drive::storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
 
-const SFTP_IMAGE: &str = "atmoz/sftp";
-const SFTP_TAG: &str = "alpine";
-const SFTP_PORT: u16 = 22;
+const SFTP_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
+const SFTP_TAG: &str = "latest";
+const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
+const SFTP_PROBE_TIMEOUT: Duration = Duration::from_secs(15);
 
 fn sftp_policy(
     endpoint: &str,
@@ -68,7 +69,7 @@ async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
     let mut last_error = None;
     let fingerprint = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
-            match tokio::time::timeout(Duration::from_secs(5), driver.exists("readiness/probe.txt"))
+            match tokio::time::timeout(SFTP_PROBE_TIMEOUT, driver.exists("readiness/probe.txt"))
                 .await
             {
                 Ok(Ok(_)) => last_error = Some("untrusted host key was accepted".to_string()),
@@ -101,7 +102,7 @@ async fn wait_for_sftp(driver: &SftpDriver) {
     let ready = tokio::time::timeout(Duration::from_secs(45), async {
         loop {
             match tokio::time::timeout(
-                Duration::from_secs(5),
+                SFTP_PROBE_TIMEOUT,
                 driver.put("readiness/probe.txt", b"ready"),
             )
             .await
@@ -137,7 +138,13 @@ async fn test_sftp_driver_upload_download_round_trip() {
 
     let container = GenericImage::new(SFTP_IMAGE, SFTP_TAG)
         .with_exposed_port(IntoContainerPort::tcp(SFTP_PORT))
-        .with_cmd(vec![format!("{SFTP_USERNAME}:{SFTP_PASSWORD}:::upload")])
+        .with_env_var("PUID", "1000")
+        .with_env_var("PGID", "1000")
+        .with_env_var("TZ", "UTC")
+        .with_env_var("USER_NAME", SFTP_USERNAME)
+        .with_env_var("USER_PASSWORD", SFTP_PASSWORD)
+        .with_env_var("PASSWORD_ACCESS", "true")
+        .with_env_var("SUDO_ACCESS", "false")
         .start()
         .await
         .expect("failed to start sftp container");
@@ -147,7 +154,7 @@ async fn test_sftp_driver_upload_download_round_trip() {
         .await
         .expect("resolve mapped sftp port");
     let endpoint = format!("sftp://127.0.0.1:{port}");
-    let base_path = format!("/upload/asterdrive-itest-{}", uuid::Uuid::new_v4());
+    let base_path = format!("asterdrive-itest-{}", uuid::Uuid::new_v4());
     let untrusted_driver =
         SftpDriver::new(&sftp_policy(&endpoint, &base_path, None)).expect("create SftpDriver");
     let host_key_fingerprint = wait_for_sftp_host_key_fingerprint(&untrusted_driver).await;
@@ -164,10 +171,34 @@ async fn test_sftp_driver_upload_download_round_trip() {
 
     let data = b"hello sftp world";
     driver.put("docs/hello.txt", data).await.unwrap();
+
+    #[cfg(debug_assertions)]
+    {
+        let baseline = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            baseline.idle_connections, 1,
+            "successful sequential SFTP operation should return one reusable connection"
+        );
+        assert!(driver.exists("docs/hello.txt").await.unwrap());
+        assert_eq!(driver.get("docs/hello.txt").await.unwrap(), data);
+        assert_eq!(
+            driver.metadata("docs/hello.txt").await.unwrap().size,
+            u64::try_from(data.len()).unwrap()
+        );
+        let after_sequential = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            after_sequential.created_connections, baseline.created_connections,
+            "sequential SFTP operations should reuse the authenticated connection"
+        );
+        assert_eq!(after_sequential.idle_connections, 1);
+    }
+
     assert!(driver.exists("docs/hello.txt").await.unwrap());
     assert!(!driver.exists("docs/missing.txt").await.unwrap());
     assert_eq!(driver.get("docs/hello.txt").await.unwrap(), data);
 
+    #[cfg(debug_assertions)]
+    let before_missing_metadata = driver.debug_connection_pool_snapshot();
     let missing_meta = driver
         .metadata("docs/missing.txt")
         .await
@@ -176,6 +207,15 @@ async fn test_sftp_driver_upload_download_round_trip() {
         missing_meta.storage_error_kind(),
         Some(StorageErrorKind::NotFound)
     );
+    #[cfg(debug_assertions)]
+    {
+        let after_missing_metadata = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            after_missing_metadata.created_connections, before_missing_metadata.created_connections,
+            "not-found SFTP status should not force the pooled connection to reconnect"
+        );
+        assert_eq!(after_missing_metadata.idle_connections, 1);
+    }
 
     let meta = driver.metadata("docs/hello.txt").await.unwrap();
     assert_eq!(meta.size, u64::try_from(data.len()).unwrap());
@@ -183,6 +223,44 @@ async fn test_sftp_driver_upload_download_round_trip() {
     let unicode_path = "docs/space dir/中文+plus.txt";
     driver.put(unicode_path, b"encoded path").await.unwrap();
     assert_eq!(driver.get(unicode_path).await.unwrap(), b"encoded path");
+
+    #[cfg(debug_assertions)]
+    {
+        let before_stream = driver.debug_connection_pool_snapshot();
+        assert_eq!(before_stream.idle_connections, 1);
+        let mut held_stream = driver.get_stream("docs/hello.txt").await.unwrap();
+        let after_stream_open = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            after_stream_open.created_connections, before_stream.created_connections,
+            "opening a stream should lease the existing idle connection"
+        );
+        assert_eq!(
+            after_stream_open.idle_connections, 0,
+            "streaming reader must hold its connection until drop"
+        );
+
+        assert_eq!(
+            driver.metadata("docs/hello.txt").await.unwrap().size,
+            u64::try_from(data.len()).unwrap()
+        );
+        let while_stream_held = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            while_stream_held.created_connections,
+            before_stream.created_connections + 1,
+            "metadata while a stream is open should use another connection instead of sharing the stream lease"
+        );
+
+        let mut held_body = Vec::new();
+        held_stream.read_to_end(&mut held_body).await.unwrap();
+        assert_eq!(held_body, data);
+        drop(held_stream);
+
+        let after_stream_drop = driver.debug_connection_pool_snapshot();
+        assert_eq!(
+            after_stream_drop.idle_connections, 2,
+            "dropping the streaming reader should return its connection lease"
+        );
+    }
 
     let mut full_stream = driver.get_stream("docs/hello.txt").await.unwrap();
     let mut full_body = Vec::new();
