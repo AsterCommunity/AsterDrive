@@ -390,6 +390,8 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 ### `remote_storage_target_service`
 
+这是旧 issue 文案里 “managed ingress profile service” 在当前代码里的落点。少量 wire field 和错误码仍保留 `managed_ingress.*` 名称是兼容层；新的产品所有权应继续使用 remote storage target 语义。
+
 当前职责：
 
 - follower 侧 remote storage target CRUD
