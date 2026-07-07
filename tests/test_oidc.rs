@@ -15,7 +15,7 @@ use aster_drive::entities::{
     external_auth_login_flow, external_auth_provider, user,
 };
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::{audit_service, auth::external};
+use aster_drive::services::{auth::external, ops::audit};
 use aster_drive::types::AuditAction;
 use chrono::{Duration, Utc};
 use external_auth::oidc::*;
@@ -688,7 +688,7 @@ async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
         .await
         .expect("providers should query");
     assert!(providers.is_empty());
-    audit_service::flush_global_audit_log_manager().await;
+    audit::flush_global_audit_log_manager().await;
     let audit_entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
         .order_by_desc(audit_log::Column::Id)
@@ -721,7 +721,7 @@ async fn admin_tests_external_auth_provider_draft_params_without_persisting() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 400);
-    audit_service::flush_global_audit_log_manager().await;
+    audit::flush_global_audit_log_manager().await;
     let audit_entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))
         .order_by_desc(audit_log::Column::Id)

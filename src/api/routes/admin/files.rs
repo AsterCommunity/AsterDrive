@@ -10,7 +10,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, files::admin, task_service};
+use crate::services::{auth::local::Claims, files::admin, ops::audit, task_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -142,16 +142,16 @@ pub async fn create_blob_maintenance_task(
         body.blob_ids.clone(),
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateBlobMaintenanceTask,
-        audit_service::AuditEntityType::Task,
+        audit::AuditAction::AdminCreateBlobMaintenanceTask,
+        audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::AdminBlobMaintenanceAuditDetails {
+            audit::details(audit::AdminBlobMaintenanceAuditDetails {
                 action: body.action,
                 blob_ids: body.blob_ids.as_deref(),
             })

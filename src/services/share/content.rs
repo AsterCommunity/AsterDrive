@@ -8,7 +8,9 @@ use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeSt
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
     files::{file as file_ops, folder},
-    media::metadata, media::processing, task_service,
+    media::metadata,
+    media::processing,
+    task_service,
 };
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -407,14 +409,9 @@ async fn load_or_enqueue_thumbnail(
     file: &file::Model,
 ) -> Result<Option<file_ops::ThumbnailResult>> {
     let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id).await?;
-    let thumbnail = processing::load_thumbnail_if_exists(
-        state,
-        &blob,
-        &file.name,
-        &file.mime_type,
-    )
-    .await
-    .map_err(processing::map_thumbnail_request_error)?;
+    let thumbnail = processing::load_thumbnail_if_exists(state, &blob, &file.name, &file.mime_type)
+        .await
+        .map_err(processing::map_thumbnail_request_error)?;
 
     match thumbnail {
         Some(thumbnail) => Ok(Some(file_ops::ThumbnailResult {
@@ -475,10 +472,7 @@ pub async fn get_shared_media_metadata(
     tracing::debug!(
         share_id = share.id,
         file_id = file.id,
-        pending = matches!(
-            metadata,
-            metadata::MediaMetadataLookup::Pending
-        ),
+        pending = matches!(metadata, metadata::MediaMetadataLookup::Pending),
         "loaded shared media metadata state"
     );
     Ok(metadata)
@@ -527,10 +521,7 @@ pub async fn get_shared_folder_file_media_metadata(
     let metadata = metadata::get_for_file(state, &file).await?;
     tracing::debug!(
         file_id = file.id,
-        pending = matches!(
-            metadata,
-            metadata::MediaMetadataLookup::Pending
-        ),
+        pending = matches!(metadata, metadata::MediaMetadataLookup::Pending),
         "loaded shared folder file media metadata state"
     );
     Ok(metadata)

@@ -7,7 +7,7 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth::local::Claims, upload_service, workspace::models::FileInfo,
+    ops::audit::AuditContext, auth::local::Claims, upload_service, workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
@@ -242,16 +242,16 @@ pub async fn cancel_upload(
 ) -> Result<HttpResponse> {
     upload_service::cancel_upload(state.get_ref(), &path.upload_id, claims.user_id).await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log_with_details(
+    crate::services::ops::audit::log_with_details(
         state.get_ref(),
         &ctx,
-        crate::services::audit_service::AuditAction::FileUploadCancel,
-        crate::services::audit_service::AuditEntityType::UploadSession,
+        crate::services::ops::audit::AuditAction::FileUploadCancel,
+        crate::services::ops::audit::AuditEntityType::UploadSession,
         None,
         Some(&path.upload_id),
         || {
-            crate::services::audit_service::details(
-                crate::services::audit_service::UploadCancelAuditDetails {
+            crate::services::ops::audit::details(
+                crate::services::ops::audit::UploadCancelAuditDetails {
                     upload_id: &path.upload_id,
                 },
             )
@@ -539,16 +539,16 @@ pub(crate) async fn team_cancel_upload(
     upload_service::cancel_upload_for_team(state.get_ref(), team_id, &upload_id, claims.user_id)
         .await?;
     let ctx = AuditContext::from_request(&req, &claims);
-    crate::services::audit_service::log_with_details(
+    crate::services::ops::audit::log_with_details(
         state.get_ref(),
         &ctx,
-        crate::services::audit_service::AuditAction::FileUploadCancel,
-        crate::services::audit_service::AuditEntityType::UploadSession,
+        crate::services::ops::audit::AuditAction::FileUploadCancel,
+        crate::services::ops::audit::AuditEntityType::UploadSession,
         None,
         Some(&upload_id),
         || {
-            crate::services::audit_service::details(
-                crate::services::audit_service::UploadCancelAuditDetails {
+            crate::services::ops::audit::details(
+                crate::services::ops::audit::UploadCancelAuditDetails {
                     upload_id: &upload_id,
                 },
             )

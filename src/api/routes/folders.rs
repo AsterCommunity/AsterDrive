@@ -11,7 +11,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::AuditContext, auth::local::Claims, files::folder,
+    ops::audit::AuditContext, auth::local::Claims, files::folder,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::{api::api_error_code::ApiErrorCode, types::NullablePatch};

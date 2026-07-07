@@ -109,7 +109,7 @@ async fn webdav_audit_action_count(
     state: &aster_drive::runtime::PrimaryAppState,
     action: AuditAction,
 ) -> u64 {
-    aster_drive::services::audit_service::flush_global_audit_log_manager().await;
+    aster_drive::services::ops::audit::flush_global_audit_log_manager().await;
     audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(action))
         .count(state.writer_db())
@@ -498,7 +498,7 @@ async fn test_team_webdav_accounts_are_deleted_when_archived_team_is_purged() {
         "0",
     ));
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .expect("archived team cleanup should succeed");
     assert_eq!(deleted, 1);

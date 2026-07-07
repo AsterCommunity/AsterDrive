@@ -240,7 +240,7 @@ async fn enable_archive_preview(
             if share_enabled { "true" } else { "false" },
         ),
     ] {
-        aster_drive::services::config_service::set(state, key, value, 1)
+        aster_drive::services::ops::config::set(state, key, value, 1)
             .await
             .expect("archive preview config should update");
     }
@@ -702,7 +702,7 @@ async fn test_archive_preview_limit_reduction_keeps_generated_cache() {
     assert_eq!(resp.status(), StatusCode::OK);
     assert_eq!(archive_preview_tasks(&state).await.len(), 1);
 
-    aster_drive::services::config_service::set(&state, "archive_preview_max_entries", "1", 1)
+    aster_drive::services::ops::config::set(&state, "archive_preview_max_entries", "1", 1)
         .await
         .expect("archive preview entry limit should be reduced");
 
@@ -727,7 +727,7 @@ async fn test_archive_preview_limit_reduction_keeps_generated_cache() {
 async fn test_archive_preview_rejects_unsupported_type_and_source_limit() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
-    aster_drive::services::config_service::set(&state, "archive_preview_max_source_bytes", "1", 1)
+    aster_drive::services::ops::config::set(&state, "archive_preview_max_source_bytes", "1", 1)
         .await
         .expect("archive preview source limit should update");
     let app = create_test_app!(state.clone());
@@ -895,7 +895,7 @@ async fn test_archive_preview_failed_task_is_reused_as_friendly_error_without_re
 async fn test_archive_preview_reports_scan_limit_rejection_with_api_code() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
-    aster_drive::services::config_service::set(&state, "archive_preview_max_entries", "1", 1)
+    aster_drive::services::ops::config::set(&state, "archive_preview_max_entries", "1", 1)
         .await
         .expect("archive preview entry limit should update");
     let app = create_test_app!(state.clone());
@@ -929,14 +929,9 @@ async fn test_archive_preview_reports_scan_limit_rejection_with_api_code() {
 async fn test_archive_preview_truncates_manifest_to_configured_limit() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
-    aster_drive::services::config_service::set(
-        &state,
-        "archive_preview_max_manifest_bytes",
-        "700",
-        1,
-    )
-    .await
-    .expect("archive preview manifest limit should update");
+    aster_drive::services::ops::config::set(&state, "archive_preview_max_manifest_bytes", "700", 1)
+        .await
+        .expect("archive preview manifest limit should update");
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
@@ -970,7 +965,7 @@ async fn test_archive_preview_truncates_manifest_to_configured_limit() {
 async fn test_archive_preview_caps_high_manifest_limit_to_cache_storage_limit() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         "archive_preview_max_manifest_bytes",
         "1048576",
@@ -1030,14 +1025,9 @@ async fn test_archive_preview_caps_high_manifest_limit_to_cache_storage_limit() 
 async fn test_archive_preview_reports_manifest_limit_too_small_with_api_code() {
     let state = common::setup().await;
     enable_archive_preview(&state, true, false).await;
-    aster_drive::services::config_service::set(
-        &state,
-        "archive_preview_max_manifest_bytes",
-        "10",
-        1,
-    )
-    .await
-    .expect("archive preview manifest limit should update");
+    aster_drive::services::ops::config::set(&state, "archive_preview_max_manifest_bytes", "10", 1)
+        .await
+        .expect("archive preview manifest limit should update");
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
@@ -1097,7 +1087,7 @@ async fn test_archive_preview_share_toggle_is_separate_from_user_toggle() {
     assert_eq!(body["code"], "archive_preview.share_disabled");
     assert_eq!(body["error"]["retryable"], false);
 
-    aster_drive::services::config_service::set(&state, "archive_preview_share_enabled", "true", 1)
+    aster_drive::services::ops::config::set(&state, "archive_preview_share_enabled", "true", 1)
         .await
         .expect("archive preview share config should update");
     let req = test::TestRequest::get()

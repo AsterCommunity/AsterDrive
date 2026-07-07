@@ -10,7 +10,7 @@ use tokio::io::{AsyncSeekExt, AsyncWriteExt};
 use crate::db::repository::file_repo;
 use crate::errors::Result as AsterResult;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use crate::storage::StorageDriver;
 use crate::utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
@@ -125,11 +125,9 @@ impl AsterDavFile {
     ) -> Result<Self, FsError> {
         let declared_size = declared_size.and_then(|size| i64::try_from(size).ok());
         let (file, temp_path, resolved_policy, hasher) = if let Some(size_hint) = declared_size {
-            let policy = storage::resolve_policy_for_size(
-                &state, scope, folder_id, size_hint,
-            )
-            .await
-            .map_err(|_| FsError::GeneralFailure)?;
+            let policy = storage::resolve_policy_for_size(&state, scope, folder_id, size_hint)
+                .await
+                .map_err(|_| FsError::GeneralFailure)?;
 
             if policy.driver_type == crate::types::DriverType::Local {
                 let staging_token = format!("{}.upload", crate::utils::id::new_uuid());
@@ -144,8 +142,7 @@ impl AsterDavFile {
                 let file = tokio::fs::File::create(&staging_path)
                     .await
                     .map_err(|_| FsError::GeneralFailure)?;
-                let hasher = storage::local_content_dedup_enabled(&policy)
-                    .then(Sha256::new);
+                let hasher = storage::local_content_dedup_enabled(&policy).then(Sha256::new);
 
                 (
                     file,
@@ -153,18 +150,17 @@ impl AsterDavFile {
                     Some(policy),
                     hasher,
                 )
-            } else if storage::streaming_direct_upload_eligible(
-                &policy, size_hint,
-            )
-            .map_err(|error| {
-                tracing::warn!(
-                    policy_id = policy.id,
-                    driver_type = %policy.driver_type.as_str(),
-                    error = %error,
-                    "failed to resolve WebDAV streaming direct upload eligibility"
-                );
-                FsError::GeneralFailure
-            })? {
+            } else if storage::streaming_direct_upload_eligible(&policy, size_hint).map_err(
+                |error| {
+                    tracing::warn!(
+                        policy_id = policy.id,
+                        driver_type = %policy.driver_type.as_str(),
+                        error = %error,
+                        "failed to resolve WebDAV streaming direct upload eligibility"
+                    );
+                    FsError::GeneralFailure
+                },
+            )? {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }
@@ -182,16 +178,15 @@ impl AsterDavFile {
                     .get_driver(&policy)
                     .map_err(|_| FsError::GeneralFailure)?;
                 let _stream_driver = driver.as_stream_upload().ok_or(FsError::GeneralFailure)?;
-                let prepared_upload =
-                    storage::prepare_non_dedup_blob_upload(&policy, size_hint)
-                        .map_err(|error| {
-                            tracing::warn!(
-                                policy_id = policy.id,
-                                driver_type = %policy.driver_type.as_str(),
-                                "failed to prepare WebDAV direct blob upload: {error}"
-                            );
-                            FsError::GeneralFailure
-                        })?;
+                let prepared_upload = storage::prepare_non_dedup_blob_upload(&policy, size_hint)
+                    .map_err(|error| {
+                        tracing::warn!(
+                            policy_id = policy.id,
+                            driver_type = %policy.driver_type.as_str(),
+                            "failed to prepare WebDAV direct blob upload: {error}"
+                        );
+                        FsError::GeneralFailure
+                    })?;
                 let storage_path = prepared_upload.storage_path().to_string();
                 let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
                 let driver_for_task = driver.clone();
@@ -507,9 +502,9 @@ impl DavFile for AsterDavFile {
                         .filter(|_| declared_size == &Some(written_size));
 
                     let audit_action = if existing_file_id.is_some() {
-                        audit_service::AuditAction::FileEdit
+                        audit::AuditAction::FileEdit
                     } else {
-                        audit_service::AuditAction::FileUpload
+                        audit::AuditAction::FileUpload
                     };
                     let stored = storage::store_from_temp_with_hints(
                         state,
@@ -535,11 +530,11 @@ impl DavFile for AsterDavFile {
                         state, *scope, &stored,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         audit_ctx,
                         audit_action,
-                        crate::services::audit_service::AuditEntityType::File,
+                        crate::services::ops::audit::AuditEntityType::File,
                         Some(stored.id),
                         Some(&stored.name),
                         || details.clone(),
@@ -602,9 +597,9 @@ impl DavFile for AsterDavFile {
 
                     let prepared_upload = prepared_upload.take().ok_or(FsError::GeneralFailure)?;
                     let audit_action = if existing_file_id.is_some() {
-                        audit_service::AuditAction::FileEdit
+                        audit::AuditAction::FileEdit
                     } else {
-                        audit_service::AuditAction::FileUpload
+                        audit::AuditAction::FileUpload
                     };
                     let stored = storage::store_preuploaded_nondedup(
                         state,
@@ -626,11 +621,11 @@ impl DavFile for AsterDavFile {
                         state, *scope, &stored,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         audit_ctx,
                         audit_action,
-                        crate::services::audit_service::AuditEntityType::File,
+                        crate::services::ops::audit::AuditEntityType::File,
                         Some(stored.id),
                         Some(&stored.name),
                         || details.clone(),

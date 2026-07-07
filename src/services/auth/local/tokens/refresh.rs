@@ -46,11 +46,11 @@ use crate::db::repository::{auth_session_repo, user_repo};
 use crate::entities::auth_session;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
 use crate::services::auth::local::Claims;
 use crate::services::auth::local::session::{
     invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection,
 };
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::TokenType;
 
 // This window is only for classifying an already-rotated previous JTI. It does
@@ -515,18 +515,18 @@ async fn record_refresh_reuse_detection(
     // normal browser races, not confirmed compromise signals.
     invalidate_auth_snapshot_cache(state, user_id).await;
     tracing::warn!(user_id, reused_jti, "{log_message}");
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &AuditContext {
             user_id,
             ip_address: None,
             user_agent: None,
         },
-        audit_service::AuditAction::UserRefreshTokenReuseDetected,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::UserRefreshTokenReuseDetected,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user_id),
         None,
-        || audit_service::details(RefreshTokenReuseAuditDetails { reused_jti }),
+        || audit::details(RefreshTokenReuseAuditDetails { reused_jti }),
     )
     .await;
     Ok(())

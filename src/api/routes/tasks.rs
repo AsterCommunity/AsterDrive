@@ -11,7 +11,7 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     auth::local::Claims,
     task_service,
     workspace::storage::WorkspaceStorageScope,
@@ -333,15 +333,15 @@ pub(crate) async fn create_offline_download_response(
     let task =
         task_service::offline_download::create_offline_download_task_in_scope(state, scope, body)
             .await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::OfflineDownload,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::OfflineDownload,
+        crate::services::ops::audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(serde_json::json!({
+            audit::details(serde_json::json!({
                 "task_id": task.id,
                 "target_folder_id": match &task.payload {
                     task_service::types::TaskPayload::OfflineDownload(payload) => payload.target_folder_id,

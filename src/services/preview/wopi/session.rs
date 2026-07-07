@@ -14,8 +14,7 @@ use crate::entities::{file, wopi_session};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    auth::local, preview::apps, workspace::storage,
-    workspace::storage::WorkspaceStorageScope,
+    auth::local, preview::apps, workspace::storage, workspace::storage::WorkspaceStorageScope,
 };
 
 use super::discovery::{
@@ -286,9 +285,7 @@ pub(crate) async fn resolve_access_token(
     }
 
     // 最终仍回到统一文件 scope 校验：WOPI 只是另一个接入层，不应绕开个人/团队边界。
-    let file =
-        storage::verify_file_access(state, scope_from_payload(&payload), file_id)
-            .await?;
+    let file = storage::verify_file_access(state, scope_from_payload(&payload), file_id).await?;
 
     Ok(ResolvedWopiAccess { file, payload })
 }

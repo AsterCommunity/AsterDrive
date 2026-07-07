@@ -17,9 +17,9 @@ use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::services::content::tag::TagInfo;
 use crate::services::{
-    audit_service,
     auth::local::Claims,
     content::tag::{self, EntityTags, MinimalTagInfo},
+    ops::audit,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -142,7 +142,7 @@ pub async fn create_tag(
             user_id: claims.user_id,
         },
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -179,7 +179,7 @@ pub async fn patch_tag(
         },
         path.tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -211,7 +211,7 @@ pub async fn delete_tag(
             user_id: claims.user_id,
         },
         path.tag_id,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -230,7 +230,7 @@ pub async fn attach_tag(
             user_id: claims.user_id,
         },
         path,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -249,7 +249,7 @@ pub async fn detach_tag(
             user_id: claims.user_id,
         },
         path,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -272,7 +272,7 @@ pub async fn replace_entity_tags(
         },
         path,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -312,7 +312,7 @@ pub async fn batch_attach_tag(
         },
         path.tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -335,7 +335,7 @@ pub async fn batch_detach_tag(
         },
         path.tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -397,7 +397,7 @@ pub async fn team_create_tag(
         state.get_ref(),
         team_scope(*path, claims.user_id),
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -435,7 +435,7 @@ pub async fn team_patch_tag(
         team_scope(team_id, claims.user_id),
         tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -468,7 +468,7 @@ pub async fn team_delete_tag(
         state.get_ref(),
         team_scope(team_id, claims.user_id),
         tag_id,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -488,7 +488,7 @@ pub async fn team_attach_tag(
             entity_type,
             entity_id,
         },
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -508,7 +508,7 @@ pub async fn team_detach_tag(
             entity_type,
             entity_id,
         },
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -531,7 +531,7 @@ pub async fn team_replace_entity_tags(
             entity_id,
         },
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -568,7 +568,7 @@ pub async fn team_batch_attach_tag(
         team_scope(team_id, claims.user_id),
         tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -588,7 +588,7 @@ pub async fn team_batch_detach_tag(
         team_scope(team_id, claims.user_id),
         tag_id,
         &body,
-        Some(&audit_service::AuditContext::from_request(&req, &claims)),
+        Some(&audit::AuditContext::from_request(&req, &claims)),
     )
     .await
 }
@@ -614,11 +614,11 @@ async fn create_tag_response(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     body: &CreateTagReq,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let tag = tag::create_in_scope(state, scope, &body.name, &body.color).await?;
     if let Some(audit_ctx) = audit_ctx {
-        let details = audit_service::details(audit_service::TagAuditDetails {
+        let details = audit::details(audit::TagAuditDetails {
             name: &tag.name,
             color: &tag.color,
             previous_name: None,
@@ -627,11 +627,11 @@ async fn create_tag_response(
             next_color: None,
             team_id: scope.team_id(),
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagCreate,
-            audit_service::AuditEntityType::Tag,
+            audit::AuditAction::TagCreate,
+            audit::AuditEntityType::Tag,
             Some(tag.id),
             Some(&tag.name),
             || details.clone(),
@@ -646,7 +646,7 @@ async fn patch_tag_response(
     scope: WorkspaceStorageScope,
     tag_id: i64,
     body: &PatchTagReq,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let previous = if audit_ctx.is_some() {
         Some(tag::get_basic_in_scope(state, scope, tag_id).await?)
@@ -662,7 +662,7 @@ async fn patch_tag_response(
     )
     .await?;
     if let Some(audit_ctx) = audit_ctx {
-        let details = audit_service::details(audit_service::TagAuditDetails {
+        let details = audit::details(audit::TagAuditDetails {
             name: &tag.name,
             color: &tag.color,
             previous_name: previous.as_ref().map(|tag| tag.name.as_str()),
@@ -671,11 +671,11 @@ async fn patch_tag_response(
             next_color: Some(&tag.color),
             team_id: scope.team_id(),
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagUpdate,
-            audit_service::AuditEntityType::Tag,
+            audit::AuditAction::TagUpdate,
+            audit::AuditEntityType::Tag,
             Some(tag.id),
             Some(&tag.name),
             || details.clone(),
@@ -689,7 +689,7 @@ async fn delete_tag_response(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     tag_id: i64,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let tag = if audit_ctx.is_some() {
         Some(tag::get_basic_in_scope(state, scope, tag_id).await?)
@@ -700,7 +700,7 @@ async fn delete_tag_response(
     if let Some(audit_ctx) = audit_ctx {
         let entity_name = tag.as_ref().map(|tag| tag.name.as_str());
         let details = tag.as_ref().and_then(|tag| {
-            audit_service::details(audit_service::TagAuditDetails {
+            audit::details(audit::TagAuditDetails {
                 name: &tag.name,
                 color: &tag.color,
                 previous_name: None,
@@ -710,11 +710,11 @@ async fn delete_tag_response(
                 team_id: scope.team_id(),
             })
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagDelete,
-            audit_service::AuditEntityType::Tag,
+            audit::AuditAction::TagDelete,
+            audit::AuditEntityType::Tag,
             Some(tag_id),
             entity_name,
             || details.clone(),
@@ -728,7 +728,7 @@ async fn attach_tag_response(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     path: TagEntityPath,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let entity_type = path.entity_type;
     let entity_id = path.entity_id;
@@ -738,8 +738,7 @@ async fn attach_tag_response(
     } else {
         None
     };
-    let tags = tag::attach_to_entity_in_scope(state, scope, tag_id, entity_type, entity_id)
-        .await?;
+    let tags = tag::attach_to_entity_in_scope(state, scope, tag_id, entity_type, entity_id).await?;
     if let Some(audit_ctx) = audit_ctx {
         let details = tag_assignment_audit_details(TagAssignmentAuditInput {
             operation: "attach",
@@ -751,11 +750,11 @@ async fn attach_tag_response(
             folder_count: None,
             tag_count: None,
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagAttach,
-            audit_service::AuditEntityType::from_entity_type(entity_type),
+            audit::AuditAction::TagAttach,
+            audit::AuditEntityType::from_entity_type(entity_type),
             Some(entity_id),
             tag.as_ref().map(|tag| tag.name.as_str()),
             || details.clone(),
@@ -769,7 +768,7 @@ async fn detach_tag_response(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     path: TagEntityPath,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let entity_type = path.entity_type;
     let entity_id = path.entity_id;
@@ -780,8 +779,7 @@ async fn detach_tag_response(
         None
     };
     let tags =
-        tag::detach_from_entity_in_scope(state, scope, tag_id, entity_type, entity_id)
-            .await?;
+        tag::detach_from_entity_in_scope(state, scope, tag_id, entity_type, entity_id).await?;
     if let Some(audit_ctx) = audit_ctx {
         let details = tag_assignment_audit_details(TagAssignmentAuditInput {
             operation: "detach",
@@ -793,11 +791,11 @@ async fn detach_tag_response(
             folder_count: None,
             tag_count: None,
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagDetach,
-            audit_service::AuditEntityType::from_entity_type(entity_type),
+            audit::AuditAction::TagDetach,
+            audit::AuditEntityType::from_entity_type(entity_type),
             Some(entity_id),
             tag.as_ref().map(|tag| tag.name.as_str()),
             || details.clone(),
@@ -812,18 +810,13 @@ async fn replace_entity_tags_response(
     scope: WorkspaceStorageScope,
     path: EntityTagsPath,
     body: &ReplaceEntityTagsReq,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let entity_type = path.entity_type;
     let entity_id = path.entity_id;
-    let tags = tag::replace_entity_tags_in_scope(
-        state,
-        scope,
-        entity_type,
-        entity_id,
-        &body.tag_ids,
-    )
-    .await?;
+    let tags =
+        tag::replace_entity_tags_in_scope(state, scope, entity_type, entity_id, &body.tag_ids)
+            .await?;
     if let Some(audit_ctx) = audit_ctx {
         let details = tag_assignment_audit_details(TagAssignmentAuditInput {
             operation: "replace",
@@ -835,11 +828,11 @@ async fn replace_entity_tags_response(
             folder_count: None,
             tag_count: Some(tags.tags.len()),
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagAttach,
-            audit_service::AuditEntityType::from_entity_type(entity_type),
+            audit::AuditAction::TagAttach,
+            audit::AuditEntityType::from_entity_type(entity_type),
             Some(entity_id),
             Some("replace"),
             || details.clone(),
@@ -855,8 +848,7 @@ async fn list_entity_tags_response(
     path: EntityTagsPath,
 ) -> Result<HttpResponse> {
     let tags =
-        tag::list_entity_tags_in_scope(state, scope, path.entity_type, path.entity_id)
-            .await?;
+        tag::list_entity_tags_in_scope(state, scope, path.entity_type, path.entity_id).await?;
     Ok(entity_tags_response(tags))
 }
 
@@ -865,15 +857,14 @@ async fn batch_attach_tag_response(
     scope: WorkspaceStorageScope,
     tag_id: i64,
     body: &BatchTagBindingReq,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let tag = if audit_ctx.is_some() {
         Some(tag::get_basic_in_scope(state, scope, tag_id).await?)
     } else {
         None
     };
-    tag::batch_attach_in_scope(state, scope, tag_id, &body.file_ids, &body.folder_ids)
-        .await?;
+    tag::batch_attach_in_scope(state, scope, tag_id, &body.file_ids, &body.folder_ids).await?;
     if let Some(audit_ctx) = audit_ctx {
         let details = tag_assignment_audit_details(TagAssignmentAuditInput {
             operation: "batch_attach",
@@ -885,11 +876,11 @@ async fn batch_attach_tag_response(
             folder_count: Some(body.folder_ids.len()),
             tag_count: None,
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagAttach,
-            audit_service::AuditEntityType::Tag,
+            audit::AuditAction::TagAttach,
+            audit::AuditEntityType::Tag,
             Some(tag_id),
             tag.as_ref().map(|tag| tag.name.as_str()),
             || details.clone(),
@@ -904,15 +895,14 @@ async fn batch_detach_tag_response(
     scope: WorkspaceStorageScope,
     tag_id: i64,
     body: &BatchTagBindingReq,
-    audit_ctx: Option<&audit_service::AuditContext>,
+    audit_ctx: Option<&audit::AuditContext>,
 ) -> Result<HttpResponse> {
     let tag = if audit_ctx.is_some() {
         Some(tag::get_basic_in_scope(state, scope, tag_id).await?)
     } else {
         None
     };
-    tag::batch_detach_in_scope(state, scope, tag_id, &body.file_ids, &body.folder_ids)
-        .await?;
+    tag::batch_detach_in_scope(state, scope, tag_id, &body.file_ids, &body.folder_ids).await?;
     if let Some(audit_ctx) = audit_ctx {
         let details = tag_assignment_audit_details(TagAssignmentAuditInput {
             operation: "batch_detach",
@@ -924,11 +914,11 @@ async fn batch_detach_tag_response(
             folder_count: Some(body.folder_ids.len()),
             tag_count: None,
         });
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TagDetach,
-            audit_service::AuditEntityType::Tag,
+            audit::AuditAction::TagDetach,
+            audit::AuditEntityType::Tag,
             Some(tag_id),
             tag.as_ref().map(|tag| tag.name.as_str()),
             || details.clone(),
@@ -954,7 +944,7 @@ struct TagAssignmentAuditInput<'a> {
 }
 
 fn tag_assignment_audit_details(input: TagAssignmentAuditInput<'_>) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::TagAssignmentAuditDetails {
+    audit::details(audit::TagAssignmentAuditDetails {
         operation: input.operation,
         tag_id: input.tag.map(|tag| tag.id),
         tag_name: input.tag.map(|tag| tag.name.as_str()),

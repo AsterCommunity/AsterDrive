@@ -15,7 +15,7 @@ use crate::config::site_url;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_policy::credential;
-use crate::services::{audit_service, auth::local::Claims, storage_policy::policy};
+use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -117,9 +117,7 @@ impl From<TestPolicyParamsReq> for policy::TestDraftStoragePolicyConnectionInput
     }
 }
 
-impl From<ExecuteDraftStoragePolicyActionReq>
-    for policy::ExecuteDraftStoragePolicyActionInput
-{
+impl From<ExecuteDraftStoragePolicyActionReq> for policy::ExecuteDraftStoragePolicyActionInput {
     fn from(value: ExecuteDraftStoragePolicyActionReq) -> Self {
         Self {
             action: value.action,
@@ -140,9 +138,7 @@ impl From<ExecuteDraftStoragePolicyActionReq>
     }
 }
 
-impl From<ExecuteSavedStoragePolicyActionReq>
-    for policy::ExecuteSavedStoragePolicyActionInput
-{
+impl From<ExecuteSavedStoragePolicyActionReq> for policy::ExecuteSavedStoragePolicyActionInput {
     fn from(value: ExecuteSavedStoragePolicyActionReq) -> Self {
         Self {
             action: value.action,
@@ -150,9 +146,7 @@ impl From<ExecuteSavedStoragePolicyActionReq>
     }
 }
 
-impl From<PromoteS3CompatiblePolicyDriverReq>
-    for policy::PromoteS3CompatiblePolicyDriverInput
-{
+impl From<PromoteS3CompatiblePolicyDriverReq> for policy::PromoteS3CompatiblePolicyDriverInput {
     fn from(value: PromoteS3CompatiblePolicyDriverReq) -> Self {
         Self {
             target_driver_type: value.target_driver_type,
@@ -162,9 +156,7 @@ impl From<PromoteS3CompatiblePolicyDriverReq>
     }
 }
 
-impl From<StartStorageAuthorizationReq>
-    for credential::StorageAuthorizationStartInput
-{
+impl From<StartStorageAuthorizationReq> for credential::StorageAuthorizationStartInput {
     fn from(value: StartStorageAuthorizationReq) -> Self {
         Self {
             provider: value.provider,
@@ -173,9 +165,7 @@ impl From<StartStorageAuthorizationReq>
     }
 }
 
-fn map_group_items(
-    items: Vec<PolicyGroupItemReq>,
-) -> Vec<policy::StoragePolicyGroupItemInput> {
+fn map_group_items(items: Vec<PolicyGroupItemReq>) -> Vec<policy::StoragePolicyGroupItemInput> {
     items.into_iter().map(Into::into).collect()
 }
 
@@ -281,9 +271,8 @@ pub async fn create_policy(
     body: web::Json<CreatePolicyReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let policy =
-        policy::create_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let policy = policy::create_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(policy)))
 }
 
@@ -331,9 +320,7 @@ pub async fn get_policy_capacity(
     Ok(HttpResponse::Ok().json(ApiResponse::ok(capacity)))
 }
 
-fn storage_policy_action_response(
-    result: policy::StoragePolicyActionResult,
-) -> HttpResponse {
+fn storage_policy_action_response(result: policy::StoragePolicyActionResult) -> HttpResponse {
     HttpResponse::Ok().json(ApiResponse::ok(result))
 }
 
@@ -360,10 +347,9 @@ pub async fn update_policy(
     body: web::Json<PatchPolicyReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let policy =
-        policy::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx)
-            .await?;
+        policy::update_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(policy)))
 }
 
@@ -391,7 +377,7 @@ pub async fn promote_s3_compatible_policy_driver(
     body: web::Json<PromoteS3CompatiblePolicyDriverReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let policy = policy::promote_s3_compatible_driver_with_audit(
         state.get_ref(),
         *path,
@@ -423,7 +409,7 @@ pub async fn delete_policy(
     path: web::Path<i64>,
     query: web::Query<DeletePolicyQuery>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     policy::delete_with_audit(state.get_ref(), *path, query.force, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
@@ -495,7 +481,7 @@ pub async fn execute_saved_storage_policy_action(
     body: web::Json<ExecuteSavedStoragePolicyActionReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let result = policy::execute_saved_action_with_audit(
         state.get_ref(),
         *path,
@@ -527,13 +513,10 @@ pub async fn execute_draft_storage_policy_action(
     body: web::Json<ExecuteDraftStoragePolicyActionReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let result = policy::execute_draft_action_with_audit(
-        state.get_ref(),
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let result =
+        policy::execute_draft_action_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
+            .await?;
     Ok(storage_policy_action_response(result))
 }
 
@@ -550,9 +533,7 @@ pub async fn execute_draft_storage_policy_action(
     security(("bearer" = [])),
 )]
 pub async fn list_storage_credential_providers() -> Result<HttpResponse> {
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(
-        credential::list_supported_providers(),
-    )))
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(credential::list_supported_providers())))
 }
 
 #[api_docs_macros::path(
@@ -608,8 +589,7 @@ pub async fn list_storage_policy_credentials(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let credentials =
-        credential::list_policy_credentials(state.get_ref(), *path).await?;
+    let credentials = credential::list_policy_credentials(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(credentials)))
 }
 
@@ -639,12 +619,8 @@ pub async fn validate_storage_policy_credential(
     let provider = provider.parse().map_err(|()| {
         crate::errors::AsterError::validation_error("unsupported storage credential provider")
     })?;
-    let result = credential::validate_policy_credential(
-        state.get_ref(),
-        policy_id,
-        provider,
-    )
-    .await?;
+    let result =
+        credential::validate_policy_credential(state.get_ref(), policy_id, provider).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }
 
@@ -769,10 +745,9 @@ pub async fn create_policy_group(
     body: web::Json<CreatePolicyGroupReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let group =
-        policy::create_group_with_audit(state.get_ref(), body.into_inner().into(), &ctx)
-            .await?;
+        policy::create_group_with_audit(state.get_ref(), body.into_inner().into(), &ctx).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(group)))
 }
 
@@ -822,14 +797,10 @@ pub async fn update_policy_group(
     body: web::Json<PatchPolicyGroupReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let group = policy::update_group_with_audit(
-        state.get_ref(),
-        *path,
-        body.into_inner().into(),
-        &ctx,
-    )
-    .await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let group =
+        policy::update_group_with_audit(state.get_ref(), *path, body.into_inner().into(), &ctx)
+            .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(group)))
 }
 
@@ -854,7 +825,7 @@ pub async fn delete_policy_group(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     policy::delete_group_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
@@ -883,7 +854,7 @@ pub async fn migrate_policy_group_assignments(
     body: web::Json<MigratePolicyGroupAssignmentsReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let result = policy::migrate_group_assignments_with_audit(
         state.get_ref(),
         *path,

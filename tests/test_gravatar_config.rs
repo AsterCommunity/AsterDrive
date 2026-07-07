@@ -34,13 +34,9 @@ async fn test_gravatar_default_url() {
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile::get_profile_info(
-        &state,
-        &user_model,
-        profile::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     assert_eq!(info.avatar.source, AvatarSource::Gravatar);
     let url = info.avatar.url_512.unwrap();
@@ -81,13 +77,9 @@ async fn test_gravatar_custom_base_url() {
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile::get_profile_info(
-        &state,
-        &user_model,
-        profile::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -120,13 +112,9 @@ async fn test_gravatar_empty_config_fallback() {
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile::get_profile_info(
-        &state,
-        &user_model,
-        profile::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -163,13 +151,9 @@ async fn test_gravatar_trailing_slash_normalization() {
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile::get_profile_info(
-        &state,
-        &user_model,
-        profile::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(
@@ -207,13 +191,9 @@ async fn test_gravatar_whitespace_only_config_fallback() {
         .unwrap();
 
     let user_model = load_user_model(&state, user.id).await;
-    let info = profile::get_profile_info(
-        &state,
-        &user_model,
-        profile::AvatarAudience::SelfUser,
-    )
-    .await
-    .unwrap();
+    let info = profile::get_profile_info(&state, &user_model, profile::AvatarAudience::SelfUser)
+        .await
+        .unwrap();
 
     let url = info.avatar.url_512.unwrap();
     assert!(

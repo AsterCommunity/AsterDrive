@@ -4,7 +4,7 @@ use crate::entities::file;
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
-    files::lock, events::storage_change, workspace::models::FileInfo,
+    events::storage_change, files::lock, workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -38,8 +38,7 @@ pub(crate) async fn set_lock_in_scope(
     }
 
     let file =
-        crate::services::workspace::storage::verify_file_access(state, scope, file_id)
-            .await?;
+        crate::services::workspace::storage::verify_file_access(state, scope, file_id).await?;
     publish_file_lock_change(state, scope, &file, locked).await?;
     tracing::debug!(
         scope = ?scope,

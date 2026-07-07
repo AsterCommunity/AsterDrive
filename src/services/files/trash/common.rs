@@ -9,8 +9,8 @@ use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::{file as file_ops, folder as folder_ops},
     events::storage_change,
+    files::{file as file_ops, folder as folder_ops},
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::types::EntityType;
@@ -130,8 +130,7 @@ pub(super) async fn verify_file_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<file::Model> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let file = file_repo::find_by_id(state.writer_db(), file_id).await?;
     storage::ensure_file_scope(&file, scope)?;
     if file.deleted_at.is_none() {
@@ -145,8 +144,7 @@ pub(super) async fn verify_folder_in_trash_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<folder::Model> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let folder = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
     storage::ensure_folder_scope(&folder, scope)?;
     if folder.deleted_at.is_none() {
@@ -205,10 +203,7 @@ fn build_folder_purged_storage_event(
     freed_bytes: i64,
 ) -> storage_change::StorageChangeEvent {
     let (event_kind, event_file_ids) = if file_ids.len() > FOLDER_PURGED_EVENT_FILE_IDS_LIMIT {
-        (
-            storage_change::StorageChangeKind::SyncRequired,
-            Vec::new(),
-        )
+        (storage_change::StorageChangeKind::SyncRequired, Vec::new())
     } else {
         (
             storage_change::StorageChangeKind::FolderPurged,

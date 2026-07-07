@@ -5,7 +5,7 @@ use crate::api::middleware::internal_storage_cors::PresignedInternalStorageCors;
 use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
-use crate::services::{audit_service, remote::master_binding, remote::storage_target};
+use crate::services::{ops::audit, remote::master_binding, remote::storage_target};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
@@ -283,8 +283,8 @@ fn parse_range_bound(value: &str, name: &str) -> Result<u64> {
     })
 }
 
-fn follower_audit_context(req: &HttpRequest) -> audit_service::AuditContext {
-    audit_service::AuditRequestInfo::from_request(req).to_context(0)
+fn follower_audit_context(req: &HttpRequest) -> audit::AuditContext {
+    audit::AuditRequestInfo::from_request(req).to_context(0)
 }
 
 fn object_audit_details<'a>(
@@ -296,7 +296,7 @@ fn object_audit_details<'a>(
     partial: Option<bool>,
     parts: Option<&'a [String]>,
 ) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::FollowerObjectAuditDetails {
+    audit::details(audit::FollowerObjectAuditDetails {
         binding_id,
         object_key,
         storage_path,
@@ -356,15 +356,15 @@ async fn sync_binding(
         is_enabled = synced.is_enabled,
         "follower binding synchronized"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerBindingSync,
-        audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::FollowerBindingSync,
+        audit::AuditEntityType::RemoteNode,
         Some(binding.id),
         Some(&body.name),
         || {
-            audit_service::details(audit_service::FollowerBindingAuditDetails {
+            audit::details(audit::FollowerBindingAuditDetails {
                 binding_id: binding.id,
                 name: &body.name,
                 is_enabled: body.is_enabled,
@@ -487,15 +487,12 @@ async fn put_object(
         content_length,
         "follower object written"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectWrite,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectWrite) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectWrite,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectWrite,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -646,15 +643,12 @@ async fn compose_objects(
         "follower object composed"
     );
 
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectCompose,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectCompose) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectCompose,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectCompose,
+            audit::AuditEntityType::File,
             None,
             Some(&target_key),
             || {
@@ -756,15 +750,12 @@ async fn get_object(
         partial = partial_range.is_some(),
         "follower object read prepared"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectRead,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectRead) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectRead,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectRead,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -847,15 +838,12 @@ async fn delete_object(
         object_key = %object_key,
         "follower object deleted"
     );
-    if audit_service::should_record(
-        state.get_ref(),
-        audit_service::AuditAction::FollowerObjectDelete,
-    ) {
-        audit_service::log_with_details(
+    if audit::should_record(state.get_ref(), audit::AuditAction::FollowerObjectDelete) {
+        audit::log_with_details(
             state.get_ref(),
             &follower_audit_context(&req),
-            audit_service::AuditAction::FollowerObjectDelete,
-            audit_service::AuditEntityType::File,
+            audit::AuditAction::FollowerObjectDelete,
+            audit::AuditEntityType::File,
             None,
             Some(&object_key),
             || {
@@ -918,15 +906,15 @@ async fn create_storage_target(
         is_default = target.is_default,
         "follower remote storage target created"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileCreate,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileCreate,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target.target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: target.driver_type.as_str(),
@@ -964,15 +952,15 @@ async fn update_storage_target(
         is_default = target.is_default,
         "follower remote storage target updated"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileUpdate,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileUpdate,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target.target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &target.target_key,
                 driver_type: target.driver_type.as_str(),
@@ -1005,15 +993,15 @@ async fn delete_storage_target(
         target_key = %target_key,
         "follower remote storage target deleted"
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &follower_audit_context(&req),
-        audit_service::AuditAction::FollowerIngressProfileDelete,
-        audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::FollowerIngressProfileDelete,
+        audit::AuditEntityType::RemoteIngressProfile,
         None,
         Some(&target_key),
         || {
-            audit_service::details(audit_service::FollowerIngressProfileAuditDetails {
+            audit::details(audit::FollowerIngressProfileAuditDetails {
                 binding_id: binding.id,
                 target_key: &deleted_target.target_key,
                 driver_type: deleted_target.driver_type.as_str(),

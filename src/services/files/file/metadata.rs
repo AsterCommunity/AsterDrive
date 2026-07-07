@@ -8,7 +8,8 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
-    events::storage_change, content::tag,
+    content::tag,
+    events::storage_change,
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope},
 };

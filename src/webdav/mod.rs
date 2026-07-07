@@ -25,7 +25,7 @@ use xmltree::{Element, XMLNode};
 
 use crate::config::WebDavConfig;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service;
+use crate::services::ops::audit;
 use crate::utils::numbers::u64_to_usize;
 use crate::webdav::dav::{DavLockSystem, DavPath};
 
@@ -106,7 +106,7 @@ pub async fn webdav_handler(
         Err(_) => return responses::unauthorized(),
     };
 
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let audit_ctx = audit_info.to_context(auth_result.scope.actor_user_id());
 
     let dav_fs = fs::AsterDavFs::new_with_audit(

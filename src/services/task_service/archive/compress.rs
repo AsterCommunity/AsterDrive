@@ -134,12 +134,7 @@ pub(super) async fn process_archive_compress_task(
         let total_bytes = collected.total_source_bytes();
         let estimated_output_bytes = collected.estimated_output_bytes();
         if estimated_output_bytes > 0 {
-            storage::check_quota(
-                state.writer_db(),
-                scope,
-                estimated_output_bytes,
-            )
-            .await?;
+            storage::check_quota(state.writer_db(), scope, estimated_output_bytes).await?;
         }
         let entries = collected.into_entries();
         let progress_total = total_bytes.max(0);

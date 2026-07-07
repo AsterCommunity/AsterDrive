@@ -15,8 +15,8 @@ pub mod ticket;
 
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
 use crate::services::files::batch;
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub use access::{
@@ -77,15 +77,15 @@ pub(crate) async fn create_share_in_scope_with_audit(
     let has_password = password.as_ref().is_some_and(|value| !value.is_empty());
     let share =
         create_share_in_scope(state, scope, target, password, expires_at, max_downloads).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ShareCreate,
-        audit_service::AuditEntityType::Share,
+        audit::AuditAction::ShareCreate,
+        audit::AuditEntityType::Share,
         Some(share.id),
         Some(&share.token),
         || {
-            audit_service::details(audit_service::ShareCreateAuditDetails {
+            audit::details(audit::ShareCreateAuditDetails {
                 token: &share.token,
                 target_type: share.target.r#type,
                 target_id: share.target.id,
@@ -112,15 +112,15 @@ pub(crate) async fn update_share_in_scope_with_audit(
     let outcome =
         update_share_in_scope(state, scope, share_id, password, expires_at, max_downloads).await?;
     let share = outcome.share;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ShareUpdate,
-        crate::services::audit_service::AuditEntityType::Share,
+        audit::AuditAction::ShareUpdate,
+        crate::services::ops::audit::AuditEntityType::Share,
         Some(share.id),
         Some(&share.token),
         || {
-            audit_service::details(audit_service::ShareUpdateDetails {
+            audit::details(audit::ShareUpdateDetails {
                 has_password: outcome.has_password,
                 expires_at: share.expires_at,
                 max_downloads: share.max_downloads,
@@ -149,15 +149,15 @@ pub(crate) async fn delete_share_in_scope_with_audit(
             None
         }
     };
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ShareDelete,
-        audit_service::AuditEntityType::Share,
+        audit::AuditAction::ShareDelete,
+        audit::AuditEntityType::Share,
         Some(share_id),
         Some(&share.token),
         || {
-            audit_service::details(audit_service::ShareDeleteAuditDetails {
+            audit::details(audit::ShareDeleteAuditDetails {
                 token: &share.token,
                 target_type: target.as_ref().map(|target| target.r#type),
                 target_id: target.as_ref().map(|target| target.id),
@@ -180,15 +180,15 @@ pub(crate) async fn batch_delete_shares_in_scope_with_audit(
 ) -> Result<batch::BatchResult> {
     validate_batch_share_ids(share_ids)?;
     let result = batch_delete_shares_in_scope(state, scope, share_ids).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ShareBatchDelete,
-        audit_service::AuditEntityType::Share,
+        audit::AuditAction::ShareBatchDelete,
+        audit::AuditEntityType::Share,
         None,
         None,
         || {
-            audit_service::details(audit_service::ShareBatchDeleteDetails {
+            audit::details(audit::ShareBatchDeleteDetails {
                 share_ids,
                 succeeded: result.succeeded,
                 failed: result.failed,

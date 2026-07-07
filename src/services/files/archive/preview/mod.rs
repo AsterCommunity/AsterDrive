@@ -12,7 +12,9 @@ use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_code, validation_error_with_code,
 };
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
-use crate::services::files::archive::core::format::{ArchiveFormat, detect_supported_archive_format};
+use crate::services::files::archive::core::format::{
+    ArchiveFormat, detect_supported_archive_format,
+};
 use crate::services::files::archive::core::scan::ArchiveScanLimits;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::services::{share, task_service, workspace::storage};
@@ -90,8 +92,7 @@ pub(crate) async fn preview_file_in_scope(
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_user_preview_enabled(state)?;
     storage::require_scope_access(state, scope).await?;
-    let source_file =
-        storage::verify_file_access_for_read(state, scope, file_id).await?;
+    let source_file = storage::verify_file_access_for_read(state, scope, file_id).await?;
     storage::ensure_active_file_scope(&source_file, scope)?;
     preview_verified_file(state, &source_file, filename_encoding).await
 }
@@ -113,8 +114,7 @@ pub(crate) async fn preview_shared_folder_file(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_share_preview_enabled(state)?;
-    let (_, source_file) =
-        share::load_preview_shared_folder_file(state, token, file_id).await?;
+    let (_, source_file) = share::load_preview_shared_folder_file(state, token, file_id).await?;
     preview_verified_file(state, &source_file, filename_encoding).await
 }
 

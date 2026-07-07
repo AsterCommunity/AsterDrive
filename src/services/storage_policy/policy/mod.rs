@@ -7,7 +7,7 @@ mod shared;
 
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::DriverType;
 
 pub use crate::storage::{
@@ -38,7 +38,7 @@ pub use policies::{
 };
 
 fn policy_audit_details(policy: &StoragePolicy) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::StoragePolicyAuditDetails {
+    audit::details(audit::StoragePolicyAuditDetails {
         driver_type: policy.driver_type.as_str(),
         remote_node_id: policy.remote_node_id,
         max_file_size: policy.max_file_size,
@@ -53,7 +53,7 @@ fn policy_action_audit_details(
     used_draft_values: bool,
     diagnostic: Option<&StoragePolicyDiagnostic>,
 ) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::StoragePolicyActionAuditDetails {
+    audit::details(audit::StoragePolicyActionAuditDetails {
         action: action.as_str(),
         driver_type: driver_type.as_str(),
         used_draft_values,
@@ -70,11 +70,11 @@ pub async fn create_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = create(state, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminCreatePolicy,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminCreatePolicy,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
         || policy_audit_details(&policy),
@@ -90,11 +90,11 @@ pub async fn update_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = update(state, id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminUpdatePolicy,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminUpdatePolicy,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
         || policy_audit_details(&policy),
@@ -110,11 +110,11 @@ pub async fn promote_s3_compatible_driver_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicy> {
     let policy = promote_s3_compatible_driver(state, id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminUpdatePolicy,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminUpdatePolicy,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
         || policy_audit_details(&policy),
@@ -131,11 +131,11 @@ pub async fn delete_with_audit(
 ) -> Result<()> {
     let policy = get(state, id).await?;
     delete(state, id, force).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminDeletePolicy,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminDeletePolicy,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
         || policy_audit_details(&policy),
@@ -161,11 +161,11 @@ pub async fn execute_saved_action_with_audit(
             error_diagnostic.as_ref()
         }
     };
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminTriggerStorageAction,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminTriggerStorageAction,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         Some(policy.id),
         Some(&policy.name),
         || policy_action_audit_details(action, policy.driver_type, false, diagnostic),
@@ -190,11 +190,11 @@ pub async fn execute_draft_action_with_audit(
             error_diagnostic.as_ref()
         }
     };
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminTriggerStorageAction,
-        crate::services::audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminTriggerStorageAction,
+        crate::services::ops::audit::AuditEntityType::StoragePolicy,
         None,
         None,
         || policy_action_audit_details(action, driver_type, true, diagnostic),
@@ -209,15 +209,15 @@ pub async fn create_group_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyGroupInfo> {
     let group = create_group(state, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminCreatePolicyGroup,
-        crate::services::audit_service::AuditEntityType::PolicyGroup,
+        audit::AuditAction::AdminCreatePolicyGroup,
+        crate::services::ops::audit::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
         || {
-            audit_service::details(audit_service::PolicyGroupAuditDetails {
+            audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
                 item_count: group.items.len(),
@@ -235,15 +235,15 @@ pub async fn update_group_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<StoragePolicyGroupInfo> {
     let group = update_group(state, id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminUpdatePolicyGroup,
-        crate::services::audit_service::AuditEntityType::PolicyGroup,
+        audit::AuditAction::AdminUpdatePolicyGroup,
+        crate::services::ops::audit::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
         || {
-            audit_service::details(audit_service::PolicyGroupAuditDetails {
+            audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
                 item_count: group.items.len(),
@@ -261,15 +261,15 @@ pub async fn delete_group_with_audit(
 ) -> Result<()> {
     let group = get_group(state, id).await?;
     delete_group(state, id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminDeletePolicyGroup,
-        crate::services::audit_service::AuditEntityType::PolicyGroup,
+        audit::AuditAction::AdminDeletePolicyGroup,
+        crate::services::ops::audit::AuditEntityType::PolicyGroup,
         Some(group.id),
         Some(&group.name),
         || {
-            audit_service::details(audit_service::PolicyGroupAuditDetails {
+            audit::details(audit::PolicyGroupAuditDetails {
                 is_default: group.is_default,
                 is_enabled: group.is_enabled,
                 item_count: group.items.len(),
@@ -289,15 +289,15 @@ pub async fn migrate_group_assignments_with_audit(
     let source_group = get_group(state, source_group_id).await?;
     let target_group = get_group(state, target_group_id).await?;
     let result = migrate_group_assignments(state, source_group_id, target_group_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminMigratePolicyGroupUsers,
-        crate::services::audit_service::AuditEntityType::PolicyGroup,
+        audit::AuditAction::AdminMigratePolicyGroupUsers,
+        crate::services::ops::audit::AuditEntityType::PolicyGroup,
         Some(source_group.id),
         Some(&source_group.name),
         || {
-            audit_service::details(audit_service::PolicyGroupMigrationDetails {
+            audit::details(audit::PolicyGroupMigrationDetails {
                 source_group_id: source_group.id,
                 source_group_name: &source_group.name,
                 target_group_id: target_group.id,

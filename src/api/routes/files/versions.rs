@@ -4,7 +4,7 @@ use crate::api::dto::files::VersionPath;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service::AuditContext, auth::local::Claims, content::version};
+use crate::services::{ops::audit::AuditContext, auth::local::Claims, content::version};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -119,8 +119,7 @@ pub(crate) async fn team_list_versions(
 ) -> Result<HttpResponse> {
     let (team_id, file_id) = path.into_inner();
     let versions =
-        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id)
-            .await?;
+        version::list_versions_for_team(state.get_ref(), team_id, file_id, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(versions)))
 }
 

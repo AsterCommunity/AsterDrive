@@ -1411,9 +1411,7 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     .await
     .unwrap();
 
-    policy::delete_group(&state, group.id)
-        .await
-        .unwrap();
+    policy::delete_group(&state, group.id).await.unwrap();
 
     let req = test::TestRequest::delete()
         .uri(&format!("/api/v1/admin/policies/{}?force=true", policy.id))

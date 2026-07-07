@@ -40,7 +40,7 @@ pub(crate) fn validate_auth_password(value: &str) -> std::result::Result<(), Val
 }
 
 pub(crate) fn validate_team_name(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::services::team_service::validate_team_name(value)
+    crate::services::workspace::team::validate_team_name(value)
         .map(|_| ())
         .map_err(aster_to_validation_error)
 }

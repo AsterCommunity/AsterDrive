@@ -6,7 +6,7 @@ use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::{user::profile, user::account};
+use crate::services::{user::account, user::profile};
 use crate::types::TeamMemberRole;
 
 use super::filters::AuditLogFilters;
@@ -56,12 +56,9 @@ async fn build_audit_entries(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let users = account::user_summaries_by_ids(
-        state,
-        &user_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     let mut items = Vec::with_capacity(entries.len());
 
@@ -205,12 +202,9 @@ pub async fn query_team_entries(
         }
     }
     let user_ids: Vec<i64> = user_ids.into_iter().collect();
-    let users = account::user_summaries_by_ids(
-        state,
-        &user_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
+            .await?;
     let items = page
         .items
         .into_iter()

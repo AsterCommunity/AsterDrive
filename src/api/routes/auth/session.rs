@@ -12,11 +12,11 @@ use crate::api::response::{ApiResponse, RemovedCountResponse};
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
-use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::PrimaryLoginCompletion;
 use crate::services::events::storage_change::StorageChangeWorkspace;
-use crate::services::{auth::local, team_service, user::account};
+use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
+use crate::services::{auth::local, workspace::team, user::account};
 use crate::types::TokenType;
 use crate::utils::numbers::{u64_to_i64, usize_to_i64};
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -105,7 +105,7 @@ async fn revalidate_storage_event_stream(
         return Ok(None);
     }
 
-    team_service::list_user_team_ids(state, user_id, false)
+    team::list_user_team_ids(state, user_id, false)
         .await
         .map(Some)
 }
@@ -425,8 +425,7 @@ pub async fn me(
         }
         None => {
             let resp =
-                account::get_me(state.get_ref(), claims.user_id, access_token_expires_at)
-                    .await?;
+                account::get_me(state.get_ref(), claims.user_id, access_token_expires_at).await?;
             Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
         }
     }
@@ -483,15 +482,15 @@ pub async fn delete_other_sessions(
         &claims,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserRevokeOtherSessions,
-        crate::services::audit_service::AuditEntityType::AuthSession,
+        audit::AuditAction::UserRevokeOtherSessions,
+        crate::services::ops::audit::AuditEntityType::AuthSession,
         None,
         None,
         || {
-            audit_service::details(audit_service::AuthSessionAuditDetails {
+            audit::details(audit::AuthSessionAuditDetails {
                 session_id: None,
                 removed: Some(removed),
                 revoked_current: false,
@@ -534,15 +533,15 @@ pub async fn delete_session(
         &claims,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserRevokeSession,
-        crate::services::audit_service::AuditEntityType::AuthSession,
+        audit::AuditAction::UserRevokeSession,
+        crate::services::ops::audit::AuditEntityType::AuthSession,
         None,
         Some(path.as_str()),
         || {
-            audit_service::details(audit_service::AuthSessionAuditDetails {
+            audit::details(audit::AuthSessionAuditDetails {
                 session_id: Some(path.as_str()),
                 removed: None,
                 revoked_current,

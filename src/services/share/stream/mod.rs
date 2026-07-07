@@ -14,11 +14,9 @@ use crate::db::repository::{file_repo, share_repo};
 use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{
-    files::{
-        direct_link,
-        file::{self as file_ops, ResolvedDownloadRange},
-    },
+use crate::services::files::{
+    direct_link,
+    file::{self as file_ops, ResolvedDownloadRange},
 };
 use crate::utils::numbers::u64_to_i64;
 
@@ -88,8 +86,7 @@ pub(crate) async fn create_session_for_shared_folder_file_for_origin(
     file_id: i64,
     request_origin: crate::services::files::preview_link::RequestOrigin<'_>,
 ) -> Result<ShareStreamSessionInfo> {
-    let (share, file) =
-        super::load_preview_shared_folder_file(state, share_token, file_id).await?;
+    let (share, file) = super::load_preview_shared_folder_file(state, share_token, file_id).await?;
     let payload = build_payload(
         ShareStreamSubject::ShareFolderFile {
             share_token: share.token.clone(),
@@ -314,12 +311,8 @@ async fn load_target(
             file_id,
         } => {
             if counted {
-                super::load_shared_folder_file_ignoring_download_limit(
-                    state,
-                    share_token,
-                    *file_id,
-                )
-                .await
+                super::load_shared_folder_file_ignoring_download_limit(state, share_token, *file_id)
+                    .await
             } else {
                 super::load_preview_shared_folder_file(state, share_token, *file_id).await
             }

@@ -10,7 +10,7 @@ use crate::config::system_config as shared_system_config;
 use crate::db::repository::config_repo;
 use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
-use crate::services::config_service::{SystemConfig, SystemConfigValue};
+use crate::services::ops::config::{SystemConfig, SystemConfigValue};
 use crate::types::{SystemConfigSource, SystemConfigValueType};
 use crate::utils::char_count;
 use chrono::Utc;

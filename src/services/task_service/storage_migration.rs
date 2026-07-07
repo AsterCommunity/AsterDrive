@@ -318,7 +318,7 @@ async fn ensure_no_active_storage_policy_migration<C: sea_orm::ConnectionTrait>(
 pub(crate) async fn resume_storage_policy_migration_for_admin(
     state: &PrimaryAppState,
     task_id: i64,
-    audit_ctx: &crate::services::audit_service::AuditContext,
+    audit_ctx: &crate::services::ops::audit::AuditContext,
 ) -> Result<TaskInfo> {
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     if task.kind != BackgroundTaskKind::StoragePolicyMigration {

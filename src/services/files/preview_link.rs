@@ -17,8 +17,7 @@ use crate::services::{
         file::{self as file_ops, ResolvedDownloadRange},
     },
     share::{
-        load_shared_file_ignoring_download_limit,
-        load_shared_folder_file_ignoring_download_limit,
+        load_shared_file_ignoring_download_limit, load_shared_folder_file_ignoring_download_limit,
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
@@ -318,12 +317,9 @@ async fn resolve_token(
             share_token,
             file_id,
         } => {
-            let (share, file) = load_shared_folder_file_ignoring_download_limit(
-                state,
-                share_token,
-                *file_id,
-            )
-            .await?;
+            let (share, file) =
+                load_shared_folder_file_ignoring_download_limit(state, share_token, *file_id)
+                    .await?;
             if !verify_shared_payload(
                 &share,
                 &file,

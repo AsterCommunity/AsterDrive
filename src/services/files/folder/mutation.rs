@@ -172,13 +172,8 @@ pub(crate) async fn create_in_scope(
         actor_user_id,
     } = scope
     {
-        storage::require_team_access_with_db(
-            state,
-            state.writer_db(),
-            team_id,
-            actor_user_id,
-        )
-        .await?;
+        storage::require_team_access_with_db(state, state.writer_db(), team_id, actor_user_id)
+            .await?;
     }
 
     let name = crate::utils::normalize_validate_name(name)?;

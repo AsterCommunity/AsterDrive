@@ -615,8 +615,7 @@ pub fn spawn_primary_background_tasks(
         state.clone(),
         |s| async move {
             let report =
-                crate::services::ops::health::run_primary_system_health_checks(s.get_ref())
-                    .await;
+                crate::services::ops::health::run_primary_system_health_checks(s.get_ref()).await;
             if report.has_issues() {
                 tracing::warn!(
                     details = %report.details(),
@@ -665,7 +664,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::team_service::cleanup_expired_archived_teams(s.get_ref()).await {
+            match crate::services::workspace::team::cleanup_expired_archived_teams(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired archived teams");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -795,7 +794,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token.clone(),
         state.clone(),
         |s| async move {
-            match crate::services::audit_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::ops::audit::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
                         "cleaned up {count} expired audit log entries"

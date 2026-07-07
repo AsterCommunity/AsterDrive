@@ -11,7 +11,7 @@ use utoipa::ToSchema;
 
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 
 pub use copy::{batch_copy, batch_copy_team};
@@ -74,15 +74,15 @@ pub(crate) async fn batch_delete_in_scope_with_audit(
 ) -> Result<BatchResult> {
     validate_batch_ids(file_ids, folder_ids)?;
     let result = delete::batch_delete_in_scope(state, scope, file_ids, folder_ids).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::BatchDelete,
-        audit_service::AuditEntityType::Batch,
+        audit::AuditAction::BatchDelete,
+        audit::AuditEntityType::Batch,
         None,
         None,
         || {
-            audit_service::details(audit_service::BatchDeleteDetails {
+            audit::details(audit::BatchDeleteDetails {
                 file_ids,
                 folder_ids,
                 succeeded: result.succeeded,
@@ -105,15 +105,15 @@ pub(crate) async fn batch_move_in_scope_with_audit(
     validate_batch_ids(file_ids, folder_ids)?;
     let result =
         movement::batch_move_in_scope(state, scope, file_ids, folder_ids, target_folder_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::BatchMove,
-        audit_service::AuditEntityType::Batch,
+        audit::AuditAction::BatchMove,
+        audit::AuditEntityType::Batch,
         None,
         None,
         || {
-            audit_service::details(audit_service::BatchTransferDetails {
+            audit::details(audit::BatchTransferDetails {
                 file_ids,
                 folder_ids,
                 target_folder_id,
@@ -137,15 +137,15 @@ pub(crate) async fn batch_copy_in_scope_with_audit(
     validate_batch_ids(file_ids, folder_ids)?;
     let result =
         copy::batch_copy_in_scope(state, scope, file_ids, folder_ids, target_folder_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::BatchCopy,
-        audit_service::AuditEntityType::Batch,
+        audit::AuditAction::BatchCopy,
+        audit::AuditEntityType::Batch,
         None,
         None,
         || {
-            audit_service::details(audit_service::BatchTransferDetails {
+            audit::details(audit::BatchTransferDetails {
                 file_ids,
                 folder_ids,
                 target_folder_id,
@@ -177,15 +177,15 @@ pub(crate) async fn batch_copy_between_scopes_with_audit(
         target_folder_id,
     )
     .await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::BatchCopy,
-        audit_service::AuditEntityType::Batch,
+        audit::AuditAction::BatchCopy,
+        audit::AuditEntityType::Batch,
         None,
         None,
         || {
-            audit_service::details(audit_service::WorkspaceTransferCopyDetails {
+            audit::details(audit::WorkspaceTransferCopyDetails {
                 source_workspace: scope_details(source_scope),
                 destination_workspace: scope_details(dest_scope),
                 file_ids,
@@ -200,17 +200,15 @@ pub(crate) async fn batch_copy_between_scopes_with_audit(
     Ok(result)
 }
 
-fn scope_details(scope: WorkspaceStorageScope) -> audit_service::WorkspaceTransferScopeDetails {
+fn scope_details(scope: WorkspaceStorageScope) -> audit::WorkspaceTransferScopeDetails {
     match scope {
-        WorkspaceStorageScope::Personal { .. } => audit_service::WorkspaceTransferScopeDetails {
+        WorkspaceStorageScope::Personal { .. } => audit::WorkspaceTransferScopeDetails {
             kind: "personal",
             team_id: None,
         },
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            audit_service::WorkspaceTransferScopeDetails {
-                kind: "team",
-                team_id: Some(team_id),
-            }
-        }
+        WorkspaceStorageScope::Team { team_id, .. } => audit::WorkspaceTransferScopeDetails {
+            kind: "team",
+            team_id: Some(team_id),
+        },
     }
 }

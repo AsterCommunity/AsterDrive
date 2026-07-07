@@ -17,7 +17,7 @@ use std::time::Instant;
 
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
@@ -62,8 +62,7 @@ pub(crate) async fn upload_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let upload_started_at = Instant::now();
-    let actor_username =
-        storage::load_scope_actor_username_cached(state, params.scope).await?;
+    let actor_username = storage::load_scope_actor_username_cached(state, params.scope).await?;
     let file = storage::upload_with_hints(
         state,
         params.scope,
@@ -84,11 +83,11 @@ pub(crate) async fn upload_in_scope_with_audit(
     let details =
         crate::services::files::file::audit_location_details_for_model(state, params.scope, &file)
             .await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileUpload,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileUpload,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         || details.clone(),

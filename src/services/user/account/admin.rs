@@ -11,7 +11,7 @@ use crate::entities::user;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     auth::local,
     user::profile,
 };
@@ -143,15 +143,15 @@ pub async fn create_with_audit(
     let output = create(state, input).await?;
     let user = &output.user;
     let temporary_password_generated = output.generated_password.is_some();
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminCreateUser,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::AdminCreateUser,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         || {
-            audit_service::details(audit_service::AdminCreateUserDetails {
+            audit::details(audit::AdminCreateUserDetails {
                 email: &user.email,
                 email_verified: user.email_verified,
                 role: user.role,
@@ -332,15 +332,15 @@ pub async fn update_with_audit(
 ) -> Result<super::models::UserInfo> {
     let (user, diff) = update_with_audit_diff(state, input).await?;
     let changed_fields = changed_user_fields(diff.before, diff.after);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminUpdateUser,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::AdminUpdateUser,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         || {
-            audit_service::details(audit_service::AdminUpdateUserDetails {
+            audit::details(audit::AdminUpdateUserDetails {
                 changed_fields,
                 email_verified: diff.after.email_verified,
                 role: diff.after.role,
@@ -507,15 +507,15 @@ pub async fn force_delete_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<ForceDeleteSummary> {
     let summary = force_delete(state, target_user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminForceDeleteUser,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::AdminForceDeleteUser,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(summary.user_id),
         Some(&summary.username),
         || {
-            audit_service::details(audit_service::AdminForceDeleteUserDetails {
+            audit::details(audit::AdminForceDeleteUserDetails {
                 file_count: summary.file_count,
                 folder_count: summary.folder_count,
                 share_count: summary.share_count,

@@ -100,9 +100,7 @@ pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFron
     }
 }
 
-pub fn get_public_preview_apps(
-    state: &impl SharedRuntimeState,
-) -> apps::PublicPreviewAppsConfig {
+pub fn get_public_preview_apps(state: &impl SharedRuntimeState) -> apps::PublicPreviewAppsConfig {
     apps::get_public_preview_apps(state)
 }
 

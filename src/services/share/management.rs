@@ -15,7 +15,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::batch,
-    user::profile, user::account,
+    user::account,
+    user::profile,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::utils::{hash, id};
@@ -143,8 +144,7 @@ pub(crate) async fn list_shares_paginated_in_scope(
         offset,
         "listing paginated shares"
     );
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
         let (shares, total) = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
@@ -548,12 +548,9 @@ async fn share_infos_from_models(
     shares: Vec<share::Model>,
 ) -> Result<Vec<ShareInfo>> {
     let user_ids: Vec<i64> = shares.iter().map(|share| share.user_id).collect();
-    let users = account::user_summaries_by_ids(
-        state,
-        &user_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     shares
         .into_iter()
@@ -568,11 +565,8 @@ async fn share_info_from_model_with_user(
     state: &impl SharedRuntimeState,
     share: share::Model,
 ) -> Result<ShareInfo> {
-    let user = account::user_summary_by_id(
-        state,
-        share.user_id,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let user =
+        account::user_summary_by_id(state, share.user_id, profile::AvatarAudience::AdminUser)
+            .await?;
     share_info_from_model(share, user)
 }

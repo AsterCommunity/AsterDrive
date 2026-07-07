@@ -1426,7 +1426,7 @@ async fn test_setup_bootstraps_public_site_url_from_request_origin() {
 #[actix_web::test]
 async fn test_setup_does_not_overwrite_existing_public_site_url() {
     let state = common::setup().await;
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         aster_drive::config::site_url::PUBLIC_SITE_URL_KEY,
         vec!["https://pan-cloudreve.esaps.net".to_string()],

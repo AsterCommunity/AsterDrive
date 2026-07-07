@@ -21,7 +21,7 @@ use crate::errors::AsterError;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FolderInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::NullablePatch;
@@ -68,11 +68,11 @@ pub(crate) async fn create_in_scope_with_audit(
 ) -> Result<FolderInfo> {
     let folder = create_in_scope(state, scope, name, parent_id).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FolderCreate,
-        crate::services::audit_service::AuditEntityType::Folder,
+        audit::AuditAction::FolderCreate,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
         || details.clone(),
@@ -90,11 +90,11 @@ pub(crate) async fn delete_in_scope_with_audit(
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
     delete_in_scope(state, scope, folder_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FolderDelete,
-        crate::services::audit_service::AuditEntityType::Folder,
+        audit::AuditAction::FolderDelete,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder_id),
         Some(&folder.name),
         || details.clone(),
@@ -113,24 +113,24 @@ pub(crate) async fn update_in_scope_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let action = if parent_id.is_present() {
-        audit_service::AuditAction::FolderMove
+        audit::AuditAction::FolderMove
     } else if policy_id.is_present() {
-        audit_service::AuditAction::FolderPolicyChange
+        audit::AuditAction::FolderPolicyChange
     } else {
-        audit_service::AuditAction::FolderRename
+        audit::AuditAction::FolderRename
     };
     let previous_folder = get_info_in_scope(state, scope, folder_id).await?;
     let original_source_path = if matches!(
         action,
-        audit_service::AuditAction::FolderMove | audit_service::AuditAction::FolderRename
+        audit::AuditAction::FolderMove | audit::AuditAction::FolderRename
     ) {
         Some(folder_path_for_audit(state, previous_folder.id).await)
     } else {
         None
     };
     let folder = update_in_scope(state, scope, folder_id, name, parent_id, policy_id).await?;
-    let details = if matches!(action, audit_service::AuditAction::FolderPolicyChange) {
-        audit_service::details(audit_service::FolderPolicyAuditDetails {
+    let details = if matches!(action, audit::AuditAction::FolderPolicyChange) {
+        audit::details(audit::FolderPolicyAuditDetails {
             previous_policy_id: previous_folder.policy_id,
             policy_id: folder.policy_id,
         })
@@ -146,11 +146,11 @@ pub(crate) async fn update_in_scope_with_audit(
     } else {
         audit_transfer_details_for_models(state, scope, &previous_folder, &folder).await
     };
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
         action,
-        crate::services::audit_service::AuditEntityType::Folder,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
         || details.clone(),
@@ -166,15 +166,15 @@ pub async fn admin_set_policy_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FolderInfo> {
     let (folder, previous_policy_id) = admin_set_policy(state, folder_id, policy_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FolderPolicyChange,
-        crate::services::audit_service::AuditEntityType::Folder,
+        audit::AuditAction::FolderPolicyChange,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
         || {
-            audit_service::details(audit_service::FolderPolicyAuditDetails {
+            audit::details(audit::FolderPolicyAuditDetails {
                 previous_policy_id,
                 policy_id: folder.policy_id,
             })
@@ -193,15 +193,15 @@ pub(crate) async fn set_lock_in_scope_with_audit(
 ) -> Result<FolderInfo> {
     let folder = set_lock_in_scope(state, scope, folder_id, locked).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
         if locked {
-            audit_service::AuditAction::FolderLock
+            audit::AuditAction::FolderLock
         } else {
-            audit_service::AuditAction::FolderUnlock
+            audit::AuditAction::FolderUnlock
         },
-        crate::services::audit_service::AuditEntityType::Folder,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
         || details.clone(),
@@ -220,11 +220,11 @@ pub(crate) async fn copy_folder_in_scope_with_audit(
     let source_folder = get_info_in_scope(state, scope, folder_id).await?;
     let folder = copy_folder_in_scope(state, scope, folder_id, parent_id).await?;
     let details = audit_transfer_details_for_models(state, scope, &source_folder, &folder).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FolderCopy,
-        crate::services::audit_service::AuditEntityType::Folder,
+        audit::AuditAction::FolderCopy,
+        crate::services::ops::audit::AuditEntityType::Folder,
         Some(folder.id),
         Some(&folder.name),
         || details.clone(),

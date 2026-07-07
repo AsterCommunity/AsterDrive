@@ -7,9 +7,7 @@ use crate::services::upload_service::responses::InitUploadResponse;
 use crate::services::upload_service::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
-use crate::services::workspace::storage::{
-    PolicyUploadTransport, resolve_policy_upload_transport,
-};
+use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
 use crate::types::{RemoteUploadStrategy, UploadMode, UploadSessionStatus};
 use crate::utils::numbers;
 

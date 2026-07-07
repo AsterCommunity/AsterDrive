@@ -4,3 +4,4 @@ pub mod models;
 pub mod scope;
 pub mod storage;
 pub mod storage_core;
+pub mod team;

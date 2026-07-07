@@ -8,7 +8,7 @@ use crate::db::repository::config_repo;
 use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::{SystemConfigSource, SystemConfigValueType, SystemConfigVisibility};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -237,11 +237,11 @@ pub async fn delete_with_audit(
 ) -> Result<()> {
     let config = get_by_key(state, key).await?;
     delete(state, key).await?;
-    audit_service::log(
+    audit::log(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminDeleteConfig,
-        crate::services::audit_service::AuditEntityType::SystemConfig,
+        audit::AuditAction::AdminDeleteConfig,
+        crate::services::ops::audit::AuditEntityType::SystemConfig,
         Some(config.id),
         Some(key),
         None,
@@ -314,11 +314,11 @@ async fn audit_config_update(
     config: &system_config::Model,
     prior_visibility: Option<SystemConfigVisibility>,
 ) {
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ConfigUpdate,
-        audit_service::AuditEntityType::SystemConfig,
+        audit::AuditAction::ConfigUpdate,
+        audit::AuditEntityType::SystemConfig,
         Some(config.id),
         Some(&config.key),
         || {
@@ -328,7 +328,7 @@ async fn audit_config_update(
                 SystemConfigValue::from_storage(config.value_type, config.value.clone())
                     .to_audit_string()
             };
-            audit_service::details(audit_service::ConfigUpdateDetails {
+            audit::details(audit::ConfigUpdateDetails {
                 value: &audit_value,
                 visibility: config.visibility,
                 prior_visibility,

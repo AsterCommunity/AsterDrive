@@ -4,10 +4,13 @@ use crate::db::repository::user_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
-    mail::audit,
+    ops::audit::{self, AuditContext},
+    mail::audit as mail_audit,
     mail::sender,
-    media::processing, preview::apps, task_service, preview::wopi,
+    media::processing,
+    preview::apps,
+    preview::wopi,
+    task_service,
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -94,15 +97,15 @@ pub async fn execute_action_with_audit(
             "config action target '{key}'"
         ))),
     }?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::ConfigActionExecute,
-        audit_service::AuditEntityType::SystemConfig,
+        audit::AuditAction::ConfigActionExecute,
+        audit::AuditEntityType::SystemConfig,
         None,
         Some(input.key),
         || {
-            audit_service::details(audit_service::ConfigActionDetails {
+            audit::details(audit::ConfigActionDetails {
                 action: input.action.as_str(),
                 target_email: action_result.target_email.as_deref(),
             })
@@ -251,15 +254,14 @@ async fn execute_mail_action(
             );
 
             let result =
-                sender::send_test_email(state, &normalized_target, Some(&actor.username))
-                    .await;
+                sender::send_test_email(state, &normalized_target, Some(&actor.username)).await;
             let ip_address = audit_ctx.ip_address.as_deref();
             let user_agent = audit_ctx.user_agent.as_deref();
             match &result {
                 Ok(()) => {
-                    audit::log_send(
+                    mail_audit::log_send(
                         state,
-                        audit::MailAuditInput {
+                        mail_audit::MailAuditInput {
                             actor_user_id,
                             ip_address,
                             user_agent,
@@ -276,10 +278,10 @@ async fn execute_mail_action(
                 }
                 Err(error) => {
                     let error_message = error.to_string();
-                    audit::log_delivery_failed_with_db(
+                    mail_audit::log_delivery_failed_with_db(
                         state.writer_db(),
                         state.runtime_config(),
-                        audit::MailAuditInput {
+                        mail_audit::MailAuditInput {
                             actor_user_id,
                             ip_address,
                             user_agent,
@@ -325,10 +327,9 @@ async fn execute_preview_app_action(
                     .get(apps::PREVIEW_APPS_CONFIG_KEY)
                     .unwrap_or_else(apps::default_public_preview_apps_json)
             });
-            let normalized =
-                apps::normalize_public_preview_apps_config_value(&raw_value)?;
-            let mut config: apps::PublicPreviewAppsConfig =
-                serde_json::from_str(&normalized).map_aster_err_ctx(
+            let normalized = apps::normalize_public_preview_apps_config_value(&raw_value)?;
+            let mut config: apps::PublicPreviewAppsConfig = serde_json::from_str(&normalized)
+                .map_aster_err_ctx(
                     "failed to parse normalized preview apps config",
                     AsterError::internal_error,
                 )?;
@@ -443,8 +444,7 @@ async fn execute_media_processing_action(
             );
 
             let message =
-                crate::services::media::metadata::probe_ffprobe_cli_command(&command)
-                    .await?;
+                crate::services::media::metadata::probe_ffprobe_cli_command(&command).await?;
 
             Ok(ConfigActionResult {
                 message,

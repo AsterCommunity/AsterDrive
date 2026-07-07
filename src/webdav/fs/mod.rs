@@ -9,9 +9,11 @@ use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, us
 use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
+    content::property,
+    events::storage_change,
     files::{file as file_ops, folder},
-    content::property, events::storage_change, webdav::tree,
+    webdav::tree,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
@@ -228,11 +230,11 @@ impl AsterDavFs {
             &target_folder,
         )
         .await;
-        audit_service::log_with_details(
+        audit::log_with_details(
             &state,
             &self.audit_ctx,
-            audit_service::AuditAction::FolderCopy,
-            crate::services::audit_service::AuditEntityType::Folder,
+            audit::AuditAction::FolderCopy,
+            crate::services::ops::audit::AuditEntityType::Folder,
             Some(created.id),
             Some(&created.name),
             || details.clone(),
@@ -438,11 +440,11 @@ impl DavFileSystem for AsterDavFs {
             tree::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
                 .await
                 .map_err(to_fs_error)?;
-            audit_service::log_with_details(
+            audit::log_with_details(
                 &state,
                 &self.audit_ctx,
-                audit_service::AuditAction::FolderDelete,
-                crate::services::audit_service::AuditEntityType::Folder,
+                audit::AuditAction::FolderDelete,
+                crate::services::ops::audit::AuditEntityType::Folder,
                 Some(folder.id),
                 Some(&folder.name),
                 || details.clone(),
@@ -601,11 +603,11 @@ impl DavFileSystem for AsterDavFs {
                         &copied,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         &state,
                         &self.audit_ctx,
-                        audit_service::AuditAction::FileCopy,
-                        crate::services::audit_service::AuditEntityType::File,
+                        audit::AuditAction::FileCopy,
+                        crate::services::ops::audit::AuditEntityType::File,
                         Some(copied.id),
                         Some(&copied.name),
                         || details.clone(),
@@ -631,11 +633,11 @@ impl DavFileSystem for AsterDavFs {
                         &copied,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         &state,
                         &self.audit_ctx,
-                        audit_service::AuditAction::FolderCopy,
-                        crate::services::audit_service::AuditEntityType::Folder,
+                        audit::AuditAction::FolderCopy,
+                        crate::services::ops::audit::AuditEntityType::Folder,
                         Some(copied.id),
                         Some(&copied.name),
                         || details.clone(),
@@ -870,19 +872,19 @@ impl DavFileSystem for AsterDavFs {
             for (set, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
                 let entity_type_label = entity_type.as_str();
-                audit_service::log_with_details(
+                audit::log_with_details(
                     &self.state,
                     &self.audit_ctx,
                     if *set {
-                        audit_service::AuditAction::PropertySet
+                        audit::AuditAction::PropertySet
                     } else {
-                        audit_service::AuditAction::PropertyDelete
+                        audit::AuditAction::PropertyDelete
                     },
-                    audit_service::AuditEntityType::from_entity_type(entity_type),
+                    audit::AuditEntityType::from_entity_type(entity_type),
                     Some(entity_id),
                     None,
                     || {
-                        audit_service::details(audit_service::PropertyAuditDetails {
+                        audit::details(audit::PropertyAuditDetails {
                             entity_type: entity_type_label,
                             namespace: ns,
                             name: &prop.name,
@@ -1174,11 +1176,11 @@ async fn delete_existing_destination_for_overwrite(
                 vec![existing.folder_id],
             ),
         );
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::FileDelete,
-            crate::services::audit_service::AuditEntityType::File,
+            audit::AuditAction::FileDelete,
+            crate::services::ops::audit::AuditEntityType::File,
             Some(existing.id),
             Some(&existing.name),
             || details.clone(),
@@ -1191,11 +1193,11 @@ async fn delete_existing_destination_for_overwrite(
         tree::recursive_soft_delete_in_scope(state, scope, existing.id)
             .await
             .map_err(to_fs_error)?;
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::FolderDelete,
-            crate::services::audit_service::AuditEntityType::Folder,
+            audit::AuditAction::FolderDelete,
+            crate::services::ops::audit::AuditEntityType::Folder,
             Some(existing.id),
             Some(&existing.name),
             || details.clone(),

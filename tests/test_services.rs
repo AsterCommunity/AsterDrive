@@ -487,10 +487,9 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
         [root_file, active_file].into_iter().collect()
     );
 
-    let (all_files, all_folder_ids) =
-        tree::collect_folder_tree(&state, user.id, root.id, true)
-            .await
-            .unwrap();
+    let (all_files, all_folder_ids) = tree::collect_folder_tree(&state, user.id, root.id, true)
+        .await
+        .unwrap();
     let all_file_ids = all_files
         .into_iter()
         .map(|file| file.id)
@@ -539,10 +538,9 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
     assert!(visible_files.is_empty());
     assert_eq!(visible_folder_ids, vec![leaf.id]);
 
-    let (all_files, all_folder_ids) =
-        tree::collect_folder_tree(&state, user.id, leaf.id, true)
-            .await
-            .unwrap();
+    let (all_files, all_folder_ids) = tree::collect_folder_tree(&state, user.id, leaf.id, true)
+        .await
+        .unwrap();
     assert!(all_files.is_empty());
     assert_eq!(all_folder_ids, vec![leaf.id]);
 }
@@ -853,9 +851,7 @@ async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
         .unwrap();
     assert!(locked.is_locked);
 
-    lock::unlock_by_token(&state, &lock.token)
-        .await
-        .unwrap();
+    lock::unlock_by_token(&state, &lock.token).await.unwrap();
 
     let unlocked = file_repo::find_by_id(state.writer_db(), file.id)
         .await
@@ -1810,31 +1806,26 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
     let state = common::setup().await;
     let oversized = vec![1_i64; aster_drive::services::files::batch::MAX_BATCH_ITEMS + 1];
 
-    let err =
-        match aster_drive::services::share::batch_delete_shares(&state, 999, &[]).await {
-            Ok(_) => panic!("empty personal batch delete should fail validation"),
-            Err(err) => err,
-        };
+    let err = match aster_drive::services::share::batch_delete_shares(&state, 999, &[]).await {
+        Ok(_) => panic!("empty personal batch delete should fail validation"),
+        Err(err) => err,
+    };
     assert_eq!(err.code(), "E005");
     assert!(
         err.to_string()
             .contains("at least one share ID is required")
     );
 
-    let err =
-        match aster_drive::services::share::batch_delete_shares(&state, 999, &oversized)
-            .await
-        {
-            Ok(_) => panic!("oversized personal batch delete should fail validation"),
-            Err(err) => err,
-        };
+    let err = match aster_drive::services::share::batch_delete_shares(&state, 999, &oversized).await
+    {
+        Ok(_) => panic!("oversized personal batch delete should fail validation"),
+        Err(err) => err,
+    };
     assert_eq!(err.code(), "E005");
     assert!(err.to_string().contains("batch size cannot exceed"));
 
     let err =
-        match aster_drive::services::share::batch_delete_team_shares(&state, 999, 999, &[])
-            .await
-        {
+        match aster_drive::services::share::batch_delete_team_shares(&state, 999, 999, &[]).await {
             Ok(_) => panic!("empty team batch delete should fail validation"),
             Err(err) => err,
         };
@@ -1844,14 +1835,13 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
             .contains("at least one share ID is required")
     );
 
-    let err = match aster_drive::services::share::batch_delete_team_shares(
-        &state, 999, 999, &oversized,
-    )
-    .await
-    {
-        Ok(_) => panic!("oversized team batch delete should fail validation"),
-        Err(err) => err,
-    };
+    let err =
+        match aster_drive::services::share::batch_delete_team_shares(&state, 999, 999, &oversized)
+            .await
+        {
+            Ok(_) => panic!("oversized team batch delete should fail validation"),
+            Err(err) => err,
+        };
     assert_eq!(err.code(), "E005");
     assert!(err.to_string().contains("batch size cannot exceed"));
 }
@@ -2091,10 +2081,10 @@ async fn test_team_service_accepts_128_multibyte_characters_in_name() {
     .unwrap();
 
     let valid_name = "你".repeat(128);
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: valid_name.clone(),
             description: None,
         },
@@ -2103,10 +2093,10 @@ async fn test_team_service_accepts_128_multibyte_characters_in_name() {
     .unwrap();
     assert_eq!(team.name, valid_name);
 
-    let err = aster_drive::services::team_service::create_team(
+    let err = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "你".repeat(129),
             description: None,
         },
@@ -2142,10 +2132,10 @@ async fn test_team_service_clamps_negative_default_storage_quota() {
     updated.value = "-1".to_string();
     state.runtime_config.apply(updated);
 
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Quota Clamp".to_string(),
             description: None,
         },
@@ -2181,10 +2171,10 @@ async fn test_team_service_rejects_create_without_default_policy_group() {
         .await
         .unwrap();
 
-    let err = aster_drive::services::team_service::create_team(
+    let err = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "No Default Policy Group".to_string(),
             description: None,
         },
@@ -2221,10 +2211,10 @@ async fn test_team_service_degrades_missing_creator_rows() {
     .await
     .unwrap();
 
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Missing Creator".to_string(),
             description: None,
         },
@@ -2232,11 +2222,11 @@ async fn test_team_service_degrades_missing_creator_rows() {
     .await
     .unwrap();
 
-    aster_drive::services::team_service::add_member(
+    aster_drive::services::workspace::team::add_member(
         &state,
         team.id,
         owner.id,
-        aster_drive::services::team_service::AddTeamMemberInput {
+        aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
             role: aster_drive::types::TeamMemberRole::Member,
@@ -2261,12 +2251,12 @@ async fn test_team_service_degrades_missing_creator_rows() {
         .await
         .unwrap();
 
-    let loaded = aster_drive::services::team_service::get_team(&state, team.id, owner.id)
+    let loaded = aster_drive::services::workspace::team::get_team(&state, team.id, owner.id)
         .await
         .unwrap();
     assert!(loaded.created_by.is_none());
 
-    let teams = aster_drive::services::team_service::list_teams(&state, member.id, false)
+    let teams = aster_drive::services::workspace::team::list_teams(&state, member.id, false)
         .await
         .unwrap();
     assert_eq!(teams.len(), 1);
@@ -2287,10 +2277,10 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
     )
     .await
     .unwrap();
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Trash Team".to_string(),
             description: None,
         },
@@ -2352,10 +2342,10 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     .await
     .unwrap();
 
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Folder Scope".to_string(),
             description: None,
         },
@@ -2363,11 +2353,11 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     .await
     .unwrap();
 
-    aster_drive::services::team_service::add_member(
+    aster_drive::services::workspace::team::add_member(
         &state,
         team.id,
         owner.id,
-        aster_drive::services::team_service::AddTeamMemberInput {
+        aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
             role: aster_drive::types::TeamMemberRole::Member,
@@ -2526,10 +2516,10 @@ async fn test_team_service_list_teams_for_member() {
     .await
     .unwrap();
 
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "List Teams".to_string(),
             description: None,
         },
@@ -2537,11 +2527,11 @@ async fn test_team_service_list_teams_for_member() {
     .await
     .unwrap();
 
-    aster_drive::services::team_service::add_member(
+    aster_drive::services::workspace::team::add_member(
         &state,
         team.id,
         owner.id,
-        aster_drive::services::team_service::AddTeamMemberInput {
+        aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
             role: aster_drive::types::TeamMemberRole::Member,
@@ -2550,7 +2540,7 @@ async fn test_team_service_list_teams_for_member() {
     .await
     .unwrap();
 
-    let teams = aster_drive::services::team_service::list_teams(&state, member.id, false)
+    let teams = aster_drive::services::workspace::team::list_teams(&state, member.id, false)
         .await
         .unwrap();
     assert_eq!(teams.len(), 1);
@@ -2578,20 +2568,20 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     .await
     .unwrap();
 
-    let active_team = aster_drive::services::team_service::create_team(
+    let active_team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Active Team".to_string(),
             description: None,
         },
     )
     .await
     .unwrap();
-    let archived_team = aster_drive::services::team_service::create_team(
+    let archived_team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Archived Team".to_string(),
             description: None,
         },
@@ -2600,11 +2590,11 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     .unwrap();
 
     for team_id in [active_team.id, archived_team.id] {
-        aster_drive::services::team_service::add_member(
+        aster_drive::services::workspace::team::add_member(
             &state,
             team_id,
             owner.id,
-            aster_drive::services::team_service::AddTeamMemberInput {
+            aster_drive::services::workspace::team::AddTeamMemberInput {
                 user_id: Some(member.id),
                 identifier: None,
                 role: aster_drive::types::TeamMemberRole::Member,
@@ -2614,12 +2604,12 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
         .unwrap();
     }
 
-    aster_drive::services::team_service::archive_team(&state, archived_team.id, owner.id)
+    aster_drive::services::workspace::team::archive_team(&state, archived_team.id, owner.id)
         .await
         .unwrap();
 
     let active_team_ids =
-        aster_drive::services::team_service::list_user_team_ids(&state, member.id, false)
+        aster_drive::services::workspace::team::list_user_team_ids(&state, member.id, false)
             .await
             .unwrap();
     assert_eq!(active_team_ids.len(), 1);
@@ -2627,7 +2617,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     assert!(!active_team_ids.contains(&archived_team.id));
 
     let archived_team_ids =
-        aster_drive::services::team_service::list_user_team_ids(&state, member.id, true)
+        aster_drive::services::workspace::team::list_user_team_ids(&state, member.id, true)
             .await
             .unwrap();
     assert_eq!(archived_team_ids.len(), 1);
@@ -2649,10 +2639,10 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     )
     .await
     .unwrap();
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Cleanup Team".to_string(),
             description: None,
         },
@@ -2794,7 +2784,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     .await
     .unwrap();
 
-    aster_drive::services::team_service::archive_team(&state, team.id, owner.id)
+    aster_drive::services::workspace::team::archive_team(&state, team.id, owner.id)
         .await
         .unwrap();
 
@@ -2809,7 +2799,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
         .await
         .unwrap();
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
     assert_eq!(deleted, 1);
@@ -2886,10 +2876,10 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
     )
     .await
     .unwrap();
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Cleanup Failure Team".to_string(),
             description: None,
         },
@@ -2932,7 +2922,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
     .await
     .unwrap();
 
-    aster_drive::services::team_service::archive_team(&state, team.id, owner.id)
+    aster_drive::services::workspace::team::archive_team(&state, team.id, owner.id)
         .await
         .unwrap();
     let mut archived_team =
@@ -2953,7 +2943,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
         .to_path_buf();
     let guard = DirModeGuard::set_read_only(object_parent);
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
 
@@ -2974,7 +2964,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
 
     drop(guard);
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
 
@@ -3006,10 +2996,10 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     )
     .await
     .unwrap();
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Batch Cleanup Team".to_string(),
             description: None,
         },
@@ -3104,7 +3094,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         }
     }
 
-    aster_drive::services::team_service::archive_team(&state, team.id, owner.id)
+    aster_drive::services::workspace::team::archive_team(&state, team.id, owner.id)
         .await
         .unwrap();
 
@@ -3119,7 +3109,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         .await
         .unwrap();
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
     assert_eq!(deleted, 1);
@@ -3173,10 +3163,10 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
     )
     .await
     .unwrap();
-    let team = aster_drive::services::team_service::create_team(
+    let team = aster_drive::services::workspace::team::create_team(
         &state,
         owner.id,
-        aster_drive::services::team_service::CreateTeamInput {
+        aster_drive::services::workspace::team::CreateTeamInput {
             name: "Retention Team".to_string(),
             description: None,
         },
@@ -3194,7 +3184,7 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
     config.value = "30".to_string();
     state.runtime_config.apply(config);
 
-    aster_drive::services::team_service::archive_team(&state, team.id, owner.id)
+    aster_drive::services::workspace::team::archive_team(&state, team.id, owner.id)
         .await
         .unwrap();
 
@@ -3209,7 +3199,7 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
         .await
         .unwrap();
 
-    let deleted = aster_drive::services::team_service::cleanup_expired_archived_teams(&state)
+    let deleted = aster_drive::services::workspace::team::cleanup_expired_archived_teams(&state)
         .await
         .unwrap();
     assert_eq!(deleted, 0);

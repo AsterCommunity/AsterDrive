@@ -352,12 +352,9 @@ async fn complete_object_multipart_upload_session(
                 }
             };
 
-            if let Err(error) = storage::check_quota(
-                db,
-                workspace_scope_from_session(&session),
-                actual_part_size,
-            )
-            .await
+            if let Err(error) =
+                storage::check_quota(db, workspace_scope_from_session(&session), actual_part_size)
+                    .await
             {
                 if should_abort_multipart_after_preflight_error(&error) {
                     abort_multipart_upload_after_preflight_failure(

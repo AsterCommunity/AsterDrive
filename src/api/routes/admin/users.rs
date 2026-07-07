@@ -11,10 +11,12 @@ use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service,
     auth::local::{self, Claims},
     auth::mfa,
-    user::profile, user::invitation, user::account,
+    ops::audit,
+    user::account,
+    user::invitation,
+    user::profile,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -40,7 +42,7 @@ pub async fn create_user(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let body = body.into_inner();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let output = account::create_with_audit(
         state.get_ref(),
         account::CreateUserInput {
@@ -111,14 +113,13 @@ pub async fn create_user_invitation(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let invitation =
-        invitation::create_invitation(state.get_ref(), &body.email, claims.user_id)
-            .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+        invitation::create_invitation(state.get_ref(), &body.email, claims.user_id).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateInvitation,
-        audit_service::AuditEntityType::Invitation,
+        audit::AuditAction::AdminCreateInvitation,
+        audit::AuditEntityType::Invitation,
         Some(invitation.id),
         Some(&invitation.email),
         || invitation_audit_details(&invitation),
@@ -144,12 +145,9 @@ pub async fn list_user_invitations(
     state: web::Data<PrimaryAppState>,
     page: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let invitations = invitation::list_invitations(
-        state.get_ref(),
-        page.limit_or(20, 100),
-        page.offset(),
-    )
-    .await?;
+    let invitations =
+        invitation::list_invitations(state.get_ref(), page.limit_or(20, 100), page.offset())
+            .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(invitations)))
 }
 
@@ -175,12 +173,12 @@ pub async fn revoke_user_invitation(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let invitation = invitation::revoke_invitation(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminRevokeInvitation,
-        audit_service::AuditEntityType::Invitation,
+        audit::AuditAction::AdminRevokeInvitation,
+        audit::AuditEntityType::Invitation,
         Some(invitation.id),
         Some(&invitation.email),
         || invitation_audit_details(&invitation),
@@ -192,7 +190,7 @@ pub async fn revoke_user_invitation(
 fn invitation_audit_details(
     invitation: &invitation::AdminUserInvitationInfo,
 ) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::InvitationAuditDetails {
+    audit::details(audit::InvitationAuditDetails {
         email: &invitation.email,
         status: invitation.status,
         invited_by: invitation.invited_by,
@@ -244,7 +242,7 @@ pub async fn revoke_user_sessions(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     local::revoke_user_sessions_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
@@ -275,7 +273,7 @@ pub async fn update_user(
     let target_id = *path;
     validate_request(&*body)?;
     let body = body.into_inner();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let user = account::update_with_audit(
         state.get_ref(),
         account::UpdateUserInput {
@@ -317,7 +315,7 @@ pub async fn reset_user_password(
     body: web::Json<ResetUserPasswordReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     local::set_password_with_audit(state.get_ref(), *path, &body.password, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
@@ -342,7 +340,7 @@ pub async fn reset_user_mfa(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     mfa::reset_user_mfa(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
@@ -368,7 +366,7 @@ pub async fn force_delete_user(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     account::force_delete_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }

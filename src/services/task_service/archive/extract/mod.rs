@@ -13,7 +13,9 @@ use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::archive::core::format::{ArchiveFormat, detect_supported_archive_format};
+use crate::services::files::archive::core::format::{
+    ArchiveFormat, detect_supported_archive_format,
+};
 use crate::services::{
     events::storage_change,
     task_service::{
@@ -47,8 +49,7 @@ pub(crate) async fn create_archive_extract_task_in_scope(
     file_id: i64,
     params: CreateArchiveExtractTaskParams,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let source_file = storage::verify_file_access(state, scope, file_id).await?;
     storage::ensure_active_file_scope(&source_file, scope)?;
     ensure_extract_source_supported(&source_file)?;
@@ -91,8 +92,7 @@ pub(super) async fn process_archive_extract_task(
             Some("Worker claimed task"),
             None,
         )?;
-        let source_file =
-            storage::verify_file_access(state, scope, payload.file_id).await?;
+        let source_file = storage::verify_file_access(state, scope, payload.file_id).await?;
         storage::ensure_active_file_scope(&source_file, scope)?;
         let archive_format = ensure_extract_source_supported(&source_file)?;
         if let Some(target_folder_id) = payload.target_folder_id {
@@ -459,12 +459,8 @@ async fn resolve_archive_extract_policy_resolver(
             team_id,
             actor_user_id,
         } => {
-            let policy_group_id = storage::require_team_policy_group_id(
-                state,
-                team_id,
-                actor_user_id,
-            )
-            .await?;
+            let policy_group_id =
+                storage::require_team_policy_group_id(state, team_id, actor_user_id).await?;
             Ok(ArchiveExtractPolicyResolver::Team { policy_group_id })
         }
     }

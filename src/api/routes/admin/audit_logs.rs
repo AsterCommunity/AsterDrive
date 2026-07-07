@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::audit_service;
+use crate::services::ops::audit;
 use actix_web::{HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -15,9 +15,9 @@ use actix_web::{HttpResponse, web};
     path = "/api/v1/admin/audit-logs",
     tag = "admin",
     operation_id = "list_audit_logs",
-    params(LimitOffsetQuery, audit_service::AuditLogFilterQuery, AdminAuditLogSortQuery),
+    params(LimitOffsetQuery, audit::AuditLogFilterQuery, AdminAuditLogSortQuery),
     responses(
-        (status = 200, description = "Audit log entries", body = inline(ApiResponse<OffsetPage<audit_service::AuditLogEntry>>)),
+        (status = 200, description = "Audit log entries", body = inline(ApiResponse<OffsetPage<audit::AuditLogEntry>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -26,11 +26,11 @@ use actix_web::{HttpResponse, web};
 pub async fn list_audit_logs(
     state: web::Data<PrimaryAppState>,
     page: web::Query<LimitOffsetQuery>,
-    query: web::Query<audit_service::AuditLogFilterQuery>,
+    query: web::Query<audit::AuditLogFilterQuery>,
     sort: web::Query<AdminAuditLogSortQuery>,
 ) -> Result<HttpResponse> {
-    let filters = audit_service::AuditLogFilters::from_query(&query);
-    let page = audit_service::query(
+    let filters = audit::AuditLogFilters::from_query(&query);
+    let page = audit::query(
         state.get_ref(),
         filters,
         page.limit_or(50, 200),

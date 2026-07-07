@@ -132,8 +132,7 @@ async fn finalize_stream_relay_chunked_upload_session(
 ) -> Result<file::Model> {
     const CHUNK_RELAY_BUFFER_SIZE: usize = 64 * 1024;
 
-    let prepared =
-        storage::prepare_non_dedup_blob_upload(policy, session.total_size)?;
+    let prepared = storage::prepare_non_dedup_blob_upload(policy, session.total_size)?;
     let (writer, reader) = tokio::io::duplex(CHUNK_RELAY_BUFFER_SIZE);
     let relay_task = tokio::spawn(stream_local_chunks_into_writer(
         state.config().server.upload_temp_dir.clone(),
@@ -169,12 +168,8 @@ async fn finalize_stream_relay_chunked_upload_session(
         return Err(error);
     }
     if let Err(error) = relay_result {
-        storage::cleanup_preuploaded_blob_upload(
-            driver,
-            &prepared,
-            "chunked upload relay error",
-        )
-        .await;
+        storage::cleanup_preuploaded_blob_upload(driver, &prepared, "chunked upload relay error")
+            .await;
         return Err(error);
     }
 
@@ -349,8 +344,7 @@ async fn stage_assembled_blob_upload(
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 assembled 文件传上去。
     // 失败只会留下孤儿 storage 对象，由 blob GC 自然回收。
     let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size)?;
-    storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path)
-        .await?;
+    storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
     Ok(AssembledBlobPlan::Preuploaded(preuploaded))
 }
 

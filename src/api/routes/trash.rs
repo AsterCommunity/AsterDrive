@@ -10,7 +10,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service, auth::local::Claims, files::file, files::folder, task_service, files::trash,
+    auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task_service,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
@@ -101,22 +101,20 @@ pub async fn restore(
     let (entity_name, details) =
         trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
-        EntityType::File => {
-            trash::restore_file(state.get_ref(), path.id, claims.user_id).await?
-        }
+        EntityType::File => trash::restore_file(state.get_ref(), path.id, claims.user_id).await?,
         EntityType::Folder => {
             trash::restore_folder(state.get_ref(), path.id, claims.user_id).await?
         }
     }
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
         match path.entity_type {
-            EntityType::File => audit_service::AuditAction::FileRestore,
-            EntityType::Folder => audit_service::AuditAction::FolderRestore,
+            EntityType::File => audit::AuditAction::FileRestore,
+            EntityType::Folder => audit::AuditAction::FolderRestore,
         },
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.id),
         entity_name.as_deref(),
         || details.clone(),
@@ -153,22 +151,18 @@ pub async fn purge_one(
     let (entity_name, details) =
         trash_item_audit_details(state.get_ref(), scope, path.entity_type, path.id).await?;
     match path.entity_type {
-        EntityType::File => {
-            trash::purge_file(state.get_ref(), path.id, claims.user_id).await?
-        }
-        EntityType::Folder => {
-            trash::purge_folder(state.get_ref(), path.id, claims.user_id).await?
-        }
+        EntityType::File => trash::purge_file(state.get_ref(), path.id, claims.user_id).await?,
+        EntityType::Folder => trash::purge_folder(state.get_ref(), path.id, claims.user_id).await?,
     }
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
         match path.entity_type {
-            EntityType::File => audit_service::AuditAction::FilePurge,
-            EntityType::Folder => audit_service::AuditAction::FolderPurge,
+            EntityType::File => audit::AuditAction::FilePurge,
+            EntityType::Folder => audit::AuditAction::FolderPurge,
         },
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.id),
         entity_name.as_deref(),
         || details.clone(),
@@ -198,17 +192,17 @@ pub async fn purge_all(
     };
     let task =
         task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let details = audit_service::details(audit_service::TrashPurgeAllAuditDetails {
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",
         purged: None,
         team_id: None,
     });
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::TrashPurgeAll,
-        crate::services::audit_service::AuditEntityType::Trash,
+        audit::AuditAction::TrashPurgeAll,
+        crate::services::ops::audit::AuditEntityType::Trash,
         Some(task.id),
         Some(&task.display_name),
         || details.clone(),
@@ -295,15 +289,15 @@ pub(crate) async fn team_restore(
             trash::restore_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
         }
     }
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
         match entity_type {
-            EntityType::File => audit_service::AuditAction::FileRestore,
-            EntityType::Folder => audit_service::AuditAction::FolderRestore,
+            EntityType::File => audit::AuditAction::FileRestore,
+            EntityType::Folder => audit::AuditAction::FolderRestore,
         },
-        audit_service::AuditEntityType::from_entity_type(entity_type),
+        audit::AuditEntityType::from_entity_type(entity_type),
         Some(id),
         entity_name.as_deref(),
         || details.clone(),
@@ -351,15 +345,15 @@ pub(crate) async fn team_purge_one(
             trash::purge_team_folder(state.get_ref(), team_id, id, claims.user_id).await?
         }
     }
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
         match entity_type {
-            EntityType::File => audit_service::AuditAction::FilePurge,
-            EntityType::Folder => audit_service::AuditAction::FolderPurge,
+            EntityType::File => audit::AuditAction::FilePurge,
+            EntityType::Folder => audit::AuditAction::FolderPurge,
         },
-        audit_service::AuditEntityType::from_entity_type(entity_type),
+        audit::AuditEntityType::from_entity_type(entity_type),
         Some(id),
         entity_name.as_deref(),
         || details.clone(),
@@ -394,17 +388,17 @@ pub(crate) async fn team_purge_all(
     };
     let task =
         task_service::trash::create_trash_purge_all_task_in_scope(state.get_ref(), scope).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let details = audit_service::details(audit_service::TrashPurgeAllAuditDetails {
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let details = audit::details(audit::TrashPurgeAllAuditDetails {
         phase: "requested",
         purged: None,
         team_id: Some(team_id),
     });
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::TrashPurgeAll,
-        crate::services::audit_service::AuditEntityType::Trash,
+        audit::AuditAction::TrashPurgeAll,
+        crate::services::ops::audit::AuditEntityType::Trash,
         Some(task.id),
         Some(&task.display_name),
         || details.clone(),

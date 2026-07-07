@@ -10,7 +10,7 @@ use crate::entities::file_version;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     events::storage_change,
     workspace::models::{FileInfo, FileVersion},
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
@@ -73,8 +73,7 @@ async fn restore_version_inner(
 
     let now = Utc::now();
     let current_blob = file_repo::find_blob_by_id(db, file.blob_id).await?;
-    if let Err(e) =
-        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
+    if let Err(e) = crate::services::media::processing::delete_thumbnail(state, &current_blob).await
     {
         tracing::warn!(
             "failed to delete thumbnail for blob {}: {e}",
@@ -228,8 +227,7 @@ async fn restore_version_in_scope(
         actor_user_id,
     } = scope
     {
-        storage::require_team_management_access(state, team_id, actor_user_id)
-            .await?;
+        storage::require_team_management_access(state, team_id, actor_user_id).await?;
     }
     let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     restore_version_inner(state, scope, file, version).await
@@ -247,8 +245,7 @@ async fn delete_version_in_scope(
         actor_user_id,
     } = scope
     {
-        storage::require_team_management_access(state, team_id, actor_user_id)
-            .await?;
+        storage::require_team_management_access(state, team_id, actor_user_id).await?;
     }
     let version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version_inner(state, scope, file.folder_id, version).await
@@ -308,14 +305,14 @@ pub async fn restore_version_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = restore_version(state, file_id, version_id, user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileVersionRestore,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileVersionRestore,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit::details(audit::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(file)
@@ -350,14 +347,14 @@ pub async fn restore_version_for_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<FileInfo> {
     let file = restore_version_for_team(state, team_id, file_id, version_id, user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileVersionRestore,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileVersionRestore,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit::details(audit::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(file)
@@ -386,22 +383,19 @@ pub async fn delete_version_with_audit(
     user_id: i64,
     audit_ctx: &AuditContext,
 ) -> Result<()> {
-    let file = storage::verify_file_access(
-        state,
-        WorkspaceStorageScope::Personal { user_id },
-        file_id,
-    )
-    .await?;
+    let file =
+        storage::verify_file_access(state, WorkspaceStorageScope::Personal { user_id }, file_id)
+            .await?;
     let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version(state, file_id, version_id, user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileVersionDelete,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileVersionDelete,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit::details(audit::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(())
@@ -445,14 +439,14 @@ pub async fn delete_version_for_team_with_audit(
     .await?;
     let _version = load_version_for_file(state.writer_db(), file_id, version_id).await?;
     delete_version_for_team(state, team_id, file_id, version_id, user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::FileVersionDelete,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileVersionDelete,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
-        || audit_service::details(audit_service::FileVersionAuditDetails { version_id }),
+        || audit::details(audit::FileVersionAuditDetails { version_id }),
     )
     .await;
     Ok(())
@@ -478,12 +472,7 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
             version_repo::delete_by_id(&txn, oldest.id).await?;
             version_repo::decrement_versions_after(&txn, file_id, oldest.version).await?;
             if oldest.size != 0 {
-                storage::update_storage_used_for_resource_scope(
-                    &txn,
-                    scope,
-                    -oldest.size,
-                )
-                .await?;
+                storage::update_storage_used_for_resource_scope(&txn, scope, -oldest.size).await?;
             }
             crate::db::transaction::commit(txn).await?;
             cleanup_blob_if_unused(state, oldest.blob_id).await?;
@@ -540,12 +529,7 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let blob_ids = version_repo::delete_all_by_file_id(&txn, file_id).await?;
     if reclaimed_bytes != 0 {
-        storage::update_storage_used_for_resource_scope(
-            &txn,
-            scope,
-            -reclaimed_bytes,
-        )
-        .await?;
+        storage::update_storage_used_for_resource_scope(&txn, scope, -reclaimed_bytes).await?;
     }
     crate::db::transaction::commit(txn).await?;
 

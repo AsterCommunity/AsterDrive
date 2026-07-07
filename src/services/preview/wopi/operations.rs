@@ -9,7 +9,7 @@ use crate::db::repository::file_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditRequestInfo},
+    ops::audit::{self, AuditRequestInfo},
     files::file,
     user::profile,
 };
@@ -49,8 +49,7 @@ pub async fn check_file_info(
 ) -> Result<WopiCheckFileInfo> {
     let resolved = resolve_access_token(state, file_id, access_token, request_source).await?;
     let blob = file_repo::find_blob_by_id(state.writer_db(), resolved.file.blob_id).await?;
-    let user_info =
-        profile::get_wopi_user_info(state, resolved.payload.actor_user_id).await?;
+    let user_info = profile::get_wopi_user_info(state, resolved.payload.actor_user_id).await?;
 
     Ok(WopiCheckFileInfo {
         base_file_name: resolved.file.name.clone(),
@@ -113,11 +112,11 @@ pub async fn get_file_contents(
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
     let scope = scope_from_payload(&resolved.payload);
     let details = file::audit_location_details_for_model(state, scope, &resolved.file).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::FileDownload,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileDownload,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(resolved.file.id),
         Some(&resolved.file.name),
         || details.clone(),
@@ -163,11 +162,11 @@ pub async fn put_file_contents(
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);
     let scope = scope_from_payload(&resolved.payload);
     let details = file::audit_location_details_for_model(state, scope, &updated).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::FileEdit,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileEdit,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(updated.id),
         Some(&updated.name),
         || details.clone(),
@@ -220,7 +219,7 @@ pub async fn put_relative_file(
                 .declared_size(declared_size),
             )
             .await?;
-            (target, audit_service::AuditAction::FileUpload)
+            (target, audit::AuditAction::FileUpload)
         }
         PutRelativeTargetMode::Relative {
             target_name,
@@ -250,7 +249,7 @@ pub async fn put_relative_file(
                         .exact_name(),
                     )
                     .await?;
-                    (target, audit_service::AuditAction::FileUpload)
+                    (target, audit::AuditAction::FileUpload)
                 }
                 Some(existing) => {
                     if existing.id == resolved.file.id {
@@ -315,7 +314,7 @@ pub async fn put_relative_file(
                         .exact_name(),
                     )
                     .await?;
-                    (target, audit_service::AuditAction::FileEdit)
+                    (target, audit::AuditAction::FileEdit)
                 }
             }
         }
@@ -323,11 +322,11 @@ pub async fn put_relative_file(
 
     let audit_ctx = audit_info.to_context(resolved.payload.actor_user_id);
     let details = file::audit_location_details_for_model(state, scope, &target_file).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
         audit_action,
-        crate::services::audit_service::AuditEntityType::File,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(target_file.id),
         Some(&target_file.name),
         || details.clone(),
@@ -411,11 +410,11 @@ pub async fn rename_file(
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
     let details =
         file::audit_transfer_details_for_models(state, scope, &previous_file, &updated).await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::FileRename,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileRename,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(updated.id),
         Some(&updated.name),
         || details.clone(),
@@ -438,17 +437,16 @@ pub async fn put_user_info(
     let body = collect_limited_payload(payload, MAX_WOPI_USER_INFO_LEN).await?;
     let user_info_len = body.len();
     let user_info = normalize_wopi_user_info(&body)?;
-    profile::update_wopi_user_info(state, resolved.payload.actor_user_id, user_info)
-        .await?;
+    profile::update_wopi_user_info(state, resolved.payload.actor_user_id, user_info).await?;
     let audit_ctx = request_info.to_context(resolved.payload.actor_user_id);
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserUpdateWopiInfo,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::UserUpdateWopiInfo,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(resolved.payload.actor_user_id),
         None,
-        audit_service::details(audit_service::UserWopiInfoAuditDetails {
+        audit::details(audit::UserWopiInfoAuditDetails {
             file_id: resolved.file.id,
             app_key: &resolved.payload.app_key,
             user_info_len,

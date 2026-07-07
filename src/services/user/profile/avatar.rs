@@ -57,12 +57,8 @@ pub async fn upload_avatar(
         operations::avatar_max_upload_size_bytes(state.runtime_config()),
     )
     .await?;
-    let processed_avatar = processing::process_avatar_upload(
-        state,
-        &upload_data.file_name,
-        upload_data.bytes,
-    )
-    .await?;
+    let processed_avatar =
+        processing::process_avatar_upload(state, &upload_data.file_name, upload_data.bytes).await?;
     user_repo::check_quota(
         state.writer_db(),
         user_id,

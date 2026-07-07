@@ -10,7 +10,7 @@ use crate::api::routes::{batch, folders, search, shares, tags, tasks, trash, web
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, team_service};
+use crate::services::{auth::local::Claims, ops::audit, workspace::team};
 use crate::types::TeamMemberRole;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
@@ -74,7 +74,7 @@ pub fn routes(
     operation_id = "list_teams",
     params(ListTeamsQuery),
     responses(
-        (status = 200, description = "Teams visible to the signed-in user", body = inline(ApiResponse<Vec<team_service::TeamInfo>>)),
+        (status = 200, description = "Teams visible to the signed-in user", body = inline(ApiResponse<Vec<team::TeamInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -84,7 +84,7 @@ pub async fn list_teams(
     claims: web::ReqData<Claims>,
     query: web::Query<ListTeamsQuery>,
 ) -> Result<HttpResponse> {
-    let teams = team_service::list_teams_filtered(
+    let teams = team::list_teams_filtered(
         state.get_ref(),
         claims.user_id,
         query.archived.unwrap_or(false),
@@ -103,7 +103,7 @@ pub async fn list_teams(
     operation_id = "create_team",
     request_body = CreateTeamReq,
     responses(
-        (status = 201, description = "Team created", body = inline(ApiResponse<team_service::TeamInfo>)),
+        (status = 201, description = "Team created", body = inline(ApiResponse<team::TeamInfo>)),
         (status = 400, description = "Validation error"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "System admin required"),
@@ -117,11 +117,11 @@ pub async fn create_team(
     body: web::Json<CreateTeamReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let team = team_service::create_team_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let team = team::create_team_with_audit(
         state.get_ref(),
         claims.user_id,
-        team_service::CreateTeamInput {
+        team::CreateTeamInput {
             name: body.name.clone(),
             description: body.description.clone(),
         },
@@ -138,7 +138,7 @@ pub async fn create_team(
     operation_id = "get_team",
     params(("id" = i64, Path, description = "Team ID")),
     responses(
-        (status = 200, description = "Team details", body = inline(ApiResponse<team_service::TeamInfo>)),
+        (status = 200, description = "Team details", body = inline(ApiResponse<team::TeamInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -150,7 +150,7 @@ pub async fn get_team(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let team = team_service::get_team(state.get_ref(), *path, claims.user_id).await?;
+    let team = team::get_team(state.get_ref(), *path, claims.user_id).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 
@@ -162,7 +162,7 @@ pub async fn get_team(
     params(("id" = i64, Path, description = "Team ID")),
     request_body = PatchTeamReq,
     responses(
-        (status = 200, description = "Team updated", body = inline(ApiResponse<team_service::TeamInfo>)),
+        (status = 200, description = "Team updated", body = inline(ApiResponse<team::TeamInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -177,12 +177,12 @@ pub async fn patch_team(
     body: web::Json<PatchTeamReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let team = team_service::update_team_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let team = team::update_team_with_audit(
         state.get_ref(),
         *path,
         claims.user_id,
-        team_service::UpdateTeamInput {
+        team::UpdateTeamInput {
             name: body.name.clone(),
             description: body.description.clone(),
         },
@@ -212,8 +212,8 @@ pub async fn delete_team(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    team_service::archive_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    team::archive_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -224,7 +224,7 @@ pub async fn delete_team(
     operation_id = "restore_team",
     params(("id" = i64, Path, description = "Team ID")),
     responses(
-        (status = 200, description = "Team restored", body = inline(ApiResponse<team_service::TeamInfo>)),
+        (status = 200, description = "Team restored", body = inline(ApiResponse<team::TeamInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -237,9 +237,9 @@ pub async fn restore_team(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let team =
-        team_service::restore_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
+        team::restore_team_with_audit(state.get_ref(), *path, claims.user_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(team)))
 }
 
@@ -251,10 +251,10 @@ pub async fn restore_team(
     params(
         ("id" = i64, Path, description = "Team ID"),
         LimitOffsetQuery,
-        audit_service::AuditLogFilterQuery
+        audit::AuditLogFilterQuery
     ),
     responses(
-        (status = 200, description = "Team audit log entries", body = inline(ApiResponse<crate::api::pagination::OffsetPage<audit_service::TeamAuditEntryInfo>>)),
+        (status = 200, description = "Team audit log entries", body = inline(ApiResponse<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -266,13 +266,13 @@ pub async fn list_audit_logs(
     claims: web::ReqData<Claims>,
     path: web::Path<i64>,
     page: web::Query<LimitOffsetQuery>,
-    query: web::Query<audit_service::AuditLogFilterQuery>,
+    query: web::Query<audit::AuditLogFilterQuery>,
 ) -> Result<HttpResponse> {
-    let page = team_service::list_team_audit_entries(
+    let page = team::list_team_audit_entries(
         state.get_ref(),
         *path,
         claims.user_id,
-        audit_service::AuditLogFilters::from_query(&query),
+        audit::AuditLogFilters::from_query(&query),
         page.limit_or(20, 200),
         page.offset(),
     )
@@ -292,7 +292,7 @@ pub async fn list_audit_logs(
         ListTeamMembersQuery
     ),
     responses(
-        (status = 200, description = "Team members", body = inline(ApiResponse<team_service::TeamMemberPage>)),
+        (status = 200, description = "Team members", body = inline(ApiResponse<team::TeamMemberPage>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -306,12 +306,12 @@ pub async fn list_members(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<ListTeamMembersQuery>,
 ) -> Result<HttpResponse> {
-    let members = team_service::list_members(
+    let members = team::list_members(
         state.get_ref(),
         *path,
         claims.user_id,
         {
-            let mut filters = team_service::TeamMemberListFilters::from_inputs(
+            let mut filters = team::TeamMemberListFilters::from_inputs(
                 query.keyword.as_deref(),
                 query.role,
                 query.status,
@@ -335,7 +335,7 @@ pub async fn list_members(
     params(("id" = i64, Path, description = "Team ID")),
     request_body = AddTeamMemberReq,
     responses(
-        (status = 201, description = "Member added", body = inline(ApiResponse<team_service::TeamMemberInfo>)),
+        (status = 201, description = "Member added", body = inline(ApiResponse<team::TeamMemberInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -350,12 +350,12 @@ pub async fn add_member(
     body: web::Json<AddTeamMemberReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let member = team_service::add_member_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let member = team::add_member_with_audit(
         state.get_ref(),
         *path,
         claims.user_id,
-        team_service::AddTeamMemberInput {
+        team::AddTeamMemberInput {
             user_id: body.user_id,
             identifier: body.identifier.clone(),
             role: body.role.unwrap_or(TeamMemberRole::Member),
@@ -377,7 +377,7 @@ pub async fn add_member(
     ),
     request_body = PatchTeamMemberReq,
     responses(
-        (status = 200, description = "Member updated", body = inline(ApiResponse<team_service::TeamMemberInfo>)),
+        (status = 200, description = "Member updated", body = inline(ApiResponse<team::TeamMemberInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),
@@ -392,8 +392,8 @@ pub async fn patch_member(
     body: web::Json<PatchTeamMemberReq>,
 ) -> Result<HttpResponse> {
     let (team_id, member_user_id) = path.into_inner();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let member = team_service::update_member_role_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    let member = team::update_member_role_with_audit(
         state.get_ref(),
         team_id,
         claims.user_id,
@@ -429,8 +429,8 @@ pub async fn delete_member(
     path: web::Path<(i64, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, member_user_id) = path.into_inner();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    team_service::remove_member_with_audit(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    team::remove_member_with_audit(
         state.get_ref(),
         team_id,
         claims.user_id,

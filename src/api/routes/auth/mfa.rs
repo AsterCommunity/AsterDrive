@@ -5,7 +5,7 @@ use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::auth::local::Claims;
-use crate::services::{audit_service, auth::mfa};
+use crate::services::{auth::mfa, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 use mfa::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
@@ -30,7 +30,7 @@ pub async fn verify_challenge(
         state.get_ref().runtime_config(),
         RequestSourceMode::OptionalWhenPresent,
     )?;
-    let audit_info = audit_service::AuditRequestInfo::from_request_with_trusted_proxies(
+    let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
@@ -72,7 +72,7 @@ pub async fn send_email_code(
         state.get_ref().runtime_config(),
         RequestSourceMode::OptionalWhenPresent,
     )?;
-    let audit_info = audit_service::AuditRequestInfo::from_request_with_trusted_proxies(
+    let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
     );
@@ -139,7 +139,7 @@ pub async fn finish_totp_setup(
     claims: web::ReqData<Claims>,
     body: web::Json<mfa::TotpSetupFinishRequest>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
         mfa::verify_totp_setup(state.get_ref(), claims.user_id, body.into_inner(), &ctx).await?,
     )))
@@ -167,7 +167,7 @@ pub async fn delete_factor(
     body: web::Json<mfa::MfaSensitiveActionRequest>,
 ) -> Result<HttpResponse> {
     let factor_id = *path;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     if !mfa::delete_factor(
         state.get_ref(),
         claims.user_id,
@@ -202,7 +202,7 @@ pub async fn regenerate_recovery_codes(
     claims: web::ReqData<Claims>,
     body: web::Json<mfa::MfaSensitiveActionRequest>,
 ) -> Result<HttpResponse> {
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
         mfa::regenerate_recovery_codes(state.get_ref(), claims.user_id, body.into_inner(), &ctx)
             .await?,

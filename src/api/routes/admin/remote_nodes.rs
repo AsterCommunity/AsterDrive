@@ -11,7 +11,7 @@ use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service, auth::local::Claims, remote::enrollment, remote::remote_node,
+    auth::local::Claims, ops::audit, remote::enrollment, remote::remote_node,
     remote::storage_target,
 };
 use crate::storage::remote_protocol::{
@@ -30,7 +30,7 @@ fn enrollment_status_audit_name(status: remote_node::RemoteNodeEnrollmentStatus)
 }
 
 fn remote_node_audit_details(node: &remote_node::RemoteNodeInfo) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::RemoteNodeAuditDetails {
+    audit::details(audit::RemoteNodeAuditDetails {
         base_url: &node.base_url,
         is_enabled: node.is_enabled,
         enrollment_status: enrollment_status_audit_name(node.enrollment_status),
@@ -42,7 +42,7 @@ fn remote_storage_target_audit_details(
 ) -> Option<serde_json::Value> {
     // TODO(remote-storage-target): audit action/detail names keep the old
     // remote ingress profile strings for stored audit compatibility.
-    audit_service::details(audit_service::RemoteIngressProfileAuditDetails {
+    audit::details(audit::RemoteIngressProfileAuditDetails {
         target_key: &target.target_key,
         driver_type: target.driver_type.as_str(),
         is_default: target.is_default,
@@ -131,12 +131,12 @@ pub async fn create_remote_node(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let node = remote_node::create(state.get_ref(), body.into_inner().into()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateRemoteNode,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminCreateRemoteNode,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
         || remote_node_audit_details(&node),
@@ -191,12 +191,12 @@ pub async fn update_remote_node(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let node = remote_node::update(state.get_ref(), *path, body.into_inner().into()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminUpdateRemoteNode,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminUpdateRemoteNode,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
         || remote_node_audit_details(&node),
@@ -227,12 +227,12 @@ pub async fn delete_remote_node(
 ) -> Result<HttpResponse> {
     let node = remote_node::get(state.get_ref(), *path).await?;
     remote_node::delete(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteRemoteNode,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminDeleteRemoteNode,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
         || remote_node_audit_details(&node),
@@ -264,12 +264,12 @@ pub async fn test_remote_node(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let node = remote_node::test_connection(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestRemoteNode,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminTestRemoteNode,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(node.id),
         Some(&node.name),
         || remote_node_audit_details(&node),
@@ -302,16 +302,16 @@ pub async fn test_remote_node_params(
     let body = body.into_inner();
     let base_url = body.base_url.clone();
     let capabilities = remote_node::test_connection_params(body.into()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestRemoteNode,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminTestRemoteNode,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         None,
         Some(&base_url),
         || {
-            audit_service::details(audit_service::RemoteNodeParamTestAuditDetails {
+            audit::details(audit::RemoteNodeParamTestAuditDetails {
                 base_url: &base_url,
                 success: true,
                 protocol_version: &capabilities.protocol_version,
@@ -348,16 +348,16 @@ pub async fn create_remote_node_enrollment_token(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let command = enrollment::create_enrollment_command(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateRemoteNodeEnrollmentToken,
-        crate::services::audit_service::AuditEntityType::RemoteNode,
+        audit::AuditAction::AdminCreateRemoteNodeEnrollmentToken,
+        crate::services::ops::audit::AuditEntityType::RemoteNode,
         Some(command.remote_node_id),
         Some(&command.remote_node_name),
         || {
-            audit_service::details(audit_service::RemoteNodeEnrollmentTokenAuditDetails {
+            audit::details(audit::RemoteNodeEnrollmentTokenAuditDetails {
                 expires_at: command.expires_at,
             })
         },
@@ -514,12 +514,12 @@ pub async fn create_remote_node_storage_target(
     body: web::Json<RemoteCreateStorageTargetRequest>,
 ) -> Result<HttpResponse> {
     let target = storage_target::create_remote(state.get_ref(), *path, body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateRemoteIngressProfile,
-        crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminCreateRemoteIngressProfile,
+        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
         Some(*path),
         Some(&target.target_key),
         || remote_storage_target_audit_details(&target),
@@ -590,12 +590,12 @@ pub async fn update_remote_node_storage_target(
     let (id, target_key) = path.into_inner();
     let target =
         storage_target::update_remote(state.get_ref(), id, &target_key, body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminUpdateRemoteIngressProfile,
-        crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminUpdateRemoteIngressProfile,
+        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
         Some(id),
         Some(&target.target_key),
         || remote_storage_target_audit_details(&target),
@@ -661,16 +661,16 @@ pub async fn delete_remote_node_storage_target(
 ) -> Result<HttpResponse> {
     let (id, target_key) = path.into_inner();
     storage_target::delete_remote(state.get_ref(), id, &target_key).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteRemoteIngressProfile,
-        crate::services::audit_service::AuditEntityType::RemoteIngressProfile,
+        audit::AuditAction::AdminDeleteRemoteIngressProfile,
+        crate::services::ops::audit::AuditEntityType::RemoteIngressProfile,
         Some(id),
         Some(&target_key),
         || {
-            audit_service::details(audit_service::RemoteIngressProfileDeleteAuditDetails {
+            audit::details(audit::RemoteIngressProfileDeleteAuditDetails {
                 target_key: &target_key,
             })
         },

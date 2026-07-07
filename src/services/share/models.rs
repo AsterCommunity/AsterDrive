@@ -8,7 +8,7 @@ use validator::Validate;
 
 use crate::entities::share;
 use crate::errors::{AsterError, Result};
-use crate::services::{user::profile, user::account};
+use crate::services::{user::account, user::profile};
 use crate::types::EntityType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]

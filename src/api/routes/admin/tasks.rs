@@ -8,7 +8,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::{ApiResponse, RemovedCountResponse};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, task_service};
+use crate::services::{auth::local::Claims, ops::audit, task_service};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -74,16 +74,16 @@ pub async fn cleanup_tasks(
         },
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCleanupTasks,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::AdminCleanupTasks,
+        crate::services::ops::audit::AuditEntityType::Task,
         None,
         None,
         || {
-            audit_service::details(audit_service::AdminTaskCleanupAuditDetails {
+            audit::details(audit::AdminTaskCleanupAuditDetails {
                 removed,
                 finished_before: body.finished_before,
                 kind: body.kind,

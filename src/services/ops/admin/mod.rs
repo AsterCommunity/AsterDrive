@@ -15,9 +15,10 @@ use crate::db::repository::{
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    audit_service, user::profile,
+    ops::audit,
     task_service::{SystemRuntimeTaskKind, types::RuntimeSystemHealthStatus},
     user::account,
+    user::profile,
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
 use crate::utils::numbers::u32_to_usize;
@@ -156,7 +157,7 @@ pub struct AdminOverview {
     pub stats: AdminOverviewStats,
     pub system_health: AdminSystemHealthSummary,
     pub daily_reports: Vec<AdminOverviewDailyReport>,
-    pub recent_events: Vec<audit_service::AuditLogEntry>,
+    pub recent_events: Vec<audit::AuditLogEntry>,
     pub recent_background_tasks: Vec<AdminBackgroundTaskEvent>,
 }
 
@@ -173,7 +174,7 @@ pub(crate) struct AdminOverviewCore {
 impl AdminOverviewCore {
     fn into_overview(
         self,
-        recent_events: Vec<audit_service::AuditLogEntry>,
+        recent_events: Vec<audit::AuditLogEntry>,
         recent_background_tasks: Vec<AdminBackgroundTaskEvent>,
     ) -> AdminOverview {
         AdminOverview {
@@ -285,14 +286,11 @@ pub async fn get_overview(
 async fn load_recent_overview_events(
     state: &impl SharedRuntimeState,
     event_limit: u64,
-) -> Result<(
-    Vec<audit_service::AuditLogEntry>,
-    Vec<AdminBackgroundTaskEvent>,
-)> {
+) -> Result<(Vec<audit::AuditLogEntry>, Vec<AdminBackgroundTaskEvent>)> {
     let (recent_events, recent_background_tasks) = tokio::try_join!(
-        audit_service::query(
+        audit::query(
             state,
-            audit_service::AuditLogFilters {
+            audit::AuditLogFilters {
                 user_id: None,
                 action: None,
                 entity_type: None,
@@ -321,12 +319,9 @@ async fn build_background_task_events(
         .iter()
         .filter_map(|task| task.creator_user_id)
         .collect();
-    let creators = account::user_summaries_by_ids(
-        state,
-        &creator_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let creators =
+        account::user_summaries_by_ids(state, &creator_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     tasks
         .into_iter()
@@ -483,7 +478,7 @@ async fn build_daily_reports(
     let start = start_of_local_day(oldest_date, timezone)?;
     let end = start_of_local_day(today + Duration::days(1), timezone)?;
 
-    audit_service::flush_global_audit_log_manager().await;
+    audit::flush_global_audit_log_manager().await;
     let mut cursor = None;
     loop {
         let events = audit_log_repo::find_action_page_in_range(
@@ -504,7 +499,7 @@ async fn build_daily_reports(
                 continue;
             };
             let report = &mut reports[report_index];
-            let action = audit_service::AuditAction::from_str_name(action);
+            let action = audit::AuditAction::from_str_name(action);
             record_audit_action(report, action);
         }
         cursor = events.last().map(|(id, _, created_at)| (*created_at, *id));
@@ -513,23 +508,21 @@ async fn build_daily_reports(
     Ok(reports)
 }
 
-fn record_audit_action(
-    report: &mut AdminOverviewDailyReport,
-    action: Option<audit_service::AuditAction>,
-) {
+fn record_audit_action(report: &mut AdminOverviewDailyReport, action: Option<audit::AuditAction>) {
     report.total_events += 1;
 
     match action {
-        Some(audit_service::AuditAction::UserLogin)
-        | Some(audit_service::AuditAction::UserPasskeyLogin)
-        | Some(audit_service::AuditAction::UserExternalAuthLogin) => report.sign_ins += 1,
-        Some(audit_service::AuditAction::UserRegister)
-        | Some(audit_service::AuditAction::AdminCreateUser) => report.new_users += 1,
-        Some(audit_service::AuditAction::FileUpload) => report.uploads += 1,
-        Some(audit_service::AuditAction::ShareCreate) => report.share_creations += 1,
-        Some(audit_service::AuditAction::BatchDelete)
-        | Some(audit_service::AuditAction::FileDelete)
-        | Some(audit_service::AuditAction::FolderDelete) => report.deletions += 1,
+        Some(audit::AuditAction::UserLogin)
+        | Some(audit::AuditAction::UserPasskeyLogin)
+        | Some(audit::AuditAction::UserExternalAuthLogin) => report.sign_ins += 1,
+        Some(audit::AuditAction::UserRegister) | Some(audit::AuditAction::AdminCreateUser) => {
+            report.new_users += 1
+        }
+        Some(audit::AuditAction::FileUpload) => report.uploads += 1,
+        Some(audit::AuditAction::ShareCreate) => report.share_creations += 1,
+        Some(audit::AuditAction::BatchDelete)
+        | Some(audit::AuditAction::FileDelete)
+        | Some(audit::AuditAction::FolderDelete) => report.deletions += 1,
         _ => {}
     }
 }
@@ -557,7 +550,8 @@ fn start_of_local_day(date: NaiveDate, timezone: Tz) -> Result<DateTimeUtc> {
 
 #[cfg(test)]
 mod tests {
-    use super::{AdminOverviewDailyReport, audit_service, record_audit_action};
+    use super::{AdminOverviewDailyReport, record_audit_action};
+    use crate::services::ops::audit;
 
     fn empty_report() -> AdminOverviewDailyReport {
         AdminOverviewDailyReport {
@@ -576,17 +570,17 @@ mod tests {
         let mut report = empty_report();
 
         for action in [
-            Some(audit_service::AuditAction::UserLogin),
-            Some(audit_service::AuditAction::UserRegister),
-            Some(audit_service::AuditAction::AdminCreateUser),
-            Some(audit_service::AuditAction::FileUpload),
-            Some(audit_service::AuditAction::ShareCreate),
-            Some(audit_service::AuditAction::BatchDelete),
-            Some(audit_service::AuditAction::FileDelete),
-            Some(audit_service::AuditAction::FolderDelete),
-            Some(audit_service::AuditAction::UserPasskeyLogin),
-            Some(audit_service::AuditAction::UserExternalAuthLogin),
-            Some(audit_service::AuditAction::ConfigUpdate),
+            Some(audit::AuditAction::UserLogin),
+            Some(audit::AuditAction::UserRegister),
+            Some(audit::AuditAction::AdminCreateUser),
+            Some(audit::AuditAction::FileUpload),
+            Some(audit::AuditAction::ShareCreate),
+            Some(audit::AuditAction::BatchDelete),
+            Some(audit::AuditAction::FileDelete),
+            Some(audit::AuditAction::FolderDelete),
+            Some(audit::AuditAction::UserPasskeyLogin),
+            Some(audit::AuditAction::UserExternalAuthLogin),
+            Some(audit::AuditAction::ConfigUpdate),
             None,
         ] {
             record_audit_action(&mut report, action);

@@ -11,8 +11,8 @@ use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
-    events::storage_change::StorageChangeEvent,
-    mail::sender::MailSender, share::ShareDownloadRollbackQueue,
+    events::storage_change::StorageChangeEvent, mail::sender::MailSender,
+    share::ShareDownloadRollbackQueue,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use sea_orm::DatabaseConnection;

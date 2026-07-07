@@ -9,7 +9,7 @@ use crate::entities::{file, resource_lock};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    audit_service::{self, AuditRequestInfo},
+    ops::audit::{self, AuditRequestInfo},
     files::file as file_ops,
     files::lock,
 };
@@ -77,7 +77,7 @@ pub async fn lock_file(
                         state,
                         request_info,
                         &resolved.payload,
-                        audit_service::AuditAction::FileLock,
+                        audit::AuditAction::FileLock,
                         &resolved.file,
                     )
                     .await;
@@ -113,7 +113,7 @@ pub async fn lock_file(
         state,
         request_info,
         &resolved.payload,
-        audit_service::AuditAction::FileLock,
+        audit::AuditAction::FileLock,
         &resolved.file,
     )
     .await;
@@ -152,7 +152,7 @@ pub async fn unlock_and_relock_file(
                 state,
                 request_info,
                 &resolved.payload,
-                audit_service::AuditAction::FileLock,
+                audit::AuditAction::FileLock,
                 &resolved.file,
             )
             .await;
@@ -198,7 +198,7 @@ pub async fn refresh_lock(
                 state,
                 request_info,
                 &resolved.payload,
-                audit_service::AuditAction::FileLock,
+                audit::AuditAction::FileLock,
                 &resolved.file,
             )
             .await;
@@ -250,7 +250,7 @@ pub async fn unlock_file(
                 state,
                 request_info,
                 &resolved.payload,
-                audit_service::AuditAction::FileUnlock,
+                audit::AuditAction::FileUnlock,
                 &resolved.file,
             )
             .await;
@@ -270,7 +270,7 @@ async fn log_wopi_lock_action(
     state: &impl SharedRuntimeState,
     request_info: &AuditRequestInfo,
     payload: &WopiAccessTokenPayload,
-    action: audit_service::AuditAction,
+    action: audit::AuditAction,
     file: &file::Model,
 ) {
     let audit_ctx = request_info.to_context(payload.actor_user_id);
@@ -280,11 +280,11 @@ async fn log_wopi_lock_action(
         file,
     )
     .await;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
         action,
-        crate::services::audit_service::AuditEntityType::File,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         || details.clone(),
@@ -372,8 +372,7 @@ pub(crate) async fn load_active_lock(
     }
 
     if active_locks.is_empty() {
-        lock::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id)
-            .await?;
+        lock::clear_entity_locked_if_unlocked(state.writer_db(), EntityType::File, file_id).await?;
         return Ok(ActiveWopiLockState::None);
     }
 
@@ -487,9 +486,7 @@ async fn replace_wopi_lock_model(
         app_key: payload.app_key.clone(),
         lock: requested_lock.to_string(),
     });
-    active.owner_info = Set(lock::serialize_resource_lock_owner_info(Some(
-        &owner_info,
-    ))?);
+    active.owner_info = Set(lock::serialize_resource_lock_owner_info(Some(&owner_info))?);
     active.timeout_at = Set(Some(
         Utc::now() + Duration::seconds(wopi::lock_ttl_secs(state.runtime_config())),
     ));

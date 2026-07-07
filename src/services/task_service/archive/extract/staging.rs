@@ -460,9 +460,7 @@ fn prepare_archive_staging_after_preflight(
         )));
     }
     if total_bytes > 0 {
-        handle.block_on(async {
-            storage::check_quota(db, options.scope, total_bytes).await
-        })?;
+        handle.block_on(async { storage::check_quota(db, options.scope, total_bytes).await })?;
     }
     let total_progress = total_bytes
         .checked_mul(2)

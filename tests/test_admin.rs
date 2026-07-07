@@ -4494,15 +4494,10 @@ async fn test_admin_config_action_tests_aria2_rpc_wrong_secret_returns_auth_code
 async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent_as_draft() {
     let state = common::setup().await;
     let rpc_url = spawn_aria2_secret_check_server("***REDACTED***").await;
-    aster_drive::services::config_service::set(
-        &state,
-        "offline_download_aria2_rpc_url",
-        &rpc_url,
-        1,
-    )
-    .await
-    .expect("saved aria2 RPC URL should update");
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(&state, "offline_download_aria2_rpc_url", &rpc_url, 1)
+        .await
+        .expect("saved aria2 RPC URL should update");
+    aster_drive::services::ops::config::set(
         &state,
         "offline_download_aria2_rpc_secret",
         "saved-secret",
@@ -4510,7 +4505,7 @@ async fn test_admin_config_action_tests_aria2_rpc_uses_redacted_secret_when_sent
     )
     .await
     .expect("saved aria2 RPC secret should update");
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         "offline_download_aria2_request_timeout_secs",
         "2",

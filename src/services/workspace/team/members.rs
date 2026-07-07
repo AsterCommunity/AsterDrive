@@ -120,12 +120,7 @@ pub async fn add_admin_member(
     .await
     .map_err(map_member_create_error)?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        target_user.id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, target_user.id).await;
 
     build_team_member_info(state, membership, target_user).await
 }
@@ -158,12 +153,7 @@ pub async fn update_admin_member_role(
     let updated = team_member_repo::update(&txn, active).await?;
     let target_user = user_repo::find_by_id(&txn, member_user_id).await?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        member_user_id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, member_user_id).await;
     invalidate_webdav_auth_for_team_member_change(
         state,
         team_id,
@@ -197,12 +187,7 @@ pub async fn remove_admin_member(
 
     team_member_repo::delete(&txn, target_membership.id).await?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        member_user_id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, member_user_id).await;
     invalidate_webdav_auth_for_team_member_change(
         state,
         team_id,
@@ -300,12 +285,7 @@ pub async fn add_member(
     .await
     .map_err(map_member_create_error)?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        target_user.id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, target_user.id).await;
 
     build_team_member_info(state, membership, target_user).await
 }
@@ -355,12 +335,7 @@ pub async fn update_member_role(
     let updated = team_member_repo::update(&txn, active).await?;
     let target_user = user_repo::find_by_id(&txn, member_user_id).await?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        member_user_id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, member_user_id).await;
     invalidate_webdav_auth_for_team_member_change(
         state,
         team_id,
@@ -411,12 +386,7 @@ pub async fn remove_member(
 
     team_member_repo::delete(&txn, target_membership.id).await?;
     crate::db::transaction::commit(txn).await?;
-    storage::invalidate_team_access_cache_for_member(
-        state,
-        team_id,
-        member_user_id,
-    )
-    .await;
+    storage::invalidate_team_access_cache_for_member(state, team_id, member_user_id).await;
     invalidate_webdav_auth_for_team_member_change(
         state,
         team_id,

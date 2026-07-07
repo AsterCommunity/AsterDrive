@@ -17,12 +17,12 @@ use crate::entities::{mfa_email_code, mfa_login_flow, user};
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    audit_service,
-    audit_service::AuditRequestInfo,
+    ops::audit::AuditRequestInfo,
     auth::local,
-    mail::audit,
+    mail::audit as mail_audit,
     mail::sender,
     mail::template::{self, MailTemplatePayload},
+    ops::audit,
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
 use crate::utils::hash;
@@ -250,14 +250,14 @@ pub async fn send_email_code(
             return Err(error);
         }
     };
-    let rendered =
-        match template::render(state.runtime_config(), payload.template_code(), &stored) {
-            Ok(rendered) => rendered,
-            Err(error) => {
-                consume_email_code_after_mail_failure(state, record.id).await;
-                return Err(error);
-            }
-        };
+    let rendered = match template::render(state.runtime_config(), payload.template_code(), &stored)
+    {
+        Ok(rendered) => rendered,
+        Err(error) => {
+            consume_email_code_after_mail_failure(state, record.id).await;
+            return Err(error);
+        }
+    };
     let template_code = payload.template_code();
     let subject = rendered.subject.clone();
     if let Err(error) = sender::send_rendered(
@@ -272,10 +272,10 @@ pub async fn send_email_code(
     {
         let error_message = error.to_string();
         consume_email_code_after_mail_failure(state, record.id).await;
-        audit::log_delivery_failed_with_db(
+        mail_audit::log_delivery_failed_with_db(
             state.writer_db(),
             state.runtime_config(),
-            audit::MailAuditInput {
+            mail_audit::MailAuditInput {
                 actor_user_id: user.id,
                 ip_address: audit_info.ip_address.as_deref(),
                 user_agent: audit_info.user_agent.as_deref(),
@@ -292,9 +292,9 @@ pub async fn send_email_code(
         return Err(error);
     }
 
-    audit::log_send(
+    mail_audit::log_send(
         state,
-        audit::MailAuditInput {
+        mail_audit::MailAuditInput {
             actor_user_id: user.id,
             ip_address: audit_info.ip_address.as_deref(),
             user_agent: audit_info.user_agent.as_deref(),
@@ -309,14 +309,14 @@ pub async fn send_email_code(
     )
     .await;
 
-    audit_service::log(
+    audit::log(
         state,
         &audit_info.to_context(user.id),
-        audit_service::AuditAction::UserMfaEmailCodeSend,
-        audit_service::AuditEntityType::MfaFactor,
+        audit::AuditAction::UserMfaEmailCodeSend,
+        audit::AuditEntityType::MfaFactor,
         Some(flow.id),
         Some(MfaMethod::EmailCode.as_str()),
-        audit_service::details(audit_service::MfaEmailCodeAuditDetails {
+        audit::details(audit::MfaEmailCodeAuditDetails {
             method: MfaMethod::EmailCode,
             flow_id: flow.id,
             expires_in: effective_expires_in,
@@ -458,18 +458,18 @@ pub async fn verify_challenge(
         Ok(result) => {
             crate::db::transaction::commit(txn).await?;
             let audit_ctx = audit_info.to_context(result.user_id);
-            let details = audit_service::details(audit_service::MfaChallengeAuditDetails {
+            let details = audit::details(audit::MfaChallengeAuditDetails {
                 method,
                 flow_id: attempt.flow_id,
                 attempt_count: attempt.attempt_count,
                 password_change_required: Some(result.password_change_required),
                 failure_reason: None,
             });
-            audit_service::log_with_details(
+            audit::log_with_details(
                 state,
                 &audit_ctx,
-                audit_service::AuditAction::UserMfaChallengeSuccess,
-                audit_service::AuditEntityType::MfaFactor,
+                audit::AuditAction::UserMfaChallengeSuccess,
+                audit::AuditEntityType::MfaFactor,
                 None,
                 Some(method.as_str()),
                 || details.clone(),
@@ -492,18 +492,18 @@ pub async fn verify_challenge(
                     .api_error_code_override()
                     .map(|code| code.as_str())
                     .unwrap_or("mfa_failed");
-                let details = audit_service::details(audit_service::MfaChallengeAuditDetails {
+                let details = audit::details(audit::MfaChallengeAuditDetails {
                     method,
                     flow_id: attempt.flow_id,
                     attempt_count: attempt.attempt_count,
                     password_change_required: None,
                     failure_reason: Some(failure_reason),
                 });
-                audit_service::log_with_details(
+                audit::log_with_details(
                     state,
                     &audit_ctx,
-                    audit_service::AuditAction::UserMfaChallengeFailed,
-                    audit_service::AuditEntityType::MfaFactor,
+                    audit::AuditAction::UserMfaChallengeFailed,
+                    audit::AuditEntityType::MfaFactor,
                     None,
                     Some(method.as_str()),
                     || details.clone(),

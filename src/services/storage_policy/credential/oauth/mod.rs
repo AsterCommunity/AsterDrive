@@ -20,7 +20,7 @@ use crate::entities::{
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{AuditContext, AuditRequestInfo};
+use crate::services::ops::audit::{AuditContext, AuditRequestInfo};
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
 use crate::types::{
     StorageAuthorizationFlowStatus, StorageCredentialKind, StorageCredentialProvider,

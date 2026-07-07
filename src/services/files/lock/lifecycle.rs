@@ -6,7 +6,7 @@ use crate::db::repository::{file_repo, folder_repo, lock_repo};
 use crate::entities::resource_lock;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::EntityType;
 
 use super::models::ResourceLockOwnerInfo;
@@ -194,15 +194,15 @@ pub async fn force_unlock_with_audit(
         .await?
         .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
     force_unlock(state, lock_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminForceUnlock,
-        crate::services::audit_service::AuditEntityType::ResourceLock,
+        audit::AuditAction::AdminForceUnlock,
+        crate::services::ops::audit::AuditEntityType::ResourceLock,
         Some(lock_id),
         Some(&lock.path),
         || {
-            audit_service::details(audit_service::LockAuditDetails {
+            audit::details(audit::LockAuditDetails {
                 entity_type: lock.entity_type,
                 entity_id: lock.entity_id,
             })

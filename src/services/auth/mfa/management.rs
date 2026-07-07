@@ -13,7 +13,7 @@ use crate::db::repository::{
 use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, auth_mfa_failed_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{audit_service, auth::local};
+use crate::services::{auth::local, ops::audit};
 use crate::types::MfaPersistentFactorMethod;
 use crate::utils::numbers::u64_to_i64;
 
@@ -146,7 +146,7 @@ pub async fn verify_totp_setup(
     state: &impl SharedRuntimeState,
     user_id: i64,
     input: TotpSetupFinishRequest,
-    audit_ctx: &audit_service::AuditContext,
+    audit_ctx: &audit::AuditContext,
 ) -> Result<TotpSetupFinishResponse> {
     let now = now_utc();
     let flow_token_hash = crypto::token_hash(input.flow_token.trim());
@@ -227,14 +227,14 @@ pub async fn verify_totp_setup(
     match result {
         Ok((factor, recovery_codes)) => {
             crate::db::transaction::commit(txn).await?;
-            audit_service::log(
+            audit::log(
                 state,
                 audit_ctx,
-                audit_service::AuditAction::UserMfaEnable,
-                audit_service::AuditEntityType::MfaFactor,
+                audit::AuditAction::UserMfaEnable,
+                audit::AuditEntityType::MfaFactor,
                 Some(factor.id),
                 Some(&factor.name),
-                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                audit::details(audit::UserMfaManageAuditDetails {
                     method: factor.method,
                     factor_id: Some(factor.id),
                     factor_name: Some(&factor.name),
@@ -260,7 +260,7 @@ pub async fn delete_factor(
     user_id: i64,
     factor_id: i64,
     input: MfaSensitiveActionRequest,
-    audit_ctx: &audit_service::AuditContext,
+    audit_ctx: &audit::AuditContext,
 ) -> Result<bool> {
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
@@ -282,15 +282,15 @@ pub async fn delete_factor(
         Ok((deleted, factor)) => {
             crate::db::transaction::commit(txn).await?;
             if deleted {
-                audit_service::log_with_details(
+                audit::log_with_details(
                     state,
                     audit_ctx,
-                    audit_service::AuditAction::UserMfaDisable,
-                    audit_service::AuditEntityType::MfaFactor,
+                    audit::AuditAction::UserMfaDisable,
+                    audit::AuditEntityType::MfaFactor,
                     Some(factor_id),
                     Some(&factor.name),
                     || {
-                        audit_service::details(audit_service::UserMfaManageAuditDetails {
+                        audit::details(audit::UserMfaManageAuditDetails {
                             method: factor.method,
                             factor_id: Some(factor.id),
                             factor_name: Some(&factor.name),
@@ -314,7 +314,7 @@ pub async fn regenerate_recovery_codes(
     state: &impl SharedRuntimeState,
     user_id: i64,
     input: MfaSensitiveActionRequest,
-    audit_ctx: &audit_service::AuditContext,
+    audit_ctx: &audit::AuditContext,
 ) -> Result<Vec<String>> {
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
@@ -327,14 +327,14 @@ pub async fn regenerate_recovery_codes(
     match result {
         Ok(codes) => {
             crate::db::transaction::commit(txn).await?;
-            audit_service::log(
+            audit::log(
                 state,
                 audit_ctx,
-                audit_service::AuditAction::UserMfaRecoveryCodesRegenerate,
-                audit_service::AuditEntityType::MfaFactor,
+                audit::AuditAction::UserMfaRecoveryCodesRegenerate,
+                audit::AuditEntityType::MfaFactor,
                 None,
                 None,
-                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                audit::details(audit::UserMfaManageAuditDetails {
                     method: MfaPersistentFactorMethod::Totp,
                     factor_id: None,
                     factor_name: None,
@@ -355,7 +355,7 @@ pub async fn regenerate_recovery_codes(
 pub async fn reset_user_mfa(
     state: &impl SharedRuntimeState,
     user_id: i64,
-    audit_ctx: &audit_service::AuditContext,
+    audit_ctx: &audit::AuditContext,
 ) -> Result<()> {
     let txn = crate::db::transaction::begin(state.writer_db()).await?;
     let result = async {
@@ -383,14 +383,14 @@ pub async fn reset_user_mfa(
         Ok((updated_user_id, username, factor_count, recovery_code_count)) => {
             crate::db::transaction::commit(txn).await?;
             local::invalidate_auth_snapshot_cache(state, updated_user_id).await;
-            audit_service::log(
+            audit::log(
                 state,
                 audit_ctx,
-                audit_service::AuditAction::AdminResetUserMfa,
-                audit_service::AuditEntityType::MfaFactor,
+                audit::AuditAction::AdminResetUserMfa,
+                audit::AuditEntityType::MfaFactor,
                 None,
                 Some(&username),
-                audit_service::details(audit_service::UserMfaManageAuditDetails {
+                audit::details(audit::UserMfaManageAuditDetails {
                     method: MfaPersistentFactorMethod::Totp,
                     factor_id: None,
                     factor_name: None,

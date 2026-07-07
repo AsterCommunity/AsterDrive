@@ -156,12 +156,7 @@ pub async fn get_me(
         created_at: core.created_at,
         updated_at: core.updated_at,
         preferences: prefs,
-        profile: profile::get_profile_info(
-            state,
-            &user,
-            profile::AvatarAudience::SelfUser,
-        )
-        .await?,
+        profile: profile::get_profile_info(state, &user, profile::AvatarAudience::SelfUser).await?,
     })
 }
 
@@ -174,14 +169,7 @@ pub async fn get_me_partial(
     let user = user_repo::find_by_id(state.reader_db(), user_id).await?;
     let prefs = fields.preferences.then(|| parse_preferences(&user));
     let profile = if fields.profile {
-        Some(
-            profile::get_profile_info(
-                state,
-                &user,
-                profile::AvatarAudience::SelfUser,
-            )
-            .await?,
-        )
+        Some(profile::get_profile_info(state, &user, profile::AvatarAudience::SelfUser).await?)
     } else {
         None
     };
@@ -230,12 +218,7 @@ pub async fn list_paginated(
     .await?;
 
     Ok(OffsetPage::new(
-        to_user_infos(
-            state,
-            page.items,
-            profile::AvatarAudience::AdminUser,
-        )
-        .await?,
+        to_user_infos(state, page.items, profile::AvatarAudience::AdminUser).await?,
         page.total,
         page.limit,
         page.offset,

@@ -286,8 +286,7 @@ pub(crate) async fn update_content_in_scope(
     }
 
     let size = usize_to_i64(body.len(), "body length")?;
-    let resolved_policy =
-        storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
+    let resolved_policy = storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
     let result = if resolved_policy.driver_type == crate::types::DriverType::Local {
         let should_dedup = storage::local_content_dedup_enabled(&resolved_policy);
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
@@ -413,10 +412,9 @@ pub(crate) async fn update_content_stream_in_scope(
     }
 
     let resolved_policy_hint = match declared_size {
-        Some(size) => Some(
-            storage::resolve_policy_for_size(state, scope, f.folder_id, size)
-                .await?,
-        ),
+        Some(size) => {
+            Some(storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?)
+        }
         None => None,
     };
     let streamed =

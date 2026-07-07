@@ -8,11 +8,13 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    files::archive::preview,
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     auth::local::Claims,
+    files::archive::preview,
     files::{direct_link, file, preview_link},
-    media::metadata, media::processing, preview::wopi,
+    media::metadata,
+    media::processing,
+    preview::wopi,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::http::header;
@@ -757,9 +759,7 @@ pub(crate) async fn archive_preview_response(
         .headers()
         .get(header::IF_NONE_MATCH)
         .and_then(|value| value.to_str().ok());
-    match preview::preview_file_in_scope(state, scope, file_id, filename_encoding)
-        .await?
-    {
+    match preview::preview_file_in_scope(state, scope, file_id, filename_encoding).await? {
         preview::ArchivePreviewManifestLookup::Ready(manifest) => {
             archive_preview_manifest_response(
                 manifest,
@@ -767,9 +767,7 @@ pub(crate) async fn archive_preview_response(
                 "private, max-age=0, must-revalidate",
             )
         }
-        preview::ArchivePreviewManifestLookup::Pending => {
-            Ok(archive_preview_pending_response())
-        }
+        preview::ArchivePreviewManifestLookup::Pending => Ok(archive_preview_pending_response()),
     }
 }
 
@@ -815,15 +813,15 @@ pub(crate) async fn direct_link_response(
     let file = file::get_info_in_scope(state, scope, file_id).await?;
     let token = direct_link::create_token_in_scope(state, scope, file_id).await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::FileDirectLinkCreate,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileDirectLinkCreate,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         || {
-            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+            audit::details(audit::FileAccessTokenAuditDetails {
                 source: "direct_link",
                 app_key: None,
             })
@@ -853,15 +851,15 @@ pub(crate) async fn preview_link_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::FilePreviewLinkCreate,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FilePreviewLinkCreate,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         || {
-            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+            audit::details(audit::FileAccessTokenAuditDetails {
                 source: "preview_link",
                 app_key: None,
             })
@@ -893,15 +891,15 @@ pub(crate) async fn open_wopi_response(
     )
     .await?;
     let ctx = AuditContext::from_request(req, claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::FileWopiOpen,
-        crate::services::audit_service::AuditEntityType::File,
+        audit::AuditAction::FileWopiOpen,
+        crate::services::ops::audit::AuditEntityType::File,
         Some(file.id),
         Some(&file.name),
         || {
-            audit_service::details(audit_service::FileAccessTokenAuditDetails {
+            audit::details(audit::FileAccessTokenAuditDetails {
                 source: "wopi",
                 app_key: Some(app_key),
             })
@@ -1594,14 +1592,9 @@ mod tests {
         let blob = file_repo::find_blob_by_id(state.writer_db(), info.blob_id)
             .await
             .expect("image preview route blob should load");
-        processing::generate_and_store_image_preview(
-            &state,
-            &blob,
-            &info.name,
-            &info.mime_type,
-        )
-        .await
-        .expect("image preview route cache should pre-generate");
+        processing::generate_and_store_image_preview(&state, &blob, &info.name, &info.mime_type)
+            .await
+            .expect("image preview route cache should pre-generate");
 
         let app = test::init_service(App::new().app_data(web::Data::new(state.clone())).service(
             web::scope("/api/v1").service(crate::api::routes::files::routes(

@@ -1,4 +1,4 @@
-//! 服务模块：`audit_service`。
+//! 审计日志记录、查询和展示服务。
 
 mod context;
 mod details;

@@ -21,7 +21,7 @@ use crate::api::dto::validate_request;
 use crate::api::dto::wopi::WopiAccessQuery;
 use crate::config::site_url;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, files::file, preview::wopi};
+use crate::services::{files::file, ops::audit, preview::wopi};
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -84,7 +84,7 @@ pub async fn get_file_contents(
         Ok(access_token) => access_token,
         Err(response) => return response,
     };
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let if_none_match = req
         .headers()
         .get("If-None-Match")
@@ -132,7 +132,7 @@ pub async fn put_file_contents(
         Ok(access_token) => access_token,
         Err(response) => return response,
     };
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let override_value = header_value(&req, "X-WOPI-Override");
     if !override_value.eq_ignore_ascii_case("PUT") {
         return wopi_no_store(HttpResponse::NotImplemented().finish());
@@ -178,7 +178,7 @@ pub async fn file_operation(
         Ok(access_token) => access_token,
         Err(response) => return response,
     };
-    let audit_info = audit_service::AuditRequestInfo::from_request(&req);
+    let audit_info = audit::AuditRequestInfo::from_request(&req);
     let override_value = header_value(&req, "X-WOPI-Override");
     let requested_lock = optional_header_value(&req, "X-WOPI-Lock").unwrap_or_default();
     let old_lock = optional_header_value(&req, "X-WOPI-OldLock").unwrap_or_default();
@@ -322,9 +322,7 @@ pub async fn file_operation(
     };
 
     match result {
-        Ok(wopi::WopiLockOperationResult::Success) => {
-            wopi_no_store(HttpResponse::Ok().finish())
-        }
+        Ok(wopi::WopiLockOperationResult::Success) => wopi_no_store(HttpResponse::Ok().finish()),
         Ok(wopi::WopiLockOperationResult::Conflict(conflict)) => {
             wopi_no_store(conflict_response(&conflict))
         }
@@ -363,9 +361,7 @@ fn conflict_response(conflict: &wopi::WopiConflict) -> HttpResponse {
         .finish()
 }
 
-fn put_relative_conflict_response(
-    conflict: &wopi::WopiPutRelativeConflict,
-) -> HttpResponse {
+fn put_relative_conflict_response(conflict: &wopi::WopiPutRelativeConflict) -> HttpResponse {
     let mut response = HttpResponse::Conflict();
     response.insert_header((
         "X-WOPI-Lock",

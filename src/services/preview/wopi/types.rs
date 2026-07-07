@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::services::audit_service::AuditRequestInfo;
+use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::preview::apps;
 
 pub(crate) const MAX_WOPI_LOCK_LEN: usize = 1024;

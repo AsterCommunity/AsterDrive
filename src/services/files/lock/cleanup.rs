@@ -5,7 +5,7 @@ use chrono::Utc;
 use crate::db::repository::lock_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::EntityType;
 use crate::utils::numbers::usize_to_u64;
 
@@ -61,14 +61,14 @@ pub async fn cleanup_expired_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<u64> {
     let count = cleanup_expired(state).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminCleanupExpiredLocks,
-        crate::services::audit_service::AuditEntityType::ResourceLock,
+        audit::AuditAction::AdminCleanupExpiredLocks,
+        crate::services::ops::audit::AuditEntityType::ResourceLock,
         None,
         None,
-        || audit_service::details(audit_service::LockCleanupAuditDetails { removed: count }),
+        || audit::details(audit::LockCleanupAuditDetails { removed: count }),
     )
     .await;
     Ok(count)

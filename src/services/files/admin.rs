@@ -13,7 +13,7 @@ use crate::db::repository::{file_repo, version_repo};
 use crate::entities::{file, file_blob, file_version};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{user::profile, user::account};
+use crate::services::{user::account, user::profile};
 
 pub async fn list_files(
     state: &impl SharedRuntimeState,
@@ -42,12 +42,9 @@ pub async fn list_files(
             .iter()
             .filter_map(|(file, _)| file.created_by_user_id)
             .collect::<Vec<_>>();
-        let creators = account::user_summaries_by_ids(
-            state,
-            &creator_ids,
-            profile::AvatarAudience::AdminUser,
-        )
-        .await?;
+        let creators =
+            account::user_summaries_by_ids(state, &creator_ids, profile::AvatarAudience::AdminUser)
+                .await?;
         Ok((
             items
                 .into_iter()
@@ -140,12 +137,9 @@ pub async fn get_blob(
     let version_ref_count = i64::try_from(versions.len())
         .map_err(|_| AsterError::internal_error("blob version reference count overflow"))?;
     let uploader_ids = collect_file_uploader_ids(&files);
-    let users = account::user_summaries_by_ids(
-        state,
-        &uploader_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &uploader_ids, profile::AvatarAudience::AdminUser)
+            .await?;
     let uploaders = summarize_blob_uploaders(&files, &users);
     let uploader_count = i64::try_from(uploader_ids.len())
         .map_err(|_| AsterError::internal_error("blob uploader count overflow"))?;
@@ -274,12 +268,9 @@ async fn enrich_admin_blob_infos(
         .flatten()
         .map(|uploader| uploader.user_id)
         .collect::<Vec<_>>();
-    let users = account::user_summaries_by_ids(
-        state,
-        &uploader_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &uploader_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     blobs
         .into_iter()

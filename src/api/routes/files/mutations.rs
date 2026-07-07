@@ -7,7 +7,7 @@ use crate::api::routes::team_scope;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     auth::local::Claims,
     files::file,
     workspace::storage::WorkspaceStorageScope,
@@ -538,15 +538,15 @@ pub(crate) async fn extract_archive_response(
     .await?;
     let ctx = AuditContext::from_request(req, claims);
     let file_ids = [file_id];
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::ArchiveExtract,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::ArchiveExtract,
+        crate::services::ops::audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::ArchiveSelectionAuditDetails {
+            audit::details(audit::ArchiveSelectionAuditDetails {
                 file_ids: &file_ids,
                 folder_ids: &[],
                 archive_name: body.output_folder_name.as_deref(),

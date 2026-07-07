@@ -118,10 +118,8 @@ async fn test_share_cookie_signatures_are_token_specific_and_deterministic() {
         Some("203.0.113.42"),
     );
 
-    let sig1 =
-        aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
-    let sig2 =
-        aster_drive::services::share::sign_share_cookie("token-beta", &binding, secret);
+    let sig1 = aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
+    let sig2 = aster_drive::services::share::sign_share_cookie("token-beta", &binding, secret);
     let sig1_replay =
         aster_drive::services::share::sign_share_cookie("token-alpha", &binding, secret);
 
@@ -143,8 +141,7 @@ async fn test_share_cookie_signature_format_is_sha256_hex() {
         Some("AsterDrive Test/1.0"),
         Some("203.0.113.42"),
     );
-    let sig =
-        aster_drive::services::share::sign_share_cookie("any-token", &binding, secret);
+    let sig = aster_drive::services::share::sign_share_cookie("any-token", &binding, secret);
 
     assert_eq!(sig.len(), 64, "SHA256 hex digest should be 64 characters");
     assert!(
@@ -218,7 +215,7 @@ async fn test_config_schema_returns_non_empty_with_required_fields() {
     assert!(!schema.is_empty(), "schema should not be empty");
 
     // service 层验证字段完整性
-    let full_schema = aster_drive::services::config_service::get_schema();
+    let full_schema = aster_drive::services::ops::config::get_schema();
     assert!(!full_schema.is_empty());
 
     for item in &full_schema {

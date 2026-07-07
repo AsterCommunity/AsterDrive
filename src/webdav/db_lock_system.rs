@@ -12,7 +12,7 @@ use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
 use crate::entities::resource_lock;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
 use crate::webdav::dav::{
@@ -69,10 +69,10 @@ impl DbLockSystem {
             return;
         };
         let action = match (entity_type, locked) {
-            (EntityType::File, true) => audit_service::AuditAction::FileLock,
-            (EntityType::File, false) => audit_service::AuditAction::FileUnlock,
-            (EntityType::Folder, true) => audit_service::AuditAction::FolderLock,
-            (EntityType::Folder, false) => audit_service::AuditAction::FolderUnlock,
+            (EntityType::File, true) => audit::AuditAction::FileLock,
+            (EntityType::File, false) => audit::AuditAction::FileUnlock,
+            (EntityType::Folder, true) => audit::AuditAction::FolderLock,
+            (EntityType::Folder, false) => audit::AuditAction::FolderUnlock,
         };
         match entity_type {
             EntityType::File => match file_repo::find_by_id(&self.db, entity_id).await {
@@ -81,11 +81,11 @@ impl DbLockSystem {
                         state, self.scope, &file,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::File,
+                        audit::AuditEntityType::File,
                         Some(entity_id),
                         Some(&file.name),
                         || details.clone(),
@@ -97,11 +97,11 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV file lock audit target: {error}"
                     );
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::File,
+                        audit::AuditEntityType::File,
                         Some(entity_id),
                         None,
                         || None,
@@ -115,11 +115,11 @@ impl DbLockSystem {
                         state, self.scope, &folder,
                     )
                     .await;
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::Folder,
+                        audit::AuditEntityType::Folder,
                         Some(entity_id),
                         Some(&folder.name),
                         || details.clone(),
@@ -131,11 +131,11 @@ impl DbLockSystem {
                         entity_id,
                         "failed to load WebDAV folder lock audit target: {error}"
                     );
-                    audit_service::log_with_details(
+                    audit::log_with_details(
                         state,
                         &self.audit_ctx,
                         action,
-                        audit_service::AuditEntityType::Folder,
+                        audit::AuditEntityType::Folder,
                         Some(entity_id),
                         None,
                         || None,

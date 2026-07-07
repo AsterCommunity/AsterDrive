@@ -8,8 +8,8 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::folder,
     events::storage_change,
+    files::folder,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 

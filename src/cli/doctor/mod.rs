@@ -565,8 +565,7 @@ async fn doctor_folder_tree_check(db: &sea_orm::DatabaseConnection) -> Result<Do
                 "{} folder#{} {}",
                 match issue.kind {
                     integrity::FolderTreeIssueKind::MissingParent => "missing_parent",
-                    integrity::FolderTreeIssueKind::CrossScopeParent =>
-                        "cross_scope_parent",
+                    integrity::FolderTreeIssueKind::CrossScopeParent => "cross_scope_parent",
                     integrity::FolderTreeIssueKind::Cycle => "cycle",
                 },
                 issue.folder_id,
@@ -772,8 +771,7 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
         .unwrap_or_else(crate::services::preview::apps::default_public_preview_apps_json);
 
     let normalized =
-        match crate::services::preview::apps::normalize_public_preview_apps_config_value(&raw)
-        {
+        match crate::services::preview::apps::normalize_public_preview_apps_config_value(&raw) {
             Ok(normalized) => normalized,
             Err(err) => {
                 return DoctorCheck {
@@ -790,11 +788,12 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
             }
         };
 
-    let parsed: crate::services::preview::apps::PublicPreviewAppsConfig =
-        match serde_json::from_str(&normalized) {
-            Ok(parsed) => parsed,
-            Err(err) => {
-                return DoctorCheck {
+    let parsed: crate::services::preview::apps::PublicPreviewAppsConfig = match serde_json::from_str(
+        &normalized,
+    ) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return DoctorCheck {
                     name: "preview_apps",
                     label: "Preview app registry",
                     status: DoctorStatus::Fail,
@@ -805,8 +804,8 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
                             .to_string(),
                     ),
                 };
-            }
-        };
+        }
+    };
 
     let total_apps = parsed.apps.len();
     let enabled_apps = parsed.apps.iter().filter(|app| app.enabled).count();
@@ -814,8 +813,7 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
         .apps
         .iter()
         .filter(|app| {
-            app.enabled
-                && app.provider == crate::services::preview::apps::PreviewAppProvider::Wopi
+            app.enabled && app.provider == crate::services::preview::apps::PreviewAppProvider::Wopi
         })
         .count();
     let details = vec![

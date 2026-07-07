@@ -10,9 +10,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 
 use crate::services::media::processing::cli_input::prepare_cli_source;
-use crate::services::media::processing::shared::{
-    TempDirGuard, run_cli_command_with_timeout,
-};
+use crate::services::media::processing::shared::{TempDirGuard, run_cli_command_with_timeout};
 
 use super::errors::{thumbnail_output_invalid, thumbnail_render_failed};
 

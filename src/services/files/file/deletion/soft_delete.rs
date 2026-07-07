@@ -9,8 +9,7 @@ pub(crate) async fn delete_in_scope(
     id: i64,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "soft deleting file");
-    let file =
-        crate::services::workspace::storage::verify_file_access(state, scope, id).await?;
+    let file = crate::services::workspace::storage::verify_file_access(state, scope, id).await?;
     if file.is_locked {
         return Err(AsterError::resource_locked("file is locked"));
     }

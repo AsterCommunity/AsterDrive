@@ -53,13 +53,7 @@ async fn load_upload_session_with_db<C: ConnectionTrait>(
     // 配额并不会在 init 时预占——只在 complete 时写入，所以这里不会泄漏配额。
     crate::utils::verify_owner(session.user_id, scope.actor_user_id(), "upload session")?;
     if let Some(team_id) = scope.team_id() {
-        storage::require_team_access_with_db(
-            state,
-            db,
-            team_id,
-            scope.actor_user_id(),
-        )
-        .await?;
+        storage::require_team_access_with_db(state, db, team_id, scope.actor_user_id()).await?;
         ensure_team_upload_session_scope(&session, team_id)?;
     } else {
         ensure_personal_upload_session_scope(&session)?;

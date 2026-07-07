@@ -9,7 +9,7 @@ use crate::db::repository::{
 use crate::entities::{team, upload_session};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service;
+use crate::services::ops::audit;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
 
@@ -282,7 +282,7 @@ pub async fn cleanup_expired_archived_teams(state: &PrimaryAppState) -> Result<u
     let expired = team_repo::find_archived_before(state.writer_db(), cutoff).await?;
 
     let mut deleted = 0u64;
-    let ctx = audit_service::AuditContext::system();
+    let ctx = audit::AuditContext::system();
     for team in expired {
         let team_id = team.id;
         let team_name = team.name.clone();
@@ -291,15 +291,15 @@ pub async fn cleanup_expired_archived_teams(state: &PrimaryAppState) -> Result<u
             tracing::warn!(team_id, "failed to delete expired archived team: {err}");
             continue;
         }
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             &ctx,
-            audit_service::AuditAction::TeamCleanupExpired,
-            crate::services::audit_service::AuditEntityType::Team,
+            audit::AuditAction::TeamCleanupExpired,
+            crate::services::ops::audit::AuditEntityType::Team,
             Some(team_id),
             Some(&team_name),
             || {
-                audit_service::details(audit_service::TeamCleanupAuditDetails {
+                audit::details(audit::TeamCleanupAuditDetails {
                     archived_at,
                     retention_days,
                 })

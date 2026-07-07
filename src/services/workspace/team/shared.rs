@@ -16,7 +16,7 @@ use crate::db::repository::{policy_group_repo, team_member_repo, team_repo, user
 use crate::entities::{team, team_member, user};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{user::profile, user::account};
+use crate::services::{user::account, user::profile};
 use crate::types::TeamMemberRole;
 use crate::utils::char_count;
 
@@ -89,12 +89,9 @@ async fn load_creator_summary(
     state: &impl SharedRuntimeState,
     team: &team::Model,
 ) -> Result<Option<account::UserSummary>> {
-    let creator = account::user_summary_by_id(
-        state,
-        team.created_by,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let creator =
+        account::user_summary_by_id(state, team.created_by, profile::AvatarAudience::AdminUser)
+            .await?;
     if creator.is_none() {
         tracing::warn!(
             team_id = team.id,
@@ -183,8 +180,7 @@ pub(super) async fn build_team_member_info(
     user: user::Model,
 ) -> Result<TeamMemberInfo> {
     let profile =
-        profile::get_profile_info(state, &user, profile::AvatarAudience::AdminUser)
-            .await?;
+        profile::get_profile_info(state, &user, profile::AvatarAudience::AdminUser).await?;
     let user_summary = account::to_user_summary_with_profile(&user, profile);
 
     Ok(TeamMemberInfo {
@@ -205,12 +201,8 @@ async fn build_team_member_infos(
     rows: Vec<(team_member::Model, user::Model)>,
 ) -> Result<Vec<TeamMemberInfo>> {
     let users: Vec<user::Model> = rows.iter().map(|(_, user)| user.clone()).collect();
-    let profile_map = profile::get_profile_info_map(
-        state,
-        &users,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let profile_map =
+        profile::get_profile_info_map(state, &users, profile::AvatarAudience::AdminUser).await?;
     let gravatar_base_url = profile::resolve_gravatar_base_url(state);
 
     rows.into_iter()
@@ -424,11 +416,7 @@ pub(super) async fn load_team_metadata<'a>(
     let creator_ids: Vec<i64> = creator_ids.into_iter().collect();
     let team_ids: Vec<i64> = team_ids.into_iter().collect();
     let (creators, member_counts) = tokio::try_join!(
-        account::user_summaries_by_ids(
-            state,
-            &creator_ids,
-            profile::AvatarAudience::AdminUser,
-        ),
+        account::user_summaries_by_ids(state, &creator_ids, profile::AvatarAudience::AdminUser,),
         team_member_repo::count_by_team_ids(state.reader_db(), &team_ids),
     )?;
 
@@ -566,10 +554,8 @@ pub(super) async fn update_team_record(
     active.updated_at = Set(Utc::now());
 
     let updated = team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
-        state, updated.id,
-    )
-    .await;
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(state, updated.id)
+        .await;
     tracing::debug!(
         team_id = updated.id,
         storage_quota = updated.storage_quota,
@@ -590,10 +576,8 @@ pub(super) async fn archive_team_record(
     active.archived_at = Set(Some(now));
     active.updated_at = Set(now);
     team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
-        state, team_id,
-    )
-    .await;
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(state, team_id)
+        .await;
     if let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_team(state, team_id).await {
         tracing::warn!(
             team_id,
@@ -620,11 +604,8 @@ pub(super) async fn restore_team_record(
     active.archived_at = Set(None);
     active.updated_at = Set(now);
     let restored = team_repo::update(state.writer_db(), active).await?;
-    crate::services::workspace::storage::invalidate_team_access_cache_for_team(
-        state,
-        restored.id,
-    )
-    .await;
+    crate::services::workspace::storage::invalidate_team_access_cache_for_team(state, restored.id)
+        .await;
     if let Err(error) = crate::webdav::auth::invalidate_webdav_auth_for_team(state, team_id).await {
         tracing::warn!(
             team_id,

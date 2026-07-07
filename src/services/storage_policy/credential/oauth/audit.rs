@@ -4,7 +4,7 @@ use sea_orm::ActiveValue::Set;
 use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 use crate::types::{AuditAction, AuditEntityType, MicrosoftGraphCloud, StorageCredentialProvider};
 
 pub(super) const OAUTH_AUDIT_ACTION_NAME: &str = "storage_credential_oauth";
@@ -76,11 +76,11 @@ pub(super) async fn log_storage_credential_oauth_audit(
     details: StorageCredentialOauthAuditDetails<'_>,
 ) {
     let policy_id = details.policy_id;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         ctx,
-        audit_service::AuditAction::AdminTriggerStorageAction,
-        audit_service::AuditEntityType::StoragePolicy,
+        audit::AuditAction::AdminTriggerStorageAction,
+        audit::AuditEntityType::StoragePolicy,
         policy_id,
         None,
         || Some(storage_credential_oauth_audit_details(details)),

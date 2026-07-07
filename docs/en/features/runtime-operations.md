@@ -23,12 +23,12 @@ System and operations keep the service stable, configurable, observable, and rec
 
 | Module | Owns |
 | --- | --- |
-| `config::loader`, `config_service` | Static configuration loading and runtime system settings |
+| `config::loader`, `ops::config` | Static configuration loading and runtime system settings |
 | `runtime::startup`, `runtime::tasks` | Primary/follower startup and periodic background tasks |
 | `task_service` | User-visible background tasks, scheduling, retries, cleanup |
 | `mail::sender`, `mail::outbox`, `mail::template` | Mail delivery and templates |
 | `ops::health`, `readiness_service`, `metrics` | Health checks, readiness, metrics |
-| `audit_service` | Audit log recording, querying, presentation |
+| `ops::audit` | Audit log recording, querying, presentation |
 | `cli::*` | Offline operations commands |
 
 ## Configuration Boundaries

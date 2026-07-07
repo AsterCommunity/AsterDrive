@@ -210,22 +210,12 @@ pub(super) async fn process_archive_preview_task(
         .await?;
         let manifest = match source_archive_path {
             Some(source_archive_path) => {
-                preview::scan_manifest_from_temp(
-                    &source_file,
-                    &blob,
-                    &source_archive_path,
-                    &limits,
-                )
-                .await?
+                preview::scan_manifest_from_temp(&source_file, &blob, &source_archive_path, &limits)
+                    .await?
             }
             None => {
-                preview::scan_manifest_from_storage_range(
-                    &source_file,
-                    &blob,
-                    driver,
-                    &limits,
-                )
-                .await?
+                preview::scan_manifest_from_storage_range(&source_file, &blob, driver, &limits)
+                    .await?
             }
         };
         context.ensure_active()?;
@@ -251,14 +241,7 @@ pub(super) async fn process_archive_preview_task(
         )
         .await?;
 
-        preview::store_cached_manifest(
-            state,
-            &source_file,
-            &blob,
-            &limits,
-            &manifest,
-        )
-        .await?;
+        preview::store_cached_manifest(state, &source_file, &blob, &limits, &manifest).await?;
         cleanup_task_temp_dir_for_task_kind(state, task.kind, task.id).await?;
         set_task_step_succeeded(
             &mut steps,

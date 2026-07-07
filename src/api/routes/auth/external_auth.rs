@@ -7,7 +7,6 @@ use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::auth::external::{
     self as external, ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery,
     ExternalAuthEmailVerificationConfirmQuery, ExternalAuthEmailVerificationStartRequest,
@@ -15,6 +14,7 @@ use crate::services::auth::external::{
 };
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
+use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::types::ExternalAuthProviderKind;
 use crate::utils::numbers::u64_to_i64;
 use actix_web::http::header;
@@ -276,15 +276,15 @@ async fn external_auth_login_json_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLogin,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLogin,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -307,15 +307,15 @@ async fn external_auth_login_redirect_response(
 ) -> Result<HttpResponse> {
     let result = result.into();
     let audit_ctx = audit_info.to_context(result.primary_login.user.id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLogin,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLogin,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -341,15 +341,15 @@ async fn log_external_auth_link_if_needed(
         return;
     }
 
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::UserExternalAuthLink,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthLink,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         None,
         Some(&result.primary_login.provider_key),
         || {
-            audit_service::details(ExternalAuthLoginAuditDetails {
+            audit::details(ExternalAuthLoginAuditDetails {
                 provider_key: &result.primary_login.provider_key,
                 issuer: &result.primary_login.issuer,
                 subject: &result.primary_login.subject,
@@ -514,16 +514,16 @@ pub async fn delete_link(
         )));
     }
     let ctx = AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::UserExternalAuthUnlink,
-        crate::services::audit_service::AuditEntityType::ExternalAuthIdentity,
+        audit::AuditAction::UserExternalAuthUnlink,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthIdentity,
         Some(id),
         link.as_ref().map(|link| link.provider_key.as_str()),
         || {
             link.as_ref().and_then(|link| {
-                audit_service::details(audit_service::ExternalAuthUnlinkAuditDetails {
+                audit::details(audit::ExternalAuthUnlinkAuditDetails {
                     provider_key: &link.provider_key,
                     issuer: &link.issuer,
                     subject: &link.subject,

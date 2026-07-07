@@ -6,20 +6,20 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::audit_service;
 use crate::services::auth::external::{
     self as external, AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
     ExternalAuthProviderAuditDetails, ExternalAuthProviderTestParamsInput,
     UpdateExternalAuthProviderInput,
 };
 use crate::services::auth::local::Claims;
+use crate::services::ops::audit;
 use actix_web::{HttpRequest, HttpResponse, web};
 use serde::Serialize;
 
 fn external_auth_provider_audit_details(
     provider: &AdminExternalAuthProviderInfo,
 ) -> Option<serde_json::Value> {
-    audit_service::details(ExternalAuthProviderAuditDetails {
+    audit::details(ExternalAuthProviderAuditDetails {
         key: &provider.key,
         icon_url: provider.icon_url.as_deref(),
         issuer_url: provider.issuer_url.as_deref(),
@@ -97,12 +97,12 @@ pub async fn create_external_auth_provider(
     body: web::Json<CreateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
     let provider = external::create_provider(state.get_ref(), body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminCreateExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminCreateExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -157,12 +157,12 @@ pub async fn update_external_auth_provider(
     body: web::Json<UpdateExternalAuthProviderInput>,
 ) -> Result<HttpResponse> {
     let provider = external::update_provider(state.get_ref(), *path, body.into_inner()).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminUpdateExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminUpdateExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -193,12 +193,12 @@ pub async fn delete_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider = external::get_admin_provider(state.get_ref(), *path).await?;
     external::delete_provider(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminDeleteExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),
@@ -231,16 +231,16 @@ pub async fn test_external_auth_provider_params(
     let provider_kind = input.provider_kind.as_str();
     let result = external::test_provider_params(state.get_ref(), input).await;
     let success = result.is_ok();
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminTestExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         None,
         Some("draft"),
         || {
-            audit_service::details(ExternalAuthProviderTestParamsAuditDetails {
+            audit::details(ExternalAuthProviderTestParamsAuditDetails {
                 provider_kind,
                 key: "draft",
                 success,
@@ -275,12 +275,12 @@ pub async fn test_external_auth_provider(
 ) -> Result<HttpResponse> {
     let provider = external::get_admin_provider(state.get_ref(), *path).await?;
     let result = external::test_provider(state.get_ref(), *path).await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminTestExternalAuthProvider,
-        crate::services::audit_service::AuditEntityType::ExternalAuthProvider,
+        audit::AuditAction::AdminTestExternalAuthProvider,
+        crate::services::ops::audit::AuditEntityType::ExternalAuthProvider,
         Some(provider.id),
         Some(&provider.key),
         || external_auth_provider_audit_details(&provider),

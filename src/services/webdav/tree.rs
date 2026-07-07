@@ -7,8 +7,8 @@ use crate::entities::folder;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
-    files::{file, folder as folder_ops},
     events::storage_change,
+    files::{file, folder as folder_ops},
     workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };

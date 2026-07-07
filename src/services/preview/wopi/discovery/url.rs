@@ -112,9 +112,7 @@ pub(super) fn origin_from_url(raw: &str) -> Option<String> {
     cors::normalize_origin(&format!("{scheme}://{host}{port}"), false).ok()
 }
 
-pub(crate) fn trusted_origins_for_app(
-    app: &apps::PublicPreviewAppDefinition,
-) -> Vec<String> {
+pub(crate) fn trusted_origins_for_app(app: &apps::PublicPreviewAppDefinition) -> Vec<String> {
     let mut origins = Vec::new();
 
     for origin in &app.config.allowed_origins {

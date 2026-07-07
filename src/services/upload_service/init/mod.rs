@@ -20,9 +20,7 @@ use crate::services::upload_service::scope::{personal_scope, team_scope};
 use crate::services::upload_service::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
-use crate::services::workspace::storage::{
-    WorkspaceStorageScope, resolve_policy_upload_transport,
-};
+use crate::services::workspace::storage::{WorkspaceStorageScope, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use crate::utils::{numbers, paths};
 

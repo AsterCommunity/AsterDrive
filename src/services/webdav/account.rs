@@ -125,8 +125,7 @@ pub async fn create_for_team(
     password: Option<&str>,
     root_folder_id: Option<i64>,
 ) -> Result<WebdavAccountCreated> {
-    crate::services::workspace::storage::require_team_access(state, team_id, actor_user_id)
-        .await?;
+    crate::services::workspace::storage::require_team_access(state, team_id, actor_user_id).await?;
     create_in_scope(
         state,
         WorkspaceStorageScope::Team {
@@ -215,12 +214,9 @@ pub async fn list_for_team(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<Vec<WebdavAccountInfo>> {
-    let role = crate::services::workspace::storage::load_team_member_role(
-        state,
-        team_id,
-        actor_user_id,
-    )
-    .await?;
+    let role =
+        crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
+            .await?;
     let accounts = if role.can_manage_team() {
         webdav_account_repo::find_by_team(state.writer_db(), team_id).await?
     } else {
@@ -253,12 +249,9 @@ pub async fn list_team_paginated(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<WebdavAccountInfo>> {
-    let role = crate::services::workspace::storage::load_team_member_role(
-        state,
-        team_id,
-        actor_user_id,
-    )
-    .await?;
+    let role =
+        crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
+            .await?;
     load_offset_page(limit, offset, 100, |limit, offset| async move {
         let (items, total) = if role.can_manage_team() {
             webdav_account_repo::find_by_team_paginated(state.writer_db(), team_id, limit, offset)
@@ -290,12 +283,9 @@ async fn build_account_infos(
     let paths =
         crate::services::files::folder::build_folder_paths_cached(state, &folder_ids).await?;
     let user_ids: Vec<i64> = accounts.iter().map(|acc| acc.user_id).collect();
-    let users = account::user_summaries_by_ids(
-        state,
-        &user_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let users =
+        account::user_summaries_by_ids(state, &user_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     let mut result = Vec::with_capacity(accounts.len());
     for acc in accounts {
@@ -344,12 +334,9 @@ pub async fn delete_for_team(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<()> {
-    let role = crate::services::workspace::storage::load_team_member_role(
-        state,
-        team_id,
-        actor_user_id,
-    )
-    .await?;
+    let role =
+        crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
+            .await?;
     let account = webdav_account_repo::find_by_id(state.writer_db(), id).await?;
     if account.team_id != Some(team_id) {
         return Err(AsterError::record_not_found(format!(
@@ -404,12 +391,9 @@ pub async fn toggle_team_active(
     actor_user_id: i64,
     team_id: i64,
 ) -> Result<WebdavAccount> {
-    let role = crate::services::workspace::storage::load_team_member_role(
-        state,
-        team_id,
-        actor_user_id,
-    )
-    .await?;
+    let role =
+        crate::services::workspace::storage::load_team_member_role(state, team_id, actor_user_id)
+            .await?;
     let account = webdav_account_repo::find_by_id(state.writer_db(), id).await?;
     if account.team_id != Some(team_id) {
         return Err(AsterError::record_not_found(format!(
@@ -458,12 +442,8 @@ pub async fn test_credentials(
     }
 
     if let Some(team_id) = account.team_id {
-        crate::services::workspace::storage::require_team_access(
-            state,
-            team_id,
-            account.user_id,
-        )
-        .await?;
+        crate::services::workspace::storage::require_team_access(state, team_id, account.user_id)
+            .await?;
     }
 
     Ok(())

@@ -603,16 +603,16 @@ async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() 
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
     use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::{auth::local, ops::maintenance, team_service};
+    use aster_drive::services::{auth::local, ops::maintenance, workspace::team};
 
     let state = common::setup().await;
     let user = local::register(&state, "maintteam1", "maintteam1@test.com", "password123")
         .await
         .unwrap();
-    let team = team_service::create_team(
+    let team = team::create_team(
         &state,
         user.id,
-        team_service::CreateTeamInput {
+        team::CreateTeamInput {
             name: "Maintenance Team".to_string(),
             description: None,
         },
@@ -702,9 +702,7 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     let orphan_thumb = thumb_path(&orphan_hash);
     driver.put(&orphan_thumb, b"thumb").await.unwrap();
 
-    let stats = maintenance::reconcile_blob_state(&state)
-        .await
-        .unwrap();
+    let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
     assert_eq!(stats.ref_count_fixed, 3);
     assert_eq!(stats.orphan_blobs_deleted, 1);
@@ -743,9 +741,7 @@ async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
         create_blob(&state, &hash, &storage_path, b"x", 1).await;
     }
 
-    let stats = maintenance::reconcile_blob_state(&state)
-        .await
-        .unwrap();
+    let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
     assert_eq!(stats.ref_count_fixed, 1001);
     assert_eq!(stats.orphan_blobs_deleted, 1001);
@@ -772,9 +768,7 @@ async fn test_reconcile_blob_state_skips_fresh_cleanup_claim() {
     )
     .await;
 
-    let stats = maintenance::reconcile_blob_state(&state)
-        .await
-        .unwrap();
+    let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
     assert_eq!(stats.ref_count_fixed, 0);
     assert_eq!(stats.orphan_blobs_deleted, 0);
@@ -809,9 +803,7 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
     active.updated_at = Set(Utc::now() - Duration::minutes(11));
     active.update(state.writer_db()).await.unwrap();
 
-    let stats = maintenance::reconcile_blob_state(&state)
-        .await
-        .unwrap();
+    let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
     assert_eq!(stats.ref_count_fixed, 1);
     assert_eq!(stats.orphan_blobs_deleted, 1);
@@ -863,9 +855,7 @@ async fn test_purge_keeps_blob_row_when_storage_delete_fails_then_maintenance_re
 
     drop(_guard);
 
-    let stats = maintenance::reconcile_blob_state(&state)
-        .await
-        .unwrap();
+    let stats = maintenance::reconcile_blob_state(&state).await.unwrap();
 
     assert_eq!(stats.orphan_blobs_deleted, 1);
     assert!(

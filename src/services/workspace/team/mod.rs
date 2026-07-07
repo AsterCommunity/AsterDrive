@@ -1,4 +1,4 @@
-//! 团队服务聚合入口。
+//! 工作空间团队、成员和团队归档服务聚合入口。
 //!
 //! 团队相关逻辑拆成两层：
 //! - `team` / `members` / `archive` 这些核心业务语义
@@ -16,7 +16,7 @@ mod team;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    audit_service::{self, AuditContext},
+    ops::audit::{self, AuditContext},
     auth::local,
 };
 
@@ -41,7 +41,7 @@ pub use team::{
 
 // 和其他 service 一样，audit 放在聚合层，核心 team/member 逻辑保持纯业务语义。
 fn team_audit_details(team: &TeamInfo) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::TeamAuditDetails {
+    audit::details(audit::TeamAuditDetails {
         description: &team.description,
         member_count: team.member_count,
         storage_quota: team.storage_quota,
@@ -52,7 +52,7 @@ fn team_audit_details(team: &TeamInfo) -> Option<serde_json::Value> {
 }
 
 fn admin_team_audit_details(team: &AdminTeamInfo) -> Option<serde_json::Value> {
-    audit_service::details(audit_service::TeamAuditDetails {
+    audit::details(audit::TeamAuditDetails {
         description: &team.description,
         member_count: team.member_count,
         storage_quota: team.storage_quota,
@@ -77,11 +77,11 @@ pub(crate) async fn create_team_with_audit(
     }
 
     let team = create_team(state, actor_user_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamCreate,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamCreate,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || team_audit_details(&team),
@@ -98,11 +98,11 @@ pub(crate) async fn update_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<TeamInfo> {
     let team = update_team(state, team_id, actor_user_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamUpdate,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamUpdate,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || team_audit_details(&team),
@@ -119,15 +119,15 @@ pub(crate) async fn archive_team_with_audit(
 ) -> Result<()> {
     let team = get_team(state, team_id, actor_user_id).await?;
     archive_team(state, team_id, actor_user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamArchive,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamArchive,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamAuditDetails {
+            audit::details(audit::TeamAuditDetails {
                 description: &team.description,
                 member_count: team.member_count,
                 storage_quota: team.storage_quota,
@@ -148,11 +148,11 @@ pub(crate) async fn restore_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<TeamInfo> {
     let team = restore_team(state, team_id, actor_user_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamRestore,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamRestore,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || team_audit_details(&team),
@@ -165,10 +165,10 @@ pub(crate) async fn list_team_audit_entries(
     state: &impl SharedRuntimeState,
     team_id: i64,
     actor_user_id: i64,
-    mut filters: audit_service::AuditLogFilters,
+    mut filters: audit::AuditLogFilters,
     limit: u64,
     offset: u64,
-) -> Result<crate::api::pagination::OffsetPage<audit_service::TeamAuditEntryInfo>> {
+) -> Result<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>> {
     let team = get_team(state, team_id, actor_user_id).await?;
     if !team.my_role.can_manage_team() {
         return Err(AsterError::auth_forbidden(
@@ -176,9 +176,9 @@ pub(crate) async fn list_team_audit_entries(
         ));
     }
 
-    filters.entity_type = Some(crate::services::audit_service::AuditEntityType::Team);
+    filters.entity_type = Some(crate::services::ops::audit::AuditEntityType::Team);
     filters.entity_id = Some(team.id);
-    audit_service::query_team_entries(state, filters, limit, offset).await
+    audit::query_team_entries(state, filters, limit, offset).await
 }
 
 pub(crate) async fn add_member_with_audit(
@@ -190,15 +190,15 @@ pub(crate) async fn add_member_with_audit(
 ) -> Result<TeamMemberInfo> {
     let team = get_team(state, team_id, actor_user_id).await?;
     let member = add_member(state, team_id, actor_user_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamMemberAdd,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamMemberAdd,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamMemberAddAuditDetails {
+            audit::details(audit::TeamMemberAddAuditDetails {
                 member_user_id: member.user_id,
                 member_username: &member.user.username,
                 role: member.role,
@@ -223,15 +223,15 @@ pub(crate) async fn update_member_role_with_audit(
         .await
         .ok();
     let member = update_member_role(state, team_id, actor_user_id, member_user_id, role).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamMemberUpdate,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamMemberUpdate,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamMemberUpdateAuditDetails {
+            audit::details(audit::TeamMemberUpdateAuditDetails {
                 member_user_id: member.user_id,
                 member_username: &member.user.username,
                 previous_role: previous_member
@@ -260,15 +260,15 @@ pub(crate) async fn remove_member_with_audit(
         .ok();
     remove_member(state, team_id, actor_user_id, member_user_id).await?;
     if let Some(member) = target_member {
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TeamMemberRemove,
-            crate::services::audit_service::AuditEntityType::Team,
+            audit::AuditAction::TeamMemberRemove,
+            crate::services::ops::audit::AuditEntityType::Team,
             Some(team.id),
             Some(&team.name),
             || {
-                audit_service::details(audit_service::TeamMemberRemoveAuditDetails {
+                audit::details(audit::TeamMemberRemoveAuditDetails {
                     member_user_id: member.user_id,
                     member_username: &member.user.username,
                     removed_role: member.role,
@@ -288,11 +288,11 @@ pub(crate) async fn create_admin_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AdminTeamInfo> {
     let team = create_admin_team(state, actor_user_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminCreateTeam,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::AdminCreateTeam,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || admin_team_audit_details(&team),
@@ -308,11 +308,11 @@ pub(crate) async fn update_admin_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AdminTeamInfo> {
     let team = update_admin_team(state, team_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminUpdateTeam,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::AdminUpdateTeam,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || admin_team_audit_details(&team),
@@ -328,15 +328,15 @@ pub(crate) async fn archive_admin_team_with_audit(
 ) -> Result<()> {
     let team = get_admin_team(state, team_id).await?;
     archive_admin_team(state, team_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminArchiveTeam,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::AdminArchiveTeam,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamAuditDetails {
+            audit::details(audit::TeamAuditDetails {
                 description: &team.description,
                 member_count: team.member_count,
                 storage_quota: team.storage_quota,
@@ -356,11 +356,11 @@ pub(crate) async fn restore_admin_team_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AdminTeamInfo> {
     let team = restore_admin_team(state, team_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminRestoreTeam,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::AdminRestoreTeam,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || admin_team_audit_details(&team),
@@ -372,14 +372,14 @@ pub(crate) async fn restore_admin_team_with_audit(
 pub(crate) async fn list_admin_team_audit_entries(
     state: &impl SharedRuntimeState,
     team_id: i64,
-    mut filters: audit_service::AuditLogFilters,
+    mut filters: audit::AuditLogFilters,
     limit: u64,
     offset: u64,
-) -> Result<crate::api::pagination::OffsetPage<audit_service::TeamAuditEntryInfo>> {
+) -> Result<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>> {
     let team = get_admin_team(state, team_id).await?;
-    filters.entity_type = Some(crate::services::audit_service::AuditEntityType::Team);
+    filters.entity_type = Some(crate::services::ops::audit::AuditEntityType::Team);
     filters.entity_id = Some(team.id);
-    audit_service::query_team_entries(state, filters, limit, offset).await
+    audit::query_team_entries(state, filters, limit, offset).await
 }
 
 pub(crate) async fn add_admin_member_with_audit(
@@ -390,15 +390,15 @@ pub(crate) async fn add_admin_member_with_audit(
 ) -> Result<TeamMemberInfo> {
     let team = get_admin_team(state, team_id).await?;
     let member = add_admin_member(state, team_id, input).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamMemberAdd,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamMemberAdd,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamMemberAddAuditDetails {
+            audit::details(audit::TeamMemberAddAuditDetails {
                 member_user_id: member.user_id,
                 member_username: &member.user.username,
                 role: member.role,
@@ -420,15 +420,15 @@ pub(crate) async fn update_admin_member_role_with_audit(
     let team = get_admin_team(state, team_id).await?;
     let previous_member = get_admin_member(state, team_id, member_user_id).await.ok();
     let member = update_admin_member_role(state, team_id, member_user_id, role).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TeamMemberUpdate,
-        crate::services::audit_service::AuditEntityType::Team,
+        audit::AuditAction::TeamMemberUpdate,
+        crate::services::ops::audit::AuditEntityType::Team,
         Some(team.id),
         Some(&team.name),
         || {
-            audit_service::details(audit_service::TeamMemberUpdateAuditDetails {
+            audit::details(audit::TeamMemberUpdateAuditDetails {
                 member_user_id: member.user_id,
                 member_username: &member.user.username,
                 previous_role: previous_member
@@ -454,15 +454,15 @@ pub(crate) async fn remove_admin_member_with_audit(
     let target_member = get_admin_member(state, team_id, member_user_id).await.ok();
     remove_admin_member(state, team_id, member_user_id).await?;
     if let Some(member) = target_member {
-        audit_service::log_with_details(
+        audit::log_with_details(
             state,
             audit_ctx,
-            audit_service::AuditAction::TeamMemberRemove,
-            crate::services::audit_service::AuditEntityType::Team,
+            audit::AuditAction::TeamMemberRemove,
+            crate::services::ops::audit::AuditEntityType::Team,
             Some(team.id),
             Some(&team.name),
             || {
-                audit_service::details(audit_service::TeamMemberRemoveAuditDetails {
+                audit::details(audit::TeamMemberRemoveAuditDetails {
                     member_user_id: member.user_id,
                     member_username: &member.user.username,
                     removed_role: member.role,

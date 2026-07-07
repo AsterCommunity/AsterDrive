@@ -432,20 +432,18 @@ fn normalize_existing_preview_apps_config_value(active: &mut system_config::Acti
 
     match apps::public_preview_apps_config_has_missing_required_builtins(&existing) {
         Ok(false) => {}
-        Ok(true) => {
-            match apps::normalize_public_preview_apps_config_value(&existing) {
-                Ok(normalized) => {
-                    active.value = Set(normalized);
-                }
-                Err(error) => {
-                    tracing::warn!(
-                        error = %error,
-                        key = apps::PREVIEW_APPS_CONFIG_KEY,
-                        "failed to normalize existing preview app registry during default config sync"
-                    );
-                }
+        Ok(true) => match apps::normalize_public_preview_apps_config_value(&existing) {
+            Ok(normalized) => {
+                active.value = Set(normalized);
             }
-        }
+            Err(error) => {
+                tracing::warn!(
+                    error = %error,
+                    key = apps::PREVIEW_APPS_CONFIG_KEY,
+                    "failed to normalize existing preview app registry during default config sync"
+                );
+            }
+        },
         Err(error) => {
             tracing::warn!(
                 error = %error,

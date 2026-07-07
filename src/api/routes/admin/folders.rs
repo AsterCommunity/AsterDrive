@@ -5,7 +5,7 @@ use crate::api::dto::validate_request;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, files::folder};
+use crate::services::{auth::local::Claims, files::folder, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -31,7 +31,7 @@ pub async fn set_folder_policy(
     body: web::Json<SetFolderPolicyReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let folder =
         folder::admin_set_policy_with_audit(state.get_ref(), *path, body.policy_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(folder)))

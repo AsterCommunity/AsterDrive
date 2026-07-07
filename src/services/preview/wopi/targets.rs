@@ -345,10 +345,7 @@ pub(crate) async fn store_relative_target_from_stream(
         exact_name,
     } = params;
     let resolved_policy_hint = match declared_size {
-        Some(size) => Some(
-            storage::resolve_policy_for_size(state, scope, folder_id, size)
-                .await?,
-        ),
+        Some(size) => Some(storage::resolve_policy_for_size(state, scope, folder_id, size).await?),
         None => None,
     };
     let streamed = file_ops::stream_request_body_to_temp_upload(

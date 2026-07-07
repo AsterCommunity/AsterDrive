@@ -2,7 +2,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::config::RuntimeConfig;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext};
+use crate::services::ops::audit::{self, AuditContext};
 
 const MAIL_ENTITY_NAME: &str = "mail";
 const MAX_AUDIT_FIELD_LEN: usize = 1024;
@@ -27,11 +27,11 @@ pub async fn log_send(state: &impl SharedRuntimeState, input: MailAuditInput<'_>
         ip_address: input.ip_address.map(str::to_string),
         user_agent: input.user_agent.map(str::to_string),
     };
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &ctx,
-        audit_service::AuditAction::MailSend,
-        audit_service::AuditEntityType::Mail,
+        audit::AuditAction::MailSend,
+        audit::AuditEntityType::Mail,
         input.outbox_id,
         Some(MAIL_ENTITY_NAME),
         || mail_details(input),
@@ -49,13 +49,13 @@ pub async fn log_send_with_db(
         ip_address: input.ip_address.map(str::to_string),
         user_agent: input.user_agent.map(str::to_string),
     };
-    audit_service::log_with_db_and_config(
+    audit::log_with_db_and_config(
         db,
         runtime_config,
-        audit_service::AuditLogInput {
+        audit::AuditLogInput {
             ctx: &ctx,
-            action: audit_service::AuditAction::MailSend,
-            entity_type: audit_service::AuditEntityType::Mail,
+            action: audit::AuditAction::MailSend,
+            entity_type: audit::AuditEntityType::Mail,
             entity_id: input.outbox_id,
             entity_name: Some(MAIL_ENTITY_NAME),
         },
@@ -74,13 +74,13 @@ pub async fn log_delivery_failed_with_db(
         ip_address: input.ip_address.map(str::to_string),
         user_agent: input.user_agent.map(str::to_string),
     };
-    audit_service::log_with_db_and_config(
+    audit::log_with_db_and_config(
         db,
         runtime_config,
-        audit_service::AuditLogInput {
+        audit::AuditLogInput {
             ctx: &ctx,
-            action: audit_service::AuditAction::MailDeliveryFailed,
-            entity_type: audit_service::AuditEntityType::Mail,
+            action: audit::AuditAction::MailDeliveryFailed,
+            entity_type: audit::AuditEntityType::Mail,
             entity_id: input.outbox_id,
             entity_name: Some(MAIL_ENTITY_NAME),
         },
@@ -94,7 +94,7 @@ fn mail_details(input: MailAuditInput<'_>) -> Option<serde_json::Value> {
     let subject = truncate_audit_field(input.subject);
     let error = truncate_audit_field(input.error);
 
-    audit_service::details(audit_service::MailAuditDetails {
+    audit::details(audit::MailAuditDetails {
         to_address: input.to_address,
         template_code: input.template_code,
         to_name: to_name.as_deref(),

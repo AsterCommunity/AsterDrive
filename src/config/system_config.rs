@@ -268,9 +268,7 @@ where
         branding::BRANDING_WORDMARK_LIGHT_URL_KEY => {
             branding::normalize_wordmark_light_url_config_value(value)
         }
-        apps::PREVIEW_APPS_CONFIG_KEY => {
-            apps::normalize_public_preview_apps_config_value(value)
-        }
+        apps::PREVIEW_APPS_CONFIG_KEY => apps::normalize_public_preview_apps_config_value(value),
         wopi::WOPI_ACCESS_TOKEN_TTL_SECS_KEY
         | wopi::WOPI_LOCK_TTL_SECS_KEY
         | wopi::WOPI_DISCOVERY_CACHE_TTL_SECS_KEY => wopi::normalize_ttl_config_value(key, value),

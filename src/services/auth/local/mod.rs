@@ -11,8 +11,8 @@ mod validation;
 
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::auth::mfa::PrimaryLoginCompletion;
+use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use sea_orm::{ActiveValue, Set};
 use serde::{Deserialize, Serialize};
 
@@ -208,11 +208,11 @@ pub async fn setup_with_audit(
 ) -> Result<AuthUserInfo> {
     let user = setup(state, username, email, password).await?;
     let audit_ctx = request_info.to_context(user.id);
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
-        audit_service::AuditAction::SystemSetup,
-        audit_service::AuditEntityType::User,
+        audit::AuditAction::SystemSetup,
+        audit::AuditEntityType::User,
         None,
         Some(&user.username),
         None,
@@ -230,11 +230,11 @@ pub async fn register_with_audit(
 ) -> Result<AuthUserInfo> {
     let user = register(state, username, email, password).await?;
     let audit_ctx = request_info.to_context(user.id);
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserRegister,
-        audit_service::AuditEntityType::User,
+        audit::AuditAction::UserRegister,
+        audit::AuditEntityType::User,
         None,
         Some(&user.username),
         None,
@@ -256,11 +256,11 @@ pub async fn resend_register_activation_with_audit(
     );
     if let RegisterActivationResendOutcome::Sent(user) = &outcome {
         let audit_ctx = request_info.to_context(user.id);
-        audit_service::log(
+        audit::log(
             state,
             &audit_ctx,
-            audit_service::AuditAction::UserResendRegistration,
-            crate::services::audit_service::AuditEntityType::User,
+            audit::AuditAction::UserResendRegistration,
+            crate::services::ops::audit::AuditEntityType::User,
             Some(user.id),
             Some(&user.username),
             None,
@@ -285,17 +285,15 @@ pub async fn confirm_contact_verification_with_audit(
     let result = confirm_contact_verification(state, token).await?;
     let audit_ctx = request_info.to_context(result.user_id);
     let action = match result.purpose {
-        VerificationPurpose::RegisterActivation => {
-            audit_service::AuditAction::UserConfirmRegistration
-        }
-        VerificationPurpose::ContactChange => audit_service::AuditAction::UserConfirmEmailChange,
-        VerificationPurpose::PasswordReset => audit_service::AuditAction::UserConfirmPasswordReset,
+        VerificationPurpose::RegisterActivation => audit::AuditAction::UserConfirmRegistration,
+        VerificationPurpose::ContactChange => audit::AuditAction::UserConfirmEmailChange,
+        VerificationPurpose::PasswordReset => audit::AuditAction::UserConfirmPasswordReset,
     };
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
         action,
-        crate::services::audit_service::AuditEntityType::User,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(result.user_id),
         None,
         None,
@@ -312,11 +310,11 @@ pub async fn request_password_reset_with_audit(
     let result = request_password_reset(state, email).await?;
     if let Some(user) = result.user.as_ref() {
         let audit_ctx = request_info.to_context(user.id);
-        audit_service::log(
+        audit::log(
             state,
             &audit_ctx,
-            audit_service::AuditAction::UserRequestPasswordReset,
-            crate::services::audit_service::AuditEntityType::User,
+            audit::AuditAction::UserRequestPasswordReset,
+            crate::services::ops::audit::AuditEntityType::User,
             Some(user.id),
             Some(&user.username),
             None,
@@ -334,11 +332,11 @@ pub async fn confirm_password_reset_with_audit(
 ) -> Result<AuthUserInfo> {
     let user = confirm_password_reset(state, token, new_password).await?;
     let audit_ctx = request_info.to_context(user.id);
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserConfirmPasswordReset,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::UserConfirmPasswordReset,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         None,
@@ -364,7 +362,7 @@ pub async fn login_with_audit(
     let (user_id, details) = match &result {
         PrimaryLoginCompletion::Authenticated(login) => (
             login.user_id,
-            audit_service::details(audit_service::UserLoginAuditDetails {
+            audit::details(audit::UserLoginAuditDetails {
                 mfa_required: false,
                 password_change_required: Some(login.password_change_required),
                 available_methods: None,
@@ -376,7 +374,7 @@ pub async fn login_with_audit(
                 .iter()
                 .map(|method| method.as_str())
                 .collect::<Vec<_>>();
-            audit_service::details(audit_service::UserLoginAuditDetails {
+            audit::details(audit::UserLoginAuditDetails {
                 mfa_required: true,
                 password_change_required: None,
                 available_methods: Some(available_methods.as_slice()),
@@ -384,11 +382,11 @@ pub async fn login_with_audit(
         }),
     };
     let audit_ctx = request_info.to_context(user_id);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserLogin,
-        audit_service::AuditEntityType::AuthSession,
+        audit::AuditAction::UserLogin,
+        audit::AuditEntityType::AuthSession,
         None,
         Some(identifier),
         || details.clone(),
@@ -407,11 +405,11 @@ pub async fn log_logout_for_token(
     };
 
     let audit_ctx = request_info.to_context(claims.user_id);
-    audit_service::log(
+    audit::log(
         state,
         &audit_ctx,
-        audit_service::AuditAction::UserLogout,
-        audit_service::AuditEntityType::AuthSession,
+        audit::AuditAction::UserLogout,
+        audit::AuditEntityType::AuthSession,
         None,
         None,
         None,
@@ -428,11 +426,11 @@ pub async fn change_password_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AuthUserInfo> {
     let user = change_password(state, user_id, current_password, new_password).await?;
-    audit_service::log(
+    audit::log(
         state,
         audit_ctx,
-        audit_service::AuditAction::UserChangePassword,
-        audit_service::AuditEntityType::User,
+        audit::AuditAction::UserChangePassword,
+        audit::AuditEntityType::User,
         None,
         None,
         None,
@@ -448,11 +446,11 @@ pub async fn request_email_change_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AuthUserInfo> {
     let user = request_email_change(state, user_id, new_email).await?;
-    audit_service::log(
+    audit::log(
         state,
         audit_ctx,
-        audit_service::AuditAction::UserRequestEmailChange,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::UserRequestEmailChange,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         None,
@@ -468,11 +466,11 @@ pub async fn resend_email_change_with_audit(
 ) -> Result<Option<UserAuditInfo>> {
     let user = resend_email_change(state, user_id).await?;
     if let Some(user) = user.as_ref() {
-        audit_service::log(
+        audit::log(
             state,
             audit_ctx,
-            audit_service::AuditAction::UserResendEmailChange,
-            crate::services::audit_service::AuditEntityType::User,
+            audit::AuditAction::UserResendEmailChange,
+            crate::services::ops::audit::AuditEntityType::User,
             Some(user.id),
             Some(&user.username),
             None,
@@ -488,11 +486,11 @@ pub async fn revoke_user_sessions_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<UserAuditInfo> {
     let user = revoke_user_sessions(state, user_id).await?;
-    audit_service::log(
+    audit::log(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminRevokeUserSessions,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::AdminRevokeUserSessions,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         None,
@@ -508,11 +506,11 @@ pub async fn set_password_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<AuthUserInfo> {
     let user = set_password(state, user_id, new_password).await?;
-    audit_service::log(
+    audit::log(
         state,
         audit_ctx,
-        audit_service::AuditAction::AdminResetUserPassword,
-        crate::services::audit_service::AuditEntityType::User,
+        audit::AuditAction::AdminResetUserPassword,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         None,

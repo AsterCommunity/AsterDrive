@@ -69,7 +69,7 @@ pub async fn bind_policy_to_folder(
         state,
         folder_id,
         Some(policy_id),
-        &aster_drive::services::audit_service::AuditContext::system(),
+        &aster_drive::services::ops::audit::AuditContext::system(),
     )
     .await
     .expect("policy should bind to folder");

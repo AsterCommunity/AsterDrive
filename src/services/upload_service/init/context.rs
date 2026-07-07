@@ -105,17 +105,11 @@ async fn resolve_upload_target(
         Some(path) => {
             // 目录上传会把 `relative_path` 拆成“父目录链 + 最终文件名”。
             // 这里就把目录路径补齐，后续模式选择和 session 记录都只看解析后的最终目标。
-            let parsed = storage::parse_relative_upload_path(
-                state, scope, folder_id, path,
-            )
-            .await?;
+            let parsed = storage::parse_relative_upload_path(state, scope, folder_id, path).await?;
             let actor_username = if parsed.parent_segments.is_empty() {
                 None
             } else {
-                Some(
-                    storage::load_scope_actor_username_cached(state, scope)
-                        .await?,
-                )
+                Some(storage::load_scope_actor_username_cached(state, scope).await?)
             };
             let resolved_parent = storage::ensure_upload_parent_path(
                 state,
@@ -134,15 +128,8 @@ async fn resolve_upload_target(
             let filename = crate::utils::normalize_validate_name(filename)?;
             let folder = match folder_id {
                 Some(folder_id) => {
-                    let folder =
-                        storage::verify_folder_access(state, scope, folder_id)
-                            .await?;
-                    Some(
-                        storage::resolve_verified_folder_policy_hint(
-                            state, scope, folder,
-                        )
-                        .await?,
-                    )
+                    let folder = storage::verify_folder_access(state, scope, folder_id).await?;
+                    Some(storage::resolve_verified_folder_policy_hint(state, scope, folder).await?)
                 }
                 None => None,
             };
@@ -168,10 +155,9 @@ async fn resolve_init_upload_policy(
     }
 
     // upload 模式协商建立在“最终会写到哪条策略”之上，而不是客户端自己传 mode。
-    let policy = storage::resolve_policy_for_size_with_verified_folder(
-        state, scope, folder, total_size,
-    )
-    .await?;
+    let policy =
+        storage::resolve_policy_for_size_with_verified_folder(state, scope, folder, total_size)
+            .await?;
     validate_policy_upload_size(&policy, total_size)?;
     storage::check_quota(state.writer_db(), scope, total_size).await?;
     Ok(policy)

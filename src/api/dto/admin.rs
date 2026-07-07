@@ -335,7 +335,7 @@ fn default_true() -> bool {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetConfigReq {
-    pub value: crate::services::config_service::SystemConfigValue,
+    pub value: crate::services::ops::config::SystemConfigValue,
     pub visibility: Option<crate::types::SystemConfigVisibility>,
 }
 
@@ -343,10 +343,10 @@ pub struct SetConfigReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct ExecuteConfigActionReq {
-    pub action: crate::services::config_service::ConfigActionType,
+    pub action: crate::services::ops::config::ConfigActionType,
     pub discovery_url: Option<String>,
     /// Optional transient config values for test actions such as
-    /// [`ConfigActionType::TestAria2Rpc`](crate::services::config_service::ConfigActionType::TestAria2Rpc).
+    /// [`ConfigActionType::TestAria2Rpc`](crate::services::ops::config::ConfigActionType::TestAria2Rpc).
     /// These override persisted config for the action without writing to the DB.
     /// Runtime action handlers validate the accepted keys for their action.
     #[validate(length(max = 50, message = "draft_values cannot exceed 50 entries"))]

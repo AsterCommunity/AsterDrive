@@ -20,7 +20,7 @@ use std::time::Instant;
 use crate::entities::{file, upload_session};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::AuditContext;
+use crate::services::ops::audit::AuditContext;
 use crate::services::upload_service::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::upload_service::shared::find_file_by_session;
 use crate::services::{workspace::models::FileInfo, workspace::storage};

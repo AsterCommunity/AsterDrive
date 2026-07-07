@@ -170,8 +170,7 @@ where
     };
 
     if let Err(error) =
-        processing::delete_thumbnail_with_driver(state, current_blob, driver.clone())
-            .await
+        processing::delete_thumbnail_with_driver(state, current_blob, driver.clone()).await
     {
         tracing::warn!(
             blob_id = current_blob.id,

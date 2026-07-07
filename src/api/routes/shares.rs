@@ -15,8 +15,7 @@ use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::services::files::batch;
 use crate::services::{
-    audit_service::AuditContext, auth::local::Claims, share,
-    workspace::storage::WorkspaceStorageScope,
+    ops::audit::AuditContext, auth::local::Claims, share, workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
@@ -451,7 +450,6 @@ pub(crate) async fn batch_delete_shares_response(
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
     let result =
-        share::batch_delete_shares_in_scope_with_audit(state, scope, &body.share_ids, &ctx)
-            .await?;
+        share::batch_delete_shares_in_scope_with_audit(state, scope, &body.share_ids, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }

@@ -64,8 +64,9 @@ use crate::errors::{
 };
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
-    audit_service::{self, AuditContext},
-    user::profile, user::account,
+    ops::audit::{self, AuditContext},
+    user::account,
+    user::profile,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
@@ -266,9 +267,7 @@ impl TaskExecutionContext {
         self.lease_guard.ensure_active()
     }
 
-    pub(super) fn storage_operation_context(
-        &self,
-    ) -> storage::StorageOperationContext {
+    pub(super) fn storage_operation_context(&self) -> storage::StorageOperationContext {
         storage::StorageOperationContext::new(TaskStorageCancellationCheck {
             context: self.clone(),
         })
@@ -374,8 +373,7 @@ pub(crate) async fn get_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
     build_task_info_with_lookup(state, task).await
@@ -386,8 +384,7 @@ pub(crate) async fn retry_task_in_scope(
     scope: WorkspaceStorageScope,
     task_id: i64,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let task = background_task_repo::find_by_id(state.writer_db(), task_id).await?;
     ensure_task_in_scope(&task, scope)?;
     retry_task_record(state, &task).await?;
@@ -445,15 +442,15 @@ pub(crate) async fn retry_task_in_scope_with_audit(
 ) -> Result<TaskInfo> {
     let previous = get_task_in_scope(state, scope, task_id).await?;
     let task = retry_task_in_scope(state, scope, task_id).await?;
-    audit_service::log_with_details(
+    audit::log_with_details(
         state,
         audit_ctx,
-        audit_service::AuditAction::TaskRetry,
-        crate::services::audit_service::AuditEntityType::Task,
+        audit::AuditAction::TaskRetry,
+        crate::services::ops::audit::AuditEntityType::Task,
         Some(task.id),
         Some(&task.display_name),
         || {
-            audit_service::details(audit_service::TaskRetryAuditDetails {
+            audit::details(audit::TaskRetryAuditDetails {
                 kind: format!("{:?}", previous.kind),
                 previous_attempt_count: previous.attempt_count,
             })
@@ -471,12 +468,9 @@ async fn build_task_infos(
         .iter()
         .filter_map(|task| task.creator_user_id)
         .collect();
-    let creators = account::user_summaries_by_ids(
-        state,
-        &creator_ids,
-        profile::AvatarAudience::AdminUser,
-    )
-    .await?;
+    let creators =
+        account::user_summaries_by_ids(state, &creator_ids, profile::AvatarAudience::AdminUser)
+            .await?;
 
     tasks
         .into_iter()
@@ -490,12 +484,7 @@ async fn build_task_info_with_lookup(
 ) -> Result<TaskInfo> {
     let creator = match task.creator_user_id {
         Some(user_id) => {
-            account::user_summary_by_id(
-                state,
-                user_id,
-                profile::AvatarAudience::AdminUser,
-            )
-            .await?
+            account::user_summary_by_id(state, user_id, profile::AvatarAudience::AdminUser).await?
         }
         None => None,
     };

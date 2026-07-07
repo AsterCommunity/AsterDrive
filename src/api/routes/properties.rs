@@ -10,7 +10,7 @@ use crate::api::response::ApiResponse;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{audit_service, auth::local::Claims, content::property};
+use crate::services::{auth::local::Claims, content::property, ops::audit};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -104,17 +104,17 @@ pub async fn set_prop(
         body.value.as_deref(),
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", body.namespace, body.name);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::PropertySet,
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditAction::PropertySet,
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         || {
-            audit_service::details(audit_service::PropertyAuditDetails {
+            audit::details(audit::PropertyAuditDetails {
                 entity_type: path.entity_type.as_str(),
                 namespace: &body.namespace,
                 name: &body.name,
@@ -161,17 +161,17 @@ pub async fn delete_prop(
         &path.name,
     )
     .await?;
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
+    let ctx = audit::AuditContext::from_request(&req, &claims);
     let property_name = format!("{}:{}", path.namespace, path.name);
-    audit_service::log_with_details(
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::PropertyDelete,
-        audit_service::AuditEntityType::from_entity_type(path.entity_type),
+        audit::AuditAction::PropertyDelete,
+        audit::AuditEntityType::from_entity_type(path.entity_type),
         Some(path.entity_id),
         Some(&property_name),
         || {
-            audit_service::details(audit_service::PropertyAuditDetails {
+            audit::details(audit::PropertyAuditDetails {
                 entity_type: path.entity_type.as_str(),
                 namespace: &path.namespace,
                 name: &path.name,

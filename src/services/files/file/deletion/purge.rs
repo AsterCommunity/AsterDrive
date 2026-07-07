@@ -7,7 +7,8 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    share, events::storage_change,
+    events::storage_change,
+    share,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{i64_to_i32, usize_to_u32};
@@ -28,8 +29,7 @@ pub(crate) async fn purge_in_scope(
     scope: WorkspaceStorageScope,
     id: i64,
 ) -> Result<()> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
 
     let file = file_repo::find_by_id(state.writer_db(), id).await?;
     storage::ensure_file_scope(&file, scope)?;
@@ -147,12 +147,7 @@ async fn batch_purge_in_resource_scope_internal(
     }
     file_repo::decrement_blob_ref_counts_by(&txn, &ref_count_decrements).await?;
 
-    storage::update_storage_used_for_resource_scope(
-        &txn,
-        scope,
-        -total_freed_bytes,
-    )
-    .await?;
+    storage::update_storage_used_for_resource_scope(&txn, scope, -total_freed_bytes).await?;
 
     crate::db::transaction::commit(txn).await?;
     if emit_storage_event {

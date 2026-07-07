@@ -247,8 +247,7 @@ async fn load_cached_resolved_node(
                 Err(_) => return Err(FsError::GeneralFailure),
             };
             if folder.deleted_at.is_some()
-                || crate::services::workspace::storage::ensure_folder_scope(&folder, scope)
-                    .is_err()
+                || crate::services::workspace::storage::ensure_folder_scope(&folder, scope).is_err()
             {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);
@@ -280,8 +279,7 @@ async fn load_cached_resolved_node(
                 Err(_) => return Err(FsError::GeneralFailure),
             };
             if file.deleted_at.is_some()
-                || crate::services::workspace::storage::ensure_file_scope(&file, scope)
-                    .is_err()
+                || crate::services::workspace::storage::ensure_file_scope(&file, scope).is_err()
             {
                 cache::delete_by_key(state, cache_key).await;
                 return Ok(None);

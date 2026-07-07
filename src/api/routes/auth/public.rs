@@ -10,8 +10,8 @@ use crate::api::response::ApiResponse;
 use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::audit_service::AuditRequestInfo;
-use crate::services::{auth::local, config_service, user::invitation, user::account};
+use crate::services::ops::audit::AuditRequestInfo;
+use crate::services::{auth::local, ops::config, user::account, user::invitation};
 use crate::types::VerificationPurpose;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -42,7 +42,7 @@ async fn bootstrap_public_site_url_from_setup(
         return;
     };
 
-    match config_service::set(
+    match config::set(
         state,
         site_url::PUBLIC_SITE_URL_KEY,
         vec![origin.clone()],
@@ -224,19 +224,15 @@ pub async fn accept_user_invitation(
     body: web::Json<AcceptUserInvitationReq>,
 ) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request(&req);
-    let user = invitation::accept_invitation(
-        state.get_ref(),
-        &path,
-        &body.username,
-        &body.password,
-    )
-    .await?;
+    let user =
+        invitation::accept_invitation(state.get_ref(), &path, &body.username, &body.password)
+            .await?;
     let audit_ctx = audit_info.to_context(user.id);
-    crate::services::audit_service::log(
+    crate::services::ops::audit::log(
         state.get_ref(),
         &audit_ctx,
-        crate::services::audit_service::AuditAction::UserRegister,
-        crate::services::audit_service::AuditEntityType::User,
+        crate::services::ops::audit::AuditAction::UserRegister,
+        crate::services::ops::audit::AuditEntityType::User,
         Some(user.id),
         Some(&user.username),
         None,

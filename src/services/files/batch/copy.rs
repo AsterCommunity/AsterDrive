@@ -7,8 +7,8 @@ use futures::{StreamExt, stream};
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
-    files::{file, folder},
     events::storage_change,
+    files::{file, folder},
     workspace::storage::{self, WorkspaceStorageScope},
 };
 

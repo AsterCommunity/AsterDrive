@@ -8,7 +8,8 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    share, content::tag,
+    content::tag,
+    share,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::usize_to_u64;
@@ -78,8 +79,7 @@ async fn build_folder_contents(
         share::find_active_file_ids_in_resource_scope(state, scope, &file_ids),
         share::find_active_folder_ids_in_resource_scope(state, scope, &folder_ids),
     )?;
-    let tags_by_entity =
-        tag::load_entity_tag_map(state, scope, &file_ids, &folder_ids).await?;
+    let tags_by_entity = tag::load_entity_tag_map(state, scope, &file_ids, &folder_ids).await?;
 
     Ok(FolderContents {
         folders: build_folder_list_items_with_tags(folders, &shared_folder_ids, &tags_by_entity),

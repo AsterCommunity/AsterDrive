@@ -5,7 +5,7 @@ mod common;
 
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url::PUBLIC_SITE_URL_KEY;
-use aster_drive::services::{config_service, remote::enrollment, remote::remote_node};
+use aster_drive::services::{ops::config, remote::enrollment, remote::remote_node};
 
 #[tokio::test]
 async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
@@ -36,7 +36,7 @@ async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
 #[tokio::test]
 async fn test_completed_remote_node_enrollment_rejects_new_token() {
     let state = common::setup().await;
-    config_service::set(
+    config::set(
         &state,
         PUBLIC_SITE_URL_KEY,
         vec!["https://master.example.com".to_string()],

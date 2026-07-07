@@ -19,7 +19,9 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::{batch, download_headers::DownloadDisposition, folder as folder_ops},
-    share::{load_valid_folder_share_root, reserve_share_download_count, rollback_share_download_count},
+    share::{
+        load_valid_folder_share_root, reserve_share_download_count, rollback_share_download_count,
+    },
     task_service::types::CreateArchiveTaskParams,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
@@ -339,8 +341,7 @@ async fn ensure_archive_selection_request_in_scope(
     file_ids: &[i64],
     folder_ids: &[i64],
 ) -> Result<()> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     batch::validate_batch_ids(file_ids, folder_ids)?;
 
     let file_map: HashMap<i64, file::Model> = file_repo::find_by_ids(state.writer_db(), file_ids)

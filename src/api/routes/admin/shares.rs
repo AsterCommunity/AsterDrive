@@ -7,7 +7,7 @@ use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{audit_service, auth::local::Claims, share};
+use crate::services::{auth::local::Claims, ops::audit, share};
 use actix_web::{HttpRequest, HttpResponse, web};
 
 #[api_docs_macros::path(
@@ -71,16 +71,16 @@ pub async fn admin_delete_share(
             None
         }
     };
-    let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    audit_service::log_with_details(
+    let ctx = audit::AuditContext::from_request(&req, &claims);
+    audit::log_with_details(
         state.get_ref(),
         &ctx,
-        audit_service::AuditAction::AdminDeleteShare,
-        crate::services::audit_service::AuditEntityType::Share,
+        audit::AuditAction::AdminDeleteShare,
+        crate::services::ops::audit::AuditEntityType::Share,
         Some(*path),
         Some(&share.token),
         || {
-            audit_service::details(audit_service::ShareDeleteAuditDetails {
+            audit::details(audit::ShareDeleteAuditDetails {
                 token: &share.token,
                 target_type: target.as_ref().map(|target| target.r#type),
                 target_id: target.as_ref().map(|target| target.id),

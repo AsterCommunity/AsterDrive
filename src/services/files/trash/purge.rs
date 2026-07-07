@@ -9,8 +9,8 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    files::file,
     events::storage_change,
+    files::file,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -100,8 +100,7 @@ pub(crate) async fn purge_all_in_scope_silent(
     scope: WorkspaceStorageScope,
 ) -> Result<PurgeAllSummary> {
     tracing::debug!(scope = ?scope, "purging all trash contents");
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let mut summary = PurgeAllSummary::default();
 
     let mut folder_cursor: Option<(chrono::DateTime<chrono::Utc>, i64)> = None;

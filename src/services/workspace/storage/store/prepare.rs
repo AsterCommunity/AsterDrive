@@ -251,9 +251,7 @@ async fn load_overwrite_context(
     }
 
     let old_blob = file_repo::find_blob_by_id(state.writer_db(), old_file.blob_id).await?;
-    if let Err(err) =
-        crate::services::media::processing::delete_thumbnail(state, &old_blob).await
-    {
+    if let Err(err) = crate::services::media::processing::delete_thumbnail(state, &old_blob).await {
         tracing::warn!("failed to delete thumbnail for blob {}: {err}", old_blob.id);
     }
 

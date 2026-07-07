@@ -668,7 +668,7 @@ async fn run_failing_personal_archive_extract_with_filename(
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         "background_task_max_attempts",
         max_attempts,
@@ -677,7 +677,7 @@ async fn run_failing_personal_archive_extract_with_filename(
     .await
     .expect("background task max attempts config should update");
     for (key, value) in config_overrides {
-        aster_drive::services::config_service::set(&state, key, value.as_str(), 1)
+        aster_drive::services::ops::config::set(&state, key, value.as_str(), 1)
             .await
             .expect("archive extract limit config should update");
     }
@@ -963,7 +963,7 @@ async fn assert_response_status(
 #[actix_web::test]
 async fn test_offline_download_disabled_registry_rejects_task_creation() {
     let state = common::setup().await;
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY,
         r#"{"version":1,"engines":[{"kind":"builtin","enabled":false},{"kind":"aria2","enabled":false}]}"#,
@@ -1022,7 +1022,7 @@ async fn test_offline_download_aria2_engine_imports_example_com_e2e() {
         (OFFLINE_DOWNLOAD_MAX_MB_PER_SEC_KEY, "0"),
         (OFFLINE_DOWNLOAD_REQUEST_TIMEOUT_SECS_KEY, "30"),
     ] {
-        aster_drive::services::config_service::set(&state, key, value, 1)
+        aster_drive::services::ops::config::set(&state, key, value, 1)
             .await
             .expect("offline download aria2 config should update");
     }
@@ -2315,7 +2315,7 @@ async fn test_cleanup_expired_scans_offline_download_temp_dir() {
 #[actix_web::test]
 async fn test_record_runtime_task_run_persists_system_runtime_event() {
     let state = common::setup().await;
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "5", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "5", 1)
         .await
         .expect("background task max attempts config should update");
     let started_at = utc_now_at_db_precision() - Duration::seconds(2);
@@ -2890,7 +2890,7 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
     )
     .await;
 
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         state.get_ref(),
         "background_task_max_attempts",
         "5",
@@ -3039,7 +3039,7 @@ async fn test_personal_archive_compress_task_creates_workspace_file() {
 async fn test_archive_compress_disabled_rejects_personal_task_without_creating_record() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "archive_compress_enabled", "false", 1)
+    aster_drive::services::ops::config::set(&state, "archive_compress_enabled", "false", 1)
         .await
         .expect("archive compress enabled config should update");
     let (token, _) = register_and_login!(app);
@@ -3112,7 +3112,7 @@ async fn test_archive_compress_disabled_rejects_team_task_without_creating_recor
     )
     .await;
 
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         state.get_ref(),
         "archive_compress_enabled",
         "false",
@@ -3251,10 +3251,10 @@ async fn test_archive_compress_task_keeps_long_conflict_copy_name_within_limit()
 async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
-    aster_drive::services::config_service::set(&state, "archive_build_max_entries", "2", 1)
+    aster_drive::services::ops::config::set(&state, "archive_build_max_entries", "2", 1)
         .await
         .expect("archive build max entries config should update");
     let (token, _) = register_and_login!(app);
@@ -3323,7 +3323,7 @@ async fn test_archive_compress_task_rejects_expanded_selection_too_large() {
 async fn test_archive_compress_task_rejects_quota_before_building_archive() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
     let (token, _) = register_and_login!(app);
@@ -3406,14 +3406,9 @@ async fn test_archive_compress_task_rejects_quota_before_building_archive() {
 async fn test_archive_download_rejects_expanded_selection_source_too_large() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(
-        &state,
-        "archive_build_max_total_source_bytes",
-        "4",
-        1,
-    )
-    .await
-    .expect("archive build source size config should update");
+    aster_drive::services::ops::config::set(&state, "archive_build_max_total_source_bytes", "4", 1)
+        .await
+        .expect("archive build source size config should update");
     let (token, _) = register_and_login!(app);
 
     let req = multipart_request!("/api/v1/files/upload", &token, "large.txt", "12345");
@@ -3448,7 +3443,7 @@ async fn test_archive_download_rejects_expanded_selection_source_too_large() {
 async fn test_archive_download_rejects_estimated_output_too_large() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "archive_build_max_temp_bytes", "100", 1)
+    aster_drive::services::ops::config::set(&state, "archive_build_max_temp_bytes", "100", 1)
         .await
         .expect("archive build temp size config should update");
     let (token, _) = register_and_login!(app);
@@ -3492,7 +3487,7 @@ async fn test_retry_task_reloads_max_attempts_from_runtime_config() {
             .expect("owner lookup should succeed")
             .expect("owner should exist");
 
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "4", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "4", 1)
         .await
         .expect("background task max attempts config should update");
 
@@ -4274,7 +4269,7 @@ async fn test_archive_extract_task_fails_before_staging_when_quota_is_insufficie
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
 
@@ -4377,7 +4372,7 @@ async fn test_archive_extract_task_fails_when_staging_limit_is_exceeded() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
 
@@ -4388,7 +4383,7 @@ async fn test_archive_extract_task_fails_when_staging_limit_is_exceeded() {
         .expect("archive size should fit in i64")
         .checked_add(32)
         .expect("staging limit should fit in i64");
-    aster_drive::services::config_service::set(
+    aster_drive::services::ops::config::set(
         &state,
         "archive_extract_max_staging_bytes",
         &staging_limit.to_string(),
@@ -4474,7 +4469,7 @@ async fn test_archive_extract_task_rejects_entry_size_tampering() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
 
@@ -4884,7 +4879,7 @@ async fn test_archive_extract_task_fails_when_downloaded_source_exceeds_declared
     let archive_bytes = create_stored_zip_bytes(&[("payload.txt", Some(b"payload".as_slice()))]);
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
     let (token, _) = register_and_login!(app);
@@ -4973,7 +4968,7 @@ async fn test_archive_extract_task_cleans_created_root_after_import_failure() {
     ]);
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    aster_drive::services::config_service::set(&state, "background_task_max_attempts", "1", 1)
+    aster_drive::services::ops::config::set(&state, "background_task_max_attempts", "1", 1)
         .await
         .expect("background task max attempts config should update");
     let (token, _) = register_and_login!(app);

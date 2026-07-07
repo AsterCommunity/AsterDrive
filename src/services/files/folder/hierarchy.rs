@@ -199,8 +199,7 @@ pub(crate) async fn get_ancestors_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
 ) -> Result<Vec<FolderAncestorItem>> {
-    let folder =
-        storage::verify_folder_access_for_read(state, scope, folder_id).await?;
+    let folder = storage::verify_folder_access_for_read(state, scope, folder_id).await?;
     ensure_folder_model_in_scope(&folder, scope)?;
 
     let ancestors = match scope {

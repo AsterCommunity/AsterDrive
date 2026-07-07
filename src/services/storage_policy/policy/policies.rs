@@ -205,8 +205,8 @@ pub async fn create(
     }
     crate::db::transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
-    crate::services::config_service::invalidate_public_thumbnail_support_cache();
-    crate::services::config_service::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::invalidate_public_thumbnail_support_cache();
+    crate::services::ops::config::invalidate_public_media_data_support_cache();
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
         .map(Into::into)
@@ -304,8 +304,8 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     // 避免"策略行已删除但 driver 仍在缓存里"的窗口。
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
-    crate::services::config_service::invalidate_public_thumbnail_support_cache();
-    crate::services::config_service::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::invalidate_public_thumbnail_support_cache();
+    crate::services::ops::config::invalidate_public_media_data_support_cache();
     tracing::info!(
         policy_id = id,
         policy_name = %policy.name,
@@ -498,8 +498,8 @@ pub async fn update(
     // 把写操作发到老的 endpoint/bucket/credential 上——无日志、无报错的静默错路由。
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
-    crate::services::config_service::invalidate_public_thumbnail_support_cache();
-    crate::services::config_service::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::invalidate_public_thumbnail_support_cache();
+    crate::services::ops::config::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
@@ -583,8 +583,8 @@ pub async fn promote_s3_compatible_driver(
     // 与普通 update 一致：先 invalidate driver，再 reload snapshot。
     state.driver_registry().invalidate(id);
     state.policy_snapshot().reload(state.writer_db()).await?;
-    crate::services::config_service::invalidate_public_thumbnail_support_cache();
-    crate::services::config_service::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::invalidate_public_thumbnail_support_cache();
+    crate::services::ops::config::invalidate_public_media_data_support_cache();
 
     policy_repo::find_by_id(state.writer_db(), id)
         .await

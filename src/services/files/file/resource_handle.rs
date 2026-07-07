@@ -204,22 +204,14 @@ fn image_preview_handle(
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let processor = processing::resolve_thumbnail_processor_for_blob(
-        state,
-        blob,
-        &file.name,
-        &file.mime_type,
-    )
-    .map_err(processing::map_thumbnail_request_error)?;
+    let processor =
+        processing::resolve_thumbnail_processor_for_blob(state, blob, &file.name, &file.mime_type)
+            .map_err(processing::map_thumbnail_request_error)?;
     let processor_name = processor.image_preview_processor();
     let version = processor.image_preview_version(state.runtime_config());
     Ok(derived_image_handle(
         image_preview_path,
-        processing::image_preview_etag_value_for(
-            &blob.hash,
-            processor_name,
-            &version,
-        ),
+        processing::image_preview_etag_value_for(&blob.hash, processor_name, &version),
         delivery_mode,
         scope,
     ))
@@ -233,22 +225,14 @@ fn thumbnail_handle(
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let processor = processing::resolve_thumbnail_processor_for_blob(
-        state,
-        blob,
-        &file.name,
-        &file.mime_type,
-    )
-    .map_err(processing::map_thumbnail_request_error)?;
+    let processor =
+        processing::resolve_thumbnail_processor_for_blob(state, blob, &file.name, &file.mime_type)
+            .map_err(processing::map_thumbnail_request_error)?;
     let processor_name = processor.thumbnail_processor();
     let version = processor.thumbnail_version(state.runtime_config());
     Ok(derived_image_handle(
         thumbnail_path,
-        processing::thumbnail_etag_value_for(
-            &blob.hash,
-            Some(processor_name),
-            Some(&version),
-        ),
+        processing::thumbnail_etag_value_for(&blob.hash, Some(processor_name), Some(&version)),
         delivery_mode,
         scope,
     ))

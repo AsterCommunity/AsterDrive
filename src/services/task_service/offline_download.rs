@@ -64,8 +64,7 @@ pub(crate) async fn create_offline_download_task_in_scope(
     scope: WorkspaceStorageScope,
     params: CreateOfflineDownloadTaskParams,
 ) -> Result<TaskInfo> {
-    storage::require_scope_access_with_db(state, state.writer_db(), scope)
-        .await?;
+    storage::require_scope_access_with_db(state, state.writer_db(), scope).await?;
     let request = normalize_offline_download_request(params)?;
     if operations::offline_download_enabled_engines(state.runtime_config()).is_empty() {
         return Err(AsterError::validation_error(
