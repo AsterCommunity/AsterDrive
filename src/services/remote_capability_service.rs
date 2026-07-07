@@ -57,18 +57,7 @@ impl RemoteCapabilityResolver {
         );
         self.ensure_protocol_compatible(&context)?;
         self.ensure_features(&context, &self.base_policy_required_features())?;
-
-        if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
-            self.ensure_browser_presigned_cors(
-                &context,
-                &["range"],
-                &["Accept-Ranges", "Content-Range", "Content-Length"],
-            )?;
-        }
-
-        if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
-            self.ensure_browser_presigned_cors(&context, &["content-type"], &["ETag"])?;
-        }
+        self.ensure_presigned_cors_for_options(options, &context, &context)?;
 
         Ok(())
     }
@@ -89,20 +78,11 @@ impl RemoteCapabilityResolver {
 
         self.ensure_features(&context, &self.base_policy_required_features())?;
         for (policy_id, options) in policy_requirements {
-            if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
-                self.ensure_browser_presigned_cors(
-                    &format!("{context}; policy #{policy_id} requires remote presigned download"),
-                    &["range"],
-                    &["Accept-Ranges", "Content-Range", "Content-Length"],
-                )?;
-            }
-            if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
-                self.ensure_browser_presigned_cors(
-                    &format!("{context}; policy #{policy_id} requires remote presigned upload"),
-                    &["content-type"],
-                    &["ETag"],
-                )?;
-            }
+            let download_context =
+                format!("{context}; policy #{policy_id} requires remote presigned download");
+            let upload_context =
+                format!("{context}; policy #{policy_id} requires remote presigned upload");
+            self.ensure_presigned_cors_for_options(options, &download_context, &upload_context)?;
         }
 
         Ok(())
@@ -263,6 +243,27 @@ impl RemoteCapabilityResolver {
                 self.capabilities.browser_cors.exposed_headers
             ),
         ))
+    }
+
+    fn ensure_presigned_cors_for_options(
+        &self,
+        options: &StoragePolicyOptions,
+        download_context: &str,
+        upload_context: &str,
+    ) -> Result<()> {
+        if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
+            self.ensure_browser_presigned_cors(
+                download_context,
+                &["range"],
+                &["Accept-Ranges", "Content-Range", "Content-Length"],
+            )?;
+        }
+
+        if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
+            self.ensure_browser_presigned_cors(upload_context, &["content-type"], &["ETag"])?;
+        }
+
+        Ok(())
     }
 }
 
