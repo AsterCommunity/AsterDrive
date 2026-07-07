@@ -2,12 +2,12 @@ use crate::entities::managed_follower;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::managed_follower_service;
+use crate::services::remote_capability_service::RemoteCapabilityResolver;
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
 use crate::types::DriverType;
 
-use super::capability::RemoteStorageTargetCapabilityResolver;
 use super::driver::RemoteStorageTargetDriverDescriptor;
 
 pub async fn list_remote<S: RemoteProtocolRuntimeState>(
@@ -25,7 +25,7 @@ pub async fn list_remote_driver_descriptors<S: RemoteProtocolRuntimeState>(
     remote_node_id: i64,
 ) -> Result<Vec<RemoteStorageTargetDriverDescriptor>> {
     let node = remote_node_for_storage_target_write(state, remote_node_id).await?;
-    Ok(remote_storage_target_capability_resolver(&node).driver_descriptors())
+    Ok(remote_capability_resolver(&node).managed_ingress_driver_descriptors())
 }
 
 pub async fn create_remote<S: RemoteProtocolRuntimeState>(
@@ -96,11 +96,9 @@ fn ensure_remote_storage_target_driver_supported(
     node: &managed_follower::Model,
     driver_type: DriverType,
 ) -> Result<()> {
-    remote_storage_target_capability_resolver(node).ensure_driver_supported(driver_type)
+    remote_capability_resolver(node).ensure_managed_ingress_driver_supported(driver_type)
 }
 
-fn remote_storage_target_capability_resolver(
-    node: &managed_follower::Model,
-) -> RemoteStorageTargetCapabilityResolver {
-    RemoteStorageTargetCapabilityResolver::from_last_capabilities(node.id, &node.last_capabilities)
+fn remote_capability_resolver(node: &managed_follower::Model) -> RemoteCapabilityResolver {
+    RemoteCapabilityResolver::from_remote_node(node)
 }

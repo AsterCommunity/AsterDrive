@@ -2,9 +2,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use crate::storage::StorageCapacityInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::{
-    DriverType, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
-};
+use crate::types::DriverType;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -14,7 +12,6 @@ pub const INTERNAL_STORAGE_PROTOCOL_VERSION: u16 = 5;
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION: u16 = 4;
 pub const INTERNAL_STORAGE_PROTOCOL_VERSION_LABEL: &str = "v5";
 pub const INTERNAL_STORAGE_MIN_SUPPORTED_PROTOCOL_VERSION_LABEL: &str = "v4";
-const LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION: u16 = 4;
 pub const REMOTE_BROWSER_PRESIGNED_CORS_ALLOWED_HEADERS: &str = "content-type, range";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_GET_EXPOSE_HEADERS: &str = "Accept-Ranges, Cache-Control, Content-Disposition, Content-Length, Content-Range, Content-Type, ETag";
 pub const REMOTE_BROWSER_PRESIGNED_CORS_PUT_EXPOSE_HEADERS: &str = "ETag";
@@ -100,20 +97,6 @@ impl RemoteStorageCapabilities {
         self
     }
 
-    pub fn effective_remote_storage_targets(&self) -> RemoteStorageTargetCapabilities {
-        if let Some(capabilities) = &self.managed_ingress {
-            return capabilities.clone();
-        }
-
-        if parse_protocol_version(&self.protocol_version)
-            == Some(LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION)
-        {
-            return RemoteStorageTargetCapabilities::legacy_v4_default();
-        }
-
-        RemoteStorageTargetCapabilities::default()
-    }
-
     pub fn from_stored_json(raw: &str) -> Self {
         let trimmed = raw.trim();
         if trimmed.is_empty() || trimmed == "{}" {
@@ -178,153 +161,6 @@ impl RemoteStorageCapabilities {
 
         Ok(())
     }
-
-    pub fn validate_for_remote_policy(
-        &self,
-        remote_node_id: i64,
-        policy_id: i64,
-        options: &StoragePolicyOptions,
-    ) -> Result<()> {
-        let context =
-            format!("remote storage policy #{policy_id} on remote node #{remote_node_id}");
-        self.validate_protocol(&context)?;
-        self.ensure_features(&context, &self.base_policy_required_features())?;
-
-        if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
-            self.ensure_browser_presigned_cors(
-                &context,
-                &["range"],
-                &["Accept-Ranges", "Content-Range", "Content-Length"],
-            )?;
-        }
-
-        if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
-            self.ensure_browser_presigned_cors(&context, &["content-type"], &["ETag"])?;
-        }
-
-        Ok(())
-    }
-
-    pub fn validate_for_binding(
-        &self,
-        remote_node_id: i64,
-        remote_node_name: &str,
-        policy_requirements: &[(i64, &StoragePolicyOptions)],
-    ) -> Result<()> {
-        let context =
-            format!("remote node #{remote_node_id} ('{remote_node_name}') binding reload");
-        self.validate_protocol(&context)?;
-        if policy_requirements.is_empty() {
-            return Ok(());
-        }
-
-        self.ensure_features(&context, &self.base_policy_required_features())?;
-        for (policy_id, options) in policy_requirements {
-            if options.effective_remote_download_strategy() == RemoteDownloadStrategy::Presigned {
-                self.ensure_browser_presigned_cors(
-                    &format!("{context}; policy #{policy_id} requires remote presigned download"),
-                    &["range"],
-                    &["Accept-Ranges", "Content-Range", "Content-Length"],
-                )?;
-            }
-            if options.effective_remote_upload_strategy() == RemoteUploadStrategy::Presigned {
-                self.ensure_browser_presigned_cors(
-                    &format!("{context}; policy #{policy_id} requires remote presigned upload"),
-                    &["content-type"],
-                    &["ETag"],
-                )?;
-            }
-        }
-
-        Ok(())
-    }
-
-    fn ensure_features(&self, context: &str, required: &[(&'static str, bool)]) -> Result<()> {
-        let missing = required
-            .iter()
-            .filter_map(|(name, supported)| (!*supported).then_some(*name))
-            .collect::<Vec<_>>();
-        if missing.is_empty() {
-            return Ok(());
-        }
-
-        Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!(
-                "{context}: remote internal storage protocol is missing required feature(s): {}; remote declared features: {:?}",
-                missing.join(", "),
-                self.features
-            ),
-        ))
-    }
-
-    fn base_policy_required_features(&self) -> Vec<(&'static str, bool)> {
-        vec![
-            ("object_get", self.features.object_get),
-            ("object_head", self.features.object_head),
-            ("object_put", self.features.object_put),
-            ("object_delete", self.features.object_delete),
-            ("metadata", self.features.metadata),
-            ("range_get", self.features.range_get),
-            ("accept_ranges_header", self.features.accept_ranges_header),
-            ("list", self.features.list),
-            ("compose", self.features.compose),
-        ]
-    }
-
-    fn ensure_browser_presigned_cors(
-        &self,
-        context: &str,
-        required_allowed_headers: &[&str],
-        required_exposed_headers: &[&str],
-    ) -> Result<()> {
-        self.ensure_features(
-            context,
-            &[(
-                "browser_presigned_cors",
-                self.features.browser_presigned_cors,
-            )],
-        )?;
-
-        let missing_allowed = required_allowed_headers
-            .iter()
-            .filter(|header| !contains_header(&self.browser_cors.allowed_headers, header))
-            .copied()
-            .collect::<Vec<_>>();
-        let missing_exposed = required_exposed_headers
-            .iter()
-            .filter(|header| !contains_header(&self.browser_cors.exposed_headers, header))
-            .copied()
-            .collect::<Vec<_>>();
-
-        if missing_allowed.is_empty() && missing_exposed.is_empty() {
-            return Ok(());
-        }
-
-        let mut details = Vec::new();
-        if !missing_allowed.is_empty() {
-            details.push(format!(
-                "allowed_headers missing {}",
-                missing_allowed.join(", ")
-            ));
-        }
-        if !missing_exposed.is_empty() {
-            details.push(format!(
-                "exposed_headers missing {}",
-                missing_exposed.join(", ")
-            ));
-        }
-
-        Err(storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            format!(
-                "{context}: remote internal storage browser CORS contract is incomplete: {}; allowed_headers={:?}; exposed_headers={:?}",
-                details.join("; "),
-                self.browser_cors.allowed_headers,
-                self.browser_cors.exposed_headers
-            ),
-        ))
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]
@@ -344,10 +180,6 @@ impl RemoteStorageTargetCapabilities {
                 .map(RemoteStorageTargetDriverType::from_known_driver_type)
                 .collect(),
         }
-    }
-
-    fn legacy_v4_default() -> Self {
-        Self::from_known_driver_types(vec![DriverType::Local, DriverType::S3])
     }
 
     pub fn supports_known_driver(&self, driver_type: DriverType) -> bool {
@@ -499,12 +331,6 @@ fn csv_header_values_union(raw_values: &[&str]) -> Vec<String> {
             }
             headers
         })
-}
-
-fn contains_header(headers: &[String], expected: &str) -> bool {
-    headers
-        .iter()
-        .any(|header| header.eq_ignore_ascii_case(expected))
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq)]

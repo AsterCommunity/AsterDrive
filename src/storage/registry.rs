@@ -19,6 +19,7 @@ use crate::db::repository::{
 use crate::entities::storage_policy;
 use crate::errors::{Result, precondition_failed_with_code};
 use crate::metrics_core::SharedMetricsRecorder;
+use crate::services::remote_capability_service::RemoteCapabilityResolver;
 use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use crate::types::{DriverType, StorageCredentialStatus, parse_storage_policy_options};
@@ -337,19 +338,16 @@ impl DriverRegistry {
                         format!("remote node #{remote_node_id} is disabled"),
                     ));
                 }
-                let capabilities =
-                    crate::storage::remote_protocol::RemoteStorageCapabilities::from_stored_json(
-                        &remote_node.last_capabilities,
-                    );
+                let capabilities = RemoteCapabilityResolver::from_remote_node(&remote_node);
                 let options = parse_storage_policy_options(policy.options.as_ref());
                 if let Err(error) =
-                    capabilities.validate_for_remote_policy(remote_node_id, policy.id, &options)
+                    capabilities.ensure_remote_policy_options_supported(policy.id, &options)
                 {
                     tracing::warn!(
                         remote_node_id,
                         policy_id = policy.id,
-                        protocol_version = %capabilities.protocol_version,
-                        min_supported_protocol_version = %capabilities.min_supported_protocol_version,
+                        protocol_version = %capabilities.capabilities().protocol_version,
+                        min_supported_protocol_version = %capabilities.capabilities().min_supported_protocol_version,
                         "remote storage policy protocol compatibility check failed: {error}"
                     );
                     return Err(error);

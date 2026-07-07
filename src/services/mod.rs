@@ -34,6 +34,7 @@ pub mod preview_app_service;
 pub mod preview_link_service;
 pub mod profile_service;
 pub mod property_service;
+pub mod remote_capability_service;
 pub mod remote_storage_target_service;
 pub mod search_service;
 pub mod share_service;

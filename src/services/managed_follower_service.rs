@@ -8,6 +8,7 @@ use crate::errors::{
     AsterError, Result, precondition_failed_with_code, validation_error_with_code,
 };
 use crate::runtime::RemoteProtocolRuntimeState;
+use crate::services::remote_capability_service::RemoteCapabilityResolver;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
@@ -471,11 +472,7 @@ async fn ensure_transport_change_keeps_referencing_policies_valid<S: RemoteProto
     }
 
     for (policy_id, options) in policy_requirements_for_node(state, remote_node_id).await? {
-        if options.effective_remote_download_strategy()
-            == crate::types::RemoteDownloadStrategy::Presigned
-            || options.effective_remote_upload_strategy()
-                == crate::types::RemoteUploadStrategy::Presigned
-        {
+        if RemoteCapabilityResolver::requires_direct_transport_for_presigned(&options) {
             return Err(AsterError::validation_error(format!(
                 "cannot switch remote node #{remote_node_id} to reverse tunnel while storage policy #{policy_id} uses presigned browser transfer strategies",
             )));
@@ -499,22 +496,25 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
                 .iter()
                 .map(|(policy_id, options)| (*policy_id, options))
                 .collect::<Vec<_>>();
-            match capabilities.validate_for_binding(
-                node.id,
-                &node.name,
-                policy_requirements.as_slice(),
-            ) {
-                Ok(()) => (serialize_capabilities(&capabilities), String::new(), None),
+            let resolver = RemoteCapabilityResolver::from_capabilities(node.id, capabilities);
+            match resolver
+                .ensure_binding_policy_options_supported(&node.name, policy_requirements.as_slice())
+            {
+                Ok(()) => (
+                    serialize_capabilities(resolver.capabilities()),
+                    String::new(),
+                    None,
+                ),
                 Err(error) => {
                     tracing::warn!(
                         remote_node_id = node.id,
                         remote_node_name = %node.name,
-                        protocol_version = %capabilities.protocol_version,
-                        min_supported_protocol_version = %capabilities.min_supported_protocol_version,
+                        protocol_version = %resolver.capabilities().protocol_version,
+                        min_supported_protocol_version = %resolver.capabilities().min_supported_protocol_version,
                         "remote storage protocol compatibility check failed during probe: {error}"
                     );
                     (
-                        serialize_capabilities(&capabilities),
+                        serialize_capabilities(resolver.capabilities()),
                         error.message().to_string(),
                         Some(error),
                     )

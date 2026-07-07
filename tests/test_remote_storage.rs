@@ -1094,7 +1094,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
     assert!(
-        error.message().contains("update remote storage target"),
+        error.message().contains("remote storage request failed"),
         "unexpected error message: {}",
         error.message()
     );
