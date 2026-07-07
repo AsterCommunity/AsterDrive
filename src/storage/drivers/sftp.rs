@@ -940,8 +940,10 @@ fn is_sftp_connection_reusable_after_error(error: &SftpError) -> bool {
     matches!(
         error,
         SftpError::Status(status)
-            if status.status_code != StatusCode::NoConnection
-                && status.status_code != StatusCode::ConnectionLost
+            if matches!(
+                status.status_code,
+                StatusCode::NoSuchFile | StatusCode::PermissionDenied
+            )
     )
 }
 
@@ -1145,7 +1147,7 @@ mod tests {
     }
 
     #[test]
-    fn sftp_status_errors_keep_connection_reusable_unless_connection_is_lost() {
+    fn sftp_status_errors_reuse_connection_only_for_known_safe_statuses() {
         let status = |status_code, error_message: &str| {
             SftpError::Status(Status {
                 id: 1,
@@ -1162,6 +1164,22 @@ mod tests {
         assert!(is_sftp_connection_reusable_after_error(&status(
             StatusCode::PermissionDenied,
             "denied"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::BadMessage,
+            "bad packet"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::Failure,
+            "generic failure"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::OpUnsupported,
+            "unsupported operation"
+        )));
+        assert!(!is_sftp_connection_reusable_after_error(&status(
+            StatusCode::NoConnection,
+            "no connection"
         )));
         assert!(!is_sftp_connection_reusable_after_error(&status(
             StatusCode::ConnectionLost,

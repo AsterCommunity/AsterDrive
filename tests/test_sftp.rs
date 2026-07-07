@@ -8,7 +8,7 @@ use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::A
 use tokio::io::AsyncReadExt as _;
 
 const SFTP_IMAGE: &str = "lscr.io/linuxserver/openssh-server";
-const SFTP_TAG: &str = "latest";
+const SFTP_TAG: &str = "10.2_p1-r0-ls229";
 const SFTP_PORT: u16 = 2222;
 const SFTP_USERNAME: &str = "aster";
 const SFTP_PASSWORD: &str = "asterpass";
