@@ -64,7 +64,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let (share_download_rollback, _worker) =
-        crate::services::share_service::build_share_download_rollback_queue(
+        crate::services::share::build_share_download_rollback_queue(
             db.clone(),
             1,
             crate::metrics_core::NoopMetrics::arc(),

@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::{IntoParams, ToSchema};
 
 use crate::errors::{AsterError, Result};
-use crate::services::user_service::{MeResponseField, MeResponseFields};
+use crate::services::user::account::{MeResponseField, MeResponseFields};
 
 /// Registration request for new users.
 #[derive(Deserialize)]

@@ -63,7 +63,7 @@ pub async fn get_frontend_config(state: web::Data<PrimaryAppState>) -> Result<Ht
     tag = "public",
     operation_id = "get_public_preview_apps",
     responses(
-        (status = 200, description = "Public preview app config", body = inline(ApiResponse<crate::services::preview_app_service::PublicPreviewAppsConfig>)),
+        (status = 200, description = "Public preview app config", body = inline(ApiResponse<crate::services::preview::apps::PublicPreviewAppsConfig>)),
     ),
 )]
 pub async fn get_preview_apps(state: web::Data<PrimaryAppState>) -> Result<HttpResponse> {

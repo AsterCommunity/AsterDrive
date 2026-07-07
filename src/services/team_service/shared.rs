@@ -16,7 +16,7 @@ use crate::db::repository::{policy_group_repo, team_member_repo, team_repo, user
 use crate::entities::{team, team_member, user};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{profile_service, user_service};
+use crate::services::{user::profile, user::account};
 use crate::types::TeamMemberRole;
 use crate::utils::char_count;
 
@@ -88,11 +88,11 @@ fn validate_storage_quota(storage_quota: i64) -> Result<i64> {
 async fn load_creator_summary(
     state: &impl SharedRuntimeState,
     team: &team::Model,
-) -> Result<Option<user_service::UserSummary>> {
-    let creator = user_service::user_summary_by_id(
+) -> Result<Option<account::UserSummary>> {
+    let creator = account::user_summary_by_id(
         state,
         team.created_by,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
     if creator.is_none() {
@@ -124,7 +124,7 @@ pub(super) async fn build_team_info(
 pub(super) fn build_team_info_with_metadata(
     team: &team::Model,
     my_role: TeamMemberRole,
-    created_by: Option<user_service::UserSummary>,
+    created_by: Option<account::UserSummary>,
     member_count: u64,
 ) -> TeamInfo {
     TeamInfo {
@@ -159,7 +159,7 @@ pub(super) async fn build_admin_team_info(
 
 pub(super) fn build_admin_team_info_with_metadata(
     team: &team::Model,
-    created_by: Option<user_service::UserSummary>,
+    created_by: Option<account::UserSummary>,
     member_count: u64,
 ) -> AdminTeamInfo {
     AdminTeamInfo {
@@ -183,9 +183,9 @@ pub(super) async fn build_team_member_info(
     user: user::Model,
 ) -> Result<TeamMemberInfo> {
     let profile =
-        profile_service::get_profile_info(state, &user, profile_service::AvatarAudience::AdminUser)
+        profile::get_profile_info(state, &user, profile::AvatarAudience::AdminUser)
             .await?;
-    let user_summary = user_service::to_user_summary_with_profile(&user, profile);
+    let user_summary = account::to_user_summary_with_profile(&user, profile);
 
     Ok(TeamMemberInfo {
         id: membership.id,
@@ -205,25 +205,25 @@ async fn build_team_member_infos(
     rows: Vec<(team_member::Model, user::Model)>,
 ) -> Result<Vec<TeamMemberInfo>> {
     let users: Vec<user::Model> = rows.iter().map(|(_, user)| user.clone()).collect();
-    let profile_map = profile_service::get_profile_info_map(
+    let profile_map = profile::get_profile_info_map(
         state,
         &users,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
-    let gravatar_base_url = profile_service::resolve_gravatar_base_url(state);
+    let gravatar_base_url = profile::resolve_gravatar_base_url(state);
 
     rows.into_iter()
         .map(|(membership, user)| {
             let profile = profile_map.get(&user.id).cloned().unwrap_or_else(|| {
-                profile_service::build_profile_info(
+                profile::build_profile_info(
                     &user,
                     None,
-                    profile_service::AvatarAudience::AdminUser,
+                    profile::AvatarAudience::AdminUser,
                     &gravatar_base_url,
                 )
             });
-            let user_summary = user_service::to_user_summary_with_profile(&user, profile);
+            let user_summary = account::to_user_summary_with_profile(&user, profile);
             Ok(TeamMemberInfo {
                 id: membership.id,
                 team_id: membership.team_id,
@@ -409,7 +409,7 @@ pub(super) async fn ensure_not_last_manager<C: ConnectionTrait>(
 pub(super) async fn load_team_metadata<'a>(
     state: &impl SharedRuntimeState,
     teams: impl IntoIterator<Item = &'a team::Model>,
-) -> Result<(HashMap<i64, user_service::UserSummary>, HashMap<i64, u64>)> {
+) -> Result<(HashMap<i64, account::UserSummary>, HashMap<i64, u64>)> {
     let mut creator_ids = HashSet::new();
     let mut team_ids = HashSet::new();
     for team in teams {
@@ -424,10 +424,10 @@ pub(super) async fn load_team_metadata<'a>(
     let creator_ids: Vec<i64> = creator_ids.into_iter().collect();
     let team_ids: Vec<i64> = team_ids.into_iter().collect();
     let (creators, member_counts) = tokio::try_join!(
-        user_service::user_summaries_by_ids(
+        account::user_summaries_by_ids(
             state,
             &creator_ids,
-            profile_service::AvatarAudience::AdminUser,
+            profile::AvatarAudience::AdminUser,
         ),
         team_member_repo::count_by_team_ids(state.reader_db(), &team_ids),
     )?;

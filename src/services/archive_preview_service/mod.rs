@@ -15,7 +15,7 @@ use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::archive_service::format::{ArchiveFormat, detect_supported_archive_format};
 use crate::services::archive_service::scan::ArchiveScanLimits;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::services::{share_service, task_service, workspace::storage};
+use crate::services::{share, task_service, workspace::storage};
 use crate::types::ArchiveFilenameEncoding;
 
 mod cache;
@@ -102,7 +102,7 @@ pub(crate) async fn preview_shared_file(
     filename_encoding: ArchiveFilenameEncoding,
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_share_preview_enabled(state)?;
-    let (_, source_file) = share_service::load_preview_shared_file(state, token).await?;
+    let (_, source_file) = share::load_preview_shared_file(state, token).await?;
     preview_verified_file(state, &source_file, filename_encoding).await
 }
 
@@ -114,7 +114,7 @@ pub(crate) async fn preview_shared_folder_file(
 ) -> Result<ArchivePreviewManifestLookup> {
     ensure_share_preview_enabled(state)?;
     let (_, source_file) =
-        share_service::load_preview_shared_folder_file(state, token, file_id).await?;
+        share::load_preview_shared_folder_file(state, token, file_id).await?;
     preview_verified_file(state, &source_file, filename_encoding).await
 }
 

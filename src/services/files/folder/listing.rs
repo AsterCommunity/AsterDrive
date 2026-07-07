@@ -8,7 +8,7 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    share_service, tag_service,
+    share, tag_service,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::usize_to_u64;
@@ -75,8 +75,8 @@ async fn build_folder_contents(
     let file_ids: Vec<i64> = files.iter().map(|file| file.id).collect();
     let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
     let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-        share_service::find_active_file_ids_in_resource_scope(state, scope, &file_ids),
-        share_service::find_active_folder_ids_in_resource_scope(state, scope, &folder_ids),
+        share::find_active_file_ids_in_resource_scope(state, scope, &file_ids),
+        share::find_active_folder_ids_in_resource_scope(state, scope, &folder_ids),
     )?;
     let tags_by_entity =
         tag_service::load_entity_tag_map(state, scope, &file_ids, &folder_ids).await?;

@@ -492,7 +492,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_c
 async fn test_cleanup_expired_wopi_sessions_removes_only_expired_rows() {
     use aster_drive::db::repository::wopi_session_repo;
     use aster_drive::entities::wopi_session;
-    use aster_drive::services::{auth::local, wopi_service};
+    use aster_drive::services::{auth::local, preview::wopi};
 
     let state = common::setup().await;
     let user = local::register(&state, "wopimaint1", "wopimaint1@test.com", "password123")
@@ -517,7 +517,7 @@ async fn test_cleanup_expired_wopi_sessions_removes_only_expired_rows() {
     )
     .await;
 
-    let count = wopi_service::cleanup_expired(&state).await.unwrap();
+    let count = wopi::cleanup_expired(&state).await.unwrap();
     assert_eq!(count, 1);
 
     assert!(

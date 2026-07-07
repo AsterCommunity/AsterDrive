@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::services::user_service;
+use crate::services::user::account;
 use crate::types::EntityType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -41,7 +41,7 @@ pub struct ResourceLock {
     pub entity_type: EntityType,
     pub entity_id: i64,
     pub path: String,
-    pub owner: Option<user_service::UserSummary>,
+    pub owner: Option<account::UserSummary>,
     pub owner_info: Option<ResourceLockOwnerInfo>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub timeout_at: Option<chrono::DateTime<chrono::Utc>>,

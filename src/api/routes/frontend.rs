@@ -271,7 +271,7 @@ mod tests {
     use super::{FrontendAssets, routes};
     use crate::config::{CacheConfig, Config, RuntimeConfig};
     use crate::runtime::PrimaryAppState;
-    use crate::services::share_service::build_share_download_rollback_queue;
+    use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{App, http::StatusCode, http::header, test};
     use migration::Migrator;

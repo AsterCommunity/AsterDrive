@@ -74,7 +74,7 @@ async fn restore_version_inner(
     let now = Utc::now();
     let current_blob = file_repo::find_blob_by_id(db, file.blob_id).await?;
     if let Err(e) =
-        crate::services::media_processing_service::delete_thumbnail(state, &current_blob).await
+        crate::services::media::processing::delete_thumbnail(state, &current_blob).await
     {
         tracing::warn!(
             "failed to delete thumbnail for blob {}: {e}",

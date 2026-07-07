@@ -768,11 +768,11 @@ fn doctor_mail_check(runtime_config: &crate::config::RuntimeConfig) -> DoctorChe
 
 fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> DoctorCheck {
     let raw = runtime_config
-        .get(crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY)
-        .unwrap_or_else(crate::services::preview_app_service::default_public_preview_apps_json);
+        .get(crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY)
+        .unwrap_or_else(crate::services::preview::apps::default_public_preview_apps_json);
 
     let normalized =
-        match crate::services::preview_app_service::normalize_public_preview_apps_config_value(&raw)
+        match crate::services::preview::apps::normalize_public_preview_apps_config_value(&raw)
         {
             Ok(normalized) => normalized,
             Err(err) => {
@@ -790,7 +790,7 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
             }
         };
 
-    let parsed: crate::services::preview_app_service::PublicPreviewAppsConfig =
+    let parsed: crate::services::preview::apps::PublicPreviewAppsConfig =
         match serde_json::from_str(&normalized) {
             Ok(parsed) => parsed,
             Err(err) => {
@@ -815,7 +815,7 @@ fn doctor_preview_apps_check(runtime_config: &crate::config::RuntimeConfig) -> D
         .iter()
         .filter(|app| {
             app.enabled
-                && app.provider == crate::services::preview_app_service::PreviewAppProvider::Wopi
+                && app.provider == crate::services::preview::apps::PreviewAppProvider::Wopi
         })
         .count();
     let details = vec![

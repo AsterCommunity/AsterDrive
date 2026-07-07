@@ -16,7 +16,10 @@ use crate::services::{
         direct_link,
         file::{self as file_ops, ResolvedDownloadRange},
     },
-    share_service,
+    share::{
+        load_shared_file_ignoring_download_limit,
+        load_shared_folder_file_ignoring_download_limit,
+    },
     workspace::storage::{self, WorkspaceStorageScope},
 };
 
@@ -73,8 +76,7 @@ pub async fn create_token_for_shared_file(
     state: &impl SharedRuntimeState,
     share_token: &str,
 ) -> Result<PreviewLinkInfo> {
-    let (share, file) =
-        share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
+    let (share, file) = load_shared_file_ignoring_download_limit(state, share_token).await?;
     let payload = build_payload(PreviewSubject::ShareFile {
         share_token: share.token.clone(),
     });
@@ -86,8 +88,7 @@ pub async fn create_token_for_shared_file_for_origin(
     share_token: &str,
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
-    let (share, file) =
-        share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
+    let (share, file) = load_shared_file_ignoring_download_limit(state, share_token).await?;
     let payload = build_payload(PreviewSubject::ShareFile {
         share_token: share.token.clone(),
     });
@@ -100,8 +101,7 @@ pub async fn create_token_for_shared_folder_file(
     file_id: i64,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
-        share_service::load_shared_folder_file_ignoring_download_limit(state, share_token, file_id)
-            .await?;
+        load_shared_folder_file_ignoring_download_limit(state, share_token, file_id).await?;
     let payload = build_payload(PreviewSubject::ShareFolderFile {
         share_token: share.token.clone(),
         file_id: file.id,
@@ -116,8 +116,7 @@ pub async fn create_token_for_shared_folder_file_for_origin(
     request_origin: RequestOrigin<'_>,
 ) -> Result<PreviewLinkInfo> {
     let (share, file) =
-        share_service::load_shared_folder_file_ignoring_download_limit(state, share_token, file_id)
-            .await?;
+        load_shared_folder_file_ignoring_download_limit(state, share_token, file_id).await?;
     let payload = build_payload(PreviewSubject::ShareFolderFile {
         share_token: share.token.clone(),
         file_id: file.id,
@@ -301,7 +300,7 @@ async fn resolve_token(
         }
         PreviewSubject::ShareFile { share_token } => {
             let (share, file) =
-                share_service::load_shared_file_ignoring_download_limit(state, share_token).await?;
+                load_shared_file_ignoring_download_limit(state, share_token).await?;
             if !verify_shared_payload(
                 &share,
                 &file,
@@ -319,7 +318,7 @@ async fn resolve_token(
             share_token,
             file_id,
         } => {
-            let (share, file) = share_service::load_shared_folder_file_ignoring_download_limit(
+            let (share, file) = load_shared_folder_file_ignoring_download_limit(
                 state,
                 share_token,
                 *file_id,

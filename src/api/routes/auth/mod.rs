@@ -52,8 +52,8 @@ pub use self::session::{
     delete_other_sessions, delete_session, get_storage_events, list_sessions, login, logout, me,
     put_password, refresh,
 };
-pub use crate::services::profile_service::{AvatarInfo, UserProfileInfo};
-pub use crate::services::user_service::{
+pub use crate::services::user::profile::{AvatarInfo, UserProfileInfo};
+pub use crate::services::user::account::{
     MePartialResponse, MeResponse, UpdatePreferencesReq, UserInfo, UserPreferences,
 };
 pub use crate::types::{

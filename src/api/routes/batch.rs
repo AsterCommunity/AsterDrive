@@ -15,7 +15,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
     files::batch,
-    stream_ticket_service, task_service,
+    share::ticket, task_service,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
@@ -158,7 +158,7 @@ pub async fn batch_copy(
     operation_id = "batch_archive_download",
     request_body = ArchiveDownloadReq,
     responses(
-        (status = 200, description = "Archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 200, description = "Archive download ticket", body = inline(ApiResponse<ticket::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "ArchiveDownloadUserDisabled"),
@@ -356,7 +356,7 @@ pub(crate) async fn team_batch_copy(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = ArchiveDownloadReq,
     responses(
-        (status = 200, description = "Team archive download ticket", body = inline(ApiResponse<stream_ticket_service::StreamTicketInfo>)),
+        (status = 200, description = "Team archive download ticket", body = inline(ApiResponse<ticket::StreamTicketInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden or ArchiveDownloadUserDisabled"),
@@ -514,7 +514,7 @@ pub(crate) async fn archive_download_ticket_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     ensure_user_archive_download_enabled(state)?;
-    let ticket = stream_ticket_service::create_archive_download_ticket_in_scope(
+    let ticket = ticket::create_archive_download_ticket_in_scope(
         state,
         scope,
         &task_service::types::CreateArchiveTaskParams {
@@ -593,7 +593,7 @@ pub(crate) async fn archive_download_stream_response(
 ) -> Result<HttpResponse> {
     ensure_user_archive_download_enabled(state)?;
     let params =
-        stream_ticket_service::resolve_archive_download_ticket_in_scope(state, scope, token)
+        ticket::resolve_archive_download_ticket_in_scope(state, scope, token)
             .await?;
     task_service::archive::stream_archive_download_in_scope(state, scope, params).await
 }

@@ -21,7 +21,7 @@ use crate::config::webdav;
 use crate::config::wopi;
 use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
-use crate::services::preview_app_service;
+use crate::services::preview::apps;
 use crate::types::{SystemConfigSource, SystemConfigValueType};
 
 pub trait SystemConfigValueLookup {
@@ -268,8 +268,8 @@ where
         branding::BRANDING_WORDMARK_LIGHT_URL_KEY => {
             branding::normalize_wordmark_light_url_config_value(value)
         }
-        preview_app_service::PREVIEW_APPS_CONFIG_KEY => {
-            preview_app_service::normalize_public_preview_apps_config_value(value)
+        apps::PREVIEW_APPS_CONFIG_KEY => {
+            apps::normalize_public_preview_apps_config_value(value)
         }
         wopi::WOPI_ACCESS_TOKEN_TTL_SECS_KEY
         | wopi::WOPI_LOCK_TTL_SECS_KEY

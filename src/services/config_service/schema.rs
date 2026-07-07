@@ -9,7 +9,7 @@ use crate::config::operations::{
     FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
     OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
-use crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY;
+use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
 use crate::types::{AuditAction, SystemConfigValueType};
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]

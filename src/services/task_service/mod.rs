@@ -65,7 +65,7 @@ use crate::errors::{
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
-    profile_service, user_service,
+    user::profile, user::account,
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
@@ -471,10 +471,10 @@ async fn build_task_infos(
         .iter()
         .filter_map(|task| task.creator_user_id)
         .collect();
-    let creators = user_service::user_summaries_by_ids(
+    let creators = account::user_summaries_by_ids(
         state,
         &creator_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 
@@ -490,10 +490,10 @@ async fn build_task_info_with_lookup(
 ) -> Result<TaskInfo> {
     let creator = match task.creator_user_id {
         Some(user_id) => {
-            user_service::user_summary_by_id(
+            account::user_summary_by_id(
                 state,
                 user_id,
-                profile_service::AvatarAudience::AdminUser,
+                profile::AvatarAudience::AdminUser,
             )
             .await?
         }
@@ -504,7 +504,7 @@ async fn build_task_info_with_lookup(
 
 fn build_task_info(
     task: background_task::Model,
-    creators: &HashMap<i64, user_service::UserSummary>,
+    creators: &HashMap<i64, account::UserSummary>,
 ) -> Result<TaskInfo> {
     let creator = task
         .creator_user_id
@@ -514,7 +514,7 @@ fn build_task_info(
 
 fn build_task_info_with_creator(
     task: background_task::Model,
-    creator: Option<user_service::UserSummary>,
+    creator: Option<account::UserSummary>,
 ) -> Result<TaskInfo> {
     // 数据库存的是通用 JSON 负载和步骤快照；这里统一把它们解包成 API 可读结构，
     // 让列表页和详情页不必了解任务种类内部的存储格式。

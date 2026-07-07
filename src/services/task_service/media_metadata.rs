@@ -4,7 +4,7 @@ use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
-use crate::services::media_metadata_service;
+use crate::services::media::metadata;
 use crate::storage::StorageErrorKind;
 use crate::types::{
     BackgroundTaskKind, BackgroundTaskStatus, MediaMetadataKind, MediaMetadataStatus,
@@ -47,7 +47,7 @@ pub(crate) async fn ensure_media_metadata_task(
     source_file: &file::Model,
     kind: MediaMetadataKind,
 ) -> Result<()> {
-    let display_name = media_metadata_service::task_display_name(blob.id, kind);
+    let display_name = metadata::task_display_name(blob.id, kind);
     if let Some(existing) = background_task_repo::find_latest_by_kind_and_display_name(
         state.writer_db(),
         BackgroundTaskKind::MediaMetadataExtract,
@@ -148,7 +148,7 @@ pub(super) async fn process_media_metadata_extract_task(
     )
     .await?;
 
-    let extracted = match media_metadata_service::extract_for_blob(
+    let extracted = match metadata::extract_for_blob(
         state,
         &blob,
         &payload.source_file_name,
@@ -158,11 +158,11 @@ pub(super) async fn process_media_metadata_extract_task(
     .await
     {
         Ok(extracted) => extracted,
-        Err(error) => media_metadata_service::ExtractedMediaMetadata {
+        Err(error) => metadata::ExtractedMediaMetadata {
             kind: payload.media_kind,
             status: MediaMetadataStatus::Failed,
             metadata: None,
-            error_message: Some(media_metadata_service::cache_error_message(&error)),
+            error_message: Some(metadata::cache_error_message(&error)),
             parser: parser_name_for_kind(payload.media_kind).to_string(),
             parser_version: "1".to_string(),
         },
@@ -172,7 +172,7 @@ pub(super) async fn process_media_metadata_extract_task(
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_EXTRACT_METADATA,
-        Some(media_metadata_service::result_status_text(extracted.status)),
+        Some(metadata::result_status_text(extracted.status)),
         Some((3, 4)),
     )?;
     set_task_step_active(
@@ -191,7 +191,7 @@ pub(super) async fn process_media_metadata_extract_task(
     )
     .await?;
 
-    let record = media_metadata_service::persist_extracted(state, &blob, extracted).await?;
+    let record = metadata::persist_extracted(state, &blob, extracted).await?;
     context.ensure_active()?;
     set_task_step_succeeded(
         &mut steps,
@@ -213,7 +213,7 @@ pub(super) async fn process_media_metadata_extract_task(
         Some(&result_json),
         4,
         4,
-        Some(media_metadata_service::result_status_text(record.status)),
+        Some(metadata::result_status_text(record.status)),
         &steps,
     )
     .await

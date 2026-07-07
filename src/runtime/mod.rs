@@ -11,7 +11,7 @@ use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
 use crate::metrics_core::SharedMetricsRecorder;
 use crate::services::{
-    mail::sender::MailSender, share_service::ShareDownloadRollbackQueue,
+    mail::sender::MailSender, share::ShareDownloadRollbackQueue,
     storage_change_service::StorageChangeEvent,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
@@ -290,7 +290,7 @@ pub(crate) mod test_support {
 mod tests {
     use super::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
     use crate::config::{CacheConfig, Config, RuntimeConfig};
-    use crate::services::share_service::build_share_download_rollback_queue;
+    use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use migration::Migrator;
     use std::sync::Arc;

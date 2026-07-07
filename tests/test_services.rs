@@ -414,7 +414,7 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_respects_deleted_visibility() {
-    use aster_drive::services::{auth::local, files::folder, webdav_service};
+    use aster_drive::services::{auth::local, files::folder, webdav::tree};
 
     let state = common::setup().await;
     let user = local::register(
@@ -469,7 +469,7 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
         .unwrap();
 
     let (visible_files, visible_folder_ids) =
-        webdav_service::collect_folder_tree(&state, user.id, root.id, false)
+        tree::collect_folder_tree(&state, user.id, root.id, false)
             .await
             .unwrap();
     let visible_file_ids = visible_files
@@ -488,7 +488,7 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
     );
 
     let (all_files, all_folder_ids) =
-        webdav_service::collect_folder_tree(&state, user.id, root.id, true)
+        tree::collect_folder_tree(&state, user.id, root.id, true)
             .await
             .unwrap();
     let all_file_ids = all_files
@@ -523,7 +523,7 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_handles_empty_leaf_folder() {
-    use aster_drive::services::{auth::local, files::folder, webdav_service};
+    use aster_drive::services::{auth::local, files::folder, webdav::tree};
 
     let state = common::setup().await;
     let user = local::register(&state, "treeleaf", "treeleaf@example.com", "password123")
@@ -533,14 +533,14 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
     let leaf = folder::create(&state, user.id, "leaf", None).await.unwrap();
 
     let (visible_files, visible_folder_ids) =
-        webdav_service::collect_folder_tree(&state, user.id, leaf.id, false)
+        tree::collect_folder_tree(&state, user.id, leaf.id, false)
             .await
             .unwrap();
     assert!(visible_files.is_empty());
     assert_eq!(visible_folder_ids, vec![leaf.id]);
 
     let (all_files, all_folder_ids) =
-        webdav_service::collect_folder_tree(&state, user.id, leaf.id, true)
+        tree::collect_folder_tree(&state, user.id, leaf.id, true)
             .await
             .unwrap();
     assert!(all_files.is_empty());
@@ -1811,7 +1811,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
     let oversized = vec![1_i64; aster_drive::services::files::batch::MAX_BATCH_ITEMS + 1];
 
     let err =
-        match aster_drive::services::share_service::batch_delete_shares(&state, 999, &[]).await {
+        match aster_drive::services::share::batch_delete_shares(&state, 999, &[]).await {
             Ok(_) => panic!("empty personal batch delete should fail validation"),
             Err(err) => err,
         };
@@ -1822,7 +1822,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
     );
 
     let err =
-        match aster_drive::services::share_service::batch_delete_shares(&state, 999, &oversized)
+        match aster_drive::services::share::batch_delete_shares(&state, 999, &oversized)
             .await
         {
             Ok(_) => panic!("oversized personal batch delete should fail validation"),
@@ -1832,7 +1832,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
     assert!(err.to_string().contains("batch size cannot exceed"));
 
     let err =
-        match aster_drive::services::share_service::batch_delete_team_shares(&state, 999, 999, &[])
+        match aster_drive::services::share::batch_delete_team_shares(&state, 999, 999, &[])
             .await
         {
             Ok(_) => panic!("empty team batch delete should fail validation"),
@@ -1844,7 +1844,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
             .contains("at least one share ID is required")
     );
 
-    let err = match aster_drive::services::share_service::batch_delete_team_shares(
+    let err = match aster_drive::services::share::batch_delete_team_shares(
         &state, 999, 999, &oversized,
     )
     .await
@@ -1869,10 +1869,10 @@ async fn test_share_download_failure_rolls_back_download_quota() {
     .unwrap();
 
     let file_id = store_service_file(&state, user.id, None, "download.txt", "download").await;
-    let share = aster_drive::services::share_service::create_share(
+    let share = aster_drive::services::share::create_share(
         &state,
         user.id,
-        aster_drive::services::share_service::ShareTarget::file(file_id),
+        aster_drive::services::share::ShareTarget::file(file_id),
         None,
         None,
         1,
@@ -1894,7 +1894,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
     let stored_path = std::path::Path::new(&policy.base_path).join(&blob.storage_path);
     std::fs::remove_file(&stored_path).unwrap();
 
-    let err = aster_drive::services::share_service::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range(
         &state,
         &share.token,
         None,
@@ -1909,7 +1909,7 @@ async fn test_share_download_failure_rolls_back_download_quota() {
         .unwrap();
     assert_eq!(reloaded.download_count, 0);
 
-    let err = aster_drive::services::share_service::download_shared_file_with_range(
+    let err = aster_drive::services::share::download_shared_file_with_range(
         &state,
         &share.token,
         None,
@@ -1948,10 +1948,10 @@ async fn test_share_download_abort_rolls_back_download_quota() {
         "abort-download",
     )
     .await;
-    let share = aster_drive::services::share_service::create_share(
+    let share = aster_drive::services::share::create_share(
         &state,
         user.id,
-        aster_drive::services::share_service::ShareTarget::file(file_id),
+        aster_drive::services::share::ShareTarget::file(file_id),
         None,
         None,
         1,

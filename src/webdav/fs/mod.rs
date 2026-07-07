@@ -11,7 +11,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     audit_service::{self, AuditContext},
     files::{file as file_ops, folder},
-    property_service, storage_change_service, webdav_service,
+    property_service, storage_change_service, webdav::tree,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::{EntityType, NullablePatch};
@@ -435,7 +435,7 @@ impl DavFileSystem for AsterDavFs {
             let state = self.app_state();
             let details =
                 folder::audit_location_details_for_model(&state, self.scope, &folder).await;
-            webdav_service::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
+            tree::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
                 .await
                 .map_err(to_fs_error)?;
             audit_service::log_with_details(
@@ -613,7 +613,7 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let copied = webdav_service::copy_folder_tree_in_scope(
+                    let copied = tree::copy_folder_tree_in_scope(
                         &state,
                         self.scope,
                         f.id,
@@ -1188,7 +1188,7 @@ async fn delete_existing_destination_for_overwrite(
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = folder::audit_location_details_for_model(state, scope, &existing).await;
-        webdav_service::recursive_soft_delete_in_scope(state, scope, existing.id)
+        tree::recursive_soft_delete_in_scope(state, scope, existing.id)
             .await
             .map_err(to_fs_error)?;
         audit_service::log_with_details(

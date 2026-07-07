@@ -20,7 +20,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     download_headers::DownloadDisposition,
     files::{batch, folder as folder_ops},
-    share_service,
+    share::{load_valid_folder_share_root, reserve_share_download_count, rollback_share_download_count},
     task_service::types::CreateArchiveTaskParams,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
@@ -161,7 +161,7 @@ pub(crate) async fn stream_shared_archive_download(
     let resolved = resolve_shared_archive_download(state, token, &params).await?;
     let archive_name = resolved.archive_name.clone();
     let limits = ArchiveBuildLimits::from_runtime_config(state.runtime_config());
-    share_service::reserve_share_download_count(state, &resolved.share).await?;
+    reserve_share_download_count(state, &resolved.share).await?;
     let collected_result = collect_archive_entries_from_shared_selection(
         state,
         resolved.scope,
@@ -172,7 +172,7 @@ pub(crate) async fn stream_shared_archive_download(
     let collected = match collected_result {
         Ok(collected) => collected,
         Err(error) => {
-            share_service::rollback_share_download_count(state, resolved.share.id).await;
+            rollback_share_download_count(state, resolved.share.id).await;
             return Err(error);
         }
     };
@@ -309,7 +309,7 @@ async fn resolve_shared_archive_download(
     params: &CreateArchiveTaskParams,
 ) -> Result<ResolvedSharedArchiveDownload> {
     batch::validate_batch_ids(&params.file_ids, &params.folder_ids)?;
-    let (share, root_folder_id) = share_service::load_valid_folder_share_root(state, token).await?;
+    let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
     let scope = match share.team_id {
         Some(team_id) => WorkspaceResourceScope::Team { team_id },
         None => WorkspaceResourceScope::Personal {

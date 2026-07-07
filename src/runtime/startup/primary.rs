@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 pub struct PreparedPrimaryRuntime {
     pub state: PrimaryAppState,
-    pub share_download_rollback_worker: crate::services::share_service::ShareDownloadRollbackWorker,
+    pub share_download_rollback_worker: crate::services::share::ShareDownloadRollbackWorker,
 }
 
 /// 准备主节点运行时（配置和日志应在此之前初始化）
@@ -22,7 +22,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     let rollback_queue_capacity =
         crate::config::operations::share_download_rollback_queue_capacity(&runtime_config);
     let (share_download_rollback, share_download_rollback_worker) =
-        crate::services::share_service::build_share_download_rollback_queue(
+        crate::services::share::build_share_download_rollback_queue(
             common.database.clone(),
             rollback_queue_capacity,
             common.metrics.clone(),

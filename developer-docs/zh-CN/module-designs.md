@@ -142,10 +142,10 @@
 
 对应代码主要在：
 
-- `src/services/share_service/mod.rs`
-- `src/services/share_service/management.rs`
-- `src/services/share_service/content.rs`
-- `src/services/share_service/shared.rs`
+- `src/services/share/mod.rs`
+- `src/services/share/management.rs`
+- `src/services/share/content.rs`
+- `src/services/share/shared.rs`
 
 ### 设计目标
 

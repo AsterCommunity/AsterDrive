@@ -12,7 +12,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     auth::local::Claims,
     files::{direct_link, file, preview_link},
-    media_metadata_service, media_processing_service, wopi_service,
+    media::metadata, media::processing, preview::wopi,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_web::http::header;
@@ -206,7 +206,7 @@ pub async fn resolve_resource_handle(
     params(("id" = i64, Path, description = "File ID")),
     request_body = OpenWopiRequest,
     responses(
-        (status = 200, description = "WOPI launch session", body = inline(ApiResponse<wopi_service::WopiLaunchSession>)),
+        (status = 200, description = "WOPI launch session", body = inline(ApiResponse<wopi::WopiLaunchSession>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
     ),
@@ -308,7 +308,7 @@ pub async fn get_thumbnail(
     operation_id = "get_file_media_metadata",
     params(("id" = i64, Path, description = "File ID")),
     responses(
-        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 200, description = "Blob media metadata", body = inline(ApiResponse<metadata::MediaMetadataInfo>)),
         (status = 202, description = "Media metadata extraction in progress"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "File not found"),
@@ -554,7 +554,7 @@ pub(crate) async fn team_resolve_resource_handle(
     ),
     request_body = OpenWopiRequest,
     responses(
-        (status = 200, description = "Team WOPI launch session", body = inline(ApiResponse<wopi_service::WopiLaunchSession>)),
+        (status = 200, description = "Team WOPI launch session", body = inline(ApiResponse<wopi::WopiLaunchSession>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "File not found"),
@@ -666,7 +666,7 @@ pub(crate) async fn team_get_image_preview(
         ("id" = i64, Path, description = "File ID")
     ),
     responses(
-        (status = 200, description = "Team file blob media metadata", body = inline(ApiResponse<media_metadata_service::MediaMetadataInfo>)),
+        (status = 200, description = "Team file blob media metadata", body = inline(ApiResponse<metadata::MediaMetadataInfo>)),
         (status = 202, description = "Media metadata extraction in progress"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -881,12 +881,12 @@ pub(crate) async fn open_wopi_response(
 ) -> Result<HttpResponse> {
     let file = file::get_info_in_scope(state, scope, file_id).await?;
     let (scheme, host) = request_origin_parts(req);
-    let session = wopi_service::create_launch_session_in_scope(
+    let session = wopi::create_launch_session_in_scope(
         state,
         scope,
         file_id,
         app_key,
-        Some(wopi_service::RequestOrigin {
+        Some(wopi::RequestOrigin {
             scheme: &scheme,
             host: &host,
         }),
@@ -990,11 +990,11 @@ pub(crate) async fn get_media_metadata_response(
     scope: WorkspaceStorageScope,
     file_id: i64,
 ) -> Result<HttpResponse> {
-    match media_metadata_service::get_for_file_in_scope(state, scope, file_id).await? {
-        media_metadata_service::MediaMetadataLookup::Ready(info) => {
+    match metadata::get_for_file_in_scope(state, scope, file_id).await? {
+        metadata::MediaMetadataLookup::Ready(info) => {
             Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
         }
-        media_metadata_service::MediaMetadataLookup::Pending => Ok(HttpResponse::Accepted()
+        metadata::MediaMetadataLookup::Pending => Ok(HttpResponse::Accepted()
             .insert_header((header::RETRY_AFTER, "2"))
             .json(ApiResponse::<()>::ok_empty())),
     }
@@ -1005,7 +1005,7 @@ pub(crate) fn image_preview_response(
     if_none_match: Option<&str>,
     cache_control: String,
 ) -> HttpResponse {
-    let etag_value = media_processing_service::image_preview_etag_value_for(
+    let etag_value = processing::image_preview_etag_value_for(
         &result.blob_hash,
         &result.image_preview_processor,
         &result.image_preview_version,
@@ -1032,7 +1032,7 @@ pub(crate) fn thumbnail_response(
     if_none_match: Option<&str>,
     cache_control: String,
 ) -> HttpResponse {
-    let etag_value = media_processing_service::thumbnail_etag_value_for(
+    let etag_value = processing::thumbnail_etag_value_for(
         &result.blob_hash,
         result.thumbnail_processor.as_deref(),
         result.thumbnail_version.as_deref(),
@@ -1068,7 +1068,7 @@ mod tests {
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
-    use crate::services::{auth::local, mail::sender, media_processing_service};
+    use crate::services::{auth::local, mail::sender, media::processing};
     use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
@@ -1243,7 +1243,7 @@ mod tests {
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
-            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            crate::services::share::spawn_detached_share_download_rollback_queue(
                 db.clone(),
                 crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
             );
@@ -1594,7 +1594,7 @@ mod tests {
         let blob = file_repo::find_blob_by_id(state.writer_db(), info.blob_id)
             .await
             .expect("image preview route blob should load");
-        media_processing_service::generate_and_store_image_preview(
+        processing::generate_and_store_image_preview(
             &state,
             &blob,
             &info.name,
@@ -1641,7 +1641,7 @@ mod tests {
             .to_string();
         let expected_etag = format!(
             "\"{}\"",
-            media_processing_service::image_preview_etag_value_for(
+            processing::image_preview_etag_value_for(
                 &image_preview_blob_hash(),
                 crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
                 crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,

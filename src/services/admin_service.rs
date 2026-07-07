@@ -15,9 +15,9 @@ use crate::db::repository::{
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
-    audit_service, profile_service,
+    audit_service, user::profile,
     task_service::{SystemRuntimeTaskKind, types::RuntimeSystemHealthStatus},
-    user_service,
+    user::account,
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
 use crate::utils::numbers::u32_to_usize;
@@ -99,7 +99,7 @@ pub struct AdminBackgroundTaskEvent {
     pub kind: BackgroundTaskKind,
     pub status: BackgroundTaskStatus,
     pub display_name: String,
-    pub creator: Option<user_service::UserSummary>,
+    pub creator: Option<account::UserSummary>,
     pub team_id: Option<i64>,
     pub status_text: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -321,10 +321,10 @@ async fn build_background_task_events(
         .iter()
         .filter_map(|task| task.creator_user_id)
         .collect();
-    let creators = user_service::user_summaries_by_ids(
+    let creators = account::user_summaries_by_ids(
         state,
         &creator_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 
@@ -336,7 +336,7 @@ async fn build_background_task_events(
 
 fn build_background_task_event(
     task: crate::entities::background_task::Model,
-    creators: &HashMap<i64, user_service::UserSummary>,
+    creators: &HashMap<i64, account::UserSummary>,
 ) -> Result<AdminBackgroundTaskEvent> {
     let duration_ms = match (task.started_at, task.finished_at) {
         (Some(started_at), Some(finished_at)) => Some(std::cmp::max(

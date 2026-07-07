@@ -11,7 +11,7 @@ use crate::config::{auth_runtime::RuntimeAuthPolicy, cors, site_url};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::audit_service::AuditRequestInfo;
-use crate::services::{auth::local, config_service, user_invitation_service, user_service};
+use crate::services::{auth::local, config_service, user::invitation, user::account};
 use crate::types::VerificationPurpose;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
 
@@ -106,7 +106,7 @@ pub async fn setup(
         )
         .await?;
         bootstrap_public_site_url_from_setup(state.get_ref(), &req, user.id).await;
-        let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+        let user_info = account::get_self_info(state.get_ref(), user.id).await?;
         Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
     }
     .await;
@@ -141,7 +141,7 @@ pub async fn register(
             &audit_info,
         )
         .await?;
-        let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+        let user_info = account::get_self_info(state.get_ref(), user.id).await?;
         Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
     }
     .await;
@@ -193,7 +193,7 @@ pub async fn resend_register_activation(
     operation_id = "verify_user_invitation",
     params(("token" = String, Path, description = "Invitation token")),
     responses(
-        (status = 200, description = "Invitation is valid", body = inline(ApiResponse<crate::services::user_invitation_service::PublicUserInvitationInfo>)),
+        (status = 200, description = "Invitation is valid", body = inline(ApiResponse<crate::services::user::invitation::PublicUserInvitationInfo>)),
         (status = 400, description = "Invalid invitation"),
     ),
 )]
@@ -201,7 +201,7 @@ pub async fn verify_user_invitation(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
 ) -> Result<HttpResponse> {
-    let info = user_invitation_service::verify_public_invitation(state.get_ref(), &path).await?;
+    let info = invitation::verify_public_invitation(state.get_ref(), &path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(info)))
 }
 
@@ -224,7 +224,7 @@ pub async fn accept_user_invitation(
     body: web::Json<AcceptUserInvitationReq>,
 ) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request(&req);
-    let user = user_invitation_service::accept_invitation(
+    let user = invitation::accept_invitation(
         state.get_ref(),
         &path,
         &body.username,
@@ -242,7 +242,7 @@ pub async fn accept_user_invitation(
         None,
     )
     .await;
-    let user_info = user_service::get_self_info(state.get_ref(), user.id).await?;
+    let user_info = account::get_self_info(state.get_ref(), user.id).await?;
     Ok(HttpResponse::Created().json(ApiResponse::ok(user_info)))
 }
 

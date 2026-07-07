@@ -142,10 +142,10 @@ If you add a new file entry point later, the first question is not “where shou
 
 Main code paths:
 
-- `src/services/share_service/mod.rs`
-- `src/services/share_service/management.rs`
-- `src/services/share_service/content.rs`
-- `src/services/share_service/shared.rs`
+- `src/services/share/mod.rs`
+- `src/services/share/management.rs`
+- `src/services/share/content.rs`
+- `src/services/share/shared.rs`
 
 ### Design goal
 

@@ -645,7 +645,7 @@ pub struct AdminFileInfo {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
-    pub created_by: Option<crate::services::user_service::UserSummary>,
+    pub created_by: Option<crate::services::user::account::UserSummary>,
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
@@ -721,7 +721,7 @@ pub struct AdminFileBlobInfo {
     pub actual_ref_count: i64,
     pub health: AdminFileBlobHealth,
     pub uploader_count: i64,
-    pub uploaders: Vec<crate::services::user_service::UserSummary>,
+    pub uploaders: Vec<crate::services::user::account::UserSummary>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -734,7 +734,7 @@ pub struct AdminFileBlobReferenceFile {
     pub owner_user_id: Option<i64>,
     pub created_by_user_id: Option<i64>,
     pub created_by_username: String,
-    pub created_by: Option<crate::services::user_service::UserSummary>,
+    pub created_by: Option<crate::services::user::account::UserSummary>,
     pub size: i64,
     pub mime_type: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

@@ -5,7 +5,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
-use crate::services::user_service;
+use crate::services::user::account;
 use crate::types::{TeamMemberRole, UserStatus};
 
 #[derive(Debug, Clone)]
@@ -51,7 +51,7 @@ pub struct TeamInfo {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub created_by: Option<user_service::UserSummary>,
+    pub created_by: Option<account::UserSummary>,
     pub my_role: TeamMemberRole,
     pub member_count: u64,
     pub storage_used: i64,
@@ -73,7 +73,7 @@ pub struct TeamMemberInfo {
     pub team_id: i64,
     pub user_id: i64,
     pub email: String,
-    pub user: user_service::UserSummary,
+    pub user: account::UserSummary,
     pub status: UserStatus,
     pub role: TeamMemberRole,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
@@ -139,7 +139,7 @@ pub struct AdminTeamInfo {
     pub id: i64,
     pub name: String,
     pub description: String,
-    pub created_by: Option<user_service::UserSummary>,
+    pub created_by: Option<account::UserSummary>,
     pub member_count: u64,
     pub storage_used: i64,
     pub storage_quota: i64,

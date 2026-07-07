@@ -26,7 +26,7 @@ Identity and access answers three questions: who is accessing, how they prove id
 | `mfa_service` | MFA login flow, TOTP, recovery codes, email codes |
 | `passkey_service` | Passkey registration, authentication, credential management |
 | `external_auth_service` | Providers, login flow, identity resolution, account binding |
-| `webdav_account_service` | WebDAV accounts and scoped access |
+| `webdav::account` | WebDAV accounts and scoped access |
 | `api/request_auth.rs`, `api/middleware` | Request authentication, admin permissions, auth context |
 
 ## Configuration Entry Points

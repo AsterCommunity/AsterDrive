@@ -4,7 +4,7 @@ use crate::db::repository::file_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    media_processing_service, task_service, workspace::storage::WorkspaceStorageScope,
+    media::processing, task_service, workspace::storage::WorkspaceStorageScope,
 };
 use bytes::Bytes;
 
@@ -33,9 +33,9 @@ pub(crate) async fn get_thumbnail_data_in_scope(
     let f = get_info_in_scope(state, scope, file_id).await?;
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
     let thumbnail =
-        media_processing_service::load_thumbnail_if_exists(state, &blob, &f.name, &f.mime_type)
+        processing::load_thumbnail_if_exists(state, &blob, &f.name, &f.mime_type)
             .await
-            .map_err(media_processing_service::map_thumbnail_request_error)?;
+            .map_err(processing::map_thumbnail_request_error)?;
 
     match thumbnail {
         Some(thumbnail) => Ok(Some(ThumbnailResult {
@@ -47,7 +47,7 @@ pub(crate) async fn get_thumbnail_data_in_scope(
         None => {
             task_service::thumbnail::ensure_thumbnail_task(state, &blob, &f.name, &f.mime_type)
                 .await
-                .map_err(media_processing_service::map_thumbnail_request_error)?;
+                .map_err(processing::map_thumbnail_request_error)?;
             Ok(None)
         }
     }
@@ -68,9 +68,9 @@ pub(crate) async fn image_preview_for_file(
 ) -> Result<Option<ImagePreviewResult>> {
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
     let preview =
-        media_processing_service::load_image_preview_if_exists(state, &blob, &f.name, &f.mime_type)
+        processing::load_image_preview_if_exists(state, &blob, &f.name, &f.mime_type)
             .await
-            .map_err(media_processing_service::map_thumbnail_request_error)?;
+            .map_err(processing::map_thumbnail_request_error)?;
 
     match preview {
         Some(preview) => Ok(Some(ImagePreviewResult {
@@ -82,7 +82,7 @@ pub(crate) async fn image_preview_for_file(
         None => {
             task_service::thumbnail::ensure_image_preview_task(state, &blob, &f.name, &f.mime_type)
                 .await
-                .map_err(media_processing_service::map_thumbnail_request_error)?;
+                .map_err(processing::map_thumbnail_request_error)?;
             Ok(None)
         }
     }

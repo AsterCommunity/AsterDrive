@@ -6,7 +6,7 @@ use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::{profile_service, user_service};
+use crate::services::{user::profile, user::account};
 use crate::types::TeamMemberRole;
 
 use super::filters::AuditLogFilters;
@@ -56,10 +56,10 @@ async fn build_audit_entries(
         .collect::<HashSet<_>>()
         .into_iter()
         .collect();
-    let users = user_service::user_summaries_by_ids(
+    let users = account::user_summaries_by_ids(
         state,
         &user_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 
@@ -127,7 +127,7 @@ fn parse_i64_field(details: &serde_json::Value, key: &str) -> Option<i64> {
 
 fn build_team_audit_entry(
     entry: audit_log::Model,
-    users: &HashMap<i64, user_service::UserSummary>,
+    users: &HashMap<i64, account::UserSummary>,
 ) -> TeamAuditEntryInfo {
     let entity_type = crate::types::AuditEntityType::from_str_name(&entry.entity_type);
     let parsed_details = entry
@@ -205,10 +205,10 @@ pub async fn query_team_entries(
         }
     }
     let user_ids: Vec<i64> = user_ids.into_iter().collect();
-    let users = user_service::user_summaries_by_ids(
+    let users = account::user_summaries_by_ids(
         state,
         &user_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
     let items = page

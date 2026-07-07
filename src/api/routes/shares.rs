@@ -15,7 +15,7 @@ use crate::runtime::PrimaryAppState;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use crate::services::files::batch;
 use crate::services::{
-    audit_service::AuditContext, auth::local::Claims, share_service,
+    audit_service::AuditContext, auth::local::Claims, share,
     workspace::storage::WorkspaceStorageScope,
 };
 use actix_governor::Governor;
@@ -54,7 +54,7 @@ pub fn team_routes() -> actix_web::Scope {
     operation_id = "create_share",
     request_body = CreateShareReq,
     responses(
-        (status = 201, description = "Share created", body = inline(ApiResponse<crate::services::share_service::ShareInfo>)),
+        (status = 201, description = "Share created", body = inline(ApiResponse<crate::services::share::ShareInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -85,7 +85,7 @@ pub async fn create_share(
     operation_id = "list_my_shares",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "My shares", body = inline(ApiResponse<OffsetPage<crate::services::share_service::MyShareInfo>>)),
+        (status = 200, description = "My shares", body = inline(ApiResponse<OffsetPage<crate::services::share::MyShareInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
     ),
     security(("bearer" = [])),
@@ -113,7 +113,7 @@ pub async fn list_shares(
     params(("id" = i64, Path, description = "Share ID")),
     request_body = UpdateShareReq,
     responses(
-        (status = 200, description = "Share updated", body = inline(ApiResponse<crate::services::share_service::ShareInfo>)),
+        (status = 200, description = "Share updated", body = inline(ApiResponse<crate::services::share::ShareInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 404, description = "Share not found"),
@@ -212,7 +212,7 @@ pub async fn batch_delete_shares(
     params(("team_id" = i64, Path, description = "Team ID")),
     request_body = CreateShareReq,
     responses(
-        (status = 201, description = "Team share created", body = inline(ApiResponse<share_service::ShareInfo>)),
+        (status = 201, description = "Team share created", body = inline(ApiResponse<share::ShareInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -247,7 +247,7 @@ pub(crate) async fn team_create_share(
         LimitOffsetQuery
     ),
     responses(
-        (status = 200, description = "Team shares", body = inline(ApiResponse<OffsetPage<share_service::MyShareInfo>>)),
+        (status = 200, description = "Team shares", body = inline(ApiResponse<OffsetPage<share::MyShareInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -273,7 +273,7 @@ pub(crate) async fn team_list_shares(
     ),
     request_body = UpdateShareReq,
     responses(
-        (status = 200, description = "Team share updated", body = inline(ApiResponse<share_service::ShareInfo>)),
+        (status = 200, description = "Team share updated", body = inline(ApiResponse<share::ShareInfo>)),
         (status = 400, description = "Invalid request"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -378,7 +378,7 @@ pub(crate) async fn create_share_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let share = share_service::create_share_in_scope_with_audit(
+    let share = share::create_share_in_scope_with_audit(
         state,
         scope,
         body.target,
@@ -396,7 +396,7 @@ pub(crate) async fn list_shares_response(
     scope: WorkspaceStorageScope,
     query: &LimitOffsetQuery,
 ) -> Result<HttpResponse> {
-    let shares = share_service::list_shares_paginated_in_scope(
+    let shares = share::list_shares_paginated_in_scope(
         state,
         scope,
         query.limit_or(50, 100),
@@ -416,7 +416,7 @@ pub(crate) async fn update_share_response(
 ) -> Result<HttpResponse> {
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
-    let share = share_service::update_share_in_scope_with_audit(
+    let share = share::update_share_in_scope_with_audit(
         state,
         scope,
         share_id,
@@ -437,7 +437,7 @@ pub(crate) async fn delete_share_response(
     share_id: i64,
 ) -> Result<HttpResponse> {
     let ctx = AuditContext::from_request(req, claims);
-    share_service::delete_share_in_scope_with_audit(state, scope, share_id, &ctx).await?;
+    share::delete_share_in_scope_with_audit(state, scope, share_id, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -451,7 +451,7 @@ pub(crate) async fn batch_delete_shares_response(
     validate_request(body)?;
     let ctx = AuditContext::from_request(req, claims);
     let result =
-        share_service::batch_delete_shares_in_scope_with_audit(state, scope, &body.share_ids, &ctx)
+        share::batch_delete_shares_in_scope_with_audit(state, scope, &body.share_ids, &ctx)
             .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(result)))
 }

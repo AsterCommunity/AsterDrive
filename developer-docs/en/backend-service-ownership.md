@@ -183,8 +183,8 @@ Directories:
 
 - `src/webdav/*`
 - `src/api/routes/wopi.rs`
-- `src/services/webdav_service.rs`
-- `src/services/wopi_service/*`
+- `src/services/webdav::tree.rs`
+- `src/services/preview::wopi/*`
 
 WebDAV and WOPI are protocol entry points, not ordinary variants of the REST file API.
 
@@ -505,7 +505,7 @@ Side effects that must be explicit:
 Current responsibilities:
 
 - `src/webdav/*` handles WebDAV / DeltaV protocol behavior, Basic Auth, path resolution, locks, properties, and transfer
-- `src/services/webdav_service.rs` exposes product actions needed by protocol code, such as folder tree soft delete, purge, and copy
+- `src/services/webdav::tree.rs` exposes product actions needed by protocol code, such as folder tree soft delete, purge, and copy
 - WebDAV file writes use the unified `workspace::storage` path
 
 Should stay:
@@ -530,7 +530,7 @@ Side effects that must be explicit:
 Current responsibilities:
 
 - `src/api/routes/wopi.rs` handles WOPI HTTP method/header/status compatibility
-- `src/services/wopi_service/*` handles discovery, sessions, proof validation, locks, targets, and operations
+- `src/services/preview::wopi/*` handles discovery, sessions, proof validation, locks, targets, and operations
 - WOPI file reads and writes reuse `file` / `workspace::storage`
 
 Should stay:

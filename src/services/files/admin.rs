@@ -13,7 +13,7 @@ use crate::db::repository::{file_repo, version_repo};
 use crate::entities::{file, file_blob, file_version};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::services::{profile_service, user_service};
+use crate::services::{user::profile, user::account};
 
 pub async fn list_files(
     state: &impl SharedRuntimeState,
@@ -42,10 +42,10 @@ pub async fn list_files(
             .iter()
             .filter_map(|(file, _)| file.created_by_user_id)
             .collect::<Vec<_>>();
-        let creators = user_service::user_summaries_by_ids(
+        let creators = account::user_summaries_by_ids(
             state,
             &creator_ids,
-            profile_service::AvatarAudience::AdminUser,
+            profile::AvatarAudience::AdminUser,
         )
         .await?;
         Ok((
@@ -85,10 +85,10 @@ pub async fn get_file(state: &impl SharedRuntimeState, file_id: i64) -> Result<A
         })
         .collect::<Result<Vec<_>>>()?;
 
-    let creators = user_service::user_summaries_by_ids(
+    let creators = account::user_summaries_by_ids(
         state,
         &file.created_by_user_id.into_iter().collect::<Vec<_>>(),
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 
@@ -140,10 +140,10 @@ pub async fn get_blob(
     let version_ref_count = i64::try_from(versions.len())
         .map_err(|_| AsterError::internal_error("blob version reference count overflow"))?;
     let uploader_ids = collect_file_uploader_ids(&files);
-    let users = user_service::user_summaries_by_ids(
+    let users = account::user_summaries_by_ids(
         state,
         &uploader_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
     let uploaders = summarize_blob_uploaders(&files, &users);
@@ -171,7 +171,7 @@ pub async fn get_blob(
 
 fn to_admin_file_info(
     (file, blob): (file::Model, file_blob::Model),
-    creators: &HashMap<i64, user_service::UserSummary>,
+    creators: &HashMap<i64, account::UserSummary>,
 ) -> AdminFileInfo {
     let created_by = file
         .created_by_user_id
@@ -229,7 +229,7 @@ fn to_admin_blob_info(
     file_ref_count: i64,
     version_ref_count: i64,
     uploader_count: i64,
-    uploaders: Vec<user_service::UserSummary>,
+    uploaders: Vec<account::UserSummary>,
 ) -> Result<AdminFileBlobInfo> {
     let hash_kind = blob_hash_kind(&blob.hash);
     let actual_ref_count = file_ref_count
@@ -274,10 +274,10 @@ async fn enrich_admin_blob_infos(
         .flatten()
         .map(|uploader| uploader.user_id)
         .collect::<Vec<_>>();
-    let users = user_service::user_summaries_by_ids(
+    let users = account::user_summaries_by_ids(
         state,
         &uploader_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 
@@ -322,8 +322,8 @@ fn collect_file_uploader_ids(files: &[file::Model]) -> Vec<i64> {
 
 fn summarize_blob_uploaders(
     files: &[file::Model],
-    users: &HashMap<i64, user_service::UserSummary>,
-) -> Vec<user_service::UserSummary> {
+    users: &HashMap<i64, account::UserSummary>,
+) -> Vec<account::UserSummary> {
     collect_file_uploader_ids(files)
         .into_iter()
         .filter_map(|user_id| users.get(&user_id).cloned())
@@ -332,8 +332,8 @@ fn summarize_blob_uploaders(
 
 fn summarize_blob_uploader_refs(
     refs: &[file_repo::AdminBlobUploaderRef],
-    users: &HashMap<i64, user_service::UserSummary>,
-) -> Vec<user_service::UserSummary> {
+    users: &HashMap<i64, account::UserSummary>,
+) -> Vec<account::UserSummary> {
     refs.iter()
         .filter_map(|uploader| users.get(&uploader.user_id).cloned())
         .collect()
@@ -353,7 +353,7 @@ fn blob_health(recorded_ref_count: i32, actual_ref_count: i64) -> AdminFileBlobH
 
 fn to_blob_reference_file(
     file: file::Model,
-    users: &HashMap<i64, user_service::UserSummary>,
+    users: &HashMap<i64, account::UserSummary>,
 ) -> AdminFileBlobReferenceFile {
     let created_by = file
         .created_by_user_id

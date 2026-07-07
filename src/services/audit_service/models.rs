@@ -4,14 +4,14 @@ use std::collections::BTreeMap;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::services::user_service;
+use crate::services::user::account;
 use crate::types::{AuditAction, AuditEntityType, TeamMemberRole};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct AuditLogEntry {
     pub id: i64,
-    pub user: Option<user_service::UserSummary>,
+    pub user: Option<account::UserSummary>,
     pub action: AuditAction,
     pub entity_type: AuditEntityType,
     pub entity_id: Option<i64>,
@@ -51,11 +51,11 @@ pub struct TeamAuditEntryInfo {
     pub action: AuditAction,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presentation: Option<AuditPresentation>,
-    pub actor: Option<user_service::UserSummary>,
+    pub actor: Option<account::UserSummary>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub member: Option<user_service::UserSummary>,
+    pub member: Option<account::UserSummary>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub role: Option<TeamMemberRole>,
     #[serde(skip_serializing_if = "Option::is_none")]

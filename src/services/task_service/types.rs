@@ -6,7 +6,7 @@ use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
 use crate::config::operations;
-use crate::services::user_service;
+use crate::services::user::account;
 use crate::storage::connectors::{
     StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
     StoragePolicyCleanupRemoteNodeSnapshot,
@@ -511,7 +511,7 @@ pub struct ImagePreviewGenerateTaskResult {
     pub reused_existing_preview: bool,
 }
 
-pub use crate::services::media_metadata_service::{
+pub use crate::services::media::metadata::{
     MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult,
 };
 
@@ -753,7 +753,7 @@ pub struct TaskInfo {
     pub kind: BackgroundTaskKind,
     pub status: BackgroundTaskStatus,
     pub display_name: String,
-    pub creator: Option<user_service::UserSummary>,
+    pub creator: Option<account::UserSummary>,
     pub team_id: Option<i64>,
     pub share_id: Option<i64>,
     pub progress_current: i64,

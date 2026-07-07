@@ -10,7 +10,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::{media_processing_service, workspace::storage::WorkspaceStorageScope};
+use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use crate::storage::PresignedDownloadOptions;
 
 use super::{DownloadDisposition, get_info_in_scope, requires_inline_sandbox};
@@ -204,18 +204,18 @@ fn image_preview_handle(
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let processor = media_processing_service::resolve_thumbnail_processor_for_blob(
+    let processor = processing::resolve_thumbnail_processor_for_blob(
         state,
         blob,
         &file.name,
         &file.mime_type,
     )
-    .map_err(media_processing_service::map_thumbnail_request_error)?;
+    .map_err(processing::map_thumbnail_request_error)?;
     let processor_name = processor.image_preview_processor();
     let version = processor.image_preview_version(state.runtime_config());
     Ok(derived_image_handle(
         image_preview_path,
-        media_processing_service::image_preview_etag_value_for(
+        processing::image_preview_etag_value_for(
             &blob.hash,
             processor_name,
             &version,
@@ -233,18 +233,18 @@ fn thumbnail_handle(
     delivery_mode: FileResourceDeliveryMode,
     scope: Option<&str>,
 ) -> Result<FileResourceHandle> {
-    let processor = media_processing_service::resolve_thumbnail_processor_for_blob(
+    let processor = processing::resolve_thumbnail_processor_for_blob(
         state,
         blob,
         &file.name,
         &file.mime_type,
     )
-    .map_err(media_processing_service::map_thumbnail_request_error)?;
+    .map_err(processing::map_thumbnail_request_error)?;
     let processor_name = processor.thumbnail_processor();
     let version = processor.thumbnail_version(state.runtime_config());
     Ok(derived_image_handle(
         thumbnail_path,
-        media_processing_service::thumbnail_etag_value_for(
+        processing::thumbnail_etag_value_for(
             &blob.hash,
             Some(processor_name),
             Some(&version),
@@ -395,7 +395,7 @@ mod tests {
     use crate::db::repository::file_repo;
     use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
-    use crate::services::{mail::sender, media_processing_service, policy_service};
+    use crate::services::{mail::sender, media::processing, policy_service};
     use crate::storage::traits::driver::PresignedDownloadOptions;
     use crate::storage::traits::extensions::PresignedStorageDriver;
     use crate::storage::{BlobMetadata, DriverRegistry, PolicySnapshot, StorageDriver};
@@ -623,7 +623,7 @@ mod tests {
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
-            crate::services::share_service::spawn_detached_share_download_rollback_queue(
+            crate::services::share::spawn_detached_share_download_rollback_queue(
                 db.clone(),
                 crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
             );
@@ -979,7 +979,7 @@ mod tests {
         .await
         .expect("auto image preview handle should resolve");
 
-        let expected_etag = media_processing_service::image_preview_etag_value_for(
+        let expected_etag = processing::image_preview_etag_value_for(
             &blob.hash,
             crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE,
             crate::services::files::thumbnail::CURRENT_IMAGE_PREVIEW_VERSION,
@@ -1116,7 +1116,7 @@ mod tests {
         .await
         .expect("thumbnail handle should resolve");
 
-        let expected_etag = media_processing_service::thumbnail_etag_value_for(
+        let expected_etag = processing::thumbnail_etag_value_for(
             &blob.hash,
             Some(crate::services::files::thumbnail::IMAGES_THUMBNAIL_PROCESSOR_NAMESPACE),
             Some(crate::services::files::thumbnail::CURRENT_THUMBNAIL_VERSION),

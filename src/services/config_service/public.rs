@@ -4,7 +4,7 @@ use crate::config::{auth_runtime, media_processing, operations};
 use crate::db::repository::config_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::preview_app_service;
+use crate::services::preview::apps;
 use crate::types::parse_storage_policy_options;
 use moka::future::Cache;
 use serde::Serialize;
@@ -102,8 +102,8 @@ pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFron
 
 pub fn get_public_preview_apps(
     state: &impl SharedRuntimeState,
-) -> preview_app_service::PublicPreviewAppsConfig {
-    preview_app_service::get_public_preview_apps(state)
+) -> apps::PublicPreviewAppsConfig {
+    apps::get_public_preview_apps(state)
 }
 
 pub async fn get_public_custom_config(

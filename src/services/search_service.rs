@@ -13,7 +13,7 @@ use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::folder::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
-    share_service, tag_service,
+    share, tag_service,
     workspace::storage::WorkspaceResourceScope,
     workspace::storage::{self, WorkspaceStorageScope},
 };
@@ -423,8 +423,8 @@ pub(crate) async fn search_in_scope(
             let folder_ids: Vec<i64> = folders.iter().map(|folder| folder.id).collect();
             let scope = WorkspaceStorageScope::Personal { user_id };
             let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-                share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
-                share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
+                share::find_active_file_ids_in_scope(state, scope, &file_ids),
+                share::find_active_folder_ids_in_scope(state, scope, &folder_ids),
             )?;
             let tags_by_entity = tag_service::load_entity_tag_map(
                 state,
@@ -507,8 +507,8 @@ pub(crate) async fn search_in_scope(
                 actor_user_id,
             };
             let (shared_file_ids, shared_folder_ids) = tokio::try_join!(
-                share_service::find_active_file_ids_in_scope(state, scope, &file_ids),
-                share_service::find_active_folder_ids_in_scope(state, scope, &folder_ids),
+                share::find_active_file_ids_in_scope(state, scope, &file_ids),
+                share::find_active_folder_ids_in_scope(state, scope, &folder_ids),
             )?;
             let tags_by_entity = tag_service::load_entity_tag_map(
                 state,

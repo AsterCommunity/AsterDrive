@@ -390,7 +390,7 @@ async fn create_policy_upload_session(
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
-    use aster_drive::services::{auth::local, files::file, policy_service, user_service};
+    use aster_drive::services::{auth::local, files::file, policy_service, user::account};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -456,9 +456,9 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     .await
     .unwrap();
 
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,
@@ -1293,7 +1293,7 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
 #[actix_web::test]
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
-    use aster_drive::services::{files::file, policy_service, user_service};
+    use aster_drive::services::{files::file, policy_service, user::account};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
@@ -1352,9 +1352,9 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
     .await
     .unwrap();
 
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,
@@ -1396,9 +1396,9 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
         .await
         .unwrap()
         .expect("default policy group should exist");
-    user_service::update(
+    account::update(
         &state,
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: user.id,
             email_verified: None,
             role: None,

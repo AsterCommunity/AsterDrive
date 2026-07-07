@@ -16,7 +16,7 @@ use crate::services::audit_service::{self, AuditContext, AuditRequestInfo};
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::PrimaryLoginCompletion;
 use crate::services::storage_change_service::StorageChangeWorkspace;
-use crate::services::{auth::local, team_service, user_service};
+use crate::services::{auth::local, team_service, user::account};
 use crate::types::TokenType;
 use crate::utils::numbers::{u64_to_i64, usize_to_i64};
 use actix_web::{HttpRequest, HttpResponse, web};
@@ -414,7 +414,7 @@ pub async fn me(
     let access_token_expires_at = usize_to_i64(claims.exp, "jwt exp")?;
     match query.selected_fields()? {
         Some(fields) => {
-            let resp = user_service::get_me_partial(
+            let resp = account::get_me_partial(
                 state.get_ref(),
                 claims.user_id,
                 access_token_expires_at,
@@ -425,7 +425,7 @@ pub async fn me(
         }
         None => {
             let resp =
-                user_service::get_me(state.get_ref(), claims.user_id, access_token_expires_at)
+                account::get_me(state.get_ref(), claims.user_id, access_token_expires_at)
                     .await?;
             Ok(HttpResponse::Ok().json(ApiResponse::ok(resp)))
         }

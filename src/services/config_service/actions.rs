@@ -7,7 +7,7 @@ use crate::services::{
     audit_service::{self, AuditContext},
     mail::audit,
     mail::sender,
-    media_processing_service, preview_app_service, task_service, wopi_service,
+    media::processing, preview::apps, task_service, preview::wopi,
 };
 use reqwest::Url;
 use serde::{Deserialize, Serialize};
@@ -81,7 +81,7 @@ pub async fn execute_action_with_audit(
         MAIL_CONFIG_ACTION_KEY => {
             execute_mail_action(state, action, actor_user_id, target_email, audit_ctx).await
         }
-        preview_app_service::PREVIEW_APPS_CONFIG_KEY => {
+        apps::PREVIEW_APPS_CONFIG_KEY => {
             execute_preview_app_action(state, action, actor_user_id, value, discovery_url).await
         }
         media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY => {
@@ -322,12 +322,12 @@ async fn execute_preview_app_action(
             let raw_value = value.map(str::to_string).unwrap_or_else(|| {
                 state
                     .runtime_config()
-                    .get(preview_app_service::PREVIEW_APPS_CONFIG_KEY)
-                    .unwrap_or_else(preview_app_service::default_public_preview_apps_json)
+                    .get(apps::PREVIEW_APPS_CONFIG_KEY)
+                    .unwrap_or_else(apps::default_public_preview_apps_json)
             });
             let normalized =
-                preview_app_service::normalize_public_preview_apps_config_value(&raw_value)?;
-            let mut config: preview_app_service::PublicPreviewAppsConfig =
+                apps::normalize_public_preview_apps_config_value(&raw_value)?;
+            let mut config: apps::PublicPreviewAppsConfig =
                 serde_json::from_str(&normalized).map_aster_err_ctx(
                     "failed to parse normalized preview apps config",
                     AsterError::internal_error,
@@ -348,7 +348,7 @@ async fn execute_preview_app_action(
             if value.is_none() {
                 set(
                     state,
-                    preview_app_service::PREVIEW_APPS_CONFIG_KEY,
+                    apps::PREVIEW_APPS_CONFIG_KEY,
                     &serialized,
                     actor_user_id,
                 )
@@ -366,7 +366,7 @@ async fn execute_preview_app_action(
         _ => Err(AsterError::validation_error(format!(
             "action '{}' is not supported for '{}'",
             action.as_str(),
-            preview_app_service::PREVIEW_APPS_CONFIG_KEY
+            apps::PREVIEW_APPS_CONFIG_KEY
         ))),
     }
 }
@@ -394,7 +394,7 @@ async fn execute_media_processing_action(
                 "config: executing media processing action"
             );
 
-            let message = media_processing_service::probe_vips_cli_command(&command).await?;
+            let message = processing::probe_vips_cli_command(&command).await?;
 
             Ok(ConfigActionResult {
                 message,
@@ -418,7 +418,7 @@ async fn execute_media_processing_action(
                 "config: executing media processing action"
             );
 
-            let message = media_processing_service::probe_ffmpeg_cli_command(&command).await?;
+            let message = processing::probe_ffmpeg_cli_command(&command).await?;
 
             Ok(ConfigActionResult {
                 message,
@@ -443,7 +443,7 @@ async fn execute_media_processing_action(
             );
 
             let message =
-                crate::services::media_metadata_service::probe_ffprobe_cli_command(&command)
+                crate::services::media::metadata::probe_ffprobe_cli_command(&command)
                     .await?;
 
             Ok(ConfigActionResult {
@@ -462,7 +462,7 @@ async fn execute_media_processing_action(
 
 async fn build_wopi_discovery_preview_apps_into_config(
     state: &impl SharedRuntimeState,
-    config: &mut preview_app_service::PublicPreviewAppsConfig,
+    config: &mut apps::PublicPreviewAppsConfig,
     discovery_url: &str,
 ) -> Result<()> {
     let discovery_url = discovery_url.trim();
@@ -470,7 +470,7 @@ async fn build_wopi_discovery_preview_apps_into_config(
         return Err(AsterError::validation_error("discovery_url is required"));
     }
 
-    let discovered_apps = wopi_service::discover_apps(state, discovery_url).await?;
+    let discovered_apps = wopi::discover_apps(state, discovery_url).await?;
     let existing_generated_apps = config
         .apps
         .iter()
@@ -497,9 +497,9 @@ async fn build_wopi_discovery_preview_apps_into_config(
 
 fn build_imported_wopi_apps(
     discovery_url: &str,
-    existing_generated_apps: &BTreeMap<String, preview_app_service::PublicPreviewAppDefinition>,
-    discovered_apps: Vec<wopi_service::DiscoveredWopiApp>,
-) -> Result<Vec<preview_app_service::PublicPreviewAppDefinition>> {
+    existing_generated_apps: &BTreeMap<String, apps::PublicPreviewAppDefinition>,
+    discovered_apps: Vec<wopi::DiscoveredWopiApp>,
+) -> Result<Vec<apps::PublicPreviewAppDefinition>> {
     let mut imported = Vec::new();
 
     for discovered_app in discovered_apps {
@@ -513,9 +513,9 @@ fn build_imported_wopi_apps(
             .map(|app| app.enabled)
             .unwrap_or(true);
 
-        imported.push(preview_app_service::PublicPreviewAppDefinition {
+        imported.push(apps::PublicPreviewAppDefinition {
             key,
-            provider: preview_app_service::PreviewAppProvider::Wopi,
+            provider: apps::PreviewAppProvider::Wopi,
             icon: discovered_app
                 .icon_url
                 .unwrap_or_else(|| "/static/preview-apps/file.svg".to_string()),
@@ -525,9 +525,9 @@ fn build_imported_wopi_apps(
                 ("zh".to_string(), discovered_app.label.clone()),
             ]),
             extensions: discovered_app.extensions,
-            config: preview_app_service::PublicPreviewAppConfig {
+            config: apps::PublicPreviewAppConfig {
                 delimiter: None,
-                mode: Some(preview_app_service::PreviewOpenMode::Iframe),
+                mode: Some(apps::PreviewOpenMode::Iframe),
                 url_template: None,
                 allowed_origins: Vec::new(),
                 action: Some(discovered_app.action),
@@ -549,10 +549,10 @@ fn build_imported_wopi_apps(
 }
 
 fn is_generated_wopi_discovery_app(
-    app: &preview_app_service::PublicPreviewAppDefinition,
+    app: &apps::PublicPreviewAppDefinition,
     discovery_url: &str,
 ) -> bool {
-    app.provider == preview_app_service::PreviewAppProvider::Wopi
+    app.provider == apps::PreviewAppProvider::Wopi
         && app.key.contains(PREVIEW_APP_DISCOVERY_GENERATED_SEGMENT)
         && app.config.discovery_url.as_deref() == Some(discovery_url)
 }
@@ -635,7 +635,7 @@ mod tests {
         generated_preview_app_key_prefix, generated_preview_app_suffix,
         is_generated_wopi_discovery_app,
     };
-    use crate::services::{preview_app_service, wopi_service};
+    use crate::services::{preview::apps, preview::wopi};
     use std::collections::BTreeMap;
 
     #[test]
@@ -655,15 +655,15 @@ mod tests {
             "custom.wopi.localhost.8080.hosting.discovery__wopi_discovery__word".to_string();
         let existing_generated = BTreeMap::from([(
             "word".to_string(),
-            preview_app_service::PublicPreviewAppDefinition {
+            apps::PublicPreviewAppDefinition {
                 key: existing_key,
-                provider: preview_app_service::PreviewAppProvider::Wopi,
+                provider: apps::PreviewAppProvider::Wopi,
                 icon: "http://localhost:8080/word.ico".to_string(),
                 enabled: false,
                 labels: BTreeMap::from([("en".to_string(), "Word".to_string())]),
                 extensions: vec!["docx".to_string()],
-                config: preview_app_service::PublicPreviewAppConfig {
-                    mode: Some(preview_app_service::PreviewOpenMode::Iframe),
+                config: apps::PublicPreviewAppConfig {
+                    mode: Some(apps::PreviewOpenMode::Iframe),
                     action: Some("view".to_string()),
                     discovery_url: Some(discovery_url.to_string()),
                     ..Default::default()
@@ -674,7 +674,7 @@ mod tests {
         let imported = build_imported_wopi_apps(
             discovery_url,
             &existing_generated,
-            vec![wopi_service::DiscoveredWopiApp {
+            vec![wopi::DiscoveredWopiApp {
                 action: "view".to_string(),
                 extensions: vec!["doc".to_string(), "docx".to_string()],
                 icon_url: Some("http://localhost:8080/word.ico".to_string()),
@@ -703,7 +703,7 @@ mod tests {
         let imported = build_imported_wopi_apps(
             "http://localhost:8080/hosting/discovery",
             &BTreeMap::new(),
-            vec![wopi_service::DiscoveredWopiApp {
+            vec![wopi::DiscoveredWopiApp {
                 action: "view".to_string(),
                 extensions: vec!["docx".to_string()],
                 icon_url: Some("http://localhost:8080/word.ico".to_string()),
@@ -728,14 +728,14 @@ mod tests {
     #[test]
     fn legacy_wopi_seed_is_not_treated_as_generated_app() {
         let discovery_url = "http://localhost:8080/hosting/discovery";
-        let legacy_seed = preview_app_service::PublicPreviewAppDefinition {
+        let legacy_seed = apps::PublicPreviewAppDefinition {
             key: "custom.wopi.word".to_string(),
-            provider: preview_app_service::PreviewAppProvider::Wopi,
+            provider: apps::PreviewAppProvider::Wopi,
             icon: "http://localhost:8080/word.ico".to_string(),
             enabled: true,
             labels: BTreeMap::from([("en".to_string(), "Word".to_string())]),
             extensions: Vec::new(),
-            config: preview_app_service::PublicPreviewAppConfig {
+            config: apps::PublicPreviewAppConfig {
                 discovery_url: Some(discovery_url.to_string()),
                 ..Default::default()
             },

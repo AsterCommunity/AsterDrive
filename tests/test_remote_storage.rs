@@ -5381,7 +5381,7 @@ async fn test_thumbnail_endpoint_returns_precondition_failed_when_remote_node_di
     let created_blob = file_repo::find_blob_by_id(consumer_state.writer_db(), created_file.blob_id)
         .await
         .expect("uploaded blob should be queryable");
-    aster_drive::services::media_processing_service::generate_and_store_thumbnail(
+    aster_drive::services::media::processing::generate_and_store_thumbnail(
         &consumer_state,
         &created_blob,
         &created_file.name,

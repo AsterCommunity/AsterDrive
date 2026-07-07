@@ -3,7 +3,7 @@ use crate::db::repository::lock_repo;
 use crate::entities::resource_lock;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::{profile_service, user_service};
+use crate::services::{user::profile, user::account};
 
 use super::models::ResourceLock;
 use super::owner_info::deserialize_resource_lock_owner_info;
@@ -30,10 +30,10 @@ async fn build_resource_locks(
     locks: Vec<resource_lock::Model>,
 ) -> Result<Vec<ResourceLock>> {
     let owner_ids: Vec<i64> = locks.iter().filter_map(|lock| lock.owner_id).collect();
-    let owners = user_service::user_summaries_by_ids(
+    let owners = account::user_summaries_by_ids(
         state,
         &owner_ids,
-        profile_service::AvatarAudience::AdminUser,
+        profile::AvatarAudience::AdminUser,
     )
     .await?;
 

@@ -668,9 +668,9 @@ async fn create_s3_default_policy(
     .await
     .unwrap();
 
-    aster_drive::services::user_service::update(
+    aster_drive::services::user::account::update(
         state,
-        aster_drive::services::user_service::UpdateUserInput {
+        aster_drive::services::user::account::UpdateUserInput {
             id: user_id,
             email_verified: None,
             role: None,

@@ -1144,7 +1144,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         aster_drive::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        aster_drive::services::share_service::spawn_detached_share_download_rollback_queue(
+        aster_drive::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             aster_drive::config::operations::share_download_rollback_queue_capacity(
                 &runtime_config,

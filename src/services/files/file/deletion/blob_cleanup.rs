@@ -2,7 +2,7 @@ use crate::db::repository::file_repo;
 use crate::entities::{file_blob, storage_policy};
 use crate::errors::AsterError;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::media_processing_service;
+use crate::services::media::processing;
 use crate::storage::StorageDriver;
 use std::sync::Arc;
 
@@ -170,7 +170,7 @@ where
     };
 
     if let Err(error) =
-        media_processing_service::delete_thumbnail_with_driver(state, current_blob, driver.clone())
+        processing::delete_thumbnail_with_driver(state, current_blob, driver.clone())
             .await
     {
         tracing::warn!(

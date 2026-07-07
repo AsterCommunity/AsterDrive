@@ -20,7 +20,7 @@ use crate::entities::{
     folder::{self, Entity as Folder},
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::{files::thumbnail, media_processing_service};
+use crate::services::{files::thumbnail, media::processing};
 use crate::storage::{DriverRegistry, StoragePathVisitor};
 
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
@@ -621,11 +621,11 @@ async fn load_blob_expectations_for_policy<C: ConnectionTrait>(
         for blob in blobs {
             blob_ids_by_path.insert(blob.storage_path.clone(), blob.id);
             tracked_blobs.insert(blob.storage_path.clone());
-            tracked_thumbnails.extend(media_processing_service::known_thumbnail_cache_paths(
+            tracked_thumbnails.extend(processing::known_thumbnail_cache_paths(
                 &blob.hash,
                 thumbnail_max_dimension,
             ));
-            tracked_thumbnails.extend(media_processing_service::known_image_preview_cache_paths(
+            tracked_thumbnails.extend(processing::known_image_preview_cache_paths(
                 &blob.hash,
                 image_preview_max_dimension,
             ));

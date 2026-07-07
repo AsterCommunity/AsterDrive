@@ -4,7 +4,7 @@ use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
-use crate::services::media_processing_service;
+use crate::services::media::processing;
 use crate::storage::StorageErrorKind;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
 use crate::utils::numbers::usize_to_i64;
@@ -57,7 +57,7 @@ pub(crate) async fn ensure_thumbnail_task(
     source_file_name: &str,
     source_mime_type: &str,
 ) -> Result<()> {
-    let processor = media_processing_service::resolve_thumbnail_processor_for_blob(
+    let processor = processing::resolve_thumbnail_processor_for_blob(
         state,
         blob,
         source_file_name,
@@ -121,7 +121,7 @@ pub(crate) async fn ensure_image_preview_task(
     source_file_name: &str,
     source_mime_type: &str,
 ) -> Result<()> {
-    let processor = media_processing_service::resolve_thumbnail_processor_for_blob(
+    let processor = processing::resolve_thumbnail_processor_for_blob(
         state,
         blob,
         source_file_name,
@@ -244,7 +244,7 @@ pub(super) async fn process_thumbnail_generate_task(
     )
     .await?;
 
-    let stored = media_processing_service::generate_and_store_thumbnail_with_processor(
+    let stored = processing::generate_and_store_thumbnail_with_processor(
         state,
         &blob,
         &payload.source_file_name,
@@ -384,7 +384,7 @@ pub(super) async fn process_image_preview_generate_task(
     )
     .await?;
 
-    let stored = media_processing_service::generate_and_store_image_preview_with_processor(
+    let stored = processing::generate_and_store_image_preview_with_processor(
         state,
         &blob,
         &payload.source_file_name,

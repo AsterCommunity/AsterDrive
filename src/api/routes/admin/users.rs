@@ -14,7 +14,7 @@ use crate::services::{
     audit_service,
     auth::local::{self, Claims},
     auth::mfa,
-    profile_service, user_invitation_service, user_service,
+    user::profile, user::invitation, user::account,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
 
@@ -25,7 +25,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
     operation_id = "create_user",
     request_body = CreateUserReq,
     responses(
-        (status = 201, description = "User created", body = inline(ApiResponse<crate::services::user_service::CreateUserOutput>)),
+        (status = 201, description = "User created", body = inline(ApiResponse<crate::services::user::account::CreateUserOutput>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 400, description = "Validation error"),
@@ -41,9 +41,9 @@ pub async fn create_user(
     validate_request(&*body)?;
     let body = body.into_inner();
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let output = user_service::create_with_audit(
+    let output = account::create_with_audit(
         state.get_ref(),
-        user_service::CreateUserInput {
+        account::CreateUserInput {
             username: &body.username,
             email: &body.email,
             password: body.password.as_deref(),
@@ -62,7 +62,7 @@ pub async fn create_user(
     operation_id = "list_users",
     params(LimitOffsetQuery, AdminUserListQuery),
     responses(
-        (status = 200, description = "List users", body = inline(ApiResponse<OffsetPage<crate::services::user_service::UserInfo>>)),
+        (status = 200, description = "List users", body = inline(ApiResponse<OffsetPage<crate::services::user::account::UserInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -73,11 +73,11 @@ pub async fn list_users(
     page: web::Query<LimitOffsetQuery>,
     query: web::Query<AdminUserListQuery>,
 ) -> Result<HttpResponse> {
-    let users = user_service::list_paginated(
+    let users = account::list_paginated(
         state.get_ref(),
         page.limit_or(50, 100),
         page.offset(),
-        user_service::UserListFilters::from_inputs(
+        account::UserListFilters::from_inputs(
             query.keyword.as_deref(),
             query.role,
             query.status,
@@ -96,7 +96,7 @@ pub async fn list_users(
     operation_id = "admin_create_user_invitation",
     request_body = CreateUserInvitationReq,
     responses(
-        (status = 201, description = "User invitation created", body = inline(ApiResponse<crate::services::user_invitation_service::AdminUserInvitationInfo>)),
+        (status = 201, description = "User invitation created", body = inline(ApiResponse<crate::services::user::invitation::AdminUserInvitationInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 400, description = "Validation error"),
@@ -111,7 +111,7 @@ pub async fn create_user_invitation(
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
     let invitation =
-        user_invitation_service::create_invitation(state.get_ref(), &body.email, claims.user_id)
+        invitation::create_invitation(state.get_ref(), &body.email, claims.user_id)
             .await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
@@ -134,7 +134,7 @@ pub async fn create_user_invitation(
     operation_id = "admin_list_user_invitations",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "List user invitations", body = inline(ApiResponse<crate::api::pagination::OffsetPage<crate::services::user_invitation_service::AdminUserInvitationInfo>>)),
+        (status = 200, description = "List user invitations", body = inline(ApiResponse<crate::api::pagination::OffsetPage<crate::services::user::invitation::AdminUserInvitationInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
@@ -144,7 +144,7 @@ pub async fn list_user_invitations(
     state: web::Data<PrimaryAppState>,
     page: web::Query<LimitOffsetQuery>,
 ) -> Result<HttpResponse> {
-    let invitations = user_invitation_service::list_invitations(
+    let invitations = invitation::list_invitations(
         state.get_ref(),
         page.limit_or(20, 100),
         page.offset(),
@@ -160,7 +160,7 @@ pub async fn list_user_invitations(
     operation_id = "admin_revoke_user_invitation",
     params(("id" = i64, Path, description = "Invitation ID")),
     responses(
-        (status = 200, description = "User invitation revoked", body = inline(ApiResponse<crate::services::user_invitation_service::AdminUserInvitationInfo>)),
+        (status = 200, description = "User invitation revoked", body = inline(ApiResponse<crate::services::user::invitation::AdminUserInvitationInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 400, description = "Invitation cannot be revoked"),
@@ -174,7 +174,7 @@ pub async fn revoke_user_invitation(
     req: HttpRequest,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let invitation = user_invitation_service::revoke_invitation(state.get_ref(), *path).await?;
+    let invitation = invitation::revoke_invitation(state.get_ref(), *path).await?;
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
     audit_service::log_with_details(
         state.get_ref(),
@@ -190,7 +190,7 @@ pub async fn revoke_user_invitation(
 }
 
 fn invitation_audit_details(
-    invitation: &user_invitation_service::AdminUserInvitationInfo,
+    invitation: &invitation::AdminUserInvitationInfo,
 ) -> Option<serde_json::Value> {
     audit_service::details(audit_service::InvitationAuditDetails {
         email: &invitation.email,
@@ -209,7 +209,7 @@ fn invitation_audit_details(
     operation_id = "get_user",
     params(("id" = i64, Path, description = "User ID")),
     responses(
-        (status = 200, description = "User details", body = inline(ApiResponse<crate::services::user_service::UserInfo>)),
+        (status = 200, description = "User details", body = inline(ApiResponse<crate::services::user::account::UserInfo>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = "User not found"),
@@ -220,7 +220,7 @@ pub async fn get_user(
     state: web::Data<PrimaryAppState>,
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
-    let user = user_service::get(state.get_ref(), *path).await?;
+    let user = account::get(state.get_ref(), *path).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(user)))
 }
 
@@ -257,7 +257,7 @@ pub async fn revoke_user_sessions(
     params(("id" = i64, Path, description = "User ID")),
     request_body = PatchUserReq,
     responses(
-        (status = 200, description = "User updated", body = inline(ApiResponse<crate::services::user_service::UserInfo>)),
+        (status = 200, description = "User updated", body = inline(ApiResponse<crate::services::user::account::UserInfo>)),
         (status = 400, description = "Bad request, for example when policy_group_id cannot be null"),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
@@ -276,9 +276,9 @@ pub async fn update_user(
     validate_request(&*body)?;
     let body = body.into_inner();
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    let user = user_service::update_with_audit(
+    let user = account::update_with_audit(
         state.get_ref(),
-        user_service::UpdateUserInput {
+        account::UpdateUserInput {
             id: target_id,
             email_verified: body.email_verified,
             role: body.role,
@@ -369,7 +369,7 @@ pub async fn force_delete_user(
     path: web::Path<i64>,
 ) -> Result<HttpResponse> {
     let ctx = audit_service::AuditContext::from_request(&req, &claims);
-    user_service::force_delete_with_audit(state.get_ref(), *path, &ctx).await?;
+    account::force_delete_with_audit(state.get_ref(), *path, &ctx).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
@@ -395,6 +395,6 @@ pub async fn get_user_avatar(
     path: web::Path<(i64, u32)>,
 ) -> Result<HttpResponse> {
     let (user_id, size) = path.into_inner();
-    let bytes = profile_service::get_avatar_bytes(state.get_ref(), user_id, size).await?;
-    Ok(profile_service::avatar_image_response(bytes))
+    let bytes = profile::get_avatar_bytes(state.get_ref(), user_id, size).await?;
+    Ok(profile::avatar_image_response(bytes))
 }

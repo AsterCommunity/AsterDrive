@@ -184,8 +184,8 @@ remote protocol 不应该决定：
 
 - `src/webdav/*`
 - `src/api/routes/wopi.rs`
-- `src/services/webdav_service.rs`
-- `src/services/wopi_service/*`
+- `src/services/webdav::tree.rs`
+- `src/services/preview::wopi/*`
 
 WebDAV 和 WOPI 是协议入口，不是 REST 文件接口的普通变体。
 
@@ -506,7 +506,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 当前职责：
 
 - `src/webdav/*` 处理 WebDAV / DeltaV 协议、Basic Auth、path resolver、lock、property、transfer
-- `src/services/webdav_service.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
+- `src/services/webdav::tree.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
 - WebDAV 文件写入通过 `workspace::storage` 的统一链路落账
 
 应该保留：
@@ -531,7 +531,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 当前职责：
 
 - `src/api/routes/wopi.rs` 处理 WOPI HTTP method/header/status 兼容
-- `src/services/wopi_service/*` 处理 discovery、session、proof、lock、target、operations
+- `src/services/preview::wopi/*` 处理 discovery、session、proof、lock、target、operations
 - WOPI 文件读写复用 `file` / `workspace::storage`
 
 应该保留：

@@ -1858,11 +1858,11 @@ pub static ALL_CONFIGS: &[ConfigDef] = &[
         description: "How long fetched WOPI discovery metadata stays cached in seconds",
     },
     ConfigDef {
-        key: crate::services::preview_app_service::PREVIEW_APPS_CONFIG_KEY,
+        key: crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY,
         label_i18n_key: "settings_item_frontend_preview_apps_json_label",
         description_i18n_key: "settings_item_frontend_preview_apps_json_desc",
         value_type: SystemConfigValueType::Multiline,
-        default_fn: crate::services::preview_app_service::default_public_preview_apps_json,
+        default_fn: crate::services::preview::apps::default_public_preview_apps_json,
         requires_restart: false,
         is_sensitive: false,
         category: CONFIG_CATEGORY_SITE_PREVIEW,

@@ -13,7 +13,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
 use super::{FollowerAppState, PrimaryAppState};
-use crate::services::share_service::ShareDownloadRollbackWorker;
+use crate::services::share::ShareDownloadRollbackWorker;
 use crate::services::task_service::SystemRuntimeTaskKind;
 use crate::utils::numbers::u128_to_u64;
 
@@ -466,7 +466,7 @@ pub fn spawn_primary_background_tasks(
     let shutdown_token = tasks.shutdown_token();
 
     tasks.push(
-        crate::services::share_service::share_download_rollback_worker_task(
+        crate::services::share::share_download_rollback_worker_task(
             shutdown_token.clone(),
             share_download_rollback_worker,
         )
@@ -848,7 +848,7 @@ pub fn spawn_primary_background_tasks(
         shutdown_token,
         state,
         |s| async move {
-            match crate::services::wopi_service::cleanup_expired(s.get_ref()).await {
+            match crate::services::preview::wopi::cleanup_expired(s.get_ref()).await {
                 Ok(count) if count > 0 => {
                     tracing::info!("cleaned up {count} expired WOPI sessions");
                     crate::services::task_service::RuntimeTaskRunOutcome::succeeded(Some(format!(
@@ -970,7 +970,7 @@ mod tests {
             crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
-            crate::services::share_service::build_share_download_rollback_queue(
+            crate::services::share::build_share_download_rollback_queue(
                 db.clone(),
                 1,
                 crate::metrics_core::NoopMetrics::arc(),

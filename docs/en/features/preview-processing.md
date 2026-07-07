@@ -23,11 +23,11 @@ Preview and processing turn original files into browser-viewable, openable, or s
 | Module | Owns |
 | --- | --- |
 | `thumbnail`, `task_service::thumbnail` | Thumbnail and image-preview cache and task dispatch |
-| `media_processing_service` | VIPS / FFmpeg / FFprobe processor resolution |
-| `media_metadata_service` | Audio/video metadata parsing |
+| `media::processing` | VIPS / FFmpeg / FFprobe processor resolution |
+| `media::metadata` | Audio/video metadata parsing |
 | `archive_service`, `archive_preview_service` | Archive scanning, path validation, read-only preview |
-| `preview_app_service`, `wopi_service` | Preview apps, WOPI discovery, locks, proof, sessions |
-| `stream_ticket_service`, `share_stream_service` | Share streaming tickets and short sessions |
+| `preview::apps`, `preview::wopi` | Preview apps, WOPI discovery, locks, proof, sessions |
+| `share::ticket`, `share::stream` | Share streaming tickets and short sessions |
 
 ## Configuration Entry Points
 

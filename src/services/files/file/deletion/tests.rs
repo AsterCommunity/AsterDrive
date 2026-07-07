@@ -210,7 +210,7 @@ async fn build_deletion_test_state() -> (
         crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+        crate::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
         );

@@ -421,7 +421,7 @@ async fn log_writes_synchronously_without_global_manager() {
         crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+        crate::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );
@@ -534,7 +534,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         crate::services::storage_change_service::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
-        crate::services::share_service::spawn_detached_share_download_rollback_queue(
+        crate::services::share::spawn_detached_share_download_rollback_queue(
             db.clone(),
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );

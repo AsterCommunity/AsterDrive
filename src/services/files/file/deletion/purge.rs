@@ -7,7 +7,7 @@ use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    share_service, storage_change_service,
+    share, storage_change_service,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use crate::utils::numbers::{i64_to_i32, usize_to_u32};
@@ -169,8 +169,8 @@ async fn batch_purge_in_resource_scope_internal(
         );
     }
     if deleted_shares > 0 {
-        share_service::invalidate_active_share_target_cache_for_resource_scope(state, scope).await;
-        share_service::invalidate_all_share_token_record_cache(state).await;
+        share::invalidate_active_share_target_cache_for_resource_scope(state, scope).await;
+        share::invalidate_all_share_token_record_cache(state).await;
     }
 
     stream::iter(blob_ids.iter().copied())

@@ -266,11 +266,11 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
     let deleted_shares =
         share_repo::delete_by_folder_ids(state.writer_db(), &all_folder_ids).await?;
     if deleted_shares > 0 {
-        crate::services::share_service::invalidate_active_share_target_cache_for_resource_scope(
+        crate::services::share::invalidate_active_share_target_cache_for_resource_scope(
             state, scope,
         )
         .await;
-        crate::services::share_service::invalidate_all_share_token_record_cache(state).await;
+        crate::services::share::invalidate_all_share_token_record_cache(state).await;
     }
     crate::services::files::folder::invalidate_folder_path_cache_for_ids(state, &all_folder_ids)
         .await;
