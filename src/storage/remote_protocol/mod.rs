@@ -23,7 +23,8 @@ pub use models::{
     RemoteCreateStorageTargetRequest, RemoteStorageBrowserCorsContract, RemoteStorageCapabilities,
     RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
     RemoteStorageFeatureFlags, RemoteStorageListResponse, RemoteStorageObjectMetadata,
-    RemoteStorageProtocolLimits, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
+    RemoteStorageProtocolLimits, RemoteStorageTargetCapabilities, RemoteStorageTargetInfo,
+    RemoteUpdateStorageTargetRequest,
 };
 pub use runtime::RemoteProtocolRuntime;
 

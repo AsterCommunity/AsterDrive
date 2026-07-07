@@ -1203,7 +1203,9 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
     .expect("disabled managed ingress capabilities should decode");
     assert!(
         !disabled
-            .effective_remote_storage_targets()
+            .managed_ingress
+            .as_ref()
+            .expect("managed ingress capabilities should decode")
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1218,7 +1220,9 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
         .expect("missing managed ingress driver_types should decode as empty");
     assert!(
         !enabled_without_driver_types
-            .effective_remote_storage_targets()
+            .managed_ingress
+            .as_ref()
+            .expect("managed ingress capabilities should decode")
             .supports_known_driver(DriverType::Local)
     );
 
@@ -1234,7 +1238,9 @@ fn managed_ingress_capabilities_require_enabled_and_matching_driver() {
         .expect("unknown-only managed ingress capabilities should decode");
     assert!(
         !enabled_with_unknown_only
-            .effective_remote_storage_targets()
+            .managed_ingress
+            .as_ref()
+            .expect("managed ingress capabilities should decode")
             .supports_known_driver(DriverType::Local)
     );
 }
@@ -1254,49 +1260,36 @@ fn managed_ingress_capabilities_serialize_known_driver_ids_as_strings() {
 
     let roundtripped: RemoteStorageCapabilities =
         serde_json::from_value(value).expect("serialized capabilities should roundtrip");
-    let effective = roundtripped.effective_remote_storage_targets();
-    assert!(effective.supports_known_driver(DriverType::Local));
-    assert!(effective.supports_known_driver(DriverType::S3));
-    assert!(!effective.supports_known_driver(DriverType::Remote));
+    let managed_ingress = roundtripped
+        .managed_ingress
+        .as_ref()
+        .expect("managed ingress capabilities should roundtrip");
+    assert!(managed_ingress.supports_known_driver(DriverType::Local));
+    assert!(managed_ingress.supports_known_driver(DriverType::S3));
+    assert!(!managed_ingress.supports_known_driver(DriverType::Remote));
 }
 
 #[test]
-fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
+fn missing_managed_ingress_capabilities_remain_wire_missing() {
     let legacy_v4: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
         "protocol_version": "v4",
         "min_supported_protocol_version": "v4"
     }))
     .expect("legacy v4 capabilities without managed ingress should decode");
-
-    let effective_legacy = legacy_v4.effective_remote_storage_targets();
-    assert!(effective_legacy.supports_known_driver(DriverType::Local));
-    assert!(effective_legacy.supports_known_driver(DriverType::S3));
-    assert!(!effective_legacy.supports_known_driver(DriverType::Remote));
+    assert!(legacy_v4.managed_ingress.is_none());
 
     let unknown = RemoteStorageCapabilities::unknown();
-    assert!(
-        !unknown
-            .effective_remote_storage_targets()
-            .supports_known_driver(DriverType::Local)
-    );
+    assert!(unknown.managed_ingress.is_none());
 
     let empty = RemoteStorageCapabilities::from_stored_json("{}");
-    assert!(
-        !empty
-            .effective_remote_storage_targets()
-            .supports_known_driver(DriverType::Local)
-    );
+    assert!(empty.managed_ingress.is_none());
 
     let v5_without_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
         "protocol_version": "v5",
         "min_supported_protocol_version": "v4"
     }))
-    .expect("v5 capabilities without managed ingress should decode conservatively");
-    assert!(
-        !v5_without_field
-            .effective_remote_storage_targets()
-            .supports_known_driver(DriverType::Local)
-    );
+    .expect("v5 capabilities without managed ingress should decode");
+    assert!(v5_without_field.managed_ingress.is_none());
 
     let v4_with_null_field: RemoteStorageCapabilities = serde_json::from_value(serde_json::json!({
         "protocol_version": "v4",
@@ -1304,11 +1297,7 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
         "managed_ingress": null
     }))
     .expect("legacy v4 capabilities with explicit null managed_ingress should decode");
-    assert!(
-        v4_with_null_field
-            .effective_remote_storage_targets()
-            .supports_known_driver(DriverType::Local)
-    );
+    assert!(v4_with_null_field.managed_ingress.is_none());
 
     let v4_with_explicit_empty_field: RemoteStorageCapabilities =
         serde_json::from_value(serde_json::json!({
@@ -1322,41 +1311,9 @@ fn missing_managed_ingress_capabilities_default_only_for_legacy_v4() {
         .expect("legacy v4 capabilities with explicit managed_ingress should decode");
     assert!(
         !v4_with_explicit_empty_field
-            .effective_remote_storage_targets()
+            .managed_ingress
+            .as_ref()
+            .expect("managed ingress capabilities should decode")
             .supports_known_driver(DriverType::Local)
-    );
-}
-
-#[test]
-fn capabilities_validation_blocks_remote_presigned_download_without_browser_range_cors() {
-    let mut capabilities = RemoteStorageCapabilities::current();
-    capabilities.browser_cors.allowed_headers = vec!["content-type".to_string()];
-    capabilities.browser_cors.exposed_headers =
-        vec!["Accept-Ranges".to_string(), "Content-Length".to_string()];
-    let options = crate::types::StoragePolicyOptions {
-        remote_download_strategy: Some(crate::types::RemoteDownloadStrategy::Presigned),
-        ..Default::default()
-    };
-
-    let error = capabilities
-        .validate_for_remote_policy(7, 42, &options)
-        .expect_err("missing Range/CORS headers should block presigned remote download");
-
-    assert_eq!(
-        error.storage_error_kind(),
-        Some(StorageErrorKind::Misconfigured)
-    );
-    assert!(
-        error
-            .message()
-            .contains("browser CORS contract is incomplete"),
-        "unexpected error message: {}",
-        error.message()
-    );
-    assert!(error.message().contains("allowed_headers missing range"));
-    assert!(
-        error
-            .message()
-            .contains("exposed_headers missing Content-Range")
     );
 }

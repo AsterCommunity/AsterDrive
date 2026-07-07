@@ -1,6 +1,5 @@
 //! 服务模块：`remote_storage_target_service`。
 
-mod capability;
 mod driver;
 mod local_profiles;
 mod models;
@@ -12,10 +11,12 @@ mod target;
 #[cfg(test)]
 mod tests;
 
-pub(crate) use driver::registered_remote_storage_target_driver_types;
 pub use driver::{
     RemoteStorageTargetDriverDescriptor, RemoteStorageTargetDriverFieldDescriptor,
     RemoteStorageTargetDriverFieldKind,
+};
+pub(crate) use driver::{
+    registered_remote_storage_target_driver_types, remote_storage_target_driver_descriptor,
 };
 pub use local_profiles::{create, delete, list, update};
 pub use models::ResolvedRemoteStorageTarget;

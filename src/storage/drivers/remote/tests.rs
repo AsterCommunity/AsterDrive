@@ -3,7 +3,7 @@ use crate::storage::error::StorageErrorKind;
 use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
-    PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
+    PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY, RemoteStorageCapabilities,
 };
 use crate::storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
 use crate::storage::traits::extensions::{
