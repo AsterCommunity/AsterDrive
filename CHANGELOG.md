@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.3.2] - 2026-07-08
+
+### Release Highlights
+
+**AsterDrive `v0.3.2` 是 `0.3.1` 之后的快速热修复版本，主线是前端公共认证路由的初始化与 token refresh 行为收敛。** 在邀请注册、密码重置、邮箱验证、OIDC callback 等公共页面上，应用启动时不再发起无谓的 bootstrap auth 检查，401 错误时也不再尝试 token refresh，从而减少无效 API 调用并避免把公共流程错误地重定向到登录页；同时补全了多个认证相关页面、回收站页面和错误页的 i18n namespace 加载，分享视图页面补齐 tasks namespace，并新增对应测试覆盖。
+
+- **公共认证路由跳过初始化检查** — `/invite/:token`、`/reset-password` 不再触发 bootstrap auth check
+- **公共端点跳过 token refresh** — 密码重置、邮箱验证、OIDC callback、邀请相关端点 401 时不再尝试刷新 token
+- **URL 匹配只比较 pathname** — 修复 query/fragment 导致公共端点未被识别的问题
+- **i18n namespace 补全** — 强制改密、重置密码、邀请注册、团队详情、回收站、错误页加载正确 namespace；分享视图补充 tasks
+
+### Fixed
+
+- 前端公共认证页面（邀请注册、密码重置）启动时不再执行 bootstrap auth check
+- 公共 auth 端点 401 错误时不再尝试 token refresh
+- token refresh skip 匹配改用 pathname，避免 query/fragment 干扰
+- 补全 ForcePasswordChangePage / ResetPasswordPage / InviteRegisterPage / AdminTeamDetailPage / TrashPage / ErrorPage 的 i18n namespace 加载
+- ShareViewPage 增加 tasks namespace
+
+### Statistics
+
+- 6 files changed, 133 insertions(+), 13 deletions(-)
+- 1 commit
+
 ## [v0.3.1] - 2026-07-08
 
 ### Release Highlights
@@ -5342,7 +5366,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.2...HEAD
+[v0.3.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.1...v0.3.2
+[v0.3.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0...v0.3.1
 [v0.3.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0-rc.2...v0.3.0
 [v0.3.0-rc.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0-rc.1...v0.3.0-rc.2
 [v0.3.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0-beta.2...v0.3.0-rc.1
