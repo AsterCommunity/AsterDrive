@@ -125,7 +125,7 @@ enum RootCommand {
 async fn main() -> std::io::Result<()> {
     // 0. 安装自定义 panic hook（最先执行）
     aster_forge_panic::install_panic_hook(aster_forge_panic::PanicHookConfig::new(
-        "AsterDrive",
+        env!("CARGO_PKG_NAME"),
         env!("CARGO_PKG_VERSION"),
         env!("CARGO_PKG_REPOSITORY"),
     ));

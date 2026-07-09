@@ -246,7 +246,7 @@ fn db_query_kind_from_sql(sql: &str) -> DbQueryKind {
         .as_str()
     {
         "SELECT" => DbQueryKind::Select,
-        "INSERT" => DbQueryKind::Insert,
+        "INSERT" | "REPLACE" => DbQueryKind::Insert,
         "UPDATE" => DbQueryKind::Update,
         "DELETE" => DbQueryKind::Delete,
         "WITH" => DbQueryKind::With,
@@ -293,6 +293,10 @@ mod tests {
         );
         assert_eq!(
             db_query_kind_from_sql(" INSERT INTO users VALUES (?) "),
+            DbQueryKind::Insert
+        );
+        assert_eq!(
+            db_query_kind_from_sql("replace into users values (?)"),
             DbQueryKind::Insert
         );
         assert_eq!(

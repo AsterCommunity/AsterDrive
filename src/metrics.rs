@@ -35,7 +35,7 @@ pub trait MetricsRecorder: Send + Sync {
 
     fn record_file_upload(&self, mode: &'static str, status: &'static str) {}
 
-    fn record_file_download(&self, source: &'static str, outcome: &str, has_range: bool) {}
+    fn record_file_download(&self, source: &'static str, outcome: &'static str, has_range: bool) {}
 
     fn record_upload_session(&self, mode: &'static str) {}
 
@@ -332,7 +332,7 @@ impl MetricsRecorder for DriveMetricsRecorder {
         }
     }
 
-    fn record_file_download(&self, source: &'static str, outcome: &str, has_range: bool) {
+    fn record_file_download(&self, source: &'static str, outcome: &'static str, has_range: bool) {
         if let Some(product) = self.product {
             let range = if has_range { "range" } else { "full" };
             product.file_downloads.inc(&[source, outcome, range], 1);

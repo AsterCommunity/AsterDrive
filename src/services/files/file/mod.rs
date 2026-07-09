@@ -374,10 +374,9 @@ pub fn record_download_failure_metric_with_reason(
     reason: &'static str,
     has_range: bool,
 ) {
-    let outcome = format!("failure:{reason}");
     state
         .metrics()
-        .record_file_download(source, outcome.as_str(), has_range);
+        .record_file_download(source, download_failure_outcome(reason), has_range);
 }
 
 pub async fn record_download_result<Fut>(
@@ -425,5 +424,29 @@ fn download_failure_reason(error: &AsterError) -> &'static str {
         AsterError::ValidationError(_) => "validation",
         AsterError::RateLimited(_) => "rate_limited",
         _ => "error",
+    }
+}
+
+fn download_failure_outcome(reason: &'static str) -> &'static str {
+    match reason {
+        "auth" => "failure:auth",
+        "misconfigured" => "failure:misconfigured",
+        "not_found" => "failure:not_found",
+        "permission" => "failure:permission",
+        "precondition" => "failure:precondition",
+        "rate_limited" => "failure:rate_limited",
+        "transient" => "failure:transient",
+        "unsupported" => "failure:unsupported",
+        "unknown" => "failure:unknown",
+        "expired" => "failure:expired",
+        "password_required" => "failure:password_required",
+        "download_limit" => "failure:download_limit",
+        "forbidden" => "failure:forbidden",
+        "token_missing" => "failure:token_missing",
+        "token_expired" => "failure:token_expired",
+        "token_invalid" => "failure:token_invalid",
+        "validation" => "failure:validation",
+        "error" => "failure:error",
+        _ => "failure:error",
     }
 }
