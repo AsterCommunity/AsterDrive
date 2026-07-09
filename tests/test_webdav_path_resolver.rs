@@ -424,10 +424,10 @@ async fn test_path_resolver_hides_deleted_intermediate_folders() {
 #[actix_web::test]
 async fn test_cached_path_resolver_rejects_stale_paths_after_ancestor_rename() {
     use aster_drive::services::{auth::local, files::folder};
-    use aster_drive::types::NullablePatch;
     use aster_drive::webdav::path_resolver::{
         ResolvedNode, resolve_parent_cached, resolve_path_cached,
     };
+    use aster_forge_api::NullablePatch;
 
     let state = common::setup().await;
     let user = local::register(

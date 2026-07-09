@@ -1,5 +1,6 @@
 //! `folders` API DTO 定义。
 
+use aster_forge_api::NullablePatch;
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -25,10 +26,10 @@ pub struct PatchFolderReq {
         all(debug_assertions, feature = "openapi"),
         schema(value_type = Option<i64>)
     )]
-    pub parent_id: crate::types::NullablePatch<i64>,
+    pub parent_id: NullablePatch<i64>,
     #[serde(default, rename = "policy_id")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(ignore))]
-    forbidden_policy_id: crate::types::NullablePatch<i64>,
+    forbidden_policy_id: NullablePatch<i64>,
 }
 
 impl PatchFolderReq {

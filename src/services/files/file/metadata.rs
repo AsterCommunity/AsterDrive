@@ -13,7 +13,7 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::types::NullablePatch;
+use aster_forge_api::NullablePatch;
 
 pub(crate) async fn get_info_in_scope(
     state: &impl SharedRuntimeState,

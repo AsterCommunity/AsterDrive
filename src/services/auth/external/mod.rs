@@ -15,9 +15,8 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::user;
-use crate::types::{
-    ExternalAuthProtocol, ExternalAuthProviderKind, ExternalAuthProviderOptions, NullablePatch,
-};
+use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind, ExternalAuthProviderOptions};
+use aster_forge_api::NullablePatch;
 
 pub use links::{cleanup_expired_flows, delete_link, list_links};
 pub use login::{finish_callback, start_login};
@@ -224,7 +223,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub display_name: Option<String>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -233,7 +232,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub icon_url: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -242,7 +241,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub issuer_url: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -251,7 +250,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub authorization_url: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -260,7 +259,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub token_url: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -271,7 +270,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub client_id: Option<String>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -285,7 +284,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub require_email_verified: Option<bool>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -294,7 +293,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub subject_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -303,7 +302,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub username_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -312,7 +311,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub display_name_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -321,7 +320,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub email_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -330,7 +329,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub email_verified_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -339,7 +338,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub groups_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),
@@ -348,7 +347,7 @@ pub struct UpdateExternalAuthProviderInput {
     pub avatar_url_claim: Option<NullablePatch<String>>,
     #[serde(
         default,
-        deserialize_with = "crate::types::deserialize_nullable_patch_option"
+        deserialize_with = "aster_forge_api::deserialize_nullable_patch_option"
     )]
     #[cfg_attr(
         all(debug_assertions, feature = "openapi"),

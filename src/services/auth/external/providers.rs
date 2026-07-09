@@ -12,9 +12,10 @@ use crate::external_auth::{ExternalAuthProviderConfig, registry};
 use crate::runtime::SharedRuntimeState;
 use crate::types::{
     ExternalAuthProviderKind, ExternalAuthProviderOptions, MicrosoftExternalAuthProviderOptions,
-    NullablePatch, serialize_external_auth_provider_options,
+    serialize_external_auth_provider_options,
 };
 use crate::utils::id;
+use aster_forge_api::NullablePatch;
 
 use super::REDACTED_SECRET;
 use super::normalize::{

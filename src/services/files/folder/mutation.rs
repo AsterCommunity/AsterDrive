@@ -20,8 +20,8 @@ use crate::services::{
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
-use crate::types::NullablePatch;
 use crate::utils::numbers::u64_to_usize;
+use aster_forge_api::NullablePatch;
 
 use super::{collect_folder_tree_in_scope, ensure_folder_model_in_scope};
 

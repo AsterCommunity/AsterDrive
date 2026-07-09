@@ -1,5 +1,6 @@
 //! File-related DTOs: mutations, upload, access, and versioning.
 
+use aster_forge_api::NullablePatch;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
@@ -158,7 +159,7 @@ pub struct PatchFileReq {
         all(debug_assertions, feature = "openapi"),
         schema(value_type = Option<i64>)
     )]
-    pub folder_id: crate::types::NullablePatch<i64>,
+    pub folder_id: NullablePatch<i64>,
 }
 
 /// Lock or unlock a file.

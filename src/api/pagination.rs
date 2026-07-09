@@ -7,63 +7,10 @@ use std::future::Future;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
-pub const DEFAULT_FOLDER_LIMIT: u64 = 200;
-pub const DEFAULT_FILE_LIMIT: u64 = 100;
-pub const MAX_PAGE_SIZE: u64 = 1000;
-
-#[derive(Debug, Clone, Copy, Default, Deserialize)]
-#[cfg_attr(
-    all(debug_assertions, feature = "openapi"),
-    derive(IntoParams, ToSchema)
-)]
-pub struct LimitOffsetQuery {
-    pub limit: Option<u64>,
-    pub offset: Option<u64>,
-}
-
-impl LimitOffsetQuery {
-    pub fn limit_or(&self, default: u64, max: u64) -> u64 {
-        self.limit.map(|v| v.clamp(1, max)).unwrap_or(default)
-    }
-
-    pub fn offset(&self) -> u64 {
-        self.offset.unwrap_or(0)
-    }
-}
-
-#[cfg(all(debug_assertions, feature = "openapi"))]
-#[doc(hidden)]
-pub trait ApiSchema: ToSchema {}
-
-#[cfg(all(debug_assertions, feature = "openapi"))]
-impl<T: ToSchema> ApiSchema for T {}
-
-#[cfg(not(all(debug_assertions, feature = "openapi")))]
-#[doc(hidden)]
-pub trait ApiSchema {}
-
-#[cfg(not(all(debug_assertions, feature = "openapi")))]
-impl<T> ApiSchema for T {}
-
-#[derive(Debug, Clone, Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct OffsetPage<T: Serialize + ApiSchema> {
-    pub items: Vec<T>,
-    pub total: u64,
-    pub limit: u64,
-    pub offset: u64,
-}
-
-impl<T: Serialize + ApiSchema> OffsetPage<T> {
-    pub fn new(items: Vec<T>, total: u64, limit: u64, offset: u64) -> Self {
-        Self {
-            items,
-            total,
-            limit,
-            offset,
-        }
-    }
-}
+pub use aster_forge_api::{
+    ApiSchema, DEFAULT_FILE_LIMIT, DEFAULT_FOLDER_LIMIT, LimitOffsetQuery, MAX_PAGE_SIZE,
+    OffsetPage, SortOrder,
+};
 
 pub async fn load_offset_page<T, F, Fut>(
     limit: u64,
@@ -106,16 +53,6 @@ impl SortBy {
             SortBy::Type => f.mime_type.clone(),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-#[derive(Default)]
-pub enum SortOrder {
-    #[default]
-    Asc,
-    Desc,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

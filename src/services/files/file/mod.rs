@@ -20,7 +20,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeSt
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
-use crate::types::NullablePatch;
+use aster_forge_api::NullablePatch;
 
 pub(crate) use crate::services::files::download_headers::DownloadDisposition;
 pub use crate::services::media::metadata::{MediaMetadataInfo, MediaMetadataLookup};

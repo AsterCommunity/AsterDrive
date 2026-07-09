@@ -5,8 +5,9 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use crate::external_auth::url::{is_https_or_loopback_http, parse_url};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local;
-use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind, NullablePatch};
+use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use crate::utils::hash;
+use aster_forge_api::NullablePatch;
 
 use super::{
     DEFAULT_SCOPES, EXTERNAL_AUTH_IDENTITY_NAMESPACE_MAX_LEN, EXTERNAL_AUTH_URL_MAX_LEN,

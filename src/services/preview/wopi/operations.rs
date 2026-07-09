@@ -13,7 +13,7 @@ use crate::services::{
     ops::audit::{self, AuditRequestInfo},
     user::profile,
 };
-use crate::types::NullablePatch;
+use aster_forge_api::NullablePatch;
 use bytes::BytesMut;
 use futures::StreamExt;
 

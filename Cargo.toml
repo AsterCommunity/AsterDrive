@@ -64,6 +64,7 @@ metrics = [
 openapi = [
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
+    "aster_forge_api/openapi",
     "aster_forge_api_docs_macros/openapi",
 ]
 full = ["server", "cli", "metrics", "openapi"]
@@ -82,6 +83,7 @@ actix-multipart = "0.8"
 actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"] }
 actix-ws = "0.4"
 aes-gcm = "0.10"
+aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api" }
 aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
 aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_middleware", features = ["metrics"] }
 aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_observability" }

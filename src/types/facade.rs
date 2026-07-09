@@ -27,7 +27,6 @@ pub use super::media_metadata::{
     MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,
 };
 pub use super::passkey::StoredPasskeyCredential;
-pub use super::patch::{NullablePatch, deserialize_nullable_patch_option};
 pub use super::preferences::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,

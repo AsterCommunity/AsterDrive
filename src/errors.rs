@@ -383,6 +383,12 @@ impl From<sea_orm::DbErr> for AsterError {
     }
 }
 
+impl From<aster_forge_api::ApiError> for AsterError {
+    fn from(value: aster_forge_api::ApiError) -> Self {
+        Self::validation_error(value.to_string())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseLogLevel {
     Skip,

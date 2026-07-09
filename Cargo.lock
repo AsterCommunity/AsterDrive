@@ -755,6 +755,7 @@ dependencies = [
  "aster_forge_actix_middleware",
  "aster_forge_actix_observability",
  "aster_forge_alloc",
+ "aster_forge_api",
  "aster_forge_api_docs_macros",
  "aster_forge_cache",
  "aster_forge_logging",
@@ -879,6 +880,17 @@ source = "git+https://github.com/AsterCommunity/AsterForge#fbc252189a55fcf72b8ed
 dependencies = [
  "tikv-jemalloc-ctl",
  "tracing",
+]
+
+[[package]]
+name = "aster_forge_api"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#fbc252189a55fcf72b8ed6c533b1648da1b22f19"
+dependencies = [
+ "chrono",
+ "serde",
+ "thiserror 2.0.18",
+ "utoipa",
 ]
 
 [[package]]

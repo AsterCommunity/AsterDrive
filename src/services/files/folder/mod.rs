@@ -24,7 +24,7 @@ use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FolderInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::types::NullablePatch;
+use aster_forge_api::NullablePatch;
 use serde_json::json;
 
 pub use access::verify_folder_access;
