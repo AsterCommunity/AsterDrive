@@ -324,7 +324,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("node enrollment test db should connect");

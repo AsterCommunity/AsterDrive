@@ -284,7 +284,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("frontend test DB should connect");
@@ -304,11 +304,8 @@ mod tests {
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
-            db.clone(),
-            1,
-            crate::metrics_core::NoopMetrics::arc(),
-        );
+        let (share_download_rollback, _worker) =
+            build_share_download_rollback_queue(db.clone(), 1, crate::metrics::NoopMetrics::arc());
 
         PrimaryAppState {
             db_handles: crate::db::DbHandles::single(db),
@@ -317,7 +314,7 @@ mod tests {
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,

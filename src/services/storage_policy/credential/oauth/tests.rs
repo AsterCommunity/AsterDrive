@@ -180,7 +180,7 @@ async fn setup_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("storage credential test DB should connect");
@@ -201,7 +201,7 @@ async fn setup_file_db(pool_size: u32) -> (sea_orm::DatabaseConnection, std::pat
             pool_size,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("storage credential test DB should connect");
@@ -243,7 +243,7 @@ async fn build_oauth_test_state(
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

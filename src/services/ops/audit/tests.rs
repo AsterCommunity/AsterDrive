@@ -432,7 +432,7 @@ async fn log_writes_synchronously_without_global_manager() {
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::memory_sender(),
         storage_change_tx,
         share_download_rollback,
@@ -484,7 +484,7 @@ async fn follower_state_can_record_allowed_audit_log() {
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
     };
 
     super::log(
@@ -545,7 +545,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::memory_sender(),
         storage_change_tx,
         share_download_rollback,

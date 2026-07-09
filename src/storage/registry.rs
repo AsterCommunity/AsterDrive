@@ -18,7 +18,7 @@ use crate::db::repository::{
 };
 use crate::entities::storage_policy;
 use crate::errors::{Result, precondition_failed_with_code};
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
@@ -75,7 +75,7 @@ impl DriverRegistry {
     }
 
     pub fn noop() -> Self {
-        Self::new(crate::metrics_core::NoopMetrics::arc())
+        Self::new(crate::metrics::NoopMetrics::arc())
     }
 
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
@@ -438,7 +438,7 @@ impl Default for DriverRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics_core::MetricsRecorder;
+    use crate::metrics::MetricsRecorder;
     use crate::storage::error::{StorageErrorKind, storage_driver_error};
     use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use parking_lot::Mutex;

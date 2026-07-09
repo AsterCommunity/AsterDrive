@@ -5,7 +5,6 @@ use super::{
     RuntimeCors, apply_origin_headers, ensure_vary, is_cors_exempt_path, request_is_same_origin,
     requested_headers_are_allowed, requested_method_is_allowed,
 };
-use aster_forge_cache as cache;
 use crate::config::cors::{CorsAllowedOrigins, RuntimeCorsPolicy};
 use crate::config::definitions::CONFIG_CATEGORY_NETWORK;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
@@ -16,6 +15,7 @@ use actix_web::{
     http::header::{self, HeaderMap, HeaderValue},
     test as actix_test, web,
 };
+use aster_forge_cache as cache;
 use chrono::Utc;
 use std::sync::Arc;
 
@@ -57,7 +57,7 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -87,7 +87,7 @@ async fn test_state(configs: &[(&str, &str)]) -> PrimaryAppState {
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config: Arc::new(Config::default()),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::runtime_sender(runtime_config.clone()),
         storage_change_tx,
         share_download_rollback,

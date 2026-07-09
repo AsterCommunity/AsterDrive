@@ -504,7 +504,6 @@ pub(crate) async fn list_folders_in_parent(
 #[cfg(test)]
 mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
-    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, RuntimeConfig};
     use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
     use crate::entities::{
@@ -518,6 +517,7 @@ mod tests {
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
         UserRole, UserStatus,
     };
+    use aster_forge_cache as cache;
     use chrono::Utc;
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
@@ -530,7 +530,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("test database should connect");
@@ -560,7 +560,7 @@ mod tests {
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

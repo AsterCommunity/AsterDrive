@@ -446,7 +446,7 @@ fn effective_dispatch_max_interval(base_interval: Duration, max_interval: Durati
 }
 
 fn build_background_tasks_base(
-    metrics: &crate::metrics_core::SharedMetricsRecorder,
+    metrics: &crate::metrics::SharedMetricsRecorder,
     shutdown_token: CancellationToken,
 ) -> BackgroundTasks {
     let mut tasks = BackgroundTasks::with_shutdown_token(shutdown_token);
@@ -950,7 +950,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap();
@@ -972,7 +972,7 @@ mod tests {
             crate::services::share::build_share_download_rollback_queue(
                 db.clone(),
                 1,
-                crate::metrics_core::NoopMetrics::arc(),
+                crate::metrics::NoopMetrics::arc(),
             );
 
         web::Data::new(PrimaryAppState {
@@ -982,7 +982,7 @@ mod tests {
             policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
             config: Arc::new(crate::config::Config::default()),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,

@@ -289,9 +289,9 @@ async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
 #[cfg(test)]
 mod tests {
     use super::{HealthComponentReport, HealthStatus, SystemHealthReport, check_cache_backend};
-    use aster_forge_cache::{CacheBackend, CacheError};
     use crate::config::CacheConfig;
     use crate::services::task::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
+    use aster_forge_cache::{CacheBackend, CacheError};
     use async_trait::async_trait;
 
     struct FakeCache {
@@ -325,7 +325,9 @@ mod tests {
             if self.healthy {
                 Ok(())
             } else {
-                Err(CacheError::RedisHealthCheck("cache probe failed".to_string()))
+                Err(CacheError::RedisHealthCheck(
+                    "cache probe failed".to_string(),
+                ))
             }
         }
 

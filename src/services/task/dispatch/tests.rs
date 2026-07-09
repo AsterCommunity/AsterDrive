@@ -36,7 +36,7 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("dispatch test DB should connect");
@@ -67,7 +67,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         crate::services::share::build_share_download_rollback_queue(
             db.clone(),
             1,
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         );
 
     crate::runtime::PrimaryAppState {
@@ -77,7 +77,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config: Arc::new(crate::config::Config::default()),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::memory_sender(),
         storage_change_tx,
         share_download_rollback,

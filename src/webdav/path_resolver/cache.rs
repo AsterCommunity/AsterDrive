@@ -1,7 +1,7 @@
 //! WebDAV 路径解析缓存。
 
-use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
+use aster_forge_cache::CacheExt;
 
 use super::{CachedResolvedNode, CachedResolvedParent};
 

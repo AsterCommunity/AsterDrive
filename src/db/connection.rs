@@ -2,7 +2,8 @@
 
 use crate::config::DatabaseConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
+use aster_forge_metrics::{DbMetricBackend, DbQueryKind, DbQueryMetric};
 use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseConnection, SqlxSqliteConnector};
 
 #[derive(Clone)]
@@ -222,14 +223,54 @@ fn install_db_metrics(db: &mut DatabaseConnection, metrics: SharedMetricsRecorde
     }
 
     db.set_metric_callback(move |info| {
-        metrics.record_db_query(info);
+        metrics.record_db_query(&db_query_metric_from_sea_orm(info));
     });
+}
+
+fn db_metric_backend_from_sea_orm(backend: sea_orm::DbBackend) -> DbMetricBackend {
+    match backend {
+        sea_orm::DbBackend::Sqlite => DbMetricBackend::Sqlite,
+        sea_orm::DbBackend::MySql => DbMetricBackend::MySql,
+        sea_orm::DbBackend::Postgres => DbMetricBackend::Postgres,
+        _ => DbMetricBackend::Other,
+    }
+}
+
+fn db_query_kind_from_sql(sql: &str) -> DbQueryKind {
+    match sql
+        .trim_start()
+        .split_ascii_whitespace()
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase()
+        .as_str()
+    {
+        "SELECT" => DbQueryKind::Select,
+        "INSERT" => DbQueryKind::Insert,
+        "UPDATE" => DbQueryKind::Update,
+        "DELETE" => DbQueryKind::Delete,
+        "WITH" => DbQueryKind::With,
+        "BEGIN" | "COMMIT" | "ROLLBACK" | "SAVEPOINT" | "RELEASE" => DbQueryKind::Transaction,
+        "CREATE" | "ALTER" | "DROP" | "TRUNCATE" => DbQueryKind::Ddl,
+        "PRAGMA" => DbQueryKind::Pragma,
+        _ => DbQueryKind::Other,
+    }
+}
+
+fn db_query_metric_from_sea_orm(info: &sea_orm::metric::Info<'_>) -> DbQueryMetric {
+    DbQueryMetric::new(
+        db_metric_backend_from_sea_orm(info.statement.db_backend),
+        db_query_kind_from_sql(&info.statement.sql),
+        info.failed,
+        info.elapsed,
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    use super::normalize_database_url;
+    use super::{db_query_kind_from_sql, normalize_database_url};
     use crate::config::DatabaseConfig;
+    use aster_forge_metrics::DbQueryKind;
     use sea_orm::{ConnectionTrait, TransactionTrait};
 
     #[test]
@@ -242,6 +283,40 @@ mod tests {
             normalize_database_url("sqlite://data/asterdrive.db"),
             "sqlite://data/asterdrive.db?mode=rwc"
         );
+    }
+
+    #[test]
+    fn db_query_kind_from_sql_classifies_common_statements() {
+        assert_eq!(
+            db_query_kind_from_sql("select * from users"),
+            DbQueryKind::Select
+        );
+        assert_eq!(
+            db_query_kind_from_sql(" INSERT INTO users VALUES (?) "),
+            DbQueryKind::Insert
+        );
+        assert_eq!(
+            db_query_kind_from_sql("update users set name = ?"),
+            DbQueryKind::Update
+        );
+        assert_eq!(
+            db_query_kind_from_sql("delete from users where id = ?"),
+            DbQueryKind::Delete
+        );
+        assert_eq!(
+            db_query_kind_from_sql("with cte as (select 1) select * from cte"),
+            DbQueryKind::With
+        );
+        assert_eq!(db_query_kind_from_sql("begin"), DbQueryKind::Transaction);
+        assert_eq!(
+            db_query_kind_from_sql("create table x(id int)"),
+            DbQueryKind::Ddl
+        );
+        assert_eq!(
+            db_query_kind_from_sql("pragma foreign_keys=ON"),
+            DbQueryKind::Pragma
+        );
+        assert_eq!(db_query_kind_from_sql("vacuum"), DbQueryKind::Other);
     }
 
     #[test]
@@ -304,7 +379,7 @@ mod tests {
                 pool_size: 10,
                 retry_count: 3,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("sqlite connection should succeed for Windows-style URL");
@@ -321,13 +396,13 @@ mod tests {
             pool_size: 4,
             retry_count: 0,
         };
-        let writer = super::connect_with_metrics(&cfg, crate::metrics_core::NoopMetrics::arc())
+        let writer = super::connect_with_metrics(&cfg, crate::metrics::NoopMetrics::arc())
             .await
             .expect("sqlite memory writer should connect");
         let handles = super::connect_reader_for_writer_with_metrics(
             &cfg,
             writer,
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("sqlite memory handles should connect");
@@ -350,13 +425,13 @@ mod tests {
             pool_size: 4,
             retry_count: 0,
         };
-        let writer = super::connect_with_metrics(&cfg, crate::metrics_core::NoopMetrics::arc())
+        let writer = super::connect_with_metrics(&cfg, crate::metrics::NoopMetrics::arc())
             .await
             .expect("sqlite writer should connect");
         let handles = super::connect_reader_for_writer_with_metrics(
             &cfg,
             writer,
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("sqlite handles should connect");
@@ -386,13 +461,13 @@ mod tests {
             pool_size: 4,
             retry_count: 0,
         };
-        let writer = super::connect_with_metrics(&cfg, crate::metrics_core::NoopMetrics::arc())
+        let writer = super::connect_with_metrics(&cfg, crate::metrics::NoopMetrics::arc())
             .await
             .expect("sqlite writer should connect");
         let handles = super::connect_reader_for_writer_with_metrics(
             &cfg,
             writer,
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("sqlite handles should connect");

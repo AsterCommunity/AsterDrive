@@ -283,12 +283,13 @@ async fn run_primary_http_server(
     let server_state = state.clone();
     let app_state = state.clone();
     let app_shutdown_data = web::Data::new(app_shutdown_token.clone());
-    let metrics = web::Data::new(state.metrics.clone());
+    let metrics =
+        web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
     let server = HttpServer::new(move || {
         let db = configure_db.clone();
         App::new()
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_drive::api::middleware::metrics::MetricsMiddleware)
+            .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::cors::RuntimeCors)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
@@ -352,13 +353,14 @@ async fn run_follower_http_server(
     let shutdown_db = state.writer_db().clone();
     let state = web::Data::new(state);
     let app_shutdown_token = CancellationToken::new();
-    let metrics = web::Data::new(state.metrics.clone());
+    let metrics =
+        web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
     let app_state = state.clone();
     let app_shutdown_data = web::Data::new(app_shutdown_token.clone());
     let server = HttpServer::new(move || {
         App::new()
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_drive::api::middleware::metrics::MetricsMiddleware)
+            .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
             .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
             .wrap(aster_drive::api::middleware::security_headers::default_headers())
             .app_data(actix_web::web::PayloadConfig::new(

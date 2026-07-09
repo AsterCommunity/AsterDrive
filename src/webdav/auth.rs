@@ -197,7 +197,6 @@ async fn authenticate_basic(
 #[cfg(test)]
 mod tests {
     use super::{authenticate_webdav, invalidate_webdav_auth_for_username};
-    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::{user, webdav_account};
     use crate::errors::AsterError;
@@ -207,6 +206,7 @@ mod tests {
     use crate::types::{UserRole, UserStatus};
     use crate::utils::hash;
     use actix_web::http::header::{self, HeaderMap, HeaderValue};
+    use aster_forge_cache as cache;
     use base64::Engine;
     use chrono::Utc;
     use migration::Migrator;
@@ -220,7 +220,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("webdav auth test database should connect");
@@ -246,7 +246,7 @@ mod tests {
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

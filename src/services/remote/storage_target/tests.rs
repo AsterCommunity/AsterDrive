@@ -12,7 +12,7 @@ use super::{
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
 use crate::entities::{master_binding, remote_storage_target};
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState};
 use crate::storage::remote_protocol::{
     RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
@@ -77,7 +77,7 @@ async fn setup_state() -> TestFollowerState {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -109,7 +109,7 @@ async fn setup_state() -> TestFollowerState {
         policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
         config,
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
     }
 }
 

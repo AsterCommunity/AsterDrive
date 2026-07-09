@@ -1,7 +1,6 @@
 //! 工作空间存储服务测试。
 
 use crate::api::api_error_code::ApiErrorCode;
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -12,6 +11,7 @@ use crate::storage::{
     StreamUploadDriver,
 };
 use crate::types::{DriverType, UserRole, UserStatus};
+use aster_forge_cache as cache;
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -766,7 +766,7 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -840,7 +840,7 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         policy_snapshot: Arc::new(PolicySnapshot::new()),
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

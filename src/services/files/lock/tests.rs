@@ -7,7 +7,6 @@ use chrono::{Duration, Utc};
 use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
 use crate::entities::{file, file_blob, resource_lock, storage_policy, user};
@@ -18,6 +17,7 @@ use crate::types::{
     DriverType, EntityType, StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyOptions, UserRole, UserStatus,
 };
+use aster_forge_cache as cache;
 
 fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model {
     resource_lock::Model {
@@ -46,7 +46,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("lock service test DB should connect");
@@ -158,7 +158,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         policy_snapshot: Arc::new(PolicySnapshot::new()),
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

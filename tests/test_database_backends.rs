@@ -39,7 +39,7 @@ async fn wait_for_database(database_url: &str) {
             };
             match aster_drive::db::connect_with_metrics(
                 &cfg,
-                aster_drive::metrics_core::NoopMetrics::arc(),
+                aster_drive::metrics::NoopMetrics::arc(),
             )
             .await
             {
@@ -276,10 +276,9 @@ async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
         pool_size: 8,
         retry_count: 0,
     };
-    let db =
-        aster_drive::db::connect_with_metrics(&cfg, aster_drive::metrics_core::NoopMetrics::arc())
-            .await
-            .unwrap();
+    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive::metrics::NoopMetrics::arc())
+        .await
+        .unwrap();
 
     let txn = db.begin().await.unwrap();
     let second_begin = timeout(Duration::from_millis(100), db.begin()).await;

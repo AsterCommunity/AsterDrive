@@ -11,7 +11,6 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::io::{AsyncRead, empty};
 
 use super::*;
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
@@ -23,6 +22,7 @@ use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
 use crate::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
+use aster_forge_cache as cache;
 
 #[derive(Clone, Default)]
 struct TrackingDeleteDriver {
@@ -137,7 +137,7 @@ async fn build_deletion_test_state() -> (
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("deletion test DB should connect");
@@ -221,7 +221,7 @@ async fn build_deletion_test_state() -> (
         policy_snapshot,
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

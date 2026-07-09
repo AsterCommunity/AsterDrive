@@ -5,9 +5,9 @@ use std::time::Duration as StdDuration;
 
 use moka::future::Cache;
 
-use aster_forge_cache::CacheExt;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
+use aster_forge_cache::CacheExt;
 
 use super::{STREAM_TICKET_TTL_SECS, StreamTicketPayload};
 
@@ -74,8 +74,8 @@ pub(super) async fn delete_ticket(state: &impl SharedRuntimeState, token: &str) 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use aster_forge_cache::CacheExt;
     use crate::runtime::test_support::CacheOnlyState;
+    use aster_forge_cache::CacheExt;
 
     fn payload(exp: i64) -> StreamTicketPayload {
         StreamTicketPayload {

@@ -374,7 +374,6 @@ mod tests {
         FileResourceHandleRequest, FileResourcePurpose, FileResourceRedirectPolicy,
         FileResourceRepresentation,
     };
-    use aster_forge_cache as cache;
     use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
     use crate::entities::{file, file_blob, storage_policy, user};
@@ -387,6 +386,7 @@ mod tests {
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };
+    use aster_forge_cache as cache;
 
     use super::{
         FileResourcePathSet, can_browser_render_image, resolve_file_resource_handle_for_file,
@@ -529,7 +529,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .expect("resource handle database should connect");
@@ -619,7 +619,7 @@ mod tests {
             policy_snapshot,
             config: Arc::new(config),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_tx,
             share_download_rollback,

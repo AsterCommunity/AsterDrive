@@ -1,7 +1,7 @@
 //! 工作空间 scope 权限缓存。
 
-use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
+use aster_forge_cache::CacheExt;
 
 use super::CachedTeamAccess;
 

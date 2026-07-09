@@ -4,7 +4,7 @@ use super::traits::driver::{BlobMetadata, StorageDriver};
 use super::traits::extensions;
 use super::traits::multipart::MultipartStorageDriver;
 use crate::errors::Result;
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
 use crate::types::DriverType;
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -458,7 +458,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
 mod tests {
     use super::*;
     use crate::errors::AsterError;
-    use crate::metrics_core::MetricsRecorder;
+    use crate::metrics::MetricsRecorder;
     use parking_lot::Mutex;
     use std::io;
     use tokio::io::{AsyncReadExt, ReadBuf};

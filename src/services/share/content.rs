@@ -3,7 +3,7 @@
 use crate::db::repository::{file_repo, share_repo};
 use crate::entities::{file, share};
 use crate::errors::{AsterError, Result};
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
@@ -100,7 +100,7 @@ pub fn spawn_detached_share_download_rollback_queue(
     capacity: usize,
 ) -> ShareDownloadRollbackQueue {
     let (queue, worker) =
-        build_share_download_rollback_queue(db, capacity, crate::metrics_core::NoopMetrics::arc());
+        build_share_download_rollback_queue(db, capacity, crate::metrics::NoopMetrics::arc());
     drop(tokio::spawn(run_share_download_rollback_worker(
         worker, None,
     )));

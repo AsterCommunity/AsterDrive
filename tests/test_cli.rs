@@ -55,7 +55,7 @@ async fn setup_database_url() -> String {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -72,7 +72,7 @@ async fn setup_empty_database_url(prefix: &str) -> String {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -488,7 +488,7 @@ async fn seed_contact_verification_history(database_url: &str) {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -555,7 +555,7 @@ async fn assert_migrated_fixture(
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1158,7 +1158,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1181,7 +1181,7 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1292,7 +1292,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1312,7 +1312,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1339,7 +1339,7 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1375,7 +1375,7 @@ async fn test_migrations_reject_existing_schema_with_empty_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1650,7 +1650,7 @@ async fn test_root_binary_database_migrate_sqlite_to_postgres_happy_path() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1796,7 +1796,7 @@ async fn test_root_binary_database_migrate_sqlite_resume_from_checkpoint() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1954,7 +1954,7 @@ async fn test_root_binary_database_migrate_allows_consumed_contact_verification_
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics_core::NoopMetrics::arc(),
+        aster_drive::metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();

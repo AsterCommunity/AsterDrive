@@ -1,7 +1,7 @@
 //! 管理概览缓存。
 
-use aster_forge_cache::CacheExt;
 use crate::runtime::SharedRuntimeState;
+use aster_forge_cache::CacheExt;
 
 use super::AdminOverviewCore;
 

@@ -300,7 +300,10 @@ pub(crate) async fn affected_parent_ids_for_entities(
     Ok(parent_ids)
 }
 
-fn invalidate_storage_change_caches(cache: Arc<dyn aster_forge_cache::CacheBackend>, event: &StorageChangeEvent) {
+fn invalidate_storage_change_caches(
+    cache: Arc<dyn aster_forge_cache::CacheBackend>,
+    event: &StorageChangeEvent,
+) {
     let targets = cache_invalidation_targets(event);
     if targets.prefixes.is_empty() && targets.keys.is_empty() {
         return;
@@ -366,7 +369,10 @@ fn webdav_path_cache_invalidation_prefixes(audience: StorageChangeAudience) -> V
     }
 }
 
-async fn schedule_cache_prefix_invalidation(cache: Arc<dyn aster_forge_cache::CacheBackend>, prefix: String) {
+async fn schedule_cache_prefix_invalidation(
+    cache: Arc<dyn aster_forge_cache::CacheBackend>,
+    prefix: String,
+) {
     let reservation_key = cache_invalidation_reservation_key(&prefix);
     if !cache
         .set_bytes_if_absent(

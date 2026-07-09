@@ -6,7 +6,7 @@ pub mod tasks;
 
 use crate::config::{Config, RuntimeConfig};
 use crate::db::DbHandles;
-use crate::metrics_core::SharedMetricsRecorder;
+use crate::metrics::SharedMetricsRecorder;
 use crate::services::{
     events::storage_change::StorageChangeEvent, mail::sender::MailSender,
     share::ShareDownloadRollbackQueue,
@@ -226,7 +226,7 @@ impl FollowerRuntimeState for FollowerAppState {}
 pub(crate) mod test_support {
     use super::SharedRuntimeState;
     use crate::config::{CacheConfig, Config, RuntimeConfig};
-    use crate::metrics_core::SharedMetricsRecorder;
+    use crate::metrics::SharedMetricsRecorder;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use sea_orm::DatabaseConnection;
     use std::sync::Arc;
@@ -298,7 +298,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics_core::NoopMetrics::arc(),
+            crate::metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap();
@@ -312,11 +312,8 @@ mod tests {
         let (storage_change_tx, _) = tokio::sync::broadcast::channel(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
-            db.clone(),
-            1,
-            crate::metrics_core::NoopMetrics::arc(),
-        );
+        let (share_download_rollback, _worker) =
+            build_share_download_rollback_queue(db.clone(), 1, crate::metrics::NoopMetrics::arc());
 
         let state = PrimaryAppState {
             db_handles: crate::db::DbHandles::single(db),
@@ -325,7 +322,7 @@ mod tests {
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(Config::default()),
             cache,
-            metrics: crate::metrics_core::NoopMetrics::arc(),
+            metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::memory_sender(),
             storage_change_tx,
             share_download_rollback,

@@ -55,7 +55,12 @@ members = [".", "migration"]
 default = ["server", "cli"]
 server = []
 cli = ["server", "dep:clap"]
-metrics = ["server", "dep:prometheus", "dep:sysinfo"]
+metrics = [
+    "server",
+    "aster_forge_actix_observability/prometheus",
+    "aster_forge_metrics/allocator-metrics",
+    "aster_forge_metrics/backend-prometheus",
+]
 openapi = [
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
@@ -78,9 +83,12 @@ actix-web = { version = "4.14.0", features = ["compress-brotli", "compress-gzip"
 actix-ws = "0.4"
 aes-gcm = "0.10"
 aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
+aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_middleware", features = ["metrics"] }
+aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_observability" }
 aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_alloc" }
 aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_cache", features = ["memory", "redis", "runtime-component"] }
 aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
+aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_metrics" }
 aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
 argon2 = "0.5.3"
 async-stream = "0.3"
@@ -122,8 +130,6 @@ parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
 openidconnect = "4.0.1"
-prometheus = { version = "0.14", optional = true, default-features = false }
-sysinfo = { version = "0.39", optional = true, default-features = false, features = ["system"] }
 rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 reqwest = { version = "0.13", features = ["stream", "json"] }
 ring = "0.17"

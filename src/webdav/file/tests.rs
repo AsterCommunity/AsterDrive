@@ -1,7 +1,6 @@
 //! Tests for WebDAV file write handling.
 
 use super::AsterDavFile;
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{storage_policy, user};
@@ -11,6 +10,7 @@ use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
 use crate::types::{DriverType, UserRole, UserStatus};
 use crate::webdav::dav::DavFile;
+use aster_forge_cache as cache;
 use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
@@ -173,7 +173,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("test database connection should succeed");
@@ -264,7 +264,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
         policy_snapshot,
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

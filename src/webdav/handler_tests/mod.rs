@@ -1,4 +1,3 @@
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
@@ -17,6 +16,7 @@ use crate::webdav::transfer::{handle_get_head, handle_put};
 use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, web};
+use aster_forge_cache as cache;
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -51,7 +51,7 @@ async fn build_webdav_test_state(
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("webdav handler database should connect");
@@ -141,7 +141,7 @@ async fn build_webdav_test_state(
         policy_snapshot,
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,

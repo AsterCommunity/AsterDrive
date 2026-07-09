@@ -889,12 +889,9 @@ async fn test_share_download_limit_counter_is_atomic_under_concurrency() {
             retry_count: 0,
         };
         dbs.push(
-            aster_drive::db::connect_with_metrics(
-                &cfg,
-                aster_drive::metrics_core::NoopMetrics::arc(),
-            )
-            .await
-            .expect("share race test connection should open"),
+            aster_drive::db::connect_with_metrics(&cfg, aster_drive::metrics::NoopMetrics::arc())
+                .await
+                .expect("share race test connection should open"),
         );
     }
 

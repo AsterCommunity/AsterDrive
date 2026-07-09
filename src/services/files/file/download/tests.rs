@@ -11,7 +11,6 @@ use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 use tokio::io::{AsyncRead, AsyncWriteExt};
 
-use aster_forge_cache as cache;
 use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
@@ -26,6 +25,7 @@ use crate::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
 use crate::utils::numbers::usize_to_i64;
+use aster_forge_cache as cache;
 
 use super::build::build_download_outcome_with_disposition_and_range;
 use super::response::outcome_to_response;
@@ -271,7 +271,7 @@ where
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics_core::NoopMetrics::arc(),
+        crate::metrics::NoopMetrics::arc(),
     )
     .await
     .expect("download test database should connect");
@@ -361,7 +361,7 @@ where
         policy_snapshot,
         config: Arc::new(config),
         cache,
-        metrics: crate::metrics_core::NoopMetrics::arc(),
+        metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
         share_download_rollback,
