@@ -2,7 +2,7 @@
 
 use crate::config::RuntimeConfig;
 use crate::errors::{AsterError, Result};
-use crate::types::MailTemplateCode;
+use aster_forge_mail::MailTemplateCode;
 
 pub use crate::config::definitions::{
     MAIL_FROM_ADDRESS_KEY, MAIL_FROM_NAME_KEY, MAIL_SECURITY_KEY, MAIL_SMTP_HOST_KEY,
@@ -301,8 +301,8 @@ mod tests {
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::CONFIG_CATEGORY_MAIL_CONFIG;
-    use crate::entities::system_config;
-    use crate::types::MailTemplateCode;
+    use aster_forge_db::system_config;
+    use aster_forge_mail::MailTemplateCode;
     use chrono::Utc;
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -310,11 +310,11 @@ mod tests {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: crate::types::SystemConfigValueType::String,
+            value_type: crate::types::ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: crate::types::SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: crate::types::ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_MAIL_CONFIG.to_string(),
             description: "test".to_string(),

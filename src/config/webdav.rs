@@ -43,8 +43,8 @@ mod tests {
         CONFIG_CATEGORY_WEBDAV, DEFAULT_WEBDAV_MAX_ACTIVE_LOCKS_PER_USER,
         WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY,
     };
-    use crate::entities::system_config;
-    use crate::types::{SystemConfigSource, SystemConfigValueType};
+    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_db::system_config;
     use chrono::Utc;
 
     fn config_model(value: &str) -> system_config::Model {
@@ -52,11 +52,11 @@ mod tests {
             id: 1,
             key: WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY.to_string(),
             value: value.to_string(),
-            value_type: SystemConfigValueType::Number,
+            value_type: ConfigValueType::Number,
             requires_restart: false,
             is_sensitive: false,
-            source: SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_WEBDAV.to_string(),
             description: "test".to_string(),

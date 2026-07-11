@@ -1,123 +1,32 @@
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::OffsetPage;
 use crate::config::definitions::ALL_CONFIGS;
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
 use crate::config::system_config as shared_system_config;
 use crate::config::{auth_runtime, mail, mail::RuntimeMailSettings};
 use crate::db::repository::config_repo;
-use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::{SystemConfigSource, SystemConfigValueType, SystemConfigVisibility};
+use crate::types::{ConfigSource, ConfigValueType, ConfigVisibility};
+use aster_forge_config::{ConfigValue, config_value_audit_string};
+use aster_forge_db::system_config;
 use aster_forge_db::transaction;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub enum SystemConfigValue {
-    String(String),
-    StringArray(Vec<String>),
-}
-
-impl SystemConfigValue {
-    fn from_storage(value_type: SystemConfigValueType, value: String) -> Self {
-        if !value_type.is_string_list() {
-            return Self::String(value);
-        }
-
-        match serde_json::from_str::<Vec<String>>(&value) {
-            Ok(items) => Self::StringArray(items),
-            Err(error) => {
-                tracing::warn!(
-                    error = %error,
-                    value_type = %value_type,
-                    "invalid stored string list config value; returning an empty array"
-                );
-                Self::StringArray(Vec::new())
-            }
-        }
-    }
-
-    pub fn is_empty(&self) -> bool {
-        match self {
-            Self::String(value) => value.trim().is_empty(),
-            Self::StringArray(values) => values.is_empty(),
-        }
-    }
-
-    pub fn to_storage_for_type(&self, value_type: SystemConfigValueType) -> Result<String> {
-        match (value_type, self) {
-            (
-                SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet,
-                Self::StringArray(values),
-            ) => serde_json::to_string(values).map_err(|error| {
-                AsterError::internal_error(format!(
-                    "failed to serialize {} config value: {error}",
-                    value_type.as_str()
-                ))
-            }),
-            (
-                SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet,
-                Self::String(_),
-            ) => Err(AsterError::validation_error(format!(
-                "{} config value must be a JSON array",
-                value_type.as_str()
-            ))),
-            (_, Self::String(value)) => Ok(value.clone()),
-            (_, Self::StringArray(_)) => Err(AsterError::validation_error(
-                "string array values are only supported for string_array and string_enum_set config keys",
-            )),
-        }
-    }
-
-    pub fn to_audit_string(&self) -> String {
-        match self {
-            Self::String(value) => value.clone(),
-            Self::StringArray(values) => serde_json::to_string(values)
-                .unwrap_or_else(|_| "<invalid string list value>".to_string()),
-        }
-    }
-}
-
-impl From<&str> for SystemConfigValue {
-    fn from(value: &str) -> Self {
-        Self::String(value.to_string())
-    }
-}
-
-impl From<&String> for SystemConfigValue {
-    fn from(value: &String) -> Self {
-        Self::String(value.clone())
-    }
-}
-
-impl From<String> for SystemConfigValue {
-    fn from(value: String) -> Self {
-        Self::String(value)
-    }
-}
-
-impl From<Vec<String>> for SystemConfigValue {
-    fn from(value: Vec<String>) -> Self {
-        Self::StringArray(value)
-    }
-}
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SystemConfig {
     pub id: i64,
     pub key: String,
-    pub value: SystemConfigValue,
-    pub value_type: SystemConfigValueType,
+    pub value: ConfigValue,
+    pub value_type: ConfigValueType,
     pub requires_restart: bool,
     pub is_sensitive: bool,
-    pub source: SystemConfigSource,
-    pub visibility: SystemConfigVisibility,
+    pub source: ConfigSource,
+    pub visibility: ConfigVisibility,
     pub namespace: String,
     pub category: String,
     pub description: String,
@@ -128,26 +37,26 @@ pub struct SystemConfig {
 
 impl From<system_config::Model> for SystemConfig {
     fn from(model: system_config::Model) -> Self {
-        // 敏感配置值在 API 响应中脱敏
-        let value = if model.is_sensitive {
-            SystemConfigValue::String("***REDACTED***".to_string())
-        } else {
-            SystemConfigValue::from_storage(model.value_type, model.value)
-        };
+        let presented = aster_forge_db::present_system_config(model, |error| {
+            tracing::warn!(
+                error = %error,
+                "invalid stored config value; returning an empty presentation value"
+            );
+        });
         Self {
-            id: model.id,
-            key: model.key,
-            value,
-            value_type: model.value_type,
-            requires_restart: model.requires_restart,
-            is_sensitive: model.is_sensitive,
-            source: model.source,
-            visibility: model.visibility,
-            namespace: model.namespace,
-            category: model.category,
-            description: model.description,
-            updated_at: model.updated_at,
-            updated_by: model.updated_by,
+            id: presented.id,
+            key: presented.key,
+            value: presented.value,
+            value_type: presented.value_type,
+            requires_restart: presented.requires_restart,
+            is_sensitive: presented.is_sensitive,
+            source: presented.source,
+            visibility: presented.visibility,
+            namespace: presented.namespace,
+            category: presented.category,
+            description: presented.description,
+            updated_at: presented.updated_at,
+            updated_by: presented.updated_by,
         }
     }
 }
@@ -157,17 +66,14 @@ pub async fn list_paginated(
     limit: u64,
     offset: u64,
 ) -> Result<OffsetPage<SystemConfig>> {
-    let page = load_offset_page(limit, offset, 100, |limit, offset| async move {
-        config_repo::find_paginated(state.reader_db(), limit, offset).await
-    })
-    .await?;
-    let items = page
-        .items
+    let limit = limit.clamp(1, 100);
+    let (models, total) = config_repo::find_paginated(state.reader_db(), limit, offset).await?;
+    let items = models
         .into_iter()
         .map(apply_system_config_definition)
         .map(Into::into)
         .collect();
-    Ok(OffsetPage::new(items, page.total, page.limit, page.offset))
+    Ok(OffsetPage::new(items, total, limit, offset))
 }
 
 pub async fn get_by_key(state: &impl SharedRuntimeState, key: &str) -> Result<SystemConfig> {
@@ -181,7 +87,7 @@ pub async fn get_by_key(state: &impl SharedRuntimeState, key: &str) -> Result<Sy
 pub async fn set(
     state: &impl SharedRuntimeState,
     key: &str,
-    value: impl Into<SystemConfigValue>,
+    value: impl Into<ConfigValue>,
     updated_by: i64,
 ) -> Result<SystemConfig> {
     set_with_visibility(state, key, value, None, updated_by).await
@@ -190,8 +96,8 @@ pub async fn set(
 pub async fn set_with_visibility(
     state: &impl SharedRuntimeState,
     key: &str,
-    value: impl Into<SystemConfigValue>,
-    visibility: Option<SystemConfigVisibility>,
+    value: impl Into<ConfigValue>,
+    visibility: Option<ConfigVisibility>,
     updated_by: i64,
 ) -> Result<SystemConfig> {
     validate_visibility_target(key, visibility)?;
@@ -200,7 +106,7 @@ pub async fn set_with_visibility(
         .iter()
         .find(|def| def.key == key)
         .map(|def| def.value_type)
-        .unwrap_or(SystemConfigValueType::String);
+        .unwrap_or(ConfigValueType::String);
     let mut normalized_value = value.to_storage_for_type(value_type)?;
 
     if let Some(def) = ALL_CONFIGS.iter().find(|def| def.key == key) {
@@ -254,7 +160,7 @@ pub async fn delete_with_audit(
 pub async fn set_with_audit(
     state: &impl SharedRuntimeState,
     key: &str,
-    value: &SystemConfigValue,
+    value: &ConfigValue,
     updated_by: i64,
     audit_ctx: &AuditContext,
 ) -> Result<SystemConfig> {
@@ -264,8 +170,8 @@ pub async fn set_with_audit(
 pub async fn set_with_audit_and_visibility(
     state: &impl SharedRuntimeState,
     key: &str,
-    value: &SystemConfigValue,
-    visibility: Option<SystemConfigVisibility>,
+    value: &ConfigValue,
+    visibility: Option<ConfigVisibility>,
     updated_by: i64,
     audit_ctx: &AuditContext,
 ) -> Result<SystemConfig> {
@@ -275,7 +181,7 @@ pub async fn set_with_audit_and_visibility(
         .iter()
         .find(|def| def.key == key)
         .map(|def| def.value_type)
-        .unwrap_or(SystemConfigValueType::String);
+        .unwrap_or(ConfigValueType::String);
     let mut normalized_value = value.to_storage_for_type(value_type)?;
 
     if let Some(def) = ALL_CONFIGS.iter().find(|def| def.key == key) {
@@ -313,7 +219,7 @@ async fn audit_config_update(
     state: &impl SharedRuntimeState,
     audit_ctx: &AuditContext,
     config: &system_config::Model,
-    prior_visibility: Option<SystemConfigVisibility>,
+    prior_visibility: Option<ConfigVisibility>,
 ) {
     audit::log_with_details(
         state,
@@ -326,8 +232,12 @@ async fn audit_config_update(
             let audit_value = if config.is_sensitive {
                 "***REDACTED***".to_string()
             } else {
-                SystemConfigValue::from_storage(config.value_type, config.value.clone())
-                    .to_audit_string()
+                config_value_audit_string(
+                    config.value_type,
+                    config.value.clone(),
+                    config.is_sensitive,
+                    |error| tracing::warn!(%error, "invalid stored config value for audit"),
+                )
             };
             audit::details(audit::ConfigUpdateDetails {
                 value: &audit_value,
@@ -339,11 +249,11 @@ async fn audit_config_update(
     .await;
 }
 
-fn validate_value_type(value_type: SystemConfigValueType, value: &str) -> Result<()> {
+fn validate_value_type(value_type: ConfigValueType, value: &str) -> Result<()> {
     shared_system_config::validate_value_type(value_type, value)
 }
 
-fn validate_visibility_target(key: &str, visibility: Option<SystemConfigVisibility>) -> Result<()> {
+fn validate_visibility_target(key: &str, visibility: Option<ConfigVisibility>) -> Result<()> {
     if visibility.is_some() && ALL_CONFIGS.iter().any(|def| def.key == key) {
         return Err(AsterError::validation_error(
             "visibility can only be changed for custom configuration",
@@ -357,7 +267,7 @@ fn normalize_system_value(
     key: &str,
     value: &str,
 ) -> Result<String> {
-    shared_system_config::normalize_system_value(state.runtime_config(), key, value)
+    shared_system_config::normalize_system_value(state.runtime_config().as_ref(), key, value)
 }
 
 fn validate_config_dependencies(
@@ -383,7 +293,7 @@ async fn upsert_config_and_apply_dependents(
     state: &impl SharedRuntimeState,
     key: &str,
     value: &str,
-    visibility: Option<SystemConfigVisibility>,
+    visibility: Option<ConfigVisibility>,
     updated_by: i64,
 ) -> Result<Vec<system_config::Model>> {
     let txn = transaction::begin(state.writer_db()).await?;

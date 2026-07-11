@@ -20,6 +20,10 @@ const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
 const ALIGN_FORGE_AUDIT_CONTRACT_MIGRATION: &str = "m20260712_000001_align_forge_audit_contract";
 const ADD_FORGE_AUDIT_QUERY_INDEXES_MIGRATION: &str =
     "m20260712_000002_add_forge_audit_query_indexes";
+const ALIGN_FORGE_SYSTEM_CONFIG_CONTRACT_MIGRATION: &str =
+    "m20260712_000003_align_forge_system_config_contract";
+const ALIGN_FORGE_MAIL_OUTBOX_CONTRACT_MIGRATION: &str =
+    "m20260712_000004_align_forge_mail_outbox_contract";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -320,6 +324,139 @@ async fn forge_audit_columns_match_shared_contract_and_preserve_rows() {
         preserved.try_get_by_index::<String>(1).unwrap(),
         "2001:db8::7"
     );
+}
+
+#[tokio::test]
+async fn forge_system_config_contract_preserves_rows_and_named_index() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    let migration_position = CurrentMigrator::migrations()
+        .iter()
+        .position(|migration| migration.name() == ALIGN_FORGE_SYSTEM_CONFIG_CONTRACT_MIGRATION)
+        .expect("Forge system-config contract migration should exist");
+    CurrentMigrator::up(
+        &db,
+        Some(u32::try_from(migration_position).expect("migration count should fit u32")),
+    )
+    .await
+    .expect("legacy Drive schema should apply");
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO system_config (key, value, source, visibility, namespace, category, description, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            "custom.viewer".into(),
+            "enabled".into(),
+            "custom".into(),
+            "public".into(),
+            "drive".into(),
+            "custom".into(),
+            "custom viewer flag".into(),
+            chrono::Utc::now().into(),
+        ],
+    ))
+    .await
+    .expect("legacy system-config row should insert");
+
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("Forge system-config contract migration should apply");
+    let (namespace_type, _) =
+        sqlite_column_type_and_default(&db, "system_config", "namespace").await;
+    assert_eq!(namespace_type.to_ascii_lowercase(), "varchar(64)");
+    let (description_type, _) =
+        sqlite_column_type_and_default(&db, "system_config", "description").await;
+    assert_eq!(description_type.to_ascii_lowercase(), "varchar(512)");
+    assert!(
+        sqlite_table_index_exists(
+            &db,
+            aster_forge_db::SYSTEM_CONFIG_TABLE,
+            aster_forge_db::SYSTEM_CONFIG_KEY_UNIQUE_INDEX,
+        )
+        .await
+    );
+    assert!(sqlite_table_index_exists(&db, "system_config", "idx_system_config_visibility").await);
+    let preserved = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT value, visibility, namespace FROM system_config WHERE key = 'custom.viewer'",
+        ))
+        .await
+        .expect("migrated system-config row should load")
+        .expect("migrated system-config row should remain");
+    assert_eq!(preserved.try_get_by_index::<String>(0).unwrap(), "enabled");
+    assert_eq!(preserved.try_get_by_index::<String>(1).unwrap(), "public");
+    assert_eq!(preserved.try_get_by_index::<String>(2).unwrap(), "drive");
+}
+
+#[tokio::test]
+async fn forge_mail_outbox_contract_preserves_rows_and_named_indexes() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    let migration_position = CurrentMigrator::migrations()
+        .iter()
+        .position(|migration| migration.name() == ALIGN_FORGE_MAIL_OUTBOX_CONTRACT_MIGRATION)
+        .expect("Forge mail-outbox contract migration should exist");
+    CurrentMigrator::up(
+        &db,
+        Some(u32::try_from(migration_position).expect("migration count should fit u32")),
+    )
+    .await
+    .expect("legacy Drive schema should apply");
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO mail_outbox (template_code, to_address, to_name, payload_json, status, attempt_count, next_attempt_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+        [
+            "user_invitation".into(),
+            "invitee@example.com".into(),
+            "Invitee".into(),
+            r#"{"token":"preserved"}"#.into(),
+            "retry".into(),
+            2_i32.into(),
+            chrono::Utc::now().into(),
+            chrono::Utc::now().into(),
+            chrono::Utc::now().into(),
+        ],
+    ))
+    .await
+    .expect("legacy mail-outbox row should insert");
+
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("Forge mail-outbox contract migration should apply");
+    let (template_code_type, _) =
+        sqlite_column_type_and_default(&db, "mail_outbox", "template_code").await;
+    assert_eq!(template_code_type.to_ascii_lowercase(), "varchar(64)");
+    for index in [
+        "idx_mail_outbox_due",
+        "idx_mail_outbox_processing",
+        "idx_mail_outbox_sent_at",
+    ] {
+        assert!(sqlite_table_index_exists(&db, "mail_outbox", index).await);
+    }
+    let preserved = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT template_code, to_address, payload_json, status, attempt_count FROM mail_outbox WHERE to_address = 'invitee@example.com'",
+        ))
+        .await
+        .expect("migrated mail-outbox row should load")
+        .expect("migrated mail-outbox row should remain");
+    assert_eq!(
+        preserved.try_get_by_index::<String>(0).unwrap(),
+        "user_invitation"
+    );
+    assert_eq!(
+        preserved.try_get_by_index::<String>(1).unwrap(),
+        "invitee@example.com"
+    );
+    assert_eq!(
+        preserved.try_get_by_index::<String>(2).unwrap(),
+        r#"{"token":"preserved"}"#
+    );
+    assert_eq!(preserved.try_get_by_index::<String>(3).unwrap(), "retry");
+    assert_eq!(preserved.try_get_by_index::<i32>(4).unwrap(), 2);
 }
 
 #[tokio::test]

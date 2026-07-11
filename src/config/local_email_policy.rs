@@ -209,8 +209,8 @@ fn normalize_policy_domain(domain: &str) -> Result<String> {
 mod tests {
     use super::*;
     use crate::config::RuntimeConfig;
-    use crate::entities::system_config;
-    use crate::types::{SystemConfigSource, SystemConfigValueType, SystemConfigVisibility};
+    use crate::types::{ConfigSource, ConfigValueType, ConfigVisibility};
+    use aster_forge_db::system_config;
     use chrono::Utc;
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -218,11 +218,11 @@ mod tests {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: SystemConfigValueType::StringArray,
+            value_type: ConfigValueType::StringArray,
             requires_restart: false,
             is_sensitive: false,
-            source: SystemConfigSource::System,
-            visibility: SystemConfigVisibility::Private,
+            source: ConfigSource::System,
+            visibility: ConfigVisibility::Private,
             namespace: String::new(),
             category: crate::config::definitions::CONFIG_CATEGORY_USER_REGISTRATION.to_string(),
             description: "test".to_string(),

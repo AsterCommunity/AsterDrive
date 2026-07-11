@@ -4,8 +4,7 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use aster_drive::config::{audit, mail, site_url};
-use aster_drive::db::repository::mail_outbox_repo;
-use aster_drive::entities::{audit_log, mail_outbox};
+use aster_drive::entities::audit_log;
 use aster_drive::errors::{AsterError, Result};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
@@ -13,10 +12,12 @@ use aster_drive::services::{
     mail::sender::{self, MailMessage, MailSender},
     mail::template::RenderedMail,
 };
-use aster_drive::types::{AuditAction, MailOutboxStatus, MailTemplateCode, StoredMailPayload};
+use aster_drive::types::AuditAction;
+use aster_forge_db::mail_outbox;
+use aster_forge_mail::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use sea_orm::{EntityTrait, Set};
+use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 #[derive(Default)]
 struct FailingMailSender {
@@ -94,6 +95,13 @@ async fn find_outbox_row(db: &sea_orm::DatabaseConnection, id: i64) -> mail_outb
         .await
         .expect("mail outbox lookup should succeed")
         .expect("mail outbox row should exist")
+}
+
+async fn insert_outbox(
+    db: &sea_orm::DatabaseConnection,
+    model: mail_outbox::ActiveModel,
+) -> std::result::Result<mail_outbox::Model, sea_orm::DbErr> {
+    model.insert(db).await
 }
 
 async fn latest_mail_audit_entry(
@@ -242,7 +250,7 @@ async fn test_mail_outbox_dispatch_sends_due_message_and_clears_payload() {
     )
     .to_stored()
     .unwrap();
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 0, Utc::now(), payload),
     )
@@ -295,7 +303,7 @@ async fn test_mail_outbox_dispatch_skips_future_retry_rows() {
     )
     .to_stored()
     .unwrap();
-    mail_outbox_repo::create(
+    insert_outbox(
         state.writer_db(),
         outbox_model(
             MailOutboxStatus::Retry,
@@ -330,7 +338,7 @@ async fn test_mail_outbox_dispatch_retries_failed_delivery_with_truncated_error(
     )
     .to_stored()
     .unwrap();
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 0, Utc::now(), payload),
     )
@@ -373,7 +381,7 @@ async fn test_mail_outbox_dispatch_success_after_retries_records_current_attempt
     )
     .to_stored()
     .unwrap();
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Retry, 2, Utc::now(), payload),
     )
@@ -406,7 +414,7 @@ async fn test_mail_outbox_dispatch_respects_mail_audit_action_scope() {
     )
     .to_stored()
     .unwrap();
-    mail_outbox_repo::create(
+    insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 0, Utc::now(), payload),
     )
@@ -433,7 +441,7 @@ async fn test_mail_outbox_dispatch_marks_final_failure_and_clears_payload() {
     )
     .to_stored()
     .unwrap();
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 5, Utc::now(), payload),
     )
@@ -486,7 +494,7 @@ async fn test_mail_outbox_final_failure_audit_error_is_truncated() {
     )
     .to_stored()
     .unwrap();
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 5, Utc::now(), payload),
     )
@@ -523,10 +531,8 @@ async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merg
     .unwrap();
     let mut model = outbox_model(MailOutboxStatus::Processing, 0, Utc::now(), payload.clone());
     model.processing_started_at = Set(Some(Utc::now() - Duration::seconds(120)));
-    let stale = mail_outbox_repo::create(state.writer_db(), model)
-        .await
-        .unwrap();
-    mail_outbox_repo::create(
+    let stale = insert_outbox(state.writer_db(), model).await.unwrap();
+    insert_outbox(
         state.writer_db(),
         outbox_model(MailOutboxStatus::Pending, 0, Utc::now(), payload),
     )
@@ -544,7 +550,8 @@ async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merg
         MailOutboxStatus::Sent
     );
     assert_eq!(
-        mail_outbox_repo::count_active(state.writer_db())
+        aster_forge_db::MailOutboxDbStore::new(state.writer_db().clone())
+            .count_active()
             .await
             .unwrap(),
         0
@@ -555,7 +562,7 @@ async fn test_mail_outbox_dispatch_reclaims_stale_processing_rows_and_drain_merg
 async fn test_mail_outbox_dispatch_invalid_payload_schedules_retry_without_sending() {
     let state = common::setup().await;
     apply_mail_config(&state);
-    let row = mail_outbox_repo::create(
+    let row = insert_outbox(
         state.writer_db(),
         outbox_model(
             MailOutboxStatus::Pending,
@@ -595,9 +602,7 @@ async fn test_mail_outbox_dispatch_does_not_reclaim_fresh_processing_rows() {
     .unwrap();
     let mut model = outbox_model(MailOutboxStatus::Processing, 0, Utc::now(), payload);
     model.processing_started_at = Set(Some(Utc::now()));
-    mail_outbox_repo::create(state.writer_db(), model)
-        .await
-        .unwrap();
+    insert_outbox(state.writer_db(), model).await.unwrap();
 
     let stats = outbox::dispatch_due(&state).await.unwrap();
 

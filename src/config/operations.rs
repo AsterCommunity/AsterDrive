@@ -1051,7 +1051,7 @@ mod tests {
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::{ALL_CONFIGS, CONFIG_CATEGORY_RUNTIME_MAINTENANCE};
-    use crate::entities::system_config;
+    use aster_forge_db::system_config;
     use chrono::Utc;
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -1065,11 +1065,11 @@ mod tests {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: crate::types::SystemConfigValueType::Number,
+            value_type: crate::types::ConfigValueType::Number,
             requires_restart: false,
             is_sensitive: false,
-            source: crate::types::SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: crate::types::ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: category.to_string(),
             description: "test".to_string(),

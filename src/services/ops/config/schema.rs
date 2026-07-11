@@ -10,7 +10,7 @@ use crate::config::operations::{
     OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
 use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
-use crate::types::{AuditAction, SystemConfigValueType};
+use crate::types::{AuditAction, ConfigValueType};
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -23,7 +23,7 @@ pub struct ConfigSchemaItem {
     pub key: String,
     pub label_i18n_key: String,
     pub description_i18n_key: String,
-    pub value_type: SystemConfigValueType,
+    pub value_type: ConfigValueType,
     pub category: String,
     pub description: String,
     pub requires_restart: bool,
@@ -291,7 +291,7 @@ mod tests {
             .find(|item| item.key == AUDIT_LOG_RECORDED_ACTIONS_KEY)
             .expect("audit action scope config should be in schema");
 
-        assert_eq!(item.value_type, SystemConfigValueType::StringEnumSet);
+        assert_eq!(item.value_type, ConfigValueType::StringEnumSet);
         assert_eq!(item.options.len(), AuditAction::COUNT);
 
         for (option, action) in item.options.iter().zip(AuditAction::ALL) {

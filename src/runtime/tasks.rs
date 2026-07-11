@@ -995,15 +995,15 @@ mod tests {
     fn apply_runtime_value(state: &web::Data<PrimaryAppState>, key: &str, value: &str) {
         state
             .runtime_config
-            .apply(crate::entities::system_config::Model {
+            .apply(aster_forge_db::system_config::Model {
                 id: 0,
                 key: key.to_string(),
                 value: value.to_string(),
-                value_type: crate::types::SystemConfigValueType::String,
+                value_type: crate::types::ConfigValueType::String,
                 requires_restart: false,
                 is_sensitive: false,
-                source: crate::types::SystemConfigSource::System,
-                visibility: crate::types::SystemConfigVisibility::Private,
+                source: crate::types::ConfigSource::System,
+                visibility: crate::types::ConfigVisibility::Private,
                 namespace: String::new(),
                 category: CONFIG_CATEGORY_RUNTIME_BACKGROUND_TASK.to_string(),
                 description: "test".to_string(),

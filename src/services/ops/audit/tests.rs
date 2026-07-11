@@ -510,15 +510,15 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
     let db = in_memory_db().await;
 
     let runtime_config = std::sync::Arc::new(crate::config::RuntimeConfig::new());
-    runtime_config.apply(crate::entities::system_config::Model {
+    runtime_config.apply(aster_forge_db::system_config::Model {
         id: 1,
         key: crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY.to_string(),
         value: r#"["user_login"]"#.to_string(),
-        value_type: crate::types::SystemConfigValueType::StringEnumSet,
+        value_type: crate::types::ConfigValueType::StringEnumSet,
         requires_restart: false,
         is_sensitive: false,
-        source: crate::types::SystemConfigSource::System,
-        visibility: crate::types::SystemConfigVisibility::Private,
+        source: crate::types::ConfigSource::System,
+        visibility: crate::types::ConfigVisibility::Private,
         namespace: String::new(),
         category: crate::config::definitions::CONFIG_CATEGORY_AUDIT.to_string(),
         description: String::new(),

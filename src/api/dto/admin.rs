@@ -335,8 +335,8 @@ fn default_true() -> bool {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetConfigReq {
-    pub value: crate::services::ops::config::SystemConfigValue,
-    pub visibility: Option<crate::types::SystemConfigVisibility>,
+    pub value: aster_forge_config::ConfigValue,
+    pub visibility: Option<crate::types::ConfigVisibility>,
 }
 
 /// Execute a config action (e.g., send test email).

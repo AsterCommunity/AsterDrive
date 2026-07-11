@@ -970,8 +970,8 @@ mod tests {
     use crate::config::RuntimeConfig;
     use crate::config::definitions::CONFIG_CATEGORY_SITE;
     use crate::config::site_url::PUBLIC_SITE_URL_KEY;
-    use crate::entities::system_config;
-    use crate::types::{SystemConfigSource, SystemConfigValueType};
+    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_db::system_config;
     use chrono::Utc;
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -979,11 +979,11 @@ mod tests {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: SystemConfigValueType::String,
+            value_type: ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_SITE.to_string(),
             description: "test".to_string(),

@@ -50,6 +50,8 @@ mod m20260704_000002_add_remote_storage_target_key_to_storage_policies;
 mod m20260705_000001_drop_remote_storage_target_max_file_size;
 mod m20260712_000001_align_forge_audit_contract;
 mod m20260712_000002_add_forge_audit_query_indexes;
+mod m20260712_000003_align_forge_system_config_contract;
+mod m20260712_000004_align_forge_mail_outbox_contract;
 mod search_acceleration;
 mod time;
 
@@ -164,6 +166,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260705_000001_drop_remote_storage_target_max_file_size::Migration),
             Box::new(m20260712_000001_align_forge_audit_contract::Migration),
             Box::new(m20260712_000002_add_forge_audit_query_indexes::Migration),
+            Box::new(m20260712_000003_align_forge_system_config_contract::Migration),
+            Box::new(m20260712_000004_align_forge_mail_outbox_contract::Migration),
         ]
     }
 }

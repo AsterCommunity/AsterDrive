@@ -9,11 +9,12 @@ use std::path::{Path, PathBuf};
 
 use crate::config::system_config as shared_system_config;
 use crate::db::repository::config_repo;
-use crate::entities::system_config;
 use crate::errors::{AsterError, Result};
-use crate::services::ops::config::{SystemConfig, SystemConfigValue};
-use crate::types::{SystemConfigSource, SystemConfigValueType};
+use crate::services::ops::config::SystemConfig;
+use crate::types::{ConfigSource, ConfigValueType};
 use crate::utils::char_count;
+use aster_forge_config::ConfigValue;
+use aster_forge_db::system_config;
 use chrono::Utc;
 use clap::{Args, Subcommand};
 use serde::{Deserialize, Serialize};
@@ -136,7 +137,7 @@ impl ConfigCommandReport {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct ImportItem {
     key: String,
-    value: SystemConfigValue,
+    value: ConfigValue,
 }
 
 #[derive(Debug, Clone)]
@@ -322,7 +323,7 @@ fn format_config_list_value(config: &SystemConfig, palette: &CliTerminalPalette)
         };
     }
 
-    if let SystemConfigValue::String(value) = &config.value
+    if let ConfigValue::String(value) = &config.value
         && (config.value_type.is_multiline() || value.contains('\n'))
     {
         return palette.dim(&summarize_multiline_value(value));
@@ -512,7 +513,7 @@ fn normalize_entries(
         }
         let value_type = shared_system_config::get_definition(&entry.key)
             .map(|def| def.value_type)
-            .unwrap_or(SystemConfigValueType::String);
+            .unwrap_or(ConfigValueType::String);
         let value = entry.value.to_storage_for_type(value_type)?;
         current_lookup.insert(entry.key.clone(), value.clone());
         storage_entries.push(NormalizedImportItem {
@@ -564,12 +565,12 @@ fn resolve_validate_entries(args: &ValidateArgs) -> Result<Vec<ImportItem>> {
     }
 }
 
-fn parse_cli_config_value(key: &str, value: &str) -> Result<SystemConfigValue> {
+fn parse_cli_config_value(key: &str, value: &str) -> Result<ConfigValue> {
     if !shared_system_config::get_definition(key)
         .map(|def| def.value_type.is_string_array())
         .unwrap_or(false)
     {
-        return Ok(SystemConfigValue::String(value.to_string()));
+        return Ok(ConfigValue::String(value.to_string()));
     }
 
     let values = serde_json::from_str::<Vec<String>>(value).map_err(|error| {
@@ -577,13 +578,13 @@ fn parse_cli_config_value(key: &str, value: &str) -> Result<SystemConfigValue> {
             "config key '{key}' expects a JSON array of strings: {error}"
         ))
     })?;
-    Ok(SystemConfigValue::StringArray(values))
+    Ok(ConfigValue::StringArray(values))
 }
 
-fn format_config_value(value: &SystemConfigValue) -> String {
+fn format_config_value(value: &ConfigValue) -> String {
     match value {
-        SystemConfigValue::String(value) => value.clone(),
-        SystemConfigValue::StringArray(values) => serde_json::to_string(values)
+        ConfigValue::String(value) => value.clone(),
+        ConfigValue::StringArray(values) => serde_json::to_string(values)
             .unwrap_or_else(|_| "<invalid string_array value>".to_string()),
     }
 }
@@ -618,8 +619,8 @@ fn preview_system_config(key: &str, value: &str) -> SystemConfig {
             value_type: def.value_type,
             requires_restart: def.requires_restart,
             is_sensitive: def.is_sensitive,
-            source: SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: def.category.to_string(),
             description: def.description.to_string(),
@@ -631,11 +632,11 @@ fn preview_system_config(key: &str, value: &str) -> SystemConfig {
             id: 0,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: SystemConfigValueType::String,
+            value_type: ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: SystemConfigSource::Custom,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: ConfigSource::Custom,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: String::new(),
             description: String::new(),

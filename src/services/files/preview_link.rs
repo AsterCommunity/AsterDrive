@@ -472,7 +472,7 @@ mod tests {
     };
     use crate::config::RuntimeConfig;
     use crate::config::definitions::CONFIG_CATEGORY_SITE;
-    use crate::entities::system_config;
+    use aster_forge_db::system_config;
     use base64::Engine;
     use chrono::Utc;
 
@@ -481,11 +481,11 @@ mod tests {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: crate::types::SystemConfigValueType::String,
+            value_type: crate::types::ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: crate::types::SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: crate::types::ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_SITE.to_string(),
             description: "test".to_string(),

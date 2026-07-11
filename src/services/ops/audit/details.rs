@@ -2,16 +2,16 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, EntityType, MfaMethod, MfaPersistentFactorMethod,
-    SystemConfigVisibility, TeamMemberRole, UserRole, UserStatus,
+    BackgroundTaskKind, BackgroundTaskStatus, ConfigVisibility, EntityType, MfaMethod,
+    MfaPersistentFactorMethod, TeamMemberRole, UserRole, UserStatus,
 };
 
 #[derive(Serialize)]
 pub struct ConfigUpdateDetails<'a> {
     pub value: &'a str,
-    pub visibility: SystemConfigVisibility,
+    pub visibility: ConfigVisibility,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub prior_visibility: Option<SystemConfigVisibility>,
+    pub prior_visibility: Option<ConfigVisibility>,
 }
 
 #[derive(Serialize)]

@@ -693,8 +693,8 @@ use utoipa::{Modify, OpenApi};
             crate::types::ObjectStorageUploadStrategy,
             crate::types::RemoteDownloadStrategy,
             crate::types::StoragePolicyOptions,
-            crate::types::SystemConfigSource,
-            crate::types::SystemConfigValueType,
+            crate::types::ConfigSource,
+            crate::types::ConfigValueType,
 
             // api::routes::shares / api::routes::share_public / services::{share,files::lock}：分享、公开访问和锁持有者模型。
             crate::services::share::ShareInfo,

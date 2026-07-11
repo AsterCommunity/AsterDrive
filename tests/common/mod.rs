@@ -1185,7 +1185,8 @@ pub async fn flush_mail_outbox_with(
             .await
             .expect("mail outbox drain should succeed");
 
-        let active = aster_drive::db::repository::mail_outbox_repo::count_active(db)
+        let active = aster_forge_db::MailOutboxDbStore::new(db.clone())
+            .count_active()
             .await
             .expect("mail outbox active count should succeed");
         if active == 0 {
@@ -1269,14 +1270,12 @@ pub async fn extract_verification_token_from_mail_sender_or_outbox(
 
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 
-    let row = aster_drive::entities::mail_outbox::Entity::find()
-        .filter(
-            aster_drive::entities::mail_outbox::Column::TemplateCode.is_in([
-                aster_drive::types::MailTemplateCode::RegisterActivation,
-                aster_drive::types::MailTemplateCode::ContactChangeConfirmation,
-            ]),
-        )
-        .order_by_desc(aster_drive::entities::mail_outbox::Column::Id)
+    let row = aster_forge_db::mail_outbox::Entity::find()
+        .filter(aster_forge_db::mail_outbox::Column::TemplateCode.is_in([
+            aster_forge_mail::MailTemplateCode::RegisterActivation,
+            aster_forge_mail::MailTemplateCode::ContactChangeConfirmation,
+        ]))
+        .order_by_desc(aster_forge_db::mail_outbox::Column::Id)
         .one(db)
         .await
         .expect("mail outbox lookup should succeed")?;
@@ -1289,16 +1288,16 @@ pub async fn extract_verification_token_from_mail_sender_or_outbox(
 }
 
 #[allow(dead_code)]
-pub fn system_config_model(key: &str, value: &str) -> aster_drive::entities::system_config::Model {
-    aster_drive::entities::system_config::Model {
+pub fn system_config_model(key: &str, value: &str) -> aster_forge_db::system_config::Model {
+    aster_forge_db::system_config::Model {
         id: 0,
         key: key.to_string(),
         value: value.to_string(),
-        value_type: aster_drive::types::SystemConfigValueType::String,
+        value_type: aster_drive::types::ConfigValueType::String,
         requires_restart: false,
         is_sensitive: false,
-        source: aster_drive::types::SystemConfigSource::System,
-        visibility: aster_drive::types::SystemConfigVisibility::Private,
+        source: aster_drive::types::ConfigSource::System,
+        visibility: aster_drive::types::ConfigVisibility::Private,
         namespace: String::new(),
         category: aster_drive::config::definitions::CONFIG_CATEGORY_SITE.to_string(),
         description: "test".to_string(),

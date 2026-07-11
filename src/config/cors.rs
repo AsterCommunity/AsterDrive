@@ -296,7 +296,7 @@ mod tests {
 
     use crate::config::RuntimeConfig;
     use crate::config::definitions::CONFIG_CATEGORY_NETWORK;
-    use crate::entities::system_config;
+    use aster_forge_db::system_config;
 
     use super::{
         CORS_ALLOW_CREDENTIALS_KEY, CORS_ALLOWED_ORIGINS_KEY, CORS_ENABLED_KEY,
@@ -312,11 +312,11 @@ mod tests {
             id: 0,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: crate::types::SystemConfigValueType::String,
+            value_type: crate::types::ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: crate::types::SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: crate::types::ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_NETWORK.to_string(),
             description: "test".to_string(),

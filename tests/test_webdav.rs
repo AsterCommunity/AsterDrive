@@ -13,8 +13,8 @@ use aster_drive::entities::{
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::ops::audit;
 use aster_drive::types::{
-    AuditAction, EntityType, SystemConfigSource, SystemConfigValueType, SystemConfigVisibility,
-    TeamMemberRole, UserRole, UserStatus,
+    AuditAction, ConfigSource, ConfigValueType, ConfigVisibility, EntityType, TeamMemberRole,
+    UserRole, UserStatus,
 };
 use base64::Engine;
 use chrono::Utc;
@@ -53,11 +53,11 @@ fn runtime_number_config(key: &str, value: &str) -> system_config::Model {
         id: 0,
         key: key.to_string(),
         value: value.to_string(),
-        value_type: SystemConfigValueType::Number,
+        value_type: ConfigValueType::Number,
         requires_restart: false,
         is_sensitive: false,
-        source: SystemConfigSource::System,
-        visibility: SystemConfigVisibility::Private,
+        source: ConfigSource::System,
+        visibility: ConfigVisibility::Private,
         namespace: String::new(),
         category: "webdav".to_string(),
         description: "test runtime config".to_string(),

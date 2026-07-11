@@ -10,8 +10,7 @@ use aster_drive::db::repository::{
 use aster_drive::entities::{file, file_blob};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, FileCategory, SystemConfigSource,
-    SystemConfigValueType,
+    BackgroundTaskKind, BackgroundTaskStatus, ConfigSource, ConfigValueType, FileCategory,
 };
 use base64::Engine;
 use sea_orm::{ActiveModelTrait, Set};
@@ -407,11 +406,11 @@ async fn set_system_config(state: &aster_drive::runtime::PrimaryAppState, key: &
         .await
         .unwrap()
         .unwrap();
-    model.source = SystemConfigSource::System;
+    model.source = ConfigSource::System;
     model.value_type = if value == "true" || value == "false" {
-        SystemConfigValueType::Boolean
+        ConfigValueType::Boolean
     } else {
-        SystemConfigValueType::String
+        ConfigValueType::String
     };
     state.runtime_config.apply(model);
 }

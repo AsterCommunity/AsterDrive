@@ -768,8 +768,10 @@ dependencies = [
  "aster_forge_api_docs_macros",
  "aster_forge_audit",
  "aster_forge_cache",
+ "aster_forge_config",
  "aster_forge_db",
  "aster_forge_logging",
+ "aster_forge_mail",
  "aster_forge_metrics",
  "aster_forge_panic",
  "aster_forge_runtime",
@@ -919,6 +921,7 @@ name = "aster_forge_audit"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
 dependencies = [
+ "aster_forge_mail",
  "aster_forge_runtime",
 ]
 
@@ -940,11 +943,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster_forge_config"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
+dependencies = [
+ "aster_forge_utils",
+ "async-trait",
+ "futures",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+ "utoipa",
+]
+
+[[package]]
 name = "aster_forge_db"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
 dependencies = [
  "aster_forge_api",
+ "aster_forge_config",
+ "aster_forge_mail",
  "aster_forge_metrics",
  "aster_forge_runtime",
  "async-trait",
@@ -964,6 +987,23 @@ dependencies = [
  "serde",
  "tracing-appender",
  "tracing-subscriber",
+]
+
+[[package]]
+name = "aster_forge_mail"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
+dependencies = [
+ "aster_forge_runtime",
+ "aster_forge_tasks",
+ "aster_forge_utils",
+ "aster_forge_validation",
+ "async-trait",
+ "lettre",
+ "sea-orm",
+ "serde",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -1005,6 +1045,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster_forge_tasks"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
+dependencies = [
+ "aster_forge_runtime",
+ "aster_forge_utils",
+ "async-trait",
+ "chrono",
+ "futures",
+ "rand 0.10.2",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
+ "tokio-util",
+ "tracing",
+]
+
+[[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
@@ -1018,6 +1077,15 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+]
+
+[[package]]
+name = "aster_forge_validation"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
+dependencies = [
+ "thiserror 2.0.18",
+ "unicode-normalization",
 ]
 
 [[package]]

@@ -127,15 +127,15 @@ async fn test_public_frontend_config_falls_back_for_invalid_preview_preference()
     let state = common::setup().await;
     state
         .runtime_config
-        .apply(aster_drive::entities::system_config::Model {
+        .apply(aster_forge_db::system_config::Model {
             id: 9_999,
             key: "frontend_image_preview_preference".to_string(),
             value: "sideways".to_string(),
-            value_type: aster_drive::types::SystemConfigValueType::String,
+            value_type: aster_drive::types::ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
-            source: aster_drive::types::SystemConfigSource::System,
-            visibility: aster_drive::types::SystemConfigVisibility::Private,
+            source: aster_drive::types::ConfigSource::System,
+            visibility: aster_drive::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: String::new(),
             description: String::new(),

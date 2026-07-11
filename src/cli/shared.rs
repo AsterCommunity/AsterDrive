@@ -8,7 +8,7 @@ use std::io::{self, IsTerminal};
 use crate::db;
 use crate::db::repository::config_repo;
 use crate::errors::{AsterError, Result};
-use crate::types::SystemConfigSource;
+use crate::types::ConfigSource;
 use clap::ValueEnum;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use serde::Serialize;
@@ -168,10 +168,10 @@ impl CliTerminalPalette {
         }
     }
 
-    pub(super) fn source_badge(&self, source: SystemConfigSource) -> String {
+    pub(super) fn source_badge(&self, source: ConfigSource) -> String {
         match source {
-            SystemConfigSource::System => self.good("[system]"),
-            SystemConfigSource::Custom => self.warn("[custom]"),
+            ConfigSource::System => self.good("[system]"),
+            ConfigSource::Custom => self.warn("[custom]"),
         }
     }
 }

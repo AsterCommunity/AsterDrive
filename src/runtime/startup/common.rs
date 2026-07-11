@@ -6,7 +6,6 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::metrics::SharedMetricsRecorder;
 use crate::storage::DriverRegistry;
 use migration::Migrator;
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
 use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {
@@ -18,11 +17,6 @@ pub(super) struct CommonRuntimeParts {
     pub cache: Arc<dyn aster_forge_cache::CacheBackend>,
     pub metrics: SharedMetricsRecorder,
 }
-
-const OBSOLETE_NODE_RUNTIME_MODE_KEY: &str = "node_runtime_mode";
-const OBSOLETE_THUMBNAIL_DEFAULT_PROCESSOR_KEY: &str = "thumbnail_default_processor";
-const OBSOLETE_THUMBNAIL_VIPS_CLI_ENABLED_KEY: &str = "thumbnail_vips_cli_enabled";
-const OBSOLETE_THUMBNAIL_VIPS_COMMAND_KEY: &str = "thumbnail_vips_command";
 
 pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
@@ -101,10 +95,6 @@ pub async fn initialize_database_state(
                 .await,
         );
     }
-    purge_obsolete_node_runtime_mode(database).await?;
-    purge_obsolete_config_key(database, OBSOLETE_THUMBNAIL_DEFAULT_PROCESSOR_KEY).await?;
-    purge_obsolete_config_key(database, OBSOLETE_THUMBNAIL_VIPS_CLI_ENABLED_KEY).await?;
-    purge_obsolete_config_key(database, OBSOLETE_THUMBNAIL_VIPS_COMMAND_KEY).await?;
     Ok(())
 }
 
@@ -117,28 +107,6 @@ fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
             "follower enrollment bootstrap from environment failed; continuing startup without applying bootstrap env"
         );
     }
-}
-
-async fn purge_obsolete_node_runtime_mode(database: &sea_orm::DatabaseConnection) -> Result<()> {
-    purge_obsolete_config_key(database, OBSOLETE_NODE_RUNTIME_MODE_KEY).await
-}
-
-async fn purge_obsolete_config_key(
-    database: &sea_orm::DatabaseConnection,
-    key: &str,
-) -> Result<()> {
-    let deleted = crate::entities::system_config::Entity::delete_many()
-        .filter(crate::entities::system_config::Column::Key.eq(key))
-        .exec(database)
-        .await
-        .map_aster_err(AsterError::database_operation)?
-        .rows_affected;
-
-    if deleted > 0 {
-        tracing::info!(key, deleted, "removed obsolete runtime config key");
-    }
-
-    Ok(())
 }
 
 async fn ensure_default_policy(db: &sea_orm::DatabaseConnection) -> Result<()> {
@@ -187,7 +155,7 @@ async fn ensure_default_policy(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{DriverType, SystemConfigSource};
+    use crate::types::{ConfigSource, DriverType};
     use migration::Migrator;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 
@@ -271,37 +239,6 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn purge_obsolete_config_key_deletes_matching_key_only() {
-        let db = setup_db().await;
-        crate::db::repository::config_repo::upsert(
-            &db,
-            OBSOLETE_NODE_RUNTIME_MODE_KEY,
-            "primary",
-            0,
-        )
-        .await
-        .unwrap();
-        crate::db::repository::config_repo::upsert(&db, "still_here", "value", 0)
-            .await
-            .unwrap();
-
-        purge_obsolete_node_runtime_mode(&db).await.unwrap();
-
-        assert!(
-            crate::db::repository::config_repo::find_by_key(&db, OBSOLETE_NODE_RUNTIME_MODE_KEY)
-                .await
-                .unwrap()
-                .is_none()
-        );
-        assert!(
-            crate::db::repository::config_repo::find_by_key(&db, "still_here")
-                .await
-                .unwrap()
-                .is_some()
-        );
-    }
-
-    #[tokio::test]
     async fn initialize_database_state_seeds_primary_runtime_defaults() {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
@@ -344,8 +281,8 @@ mod tests {
             .unwrap();
         assert!(!groups.is_empty());
 
-        let obsolete = crate::entities::system_config::Entity::find()
-            .filter(crate::entities::system_config::Column::Source.eq(SystemConfigSource::Custom))
+        let obsolete = aster_forge_db::system_config::Entity::find()
+            .filter(aster_forge_db::system_config::Column::Source.eq(ConfigSource::Custom))
             .all(&db)
             .await
             .unwrap();

@@ -161,15 +161,11 @@ mod tests {
         CONFIG_CATEGORY_WEBDAV, WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY,
         WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY,
     };
-    use crate::entities::system_config;
-    use crate::types::{SystemConfigSource, SystemConfigValueType};
+    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_db::system_config;
     use chrono::Utc;
 
-    fn config_model(
-        key: &str,
-        value: &str,
-        value_type: SystemConfigValueType,
-    ) -> system_config::Model {
+    fn config_model(key: &str, value: &str, value_type: ConfigValueType) -> system_config::Model {
         system_config::Model {
             id: 1,
             key: key.to_string(),
@@ -177,8 +173,8 @@ mod tests {
             value_type,
             requires_restart: false,
             is_sensitive: false,
-            source: SystemConfigSource::System,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            source: ConfigSource::System,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_WEBDAV.to_string(),
             description: "test".to_string(),
@@ -270,7 +266,7 @@ mod tests {
         runtime_config.apply(config_model(
             WEBDAV_BLOCK_SYSTEM_FILES_ENABLED_KEY,
             "false",
-            SystemConfigValueType::Boolean,
+            ConfigValueType::Boolean,
         ));
 
         let policy = SystemFileBlockPolicy::from_runtime_config(&runtime_config);
@@ -285,7 +281,7 @@ mod tests {
         runtime_config.apply(config_model(
             WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY,
             "[]",
-            SystemConfigValueType::StringArray,
+            ConfigValueType::StringArray,
         ));
 
         let policy = SystemFileBlockPolicy::from_runtime_config(&runtime_config);
@@ -300,7 +296,7 @@ mod tests {
         runtime_config.apply(config_model(
             WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY,
             "not json",
-            SystemConfigValueType::StringArray,
+            ConfigValueType::StringArray,
         ));
 
         let policy = SystemFileBlockPolicy::from_runtime_config(&runtime_config);
@@ -316,7 +312,7 @@ mod tests {
         runtime_config.apply(config_model(
             WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY,
             r#"["first-*"]"#,
-            SystemConfigValueType::StringArray,
+            ConfigValueType::StringArray,
         ));
 
         let first_policy = SystemFileBlockPolicy::from_runtime_config(&runtime_config);
@@ -326,7 +322,7 @@ mod tests {
         runtime_config.apply(config_model(
             WEBDAV_BLOCK_SYSTEM_FILE_PATTERNS_KEY,
             r#"["second-*"]"#,
-            SystemConfigValueType::StringArray,
+            ConfigValueType::StringArray,
         ));
 
         let second_policy = SystemFileBlockPolicy::from_runtime_config(&runtime_config);

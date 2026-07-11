@@ -13,7 +13,7 @@ pub use super::auth::{
     ExternalAuthProtocol, ExternalAuthProviderKind, MfaFirstFactor, MfaMethod,
     MfaPersistentFactorMethod, TokenType, VerificationChannel, VerificationPurpose,
 };
-pub use super::config::{SystemConfigSource, SystemConfigValueType, SystemConfigVisibility};
+pub use super::config::{ConfigSource, ConfigValueType, ConfigVisibility};
 pub use super::entity::EntityType;
 pub use super::external_auth_provider::{
     ExternalAuthProviderOptions, MicrosoftExternalAuthProviderOptions,
@@ -21,7 +21,6 @@ pub use super::external_auth_provider::{
     serialize_external_auth_provider_options,
 };
 pub use super::file_category::FileCategory;
-pub use super::mail::{MailOutboxStatus, MailTemplateCode, StoredMailPayload};
 pub use super::media_metadata::{
     AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
     MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,

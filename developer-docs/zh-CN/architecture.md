@@ -18,7 +18,7 @@
 - 前端代码在 `frontend-panel/`，生产产物由 primary 节点直接服务
 - 配置分两层：
   - 静态配置：`data/config.toml` + `ASTER__...` 环境变量
-  - 运行时配置：数据库 `system_config`，单一数据源是 `src/config/definitions.rs`
+  - 运行时配置：数据库 `system_config`，产品定义单一数据源是 `src/config/definitions.rs`；共享类型、registry、DB store 和进程内 snapshot 由 `aster_forge_config` / `aster_forge_db` 提供
 
 ## 先看哪里
 
@@ -173,7 +173,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | 模块 | 当前职责 |
 | --- | --- |
 | `src/main.rs` | 进程入口、选择节点模式，并把产品 runtime component 交给 `AsterRuntime` 执行 |
-| `src/runtime/components.rs` | 构造 primary / follower HTTP、后台任务、audit 和 database component，声明 shutdown 依赖图 |
+| `src/runtime/components.rs` | 构造 primary / follower HTTP、后台任务、mail outbox、audit 和 database component，声明 shutdown 依赖图 |
 | `src/runtime/startup/common.rs` | 连接数据库、跑 migration、准备默认策略和运行时配置、加载 policy snapshot / driver registry / cache |
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
@@ -210,18 +210,37 @@ WebDAV 不走 `src/api/routes/**`，而是：
 5. 初始化日志
 6. 清理 runtime 临时目录
 7. 根据 `config.server.start_mode` 选择 `primary` 或 `follower`
-8. 用 `aster_forge_runtime::AsterRuntime` 组装 HTTP、后台任务、audit 和 database component；启动审计作为 required startup phase 执行
+8. 用 `aster_forge_runtime::AsterRuntime` 组装 HTTP、后台任务、mail outbox、audit 和 database component；启动审计作为 required startup phase 执行
 
 优雅关闭不再由 `main.rs` 手写调用顺序。`src/runtime/components.rs` 声明的依赖图是：
 
+primary 的依赖图是：
+
 ```text
 background_tasks
-audit_logs     -> depends_on background_tasks
+mail_outbox    -> depends_on background_tasks
+audit_logs     -> depends_on mail_outbox
 audit_manager  -> depends_on audit_logs
 database       -> depends_on audit_manager
 ```
 
-因此关闭时先停止后台任务，再记录 `server_shutdown`、flush audit buffer，最后关闭全部 reader / writer DB pool。注册顺序不决定关闭顺序，component graph 会在服务启动前完成校验。
+follower 没有邮件发送器，因此不会注册假的 mail component；它保持 `audit_logs -> background_tasks`。关闭 primary 时会先停止后台任务，再 drain mail outbox、记录 `server_shutdown`、flush audit buffer，最后关闭全部 reader / writer DB pool。注册顺序不决定关闭顺序，component graph 会在服务启动前完成校验。
+
+邮件 outbox 的共享边界也已收敛到 Forge：
+
+- `MailTemplateCode`、`StoredMailPayload`、`MailOutboxStatus`、dispatch stats 和 retry policy 使用 `aster_forge_mail`。
+- `mail_outbox` SeaORM entity、enqueue、claim/retry/sent/failed 状态机和 active count 使用 `aster_forge_db`。
+- shutdown drain component 使用 `aster_forge_mail::mail_outbox_component`。
+- Drive 只保留模板 payload、模板渲染、SMTP 适配和发送审计 hook。
+- 历史 baseline 不回改；后续 migration 将 `template_code` 和 Forge schema contract 对齐，并使用 Forge table/index builder 重建 SQLite 表。
+
+运行时配置的共享边界同样以 Forge 为准：
+
+- `ConfigValueType`、`ConfigSource`、`ConfigVisibility`、`ConfigValue` 使用 `aster_forge_config`。
+- `system_config` SeaORM entity 和通用 CRUD/default seed 使用 `aster_forge_db::system_config`。
+- `RuntimeConfig` 的进程内快照使用 `aster_forge_config::SyncRuntimeConfig`。
+- Drive 保留具体 key、默认值、跨字段校验、媒体处理环境引导、preview registry 修复、权限、audit 和 API 响应结构。
+- 已发布的历史 migration 不回改；新的 Drive migration 使用 Forge table/index builder 对齐共享 schema contract。
 
 Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中创建 `MetricsRecorder`：
 

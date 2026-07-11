@@ -273,6 +273,7 @@ async fn run_primary_http_server(
 
     let db_handles = state.db_handles.clone();
     let audit_state = state.clone();
+    let mail_state = state.clone();
     let state = web::Data::new(state);
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
@@ -290,7 +291,11 @@ async fn run_primary_http_server(
                 share_download_rollback_worker,
             ),
         )
-        .component(aster_drive::runtime::components::audit_component(
+        .component(aster_forge_mail::mail_outbox_component(
+            aster_drive::runtime::components::MailOutboxRuntimeResources::from_state(&mail_state),
+            aster_drive::runtime::components::drain_mail_outbox_on_shutdown,
+        ))
+        .component(aster_drive::runtime::components::primary_audit_component(
             audit_state,
         ))
         .component(aster_drive::runtime::components::database_component(
@@ -331,7 +336,7 @@ async fn run_follower_http_server(
             metrics,
         ))?
         .component(aster_drive::runtime::components::follower_background_tasks_component(state))
-        .component(aster_drive::runtime::components::audit_component(
+        .component(aster_drive::runtime::components::follower_audit_component(
             audit_state,
         ))
         .component(aster_drive::runtime::components::database_component(

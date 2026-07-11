@@ -12,7 +12,6 @@ pub mod entity;
 pub mod external_auth_provider;
 mod facade;
 pub mod file_category;
-pub mod mail;
 pub mod media_metadata;
 pub mod passkey;
 pub mod preferences;

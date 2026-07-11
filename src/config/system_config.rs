@@ -1,8 +1,5 @@
 //! 配置子模块：`system_config`。
 
-use std::collections::{BTreeMap, HashMap};
-use std::sync::Arc;
-
 use crate::config::RuntimeConfig;
 use crate::config::audit;
 use crate::config::auth_runtime;
@@ -10,7 +7,7 @@ use crate::config::avatar;
 use crate::config::bool_like::parse_bool_like;
 use crate::config::branding;
 use crate::config::cors;
-use crate::config::definitions::{ALL_CONFIGS, ConfigDef};
+use crate::config::definitions::{CONFIG_REGISTRY, ConfigDef};
 use crate::config::local_email_policy;
 use crate::config::mail;
 use crate::config::media_processing;
@@ -19,79 +16,32 @@ use crate::config::operations;
 use crate::config::site_url;
 use crate::config::webdav;
 use crate::config::wopi;
-use crate::entities::system_config;
-use crate::errors::{AsterError, Result};
+use crate::errors::Result;
 use crate::services::preview::apps;
-use crate::types::{SystemConfigSource, SystemConfigValueType};
+use crate::types::ConfigSource;
+use aster_forge_config::{ConfigValueLookup, StoredConfig};
+use aster_forge_db::system_config;
 
-pub trait SystemConfigValueLookup {
-    fn get_config_value(&self, key: &str) -> Option<String>;
-}
-
-impl SystemConfigValueLookup for RuntimeConfig {
+impl ConfigValueLookup for RuntimeConfig {
     fn get_config_value(&self, key: &str) -> Option<String> {
         self.get(key)
     }
 }
 
-impl<T> SystemConfigValueLookup for Arc<T>
-where
-    T: SystemConfigValueLookup + ?Sized,
-{
-    fn get_config_value(&self, key: &str) -> Option<String> {
-        self.as_ref().get_config_value(key)
-    }
-}
-
-impl SystemConfigValueLookup for HashMap<String, String> {
-    fn get_config_value(&self, key: &str) -> Option<String> {
-        self.get(key).cloned()
-    }
-}
-
-impl SystemConfigValueLookup for BTreeMap<String, String> {
-    fn get_config_value(&self, key: &str) -> Option<String> {
-        self.get(key).cloned()
-    }
-}
-
 pub fn get_definition(key: &str) -> Option<&'static ConfigDef> {
-    ALL_CONFIGS.iter().find(|def| def.key == key)
+    CONFIG_REGISTRY.get(key)
 }
 
-pub fn validate_value_type(value_type: SystemConfigValueType, value: &str) -> Result<()> {
-    let trimmed = value.trim();
-    match value_type {
-        SystemConfigValueType::Boolean => {
-            if trimmed != "true" && trimmed != "false" {
-                return Err(AsterError::validation_error(
-                    "boolean config must be 'true' or 'false'",
-                ));
-            }
-        }
-        SystemConfigValueType::Number => {
-            if trimmed.parse::<f64>().is_err() {
-                return Err(AsterError::validation_error(
-                    "number config must be a valid number",
-                ));
-            }
-        }
-        SystemConfigValueType::StringArray | SystemConfigValueType::StringEnumSet => {
-            serde_json::from_str::<Vec<String>>(trimmed).map_err(|err| {
-                AsterError::validation_error(format!(
-                    "{} config must be a JSON array of strings: {err}",
-                    value_type.as_str()
-                ))
-            })?;
-        }
-        SystemConfigValueType::String | SystemConfigValueType::Multiline => {}
-    }
-    Ok(())
+pub fn validate_value_type(
+    value_type: aster_forge_config::ConfigValueType,
+    value: &str,
+) -> Result<()> {
+    aster_forge_config::validate_storage_value(value_type, value).map_err(Into::into)
 }
 
 pub fn normalize_system_value<L>(lookup: &L, key: &str, value: &str) -> Result<String>
 where
-    L: SystemConfigValueLookup + ?Sized,
+    L: ConfigValueLookup + ?Sized,
 {
     match key {
         avatar::AVATAR_DIR_KEY => avatar::normalize_avatar_dir_config_value(value),
@@ -277,20 +227,33 @@ where
 }
 
 pub fn apply_definition(mut config: system_config::Model) -> system_config::Model {
-    if config.source != SystemConfigSource::System {
+    if config.source != ConfigSource::System {
         return config;
     }
 
-    let Some(def) = get_definition(&config.key) else {
-        return config;
-    };
-
-    config.value_type = def.value_type;
-    config.requires_restart = def.requires_restart;
-    config.is_sensitive = def.is_sensitive;
-    config.category = def.category.to_string();
-    config.description = def.description.to_string();
+    let stored = CONFIG_REGISTRY.apply_definition(model_to_stored_config(&config));
+    config.value_type = stored.value_type;
+    config.requires_restart = stored.requires_restart;
+    config.is_sensitive = stored.is_sensitive;
+    config.visibility = stored.visibility;
+    config.category = stored.category;
+    config.description = stored.description;
     config
+}
+
+fn model_to_stored_config(config: &system_config::Model) -> StoredConfig {
+    StoredConfig {
+        id: config.id,
+        key: config.key.clone(),
+        value: config.value.clone(),
+        value_type: config.value_type,
+        requires_restart: config.requires_restart,
+        is_sensitive: config.is_sensitive,
+        source: config.source,
+        visibility: config.visibility,
+        category: config.category.clone(),
+        description: config.description.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -307,21 +270,21 @@ mod tests {
         MIN_SHARE_STREAM_SESSION_TTL_SECS, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
         SHARE_STREAM_SESSION_TTL_SECS_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
     };
-    use crate::entities::system_config;
-    use crate::types::{SystemConfigSource, SystemConfigValueType};
+    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_db::system_config;
     use chrono::Utc;
     use std::collections::HashMap;
 
-    fn model(key: &str, value: &str, source: SystemConfigSource) -> system_config::Model {
+    fn model(key: &str, value: &str, source: ConfigSource) -> system_config::Model {
         system_config::Model {
             id: 1,
             key: key.to_string(),
             value: value.to_string(),
-            value_type: SystemConfigValueType::String,
+            value_type: ConfigValueType::String,
             requires_restart: false,
             is_sensitive: false,
             source,
-            visibility: crate::types::SystemConfigVisibility::Private,
+            visibility: crate::types::ConfigVisibility::Private,
             namespace: String::new(),
             category: String::new(),
             description: String::new(),
@@ -332,14 +295,14 @@ mod tests {
 
     #[test]
     fn validate_value_type_enforces_declared_types() {
-        assert!(validate_value_type(SystemConfigValueType::Boolean, "true").is_ok());
-        assert!(validate_value_type(SystemConfigValueType::Boolean, " yes ").is_err());
-        assert!(validate_value_type(SystemConfigValueType::Number, "42").is_ok());
-        assert!(validate_value_type(SystemConfigValueType::Number, "nope").is_err());
-        assert!(validate_value_type(SystemConfigValueType::StringArray, r#"["a"]"#).is_ok());
-        assert!(validate_value_type(SystemConfigValueType::StringArray, r#""a""#).is_err());
-        assert!(validate_value_type(SystemConfigValueType::StringEnumSet, r#"["a"]"#).is_ok());
-        assert!(validate_value_type(SystemConfigValueType::StringEnumSet, r#""a""#).is_err());
+        assert!(validate_value_type(ConfigValueType::Boolean, "true").is_ok());
+        assert!(validate_value_type(ConfigValueType::Boolean, " yes ").is_err());
+        assert!(validate_value_type(ConfigValueType::Number, "42").is_ok());
+        assert!(validate_value_type(ConfigValueType::Number, "nope").is_err());
+        assert!(validate_value_type(ConfigValueType::StringArray, r#"["a"]"#).is_ok());
+        assert!(validate_value_type(ConfigValueType::StringArray, r#""a""#).is_err());
+        assert!(validate_value_type(ConfigValueType::StringEnumSet, r#"["a"]"#).is_ok());
+        assert!(validate_value_type(ConfigValueType::StringEnumSet, r#""a""#).is_err());
     }
 
     #[test]
@@ -545,9 +508,9 @@ mod tests {
         let config = apply_definition(model(
             "public_site_url",
             r#"["https://drive.example.com"]"#,
-            SystemConfigSource::System,
+            ConfigSource::System,
         ));
-        assert_eq!(config.value_type, SystemConfigValueType::StringArray);
+        assert_eq!(config.value_type, ConfigValueType::StringArray);
         assert_eq!(
             config.category,
             crate::config::definitions::CONFIG_CATEGORY_SITE
@@ -558,7 +521,7 @@ mod tests {
                 .contains("share, preview, WebDAV, WOPI, and callback URLs")
         );
 
-        let custom = apply_definition(model("custom.demo", "value", SystemConfigSource::Custom));
+        let custom = apply_definition(model("custom.demo", "value", ConfigSource::Custom));
         assert_eq!(custom.category, "");
     }
 }

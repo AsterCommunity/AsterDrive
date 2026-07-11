@@ -1,6 +1,7 @@
 //! Forge runtime component adapters for AsterDrive-owned resources.
 
 use std::io;
+use std::sync::Arc;
 
 use actix_web::web;
 use actix_web::{App, HttpServer};
@@ -12,6 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use crate::runtime::tasks::BackgroundTasks;
+use crate::services::mail::sender::MailSender;
 use crate::services::share::ShareDownloadRollbackWorker;
 
 pub const BACKGROUND_TASKS_COMPONENT: &str = "background_tasks";
@@ -24,6 +26,35 @@ type BackgroundTasksRegistration = RuntimeComponentBundleRegistration<
 >;
 
 type HttpServiceComponent = RuntimeServiceComponent<actix_web::dev::Server>;
+
+#[derive(Clone)]
+pub struct MailOutboxRuntimeResources {
+    db: sea_orm::DatabaseConnection,
+    runtime_config: Arc<crate::config::RuntimeConfig>,
+    mail_sender: Arc<dyn MailSender>,
+}
+
+impl MailOutboxRuntimeResources {
+    fn new(
+        db: sea_orm::DatabaseConnection,
+        runtime_config: Arc<crate::config::RuntimeConfig>,
+        mail_sender: Arc<dyn MailSender>,
+    ) -> Self {
+        Self {
+            db,
+            runtime_config,
+            mail_sender,
+        }
+    }
+
+    pub fn from_state(state: &PrimaryAppState) -> Self {
+        Self::new(
+            state.writer_db().clone(),
+            state.runtime_config.clone(),
+            state.mail_sender.clone(),
+        )
+    }
+}
 
 pub fn primary_http_component(
     host: String,
@@ -173,15 +204,47 @@ fn background_tasks_component(background_tasks: BackgroundTasks) -> BackgroundTa
     )
 }
 
-pub fn audit_component<S>(
+pub async fn drain_mail_outbox_on_shutdown(
+    resources: MailOutboxRuntimeResources,
+) -> Result<(), String> {
+    crate::services::mail::outbox::drain_with(
+        &resources.db,
+        &resources.runtime_config,
+        &resources.mail_sender,
+    )
+    .await
+    .map(|_| ())
+    .map_err(|error| error.to_string())
+}
+
+pub fn primary_audit_component<S>(
     state: S,
+) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
+where
+    S: SharedRuntimeState + Clone + Send + Sync + 'static,
+{
+    audit_component_after(state, &[aster_forge_mail::MAIL_OUTBOX_COMPONENT])
+}
+
+pub fn follower_audit_component<S>(
+    state: S,
+) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
+where
+    S: SharedRuntimeState + Clone + Send + Sync + 'static,
+{
+    audit_component_after(state, &[BACKGROUND_TASKS_COMPONENT])
+}
+
+fn audit_component_after<S>(
+    state: S,
+    dependencies: &'static [&'static str],
 ) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
 where
     S: SharedRuntimeState + Clone + Send + Sync + 'static,
 {
     aster_forge_audit::audit_component_after(
         state,
-        &[BACKGROUND_TASKS_COMPONENT],
+        dependencies,
         |state| async move {
             crate::runtime::startup::record_server_start(&state).await;
             Ok(())
@@ -210,8 +273,11 @@ mod tests {
     use aster_forge_runtime::RuntimeComponentBundle;
     use migration::Migrator;
 
-    use super::{BACKGROUND_TASKS_COMPONENT, audit_component, database_component};
-    use crate::runtime::FollowerAppState;
+    use super::{
+        BACKGROUND_TASKS_COMPONENT, MailOutboxRuntimeResources, database_component,
+        drain_mail_outbox_on_shutdown, follower_audit_component, primary_audit_component,
+    };
+    use crate::runtime::{FollowerAppState, SharedRuntimeState};
 
     fn register_background_tasks(registry: &mut aster_forge_runtime::RuntimeComponentRegistry) {
         registry
@@ -256,7 +322,7 @@ mod tests {
         let state = follower_state().await;
         let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
             aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
-            audit_component(state.clone()).register(registry);
+            follower_audit_component(state.clone()).register(registry);
             database_component(state.db_handles.clone()).register(registry);
         });
 
@@ -269,6 +335,48 @@ mod tests {
                 .expect("audit logs component should exist")
                 .dependencies,
             vec![BACKGROUND_TASKS_COMPONENT]
+        );
+        assert_eq!(
+            registry
+                .descriptor(aster_forge_db::DATABASE_COMPONENT)
+                .expect("database component should exist")
+                .dependencies,
+            vec![aster_forge_audit::AUDIT_MANAGER_COMPONENT]
+        );
+    }
+
+    #[tokio::test]
+    async fn primary_mail_audit_and_database_components_have_explicit_shutdown_order() {
+        let state = follower_state().await;
+        let resources = MailOutboxRuntimeResources::new(
+            state.writer_db().clone(),
+            state.runtime_config.clone(),
+            crate::services::mail::sender::memory_sender(),
+        );
+        let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
+            aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
+            aster_forge_mail::mail_outbox_component(resources, drain_mail_outbox_on_shutdown)
+                .register(registry);
+            primary_audit_component(state.clone()).register(registry);
+            database_component(state.db_handles.clone()).register(registry);
+        });
+
+        registry
+            .validate()
+            .expect("Drive primary runtime component graph should validate");
+        assert_eq!(
+            registry
+                .descriptor(aster_forge_mail::MAIL_OUTBOX_COMPONENT)
+                .expect("mail outbox component should exist")
+                .dependencies,
+            vec![BACKGROUND_TASKS_COMPONENT]
+        );
+        assert_eq!(
+            registry
+                .descriptor(aster_forge_audit::AUDIT_LOGS_COMPONENT)
+                .expect("audit logs component should exist")
+                .dependencies,
+            vec![aster_forge_mail::MAIL_OUTBOX_COMPONENT]
         );
         assert_eq!(
             registry

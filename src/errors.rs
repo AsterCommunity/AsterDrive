@@ -406,6 +406,26 @@ impl From<aster_forge_api::ApiError> for AsterError {
     }
 }
 
+impl From<aster_forge_config::ConfigCoreError> for AsterError {
+    fn from(value: aster_forge_config::ConfigCoreError) -> Self {
+        match value {
+            aster_forge_config::ConfigCoreError::InvalidValue(message) => {
+                Self::validation_error(message)
+            }
+            aster_forge_config::ConfigCoreError::UnknownKey(key) => {
+                Self::record_not_found(format!("config key '{key}'"))
+            }
+            aster_forge_config::ConfigCoreError::Json(error) => {
+                Self::validation_error(error.to_string())
+            }
+            aster_forge_config::ConfigCoreError::Store(message)
+            | aster_forge_config::ConfigCoreError::Notification(message) => {
+                Self::internal_error(message)
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseLogLevel {
     Skip,
