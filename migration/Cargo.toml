@@ -20,6 +20,7 @@ path = "src/main.rs"
 required-features = ["cli"]
 
 [dependencies]
+aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db", features = ["audit-log"] }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 tracing = { version = "0.1.44", default-features = false }

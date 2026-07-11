@@ -1,8 +1,5 @@
 use chrono::Utc;
-use sea_orm::ActiveValue::Set;
 
-use crate::db::repository::audit_log_repo;
-use crate::entities::audit_log;
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
 use crate::types::{AuditAction, AuditEntityType, MicrosoftGraphCloud, StorageCredentialProvider};
@@ -95,21 +92,18 @@ pub(super) async fn write_storage_credential_oauth_audit(
 ) {
     let now = Utc::now();
     let policy_id = details.policy_id;
-    let model = audit_log::ActiveModel {
-        id: Default::default(),
-        user_id: Set(user_id),
-        action: Set(AuditAction::AdminTriggerStorageAction),
-        entity_type: Set(AuditEntityType::StoragePolicy.as_str().to_string()),
-        entity_id: Set(policy_id),
-        entity_name: Set(None),
-        details: Set(Some(
-            storage_credential_oauth_audit_details(details).to_string(),
-        )),
-        ip_address: Set(None),
-        user_agent: Set(None),
-        created_at: Set(now),
+    let request = aster_forge_db::AuditLogCreate {
+        user_id,
+        action: AuditAction::AdminTriggerStorageAction.as_str().to_string(),
+        entity_type: AuditEntityType::StoragePolicy.as_str().to_string(),
+        entity_id: policy_id,
+        entity_name: None,
+        details: Some(storage_credential_oauth_audit_details(details).to_string()),
+        ip_address: None,
+        user_agent: None,
+        created_at: now,
     };
-    if let Err(error) = audit_log_repo::create(db, model).await {
+    if let Err(error) = aster_forge_db::create_audit_log_row(db, request).await {
         tracing::warn!("failed to write storage credential OAuth audit log: {error}");
     }
 }

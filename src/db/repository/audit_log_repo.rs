@@ -2,13 +2,15 @@
 
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, Select,
+    ColumnTrait, Condition, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
+    QueryOrder, QuerySelect, Select,
 };
 
 use crate::api::pagination::{AdminAuditLogSortBy, SortOrder};
-use crate::entities::audit_log::{self, Entity as AuditLog};
+use crate::entities::audit_log as product_audit_log;
 use crate::errors::{AsterError, Result};
+use crate::types::AuditAction;
+use aster_forge_db::audit_log::{self, Entity as AuditLog};
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
 pub struct AuditLogQuery<'a> {
@@ -24,32 +26,11 @@ pub struct AuditLogQuery<'a> {
     pub sort_order: SortOrder,
 }
 
-pub async fn create(
-    db: &DatabaseConnection,
-    model: audit_log::ActiveModel,
-) -> Result<audit_log::Model> {
-    model.insert(db).await.map_err(AsterError::from)
-}
-
-pub async fn create_many(
-    db: &DatabaseConnection,
-    models: Vec<audit_log::ActiveModel>,
-) -> Result<()> {
-    if models.is_empty() {
-        return Ok(());
-    }
-    AuditLog::insert_many(models)
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(())
-}
-
 /// 带过滤条件的分页查询
 pub async fn find_with_filters(
     db: &DatabaseConnection,
     query: AuditLogQuery<'_>,
-) -> Result<(Vec<audit_log::Model>, u64)> {
+) -> Result<(Vec<product_audit_log::Model>, u64)> {
     let mut q = apply_admin_audit_log_sort(AuditLog::find(), query.sort_by, query.sort_order);
 
     if let Some(uid) = query.user_id {
@@ -79,7 +60,38 @@ pub async fn find_with_filters(
         .await
         .map_err(AsterError::from)?;
 
+    let items = items
+        .into_iter()
+        .map(product_audit_log::Model::try_from)
+        .collect::<Result<Vec<_>>>()?;
+
     Ok((items, total))
+}
+
+impl TryFrom<aster_forge_db::audit_log::Model> for product_audit_log::Model {
+    type Error = AsterError;
+
+    fn try_from(value: aster_forge_db::audit_log::Model) -> Result<Self> {
+        let action = AuditAction::from_str_name(&value.action).ok_or_else(|| {
+            AsterError::database_operation(format!(
+                "unsupported audit action in audit log row {}: {}",
+                value.id, value.action
+            ))
+        })?;
+
+        Ok(Self {
+            id: value.id,
+            user_id: value.user_id,
+            action,
+            entity_type: value.entity_type,
+            entity_id: value.entity_id,
+            entity_name: value.entity_name,
+            details: value.details,
+            ip_address: value.ip_address,
+            user_agent: value.user_agent,
+            created_at: value.created_at,
+        })
+    }
 }
 
 fn apply_admin_audit_log_sort(
@@ -126,34 +138,6 @@ fn apply_admin_audit_log_sort(
             audit_log::Column::Id,
         ),
     }
-}
-
-/// 删除指定时间之前的审计日志
-pub async fn delete_before(db: &DatabaseConnection, before: DateTime<Utc>) -> Result<u64> {
-    let res = AuditLog::delete_many()
-        .filter(audit_log::Column::CreatedAt.lt(before))
-        .exec(db)
-        .await
-        .map_err(AsterError::from)?;
-    Ok(res.rows_affected)
-}
-
-/// 查询指定时间范围内的日志 action 和 created_at（用于管理后台每日统计）
-pub async fn find_actions_in_range(
-    db: &DatabaseConnection,
-    start: DateTime<Utc>,
-    end: DateTime<Utc>,
-) -> Result<Vec<(String, DateTime<Utc>)>> {
-    AuditLog::find()
-        .select_only()
-        .column(audit_log::Column::Action)
-        .column(audit_log::Column::CreatedAt)
-        .filter(audit_log::Column::CreatedAt.gte(start))
-        .filter(audit_log::Column::CreatedAt.lt(end))
-        .into_tuple::<(String, DateTime<Utc>)>()
-        .all(db)
-        .await
-        .map_err(AsterError::from)
 }
 
 /// Cursor page for admin overview daily aggregation.

@@ -15,9 +15,7 @@ use std::os::unix::fs::PermissionsExt;
 use aster_drive::db::repository::{
     audit_log_repo, background_task_repo, lock_repo, policy_repo, team_repo, user_repo,
 };
-use aster_drive::entities::{
-    audit_log, background_task, file, file_blob, file_version, resource_lock,
-};
+use aster_drive::entities::{background_task, file, file_blob, file_version, resource_lock};
 use aster_drive::types::{
     AuditAction, BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredLockOwnerInfo,
     StoredTaskPayload, StoredTaskResult,
@@ -2515,19 +2513,18 @@ async fn test_admin_audit_logs_support_explicit_sorting() {
         (format!("Audit Sort {marker} Alpha"), "10.0.0.1"),
         (format!("Audit Sort {marker} Beta"), "10.0.0.2"),
     ] {
-        audit_log_repo::create(
+        aster_forge_db::create_audit_log_row(
             state.writer_db(),
-            audit_log::ActiveModel {
-                user_id: Set(1),
-                action: Set(AuditAction::AdminUpdateUser),
-                entity_type: Set("user".to_string()),
-                entity_id: Set(Some(entity_name.len() as i64)),
-                entity_name: Set(Some(entity_name)),
-                details: Set(None),
-                ip_address: Set(Some(ip_address.to_string())),
-                user_agent: Set(None),
-                created_at: Set(now),
-                ..Default::default()
+            aster_forge_db::AuditLogCreate {
+                user_id: 1,
+                action: AuditAction::AdminUpdateUser.as_str().to_string(),
+                entity_type: "user".to_string(),
+                entity_id: Some(entity_name.len() as i64),
+                entity_name: Some(entity_name),
+                details: None,
+                ip_address: Some(ip_address.to_string()),
+                user_agent: None,
+                created_at: now,
             },
         )
         .await
@@ -2591,19 +2588,18 @@ async fn test_admin_audit_logs_skip_invalid_entity_type_rows() {
         ("not_a_real_entity", format!("Audit Invalid {marker}")),
         ("file", format!("Audit Valid {marker}")),
     ] {
-        audit_log_repo::create(
+        aster_forge_db::create_audit_log_row(
             state.writer_db(),
-            audit_log::ActiveModel {
-                user_id: Set(1),
-                action: Set(AuditAction::FileUpload),
-                entity_type: Set(entity_type.to_string()),
-                entity_id: Set(Some(1)),
-                entity_name: Set(Some(entity_name)),
-                details: Set(None),
-                ip_address: Set(None),
-                user_agent: Set(None),
-                created_at: Set(now),
-                ..Default::default()
+            aster_forge_db::AuditLogCreate {
+                user_id: 1,
+                action: AuditAction::FileUpload.as_str().to_string(),
+                entity_type: entity_type.to_string(),
+                entity_id: Some(1),
+                entity_name: Some(entity_name),
+                details: None,
+                ip_address: None,
+                user_agent: None,
+                created_at: now,
             },
         )
         .await
@@ -2875,23 +2871,20 @@ async fn test_admin_overview_batches_large_audit_daily_reports() {
     let inserted_events = 1_005_u64;
     let mut models = Vec::new();
     for index in 0..inserted_events {
-        models.push(audit_log::ActiveModel {
-            user_id: Set(1),
-            action: Set(AuditAction::FileUpload),
-            entity_type: Set("file".to_string()),
-            entity_id: Set(Some(
-                i64::try_from(index).expect("test index should fit i64"),
-            )),
-            entity_name: Set(Some(format!("Overview batch {marker} #{index}"))),
-            details: Set(None),
-            ip_address: Set(None),
-            user_agent: Set(None),
-            created_at: Set(target_at),
-            ..Default::default()
+        models.push(aster_forge_db::AuditLogCreate {
+            user_id: 1,
+            action: AuditAction::FileUpload.as_str().to_string(),
+            entity_type: "file".to_string(),
+            entity_id: Some(i64::try_from(index).expect("test index should fit i64")),
+            entity_name: Some(format!("Overview batch {marker} #{index}")),
+            details: None,
+            ip_address: None,
+            user_agent: None,
+            created_at: target_at,
         });
     }
     for chunk in models.chunks(100) {
-        audit_log_repo::create_many(state.writer_db(), chunk.to_vec())
+        aster_forge_db::create_audit_log_requests(state.writer_db(), chunk.to_vec())
             .await
             .expect("audit log batch should be inserted");
     }

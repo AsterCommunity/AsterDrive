@@ -12,14 +12,10 @@
     )
 )]
 
-use actix_web::{App, HttpServer, web};
-use aster_drive::runtime::SharedRuntimeState;
+use actix_web::web;
 #[cfg(feature = "cli")]
 use clap::{Parser, Subcommand};
 use std::io;
-use tokio_util::sync::CancellationToken;
-
-const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
 
 #[cfg(feature = "jemalloc")]
 #[global_allocator]
@@ -275,62 +271,33 @@ async fn run_primary_http_server(
         "starting HTTP service"
     );
 
-    let configure_db = state.writer_db().clone();
-    let shutdown_db_handles = state.db_handles.clone();
-    let app_shutdown_token = CancellationToken::new();
+    let db_handles = state.db_handles.clone();
+    let audit_state = state.clone();
     let state = web::Data::new(state);
-    let task_state = state.clone();
-    let server_state = state.clone();
-    let app_state = state.clone();
-    let app_shutdown_data = web::Data::new(app_shutdown_token.clone());
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
-    let server = HttpServer::new(move || {
-        let db = configure_db.clone();
-        App::new()
-            .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
-            .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
-            .wrap(aster_drive::api::middleware::cors::RuntimeCors)
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
-            .app_data(actix_web::web::PayloadConfig::new(
-                aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
-            ))
-            .app_data(aster_drive::api::extractors::json_config(
-                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
-            ))
-            .app_data(app_state.clone())
-            .app_data(metrics.clone())
-            .app_data(app_shutdown_data.clone())
-            .configure(move |cfg| aster_drive::api::configure_primary(cfg, &db))
-    })
-    .keep_alive(std::time::Duration::from_secs(30))
-    .client_request_timeout(std::time::Duration::from_millis(5000))
-    .client_disconnect_timeout(std::time::Duration::from_millis(1000))
-    .shutdown_timeout(HTTP_SHUTDOWN_TIMEOUT_SECS)
-    .disable_signals()
-    .bind((host.as_str(), port))?
-    .workers(workers)
-    .run();
+    let runtime = aster_forge_runtime::AsterRuntime::builder()
+        .component(aster_drive::runtime::components::primary_http_component(
+            host,
+            port,
+            workers,
+            state.clone(),
+            metrics,
+        ))?
+        .component(
+            aster_drive::runtime::components::primary_background_tasks_component(
+                state,
+                share_download_rollback_worker,
+            ),
+        )
+        .component(aster_drive::runtime::components::audit_component(
+            audit_state,
+        ))
+        .component(aster_drive::runtime::components::database_component(
+            db_handles,
+        ));
 
-    let server_handle = server.handle();
-    let background_tasks = aster_drive::runtime::tasks::spawn_primary_background_tasks(
-        task_state,
-        share_download_rollback_worker,
-        app_shutdown_token.clone(),
-    );
-    aster_drive::runtime::startup::record_server_start(server_state.as_ref()).await;
-    tokio::spawn(async move {
-        aster_drive::runtime::shutdown::wait_for_signal().await;
-        app_shutdown_token.cancel();
-        server_handle.stop(true).await;
-    });
-
-    let server_result = server.await;
-    tracing::info!("server stopped");
-    aster_drive::runtime::shutdown::record_server_shutdown(state.as_ref()).await;
-    aster_drive::runtime::shutdown::perform_shutdown(background_tasks, shutdown_db_handles).await;
-    server_result
+    runtime.run().await.map_err(io_other)?
 }
 
 async fn run_follower_http_server(
@@ -350,54 +317,26 @@ async fn run_follower_http_server(
         "starting HTTP service"
     );
 
-    let shutdown_db_handles = state.db_handles.clone();
+    let db_handles = state.db_handles.clone();
+    let audit_state = state.clone();
     let state = web::Data::new(state);
-    let app_shutdown_token = CancellationToken::new();
     let metrics =
         web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
-    let app_state = state.clone();
-    let app_shutdown_data = web::Data::new(app_shutdown_token.clone());
-    let server = HttpServer::new(move || {
-        App::new()
-            .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
-            .wrap(aster_drive::api::middleware::request_id::RequestIdMiddleware)
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
-            .app_data(actix_web::web::PayloadConfig::new(
-                aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
-            ))
-            .app_data(aster_drive::api::extractors::json_config(
-                aster_drive::api::extractors::DEFAULT_JSON_LIMIT,
-            ))
-            .app_data(app_state.clone())
-            .app_data(metrics.clone())
-            .app_data(app_shutdown_data.clone())
-            .configure(aster_drive::api::configure_follower)
-    })
-    .keep_alive(std::time::Duration::from_secs(30))
-    .client_request_timeout(std::time::Duration::from_millis(5000))
-    .client_disconnect_timeout(std::time::Duration::from_millis(1000))
-    .shutdown_timeout(HTTP_SHUTDOWN_TIMEOUT_SECS)
-    .disable_signals()
-    .bind((host.as_str(), port))?
-    .workers(workers)
-    .run();
+    let runtime = aster_forge_runtime::AsterRuntime::builder()
+        .component(aster_drive::runtime::components::follower_http_component(
+            host,
+            port,
+            workers,
+            state.clone(),
+            metrics,
+        ))?
+        .component(aster_drive::runtime::components::follower_background_tasks_component(state))
+        .component(aster_drive::runtime::components::audit_component(
+            audit_state,
+        ))
+        .component(aster_drive::runtime::components::database_component(
+            db_handles,
+        ));
 
-    let server_handle = server.handle();
-    let background_tasks = aster_drive::runtime::tasks::spawn_follower_background_tasks(
-        state.clone(),
-        app_shutdown_token.clone(),
-    );
-    aster_drive::runtime::startup::record_server_start(state.as_ref()).await;
-    tokio::spawn(async move {
-        aster_drive::runtime::shutdown::wait_for_signal().await;
-        app_shutdown_token.cancel();
-        server_handle.stop(true).await;
-    });
-
-    let server_result = server.await;
-    tracing::info!("server stopped");
-    aster_drive::runtime::shutdown::record_server_shutdown(state.as_ref()).await;
-    aster_drive::runtime::shutdown::perform_shutdown(background_tasks, shutdown_db_handles).await;
-    server_result
+    runtime.run().await.map_err(io_other)?
 }

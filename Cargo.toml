@@ -85,14 +85,16 @@ actix-ws = "0.4"
 aes-gcm = "0.11"
 aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api" }
 aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
+aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_audit" }
 aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_middleware", features = ["metrics"] }
 aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_observability" }
 aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_alloc" }
 aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_cache", features = ["memory", "redis", "runtime-component"] }
-aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db" }
+aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db", features = ["audit-log", "runtime-component"] }
 aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
 aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_metrics" }
 aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
+aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
 argon2 = "0.5.3"
 async-stream = "0.3"
 async-trait = "0.1"

@@ -1,5 +1,5 @@
 use actix_web::test as actix_test;
-use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -24,18 +24,17 @@ async fn in_memory_db() -> sea_orm::DatabaseConnection {
     db
 }
 
-fn audit_model(index: i64) -> audit_log::ActiveModel {
-    audit_log::ActiveModel {
-        id: Default::default(),
-        user_id: Set(42),
-        action: Set(AuditAction::FileUpload),
-        entity_type: Set("file".to_string()),
-        entity_id: Set(Some(index)),
-        entity_name: Set(Some(format!("file-{index}.txt"))),
-        details: Set(None),
-        ip_address: Set(None),
-        user_agent: Set(None),
-        created_at: Set(chrono::Utc::now()),
+fn audit_model(index: i64) -> aster_forge_db::AuditLogCreate {
+    aster_forge_db::AuditLogCreate {
+        user_id: 42,
+        action: AuditAction::FileUpload.as_str().to_string(),
+        entity_type: "file".to_string(),
+        entity_id: Some(index),
+        entity_name: Some(format!("file-{index}.txt")),
+        details: None,
+        ip_address: None,
+        user_agent: None,
+        created_at: chrono::Utc::now(),
     }
 }
 

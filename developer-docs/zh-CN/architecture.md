@@ -172,7 +172,8 @@ WebDAV 不走 `src/api/routes/**`，而是：
 
 | 模块 | 当前职责 |
 | --- | --- |
-| `src/main.rs` | 进程入口、选择节点模式、启动 HTTP 服务、优雅退出 |
+| `src/main.rs` | 进程入口、选择节点模式，并把产品 runtime component 交给 `AsterRuntime` 执行 |
+| `src/runtime/components.rs` | 构造 primary / follower HTTP、后台任务、audit 和 database component，声明 shutdown 依赖图 |
 | `src/runtime/startup/common.rs` | 连接数据库、跑 migration、准备默认策略和运行时配置、加载 policy snapshot / driver registry / cache |
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
@@ -209,6 +210,18 @@ WebDAV 不走 `src/api/routes/**`，而是：
 5. 初始化日志
 6. 清理 runtime 临时目录
 7. 根据 `config.server.start_mode` 选择 `primary` 或 `follower`
+8. 用 `aster_forge_runtime::AsterRuntime` 组装 HTTP、后台任务、audit 和 database component；启动审计作为 required startup phase 执行
+
+优雅关闭不再由 `main.rs` 手写调用顺序。`src/runtime/components.rs` 声明的依赖图是：
+
+```text
+background_tasks
+audit_logs     -> depends_on background_tasks
+audit_manager  -> depends_on audit_logs
+database       -> depends_on audit_manager
+```
+
+因此关闭时先停止后台任务，再记录 `server_shutdown`、flush audit buffer，最后关闭全部 reader / writer DB pool。注册顺序不决定关闭顺序，component graph 会在服务启动前完成校验。
 
 Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中创建 `MetricsRecorder`：
 
@@ -298,7 +311,7 @@ primary 后台工作由 `src/runtime/tasks.rs` 注册，分成一个常驻 worke
 
 前三条 lane 分别有自己的运行时并发配置；Fallback 使用通用 `background_task_max_concurrency`。
 
-dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它同时携带 processing-token lease 和 graceful-shutdown token；这个 token 也由 `main.rs` 注入 HTTP server、SSE 和后台任务，所以 SIGINT / SIGTERM 到来时，几条链路会一起开始收尾。任务代码、下载轮询、压缩 / 解压的阻塞 worker 都应该通过这个 context 做活跃检查；只有进度写库、runtime metadata 写库和最终状态写库这类底层 helper 直接使用 `TaskLeaseGuard`。服务关闭时，context 会让执行流协作退出，dispatcher 再把仍匹配当前 processing token 的任务释放回 `Retry`，不消耗重试次数。
+dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它同时携带 processing-token lease 和 graceful-shutdown token；这个 token 由 `AsterRuntime` 持有，并通过 HTTP / background-task component 注入 HTTP server、SSE 和后台任务，所以 SIGINT / SIGTERM 到来时，几条链路会一起开始收尾。任务代码、下载轮询、压缩 / 解压的阻塞 worker 都应该通过这个 context 做活跃检查；只有进度写库、runtime metadata 写库和最终状态写库这类底层 helper 直接使用 `TaskLeaseGuard`。服务关闭时，context 会让执行流协作退出，dispatcher 再把仍匹配当前 processing token 的任务释放回 `Retry`，不消耗重试次数。
 
 ## CLI 与离线运维入口
 

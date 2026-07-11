@@ -1,5 +1,6 @@
 //! 运行时模块导出。
 
+pub mod components;
 pub mod shutdown;
 pub mod startup;
 pub mod tasks;

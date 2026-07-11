@@ -1,16 +1,9 @@
 use chrono::Utc;
-use sea_orm::{DatabaseConnection, Set};
-use std::sync::{
-    Arc, OnceLock,
-    atomic::{AtomicBool, Ordering},
-};
+use sea_orm::DatabaseConnection;
+use std::sync::{Arc, OnceLock};
 use std::time::Duration as StdDuration;
-use tokio::sync::Mutex;
-use tokio_util::sync::CancellationToken;
 
 use crate::config::RuntimeConfig;
-use crate::db::repository::audit_log_repo;
-use crate::entities::audit_log;
 use crate::runtime::SharedRuntimeState;
 use crate::types::{AuditAction, AuditEntityType};
 
@@ -23,57 +16,7 @@ const AUDIT_LOG_DELAYED_FLUSH_AFTER: StdDuration = StdDuration::from_secs(1);
 static GLOBAL_AUDIT_LOG_MANAGER: OnceLock<Arc<AuditLogManager>> = OnceLock::new();
 
 pub(super) struct AuditLogManager {
-    db: DatabaseConnection,
-    buffer: parking_lot::Mutex<Vec<audit_log::ActiveModel>>,
-    flush_lock: Mutex<()>,
-    flush_pending: AtomicBool,
-    delayed_flush_pending: AtomicBool,
-    delayed_flush_after: StdDuration,
-    shutdown_token: CancellationToken,
-}
-
-struct FlushPendingReset {
-    manager: Arc<AuditLogManager>,
-    armed: bool,
-}
-
-impl Drop for FlushPendingReset {
-    fn drop(&mut self) {
-        if self.armed {
-            self.manager.flush_pending.store(false, Ordering::Release);
-        }
-    }
-}
-
-impl FlushPendingReset {
-    fn reset(&mut self) {
-        self.manager.flush_pending.store(false, Ordering::Release);
-        self.armed = false;
-    }
-}
-
-struct DelayedFlushPendingReset {
-    manager: Arc<AuditLogManager>,
-    armed: bool,
-}
-
-impl Drop for DelayedFlushPendingReset {
-    fn drop(&mut self) {
-        if self.armed {
-            self.manager
-                .delayed_flush_pending
-                .store(false, Ordering::Release);
-        }
-    }
-}
-
-impl DelayedFlushPendingReset {
-    fn reset(&mut self) {
-        self.manager
-            .delayed_flush_pending
-            .store(false, Ordering::Release);
-        self.armed = false;
-    }
+    writer: Arc<aster_forge_runtime::BufferedBatchWriter<aster_forge_db::AuditLogCreate>>,
 }
 
 pub fn init_global_audit_log_manager(db: DatabaseConnection) {
@@ -99,13 +42,16 @@ pub async fn shutdown_global_audit_log_manager() {
     }
 }
 
-async fn write_audit_model(db: &DatabaseConnection, model: audit_log::ActiveModel) {
-    if let Err(e) = audit_log_repo::create(db, model).await {
-        tracing::warn!("failed to write audit log: {e}");
+async fn write_audit_log(db: &DatabaseConnection, request: aster_forge_db::AuditLogCreate) {
+    if let Err(error) = aster_forge_db::create_audit_log_row(db, request).await {
+        tracing::warn!("failed to write audit log: {error}");
     }
 }
 
-async fn write_audit_batch(db: &DatabaseConnection, batch: &mut Vec<audit_log::ActiveModel>) {
+async fn write_audit_batch(
+    db: &DatabaseConnection,
+    batch: &mut Vec<aster_forge_db::AuditLogCreate>,
+) {
     if batch.is_empty() {
         return;
     }
@@ -122,8 +68,8 @@ async fn write_audit_batch(db: &DatabaseConnection, batch: &mut Vec<audit_log::A
         }
 
         let count = chunk.len();
-        if let Err(e) = audit_log_repo::create_many(db, chunk).await {
-            tracing::warn!(count, total, "failed to write audit log batch: {e}");
+        if let Err(error) = aster_forge_db::create_audit_log_requests(db, chunk).await {
+            tracing::warn!(count, total, "failed to write audit log batch: {error}");
         }
     }
 }
@@ -137,144 +83,44 @@ impl AuditLogManager {
         db: DatabaseConnection,
         delayed_flush_after: StdDuration,
     ) -> Self {
+        let batch_db = db.clone();
+        let single_db = db;
+        let writer = aster_forge_runtime::BufferedBatchWriter::new(
+            aster_forge_runtime::BufferedBatchConfig::new(
+                AUDIT_LOG_QUEUE_CAPACITY,
+                AUDIT_LOG_BATCH_SIZE,
+                delayed_flush_after,
+                "audit_log",
+            ),
+            move |mut batch| {
+                let db = batch_db.clone();
+                async move { write_audit_batch(&db, &mut batch).await }
+            },
+            move |request| {
+                let db = single_db.clone();
+                async move { write_audit_log(&db, request).await }
+            },
+        );
         Self {
-            db,
-            buffer: parking_lot::Mutex::new(Vec::with_capacity(AUDIT_LOG_BATCH_SIZE)),
-            flush_lock: Mutex::new(()),
-            flush_pending: AtomicBool::new(false),
-            delayed_flush_pending: AtomicBool::new(false),
-            delayed_flush_after,
-            shutdown_token: CancellationToken::new(),
+            writer: Arc::new(writer),
         }
     }
 
-    pub(super) async fn record(self: &Arc<Self>, model: audit_log::ActiveModel) {
-        let mut overflow_model = None;
-        let should_flush;
-        let should_schedule_delayed_flush;
-        {
-            let mut buffer = self.buffer.lock();
-            if buffer.len() >= AUDIT_LOG_QUEUE_CAPACITY {
-                overflow_model = Some(model);
-                should_flush = false;
-                should_schedule_delayed_flush = false;
-            } else {
-                let was_empty = buffer.is_empty();
-                buffer.push(model);
-                should_flush = buffer.len() >= AUDIT_LOG_BATCH_SIZE;
-                should_schedule_delayed_flush = !should_flush && was_empty;
-            }
-        }
-
-        if let Some(model) = overflow_model {
-            tracing::warn!(
-                capacity = AUDIT_LOG_QUEUE_CAPACITY,
-                "audit log buffer is full; falling back to direct write"
-            );
-            self.schedule_flush();
-            write_audit_model(&self.db, model).await;
-            return;
-        }
-
-        if should_flush {
-            self.schedule_flush();
-        } else if should_schedule_delayed_flush {
-            self.schedule_delayed_flush();
-        }
-    }
-
-    fn schedule_flush(self: &Arc<Self>) {
-        if self
-            .flush_pending
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-            .is_err()
-        {
-            return;
-        }
-
-        let manager = Arc::clone(self);
-        drop(tokio::spawn(async move {
-            let mut pending_reset = FlushPendingReset {
-                manager: Arc::clone(&manager),
-                armed: true,
-            };
-            {
-                let _guard = manager.flush_lock.lock().await;
-                manager.flush_buffer().await;
-            }
-            pending_reset.reset();
-            manager.schedule_buffered_flush();
-        }));
-    }
-
-    fn schedule_delayed_flush(self: &Arc<Self>) {
-        if self
-            .delayed_flush_pending
-            .compare_exchange(false, true, Ordering::SeqCst, Ordering::Relaxed)
-            .is_err()
-        {
-            return;
-        }
-
-        let manager = Arc::clone(self);
-        drop(tokio::spawn(async move {
-            let mut pending_reset = DelayedFlushPendingReset {
-                manager: Arc::clone(&manager),
-                armed: true,
-            };
-            let delayed_flush_after = manager.delayed_flush_after;
-            tokio::select! {
-                biased;
-                _ = manager.shutdown_token.cancelled() => return,
-                _ = tokio::time::sleep(delayed_flush_after) => {}
-            }
-
-            {
-                let _guard = manager.flush_lock.lock().await;
-                manager.flush_buffer().await;
-            }
-            pending_reset.reset();
-            manager.schedule_buffered_flush();
-        }));
-    }
-
-    fn schedule_buffered_flush(self: &Arc<Self>) {
-        let buffered_count = self.buffer.lock().len();
-        if buffered_count >= AUDIT_LOG_BATCH_SIZE {
-            self.schedule_flush();
-        } else if buffered_count > 0 {
-            self.schedule_delayed_flush();
-        }
+    pub(super) async fn record(&self, request: aster_forge_db::AuditLogCreate) {
+        self.writer.record(request).await;
     }
 
     pub(super) async fn flush(self: &Arc<Self>) {
-        let _guard = self.flush_lock.lock().await;
-        self.flush_buffer().await;
-        if self.buffer.lock().is_empty() {
-            self.flush_pending.store(false, Ordering::Release);
-            self.delayed_flush_pending.store(false, Ordering::Release);
-        }
-        self.schedule_buffered_flush();
+        self.writer.flush().await;
     }
 
     pub(super) fn cancel(&self) {
-        self.shutdown_token.cancel();
+        self.writer.cancel();
     }
 
     #[cfg(test)]
     pub(super) async fn lock_flush_for_test(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.flush_lock.lock().await
-    }
-
-    async fn flush_buffer(&self) {
-        let mut models = {
-            let mut buffer = self.buffer.lock();
-            if buffer.is_empty() {
-                return;
-            }
-            std::mem::take(&mut *buffer)
-        };
-        write_audit_batch(&self.db, &mut models).await;
+        self.writer.lock_flush_for_test().await
     }
 }
 
@@ -295,25 +141,24 @@ pub struct AuditLogInput<'a> {
     pub entity_name: Option<&'a str>,
 }
 
-fn audit_model(
+fn audit_log_request(
     ctx: &AuditContext,
     action: AuditAction,
     entity_type: AuditEntityType,
     entity_id: Option<i64>,
     entity_name: Option<&str>,
     details: Option<serde_json::Value>,
-) -> audit_log::ActiveModel {
-    audit_log::ActiveModel {
-        id: Default::default(),
-        user_id: Set(ctx.user_id),
-        action: Set(action),
-        entity_type: Set(entity_type.as_str().to_string()),
-        entity_id: Set(entity_id),
-        entity_name: Set(entity_name.map(|s| s.to_string())),
-        details: Set(details.map(|v| v.to_string())),
-        ip_address: Set(ctx.ip_address.clone()),
-        user_agent: Set(ctx.user_agent.clone()),
-        created_at: Set(Utc::now()),
+) -> aster_forge_db::AuditLogCreate {
+    aster_forge_db::AuditLogCreate {
+        user_id: ctx.user_id,
+        action: action.as_str().to_string(),
+        entity_type: entity_type.as_str().to_string(),
+        entity_id,
+        entity_name: entity_name.map(ToOwned::to_owned),
+        details: details.map(|value| value.to_string()),
+        ip_address: ctx.ip_address.clone(),
+        user_agent: ctx.user_agent.clone(),
+        created_at: Utc::now(),
     }
 }
 
@@ -327,12 +172,12 @@ async fn record_prechecked<S: SharedRuntimeState>(
     details: Option<serde_json::Value>,
 ) {
     // Callers must pass the action-scope check before we allocate the DB model.
-    let model = audit_model(ctx, action, entity_type, entity_id, entity_name, details);
+    let request = audit_log_request(ctx, action, entity_type, entity_id, entity_name, details);
 
     if let Some(manager) = GLOBAL_AUDIT_LOG_MANAGER.get() {
-        manager.record(model).await;
+        manager.record(request).await;
     } else {
-        write_audit_model(state.writer_db(), model).await;
+        write_audit_log(state.writer_db(), request).await;
     }
 }
 
@@ -345,8 +190,8 @@ async fn record_prechecked_with_db(
     entity_name: Option<&str>,
     details: Option<serde_json::Value>,
 ) {
-    let model = audit_model(ctx, action, entity_type, entity_id, entity_name, details);
-    write_audit_model(db, model).await;
+    let request = audit_log_request(ctx, action, entity_type, entity_id, entity_name, details);
+    write_audit_log(db, request).await;
 }
 
 pub async fn log<S: SharedRuntimeState>(

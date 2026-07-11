@@ -766,11 +766,13 @@ dependencies = [
  "aster_forge_alloc",
  "aster_forge_api",
  "aster_forge_api_docs_macros",
+ "aster_forge_audit",
  "aster_forge_cache",
  "aster_forge_db",
  "aster_forge_logging",
  "aster_forge_metrics",
  "aster_forge_panic",
+ "aster_forge_runtime",
  "async-stream",
  "async-trait",
  "aws-credential-types",
@@ -913,6 +915,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "aster_forge_audit"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
+dependencies = [
+ "aster_forge_runtime",
+]
+
+[[package]]
 name = "aster_forge_cache"
 version = "0.1.0"
 source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb1716cab0a33e2e203f16b7"
@@ -936,6 +946,7 @@ source = "git+https://github.com/AsterCommunity/AsterForge#403d8f5cc24a4a91bb171
 dependencies = [
  "aster_forge_api",
  "aster_forge_metrics",
+ "aster_forge_runtime",
  "async-trait",
  "chrono",
  "rand 0.10.2",
@@ -3050,7 +3061,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "39cab71617ae0d63f51a36d69f866391735b51691dbda63cf6f96d042b63efeb"
 dependencies = [
  "libc",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4552,6 +4563,7 @@ dependencies = [
 name = "migration"
 version = "0.1.0"
 dependencies = [
+ "aster_forge_db",
  "sea-orm-migration",
  "serde_json",
  "tokio",
@@ -4737,7 +4749,7 @@ version = "0.50.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7957b9740744892f114936ab4a57b3f487491bbeafaf8083688b16841a4240e5"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -5718,7 +5730,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.14.0",
+ "itertools 0.10.5",
  "proc-macro2",
  "quote",
  "syn 2.0.118",
@@ -5876,7 +5888,7 @@ dependencies = [
  "once_cell",
  "socket2 0.6.4",
  "tracing",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6544,7 +6556,7 @@ dependencies = [
  "errno",
  "libc",
  "linux-raw-sys 0.12.1",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -6603,7 +6615,7 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "webpki-root-certs",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -7787,7 +7799,7 @@ dependencies = [
  "getrandom 0.4.3",
  "once_cell",
  "rustix 1.1.4",
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -8926,7 +8938,7 @@ version = "0.1.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c2a7b1c03c876122aa43f3020e6c3c3ee5c05081c9a00739faf7503aeba10d22"
 dependencies = [
- "windows-sys 0.59.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]

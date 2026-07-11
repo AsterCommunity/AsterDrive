@@ -235,7 +235,7 @@ pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
     }
 
     let cutoff = Utc::now() - Duration::days(retention_days);
-    let deleted = audit_log_repo::delete_before(state.writer_db(), cutoff).await?;
+    let deleted = aster_forge_db::delete_audit_logs_before(state.writer_db(), cutoff).await?;
     if deleted > 0 {
         tracing::info!("cleaned up {deleted} expired audit log entries");
     }

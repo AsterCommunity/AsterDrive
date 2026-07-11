@@ -17,6 +17,9 @@ const ADD_REMOTE_STORAGE_TARGET_KEY_TO_STORAGE_POLICIES_MIGRATION: &str =
     "m20260704_000002_add_remote_storage_target_key_to_storage_policies";
 const DROP_REMOTE_STORAGE_TARGET_MAX_FILE_SIZE_MIGRATION: &str =
     "m20260705_000001_drop_remote_storage_target_max_file_size";
+const ALIGN_FORGE_AUDIT_CONTRACT_MIGRATION: &str = "m20260712_000001_align_forge_audit_contract";
+const ADD_FORGE_AUDIT_QUERY_INDEXES_MIGRATION: &str =
+    "m20260712_000002_add_forge_audit_query_indexes";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -182,6 +185,34 @@ async fn sqlite_column_is_not_null(
     .unwrap_or(false)
 }
 
+async fn sqlite_column_type_and_default(
+    db: &DatabaseConnection,
+    table_name: &str,
+    column_name: &str,
+) -> (String, Option<String>) {
+    db.query_all_raw(Statement::from_string(
+        DbBackend::Sqlite,
+        format!("PRAGMA table_info('{table_name}')"),
+    ))
+    .await
+    .expect("sqlite table column metadata should load")
+    .into_iter()
+    .find_map(|row| {
+        let name = row
+            .try_get_by_index::<String>(1)
+            .expect("sqlite PRAGMA table_info row should include column name");
+        (name == column_name).then(|| {
+            (
+                row.try_get_by_index::<String>(2)
+                    .expect("sqlite PRAGMA table_info row should include column type"),
+                row.try_get_by_index::<Option<String>>(4)
+                    .expect("sqlite PRAGMA table_info row should include default value"),
+            )
+        })
+    })
+    .unwrap_or_else(|| panic!("{table_name}.{column_name} should exist"))
+}
+
 fn has_column(columns: &[String], expected: &str) -> bool {
     columns.iter().any(|column| column == expected)
 }
@@ -207,6 +238,88 @@ async fn json_text_columns_are_not_null_in_current_schema() {
             "{table}.{column} should be NOT NULL"
         );
     }
+}
+
+#[tokio::test]
+async fn forge_audit_query_indexes_are_present_in_current_schema() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == ADD_FORGE_AUDIT_QUERY_INDEXES_MIGRATION),
+        "Forge audit query index migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    for index in [
+        aster_forge_db::AUDIT_LOG_ACTION_CREATED_USER_INDEX,
+        aster_forge_db::AUDIT_LOG_CREATED_ID_INDEX,
+        aster_forge_db::AUDIT_LOG_USER_CREATED_ID_INDEX,
+        aster_forge_db::AUDIT_LOG_ACTION_CREATED_ID_INDEX,
+        aster_forge_db::AUDIT_LOG_ENTITY_TYPE_CREATED_ID_INDEX,
+    ] {
+        assert!(
+            sqlite_table_index_exists(&db, aster_forge_db::AUDIT_LOGS_TABLE, index).await,
+            "current audit schema should include {index}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn forge_audit_columns_match_shared_contract_and_preserve_rows() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == ALIGN_FORGE_AUDIT_CONTRACT_MIGRATION),
+        "Forge audit contract migration should be registered"
+    );
+
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    let migration_position = CurrentMigrator::migrations()
+        .iter()
+        .position(|migration| migration.name() == ALIGN_FORGE_AUDIT_CONTRACT_MIGRATION)
+        .expect("Forge audit contract migration should exist");
+    CurrentMigrator::up(
+        &db,
+        Some(u32::try_from(migration_position).expect("migration count should fit u32")),
+    )
+    .await
+    .expect("legacy Drive schema should apply");
+    db.execute_raw(Statement::from_sql_and_values(
+        DbBackend::Sqlite,
+        "INSERT INTO audit_logs (user_id, action, entity_type, ip_address, created_at) VALUES (?, ?, ?, ?, ?)",
+        [
+            7_i64.into(),
+            "file_upload".into(),
+            "file".into(),
+            "2001:db8::7".into(),
+            chrono::Utc::now().into(),
+        ],
+    ))
+    .await
+    .expect("legacy audit row should insert");
+
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("Forge audit contract migrations should apply");
+    let (ip_type, _) = sqlite_column_type_and_default(&db, "audit_logs", "ip_address").await;
+    assert_eq!(ip_type.to_ascii_lowercase(), "varchar(128)");
+    let (_, user_id_default) = sqlite_column_type_and_default(&db, "audit_logs", "user_id").await;
+    assert_eq!(user_id_default.as_deref(), Some("0"));
+    let preserved = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT user_id, ip_address FROM audit_logs WHERE action = 'file_upload'",
+        ))
+        .await
+        .expect("migrated audit row should load")
+        .expect("migrated audit row should remain");
+    assert_eq!(preserved.try_get_by_index::<i64>(0).unwrap(), 7);
+    assert_eq!(
+        preserved.try_get_by_index::<String>(1).unwrap(),
+        "2001:db8::7"
+    );
 }
 
 #[tokio::test]
