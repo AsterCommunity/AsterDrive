@@ -2,7 +2,7 @@
 	"settings_item_cors_enabled_label": "Enable CORS handling",
 	"settings_item_cors_enabled_desc": "Controls whether AsterDrive actively processes cross-origin browser requests. When disabled, the server skips all CORS headers and enforcement.",
 	"settings_item_cors_allowed_origins_label": "Allowed cross-origin origins",
-	"settings_item_cors_allowed_origins_desc": "List the browser origins that may access AsterDrive cross-origin, separated by commas. Empty means the server returns no CORS headers and the browser blocks cross-origin access naturally. \"*\" allows any origin.",
+	"settings_item_cors_allowed_origins_desc": "Add each complete browser origin as a separate item. HTTP(S) sites and chrome-extension, moz-extension, and safari-web-extension origins are supported. Empty means the server returns no CORS headers and does not enforce CORS; a single \"*\" item allows any origin.",
 	"settings_item_cors_allow_credentials_label": "Allow cross-origin credentials",
 	"settings_item_cors_allow_credentials_desc": "Controls whether CORS responses include Access-Control-Allow-Credentials. Do not combine this with an allowed-origins value of \"*\".",
 	"settings_item_cors_max_age_secs_label": "Preflight cache duration",

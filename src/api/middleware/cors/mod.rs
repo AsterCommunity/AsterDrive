@@ -17,7 +17,12 @@ pub fn runtime_cors() -> ForgeRuntimeCors {
         RuntimeCorsConfig::new(resolve_runtime_policy, is_cors_exempt_path, map_cors_error)
             .allowed_methods(ALLOWED_METHODS.iter().copied())
             .allowed_headers(ALLOWED_HEADERS.iter().copied())
-            .exposed_headers(EXPOSE_HEADERS.iter().copied()),
+            .exposed_headers(EXPOSE_HEADERS.iter().copied())
+            .additional_origin_schemes(
+                crate::config::cors::BROWSER_EXTENSION_ORIGIN_SCHEMES
+                    .iter()
+                    .copied(),
+            ),
     )
 }
 

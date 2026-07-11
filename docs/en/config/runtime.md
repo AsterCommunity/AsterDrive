@@ -173,6 +173,11 @@ Change it only in these scenarios:
 
 - The browser page and AsterDrive are not under the same domain
 - You want another site to call AsterDrive directly from the browser
+- A browser extension needs to access WebDAV or the API directly
+
+`Allowed CORS origins` is an array of complete origins, with one item per input. Examples include `https://panel.example.com` and `chrome-extension://extension-id`. HTTP(S) sites and Chrome/Edge, Firefox, and Safari Web Extension origins are supported. For an extension, configure its complete extension ID instead of allowing every extension by scheme.
+
+CORS is disabled by default and the allowlist is empty. In that state, the server neither adds CORS response headers nor rejects requests merely because they carry an `Origin` header. Once CORS is enabled, only exact allowlist matches are accepted. A single `*` item permits any origin, but it cannot be combined with cross-origin credentials.
 
 ::: tip Same-site deployments usually do not need changes
 Most deployments where "frontend pages and APIs are on the same site" do not need to touch this group.

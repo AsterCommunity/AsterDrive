@@ -16,6 +16,9 @@ pub const DEFAULT_CORS_ENABLED: bool = false;
 pub const DEFAULT_CORS_ALLOW_CREDENTIALS: bool = false;
 pub const DEFAULT_CORS_MAX_AGE_SECS: u64 = 3600;
 
+pub(crate) const BROWSER_EXTENSION_ORIGIN_SCHEMES: &[&str] =
+    &["chrome-extension", "moz-extension", "safari-web-extension"];
+
 pub fn runtime_cors_policy(runtime_config: &RuntimeConfig) -> RuntimeCorsPolicy {
     let enabled = match runtime_config.get(CORS_ENABLED_KEY) {
         Some(raw) => match parse_bool_str(&raw) {
@@ -119,11 +122,24 @@ pub fn normalize_enabled_config_value(value: &str) -> Result<String> {
 
 pub fn normalize_allowed_origins_config_value(value: &str) -> Result<String> {
     let parsed = parse_allowed_origins_value(value)?;
-    Ok(match parsed {
-        CorsAllowedOrigins::None => String::new(),
-        CorsAllowedOrigins::Any => "*".to_string(),
-        CorsAllowedOrigins::List(origins) => origins.join(","),
-    })
+    serialize_allowed_origins(&parsed)
+}
+
+pub fn normalize_existing_allowed_origins_config_value(value: &str) -> Result<String> {
+    if value.trim().starts_with('[') {
+        return normalize_allowed_origins_config_value(value);
+    }
+
+    let legacy_origins = value
+        .split(',')
+        .map(str::trim)
+        .filter(|origin| !origin.is_empty())
+        .map(ToString::to_string)
+        .collect::<Vec<_>>();
+    let legacy_json = serde_json::to_string(&legacy_origins).map_aster_err_with(|| {
+        AsterError::internal_error("failed to serialize legacy CORS origins")
+    })?;
+    normalize_allowed_origins_config_value(&legacy_json)
 }
 
 pub fn normalize_allow_credentials_config_value(value: &str) -> Result<String> {
@@ -149,16 +165,20 @@ pub fn parse_allowed_origins_value(value: &str) -> Result<CorsAllowedOrigins> {
         return Ok(CorsAllowedOrigins::None);
     }
 
+    let configured = serde_json::from_str::<Vec<String>>(trimmed).map_aster_err_with(|| {
+        AsterError::validation_error("cors_allowed_origins must be a JSON array of origin strings")
+    })?;
+
     let mut origins = BTreeSet::new();
     let mut wildcard = false;
 
-    for raw_origin in trimmed.split(',') {
+    for raw_origin in configured {
         let origin = raw_origin.trim();
         if origin.is_empty() {
             continue;
         }
 
-        let normalized = normalize_origin(origin, true)?;
+        let normalized = normalize_cors_origin(origin, true)?;
         if normalized == "*" {
             wildcard = true;
         } else {
@@ -181,7 +201,29 @@ pub fn parse_allowed_origins_value(value: &str) -> Result<CorsAllowedOrigins> {
     }
 }
 
+fn serialize_allowed_origins(origins: &CorsAllowedOrigins) -> Result<String> {
+    let origins = match origins {
+        CorsAllowedOrigins::None => Vec::new(),
+        CorsAllowedOrigins::Any => vec!["*".to_string()],
+        CorsAllowedOrigins::List(origins) => origins.clone(),
+    };
+    serde_json::to_string(&origins)
+        .map_aster_err_with(|| AsterError::internal_error("failed to serialize CORS origins"))
+}
+
 pub fn normalize_origin(origin: &str, allow_wildcard: bool) -> Result<String> {
+    normalize_origin_with_schemes(origin, allow_wildcard, &[])
+}
+
+pub fn normalize_cors_origin(origin: &str, allow_wildcard: bool) -> Result<String> {
+    normalize_origin_with_schemes(origin, allow_wildcard, BROWSER_EXTENSION_ORIGIN_SCHEMES)
+}
+
+fn normalize_origin_with_schemes(
+    origin: &str,
+    allow_wildcard: bool,
+    additional_schemes: &[&str],
+) -> Result<String> {
     let trimmed = origin.trim();
     if trimmed.is_empty() {
         return Err(AsterError::validation_error("origin cannot be empty"));
@@ -201,9 +243,9 @@ pub fn normalize_origin(origin: &str, allow_wildcard: bool) -> Result<String> {
         ))
     })?;
 
-    if scheme != "http" && scheme != "https" {
+    if scheme != "http" && scheme != "https" && !additional_schemes.contains(&scheme) {
         return Err(AsterError::validation_error(format!(
-            "CORS origin must use http or https: '{trimmed}'"
+            "origin scheme is not supported: '{trimmed}'"
         )));
     }
 
@@ -271,8 +313,10 @@ mod tests {
         CORS_ALLOW_CREDENTIALS_KEY, CORS_ALLOWED_ORIGINS_KEY, CORS_ENABLED_KEY,
         CORS_MAX_AGE_SECS_KEY, DEFAULT_CORS_ENABLED, DEFAULT_CORS_MAX_AGE_SECS,
         normalize_allow_credentials_config_value, normalize_allowed_origins_config_value,
-        normalize_enabled_config_value, normalize_max_age_config_value, normalize_origin,
-        parse_allowed_origins_value, runtime_cors_policy, validate_runtime_cors_combination,
+        normalize_cors_origin, normalize_enabled_config_value,
+        normalize_existing_allowed_origins_config_value, normalize_max_age_config_value,
+        normalize_origin, parse_allowed_origins_value, runtime_cors_policy,
+        validate_runtime_cors_combination,
     };
 
     fn config_model(key: &str, value: &str) -> system_config::Model {
@@ -296,7 +340,7 @@ mod tests {
     #[test]
     fn parse_empty_origins_as_none() {
         assert_eq!(
-            parse_allowed_origins_value("   ").unwrap(),
+            parse_allowed_origins_value("[]").unwrap(),
             CorsAllowedOrigins::None
         );
     }
@@ -313,16 +357,35 @@ mod tests {
     fn parse_origin_list_deduplicates_and_sorts() {
         assert_eq!(
             normalize_allowed_origins_config_value(
-                "https://b.example.com, https://a.example.com/, https://b.example.com"
+                r#"["https://b.example.com", "https://a.example.com/", "https://b.example.com"]"#
             )
             .unwrap(),
-            "https://a.example.com,https://b.example.com"
+            r#"["https://a.example.com","https://b.example.com"]"#
+        );
+    }
+
+    #[test]
+    fn normalize_existing_origin_list_migrates_legacy_comma_format() {
+        assert_eq!(
+            normalize_existing_allowed_origins_config_value(
+                "https://b.example.com, chrome-extension://iikmkjmpaadaobahmlepeloendndfphd, https://b.example.com"
+            )
+            .unwrap(),
+            r#"["chrome-extension://iikmkjmpaadaobahmlepeloendndfphd","https://b.example.com"]"#
+        );
+        assert_eq!(
+            normalize_existing_allowed_origins_config_value("").unwrap(),
+            "[]"
+        );
+        assert_eq!(
+            normalize_existing_allowed_origins_config_value("*").unwrap(),
+            r#"["*"]"#
         );
     }
 
     #[test]
     fn reject_mixed_wildcard_and_explicit_origins() {
-        let err = parse_allowed_origins_value("*,https://app.example.com").unwrap_err();
+        let err = parse_allowed_origins_value(r#"["*","https://app.example.com"]"#).unwrap_err();
         assert!(
             err.message().contains(CORS_ALLOWED_ORIGINS_KEY)
                 || err.message().contains("explicit origins")
@@ -357,7 +420,31 @@ mod tests {
     #[test]
     fn normalize_origin_rejects_non_http_scheme() {
         let err = normalize_origin("ftp://app.example.com", false).unwrap_err();
-        assert!(err.message().contains("must use http or https"));
+        assert!(err.message().contains("scheme is not supported"));
+    }
+
+    #[test]
+    fn normalize_cors_origin_accepts_browser_extension_schemes() {
+        for origin in [
+            "chrome-extension://iikmkjmpaadaobahmlepeloendndfphd",
+            "moz-extension://4fbe19d7-2d0e-4a7f-b708-31957a9f48e9",
+            "safari-web-extension://com.example.backup",
+        ] {
+            assert_eq!(normalize_cors_origin(origin, false).unwrap(), origin);
+            assert!(normalize_origin(origin, false).is_err());
+        }
+    }
+
+    #[test]
+    fn normalize_cors_origin_rejects_unrelated_schemes() {
+        for origin in [
+            "ftp://app.example.com",
+            "file://localhost",
+            "custom-extension://example",
+        ] {
+            let err = normalize_cors_origin(origin, false).unwrap_err();
+            assert!(err.message().contains("scheme is not supported"));
+        }
     }
 
     #[test]
@@ -415,7 +502,7 @@ mod tests {
         runtime_config.apply(config_model(CORS_ENABLED_KEY, "true"));
         runtime_config.apply(config_model(
             CORS_ALLOWED_ORIGINS_KEY,
-            "https://app.example.com/path",
+            r#"["https://app.example.com/path"]"#,
         ));
 
         let policy = runtime_cors_policy(&runtime_config);
@@ -429,7 +516,7 @@ mod tests {
     fn runtime_policy_wildcard_with_credentials_downgrades_to_safe_policy() {
         let runtime_config = RuntimeConfig::new();
         runtime_config.apply(config_model(CORS_ENABLED_KEY, "true"));
-        runtime_config.apply(config_model(CORS_ALLOWED_ORIGINS_KEY, "*"));
+        runtime_config.apply(config_model(CORS_ALLOWED_ORIGINS_KEY, r#"["*"]"#));
         runtime_config.apply(config_model(CORS_ALLOW_CREDENTIALS_KEY, "true"));
 
         let policy = runtime_cors_policy(&runtime_config);
