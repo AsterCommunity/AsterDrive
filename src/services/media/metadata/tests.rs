@@ -564,7 +564,7 @@ async fn test_state_with_driver_and_options(
         );
 
     PrimaryAppState {
-        db_handles: crate::db::DbHandles::single(db),
+        db_handles: aster_forge_db::DbHandles::single(db),
         driver_registry,
         runtime_config,
         policy_snapshot,

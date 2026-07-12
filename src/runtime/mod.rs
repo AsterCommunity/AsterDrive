@@ -6,13 +6,13 @@ pub mod startup;
 pub mod tasks;
 
 use crate::config::{Config, RuntimeConfig};
-use crate::db::DbHandles;
 use crate::metrics::SharedMetricsRecorder;
 use crate::services::{
     events::storage_change::StorageChangeEvent, mail::sender::MailSender,
     share::ShareDownloadRollbackQueue,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
+use aster_forge_db::DbHandles;
 use sea_orm::DatabaseConnection;
 use std::sync::Arc;
 use tokio::sync::Notify;
@@ -337,7 +337,7 @@ mod tests {
             build_share_download_rollback_queue(db.clone(), 1, crate::metrics::NoopMetrics::arc());
 
         let state = PrimaryAppState {
-            db_handles: crate::db::DbHandles::single(db),
+            db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry: Arc::new(DriverRegistry::noop()),
             runtime_config,
             policy_snapshot: Arc::new(PolicySnapshot::new()),

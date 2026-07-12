@@ -261,7 +261,7 @@ where
 }
 
 pub fn database_component(
-    db_handles: crate::db::DbHandles,
+    db_handles: aster_forge_db::DbHandles,
 ) -> RuntimeComponentBundleRegistration<aster_forge_db::DatabaseRuntimeComponent> {
     aster_forge_db::database_component_after(db_handles, DATABASE_SHUTDOWN_DEPENDENCIES)
 }
@@ -307,7 +307,7 @@ mod tests {
         let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig::default()).await;
 
         FollowerAppState {
-            db_handles: crate::db::DbHandles::single(db),
+            db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
             runtime_config,
             policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),

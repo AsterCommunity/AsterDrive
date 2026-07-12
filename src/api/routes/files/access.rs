@@ -1247,7 +1247,7 @@ mod tests {
             );
 
         let state = PrimaryAppState {
-            db_handles: crate::db::DbHandles::single(db),
+            db_handles: aster_forge_db::DbHandles::single(db),
             driver_registry,
             runtime_config: runtime_config.clone(),
             policy_snapshot,

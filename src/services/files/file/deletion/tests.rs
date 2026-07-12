@@ -215,7 +215,7 @@ async fn build_deletion_test_state() -> (
             crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
         );
     let state = PrimaryAppState {
-        db_handles: crate::db::DbHandles::single(db),
+        db_handles: aster_forge_db::DbHandles::single(db),
         driver_registry,
         runtime_config: runtime_config.clone(),
         policy_snapshot,

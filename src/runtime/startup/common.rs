@@ -10,7 +10,7 @@ use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {
     pub cfg: Arc<crate::config::Config>,
-    pub db_handles: db::DbHandles,
+    pub db_handles: aster_forge_db::DbHandles,
     pub database: sea_orm::DatabaseConnection,
     pub driver_registry: Arc<DriverRegistry>,
     pub policy_snapshot: Arc<crate::storage::PolicySnapshot>,

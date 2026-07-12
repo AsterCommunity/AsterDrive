@@ -425,7 +425,7 @@ async fn log_writes_synchronously_without_global_manager() {
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );
     let state = crate::runtime::PrimaryAppState {
-        db_handles: crate::db::DbHandles::single(db.clone()),
+        db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
@@ -478,7 +478,7 @@ async fn follower_state_can_record_allowed_audit_log() {
     })
     .await;
     let state = crate::runtime::FollowerAppState {
-        db_handles: crate::db::DbHandles::single(db.clone()),
+        db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),
@@ -540,7 +540,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
             crate::config::operations::DEFAULT_SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY,
         );
     let state = crate::runtime::PrimaryAppState {
-        db_handles: crate::db::DbHandles::single(db.clone()),
+        db_handles: aster_forge_db::DbHandles::single(db.clone()),
         driver_registry: std::sync::Arc::new(crate::storage::DriverRegistry::noop()),
         runtime_config,
         policy_snapshot: std::sync::Arc::new(crate::storage::PolicySnapshot::new()),

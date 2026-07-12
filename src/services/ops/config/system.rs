@@ -517,7 +517,7 @@ mod tests {
 
         (
             PrimaryAppState {
-                db_handles: crate::db::DbHandles::single(db),
+                db_handles: aster_forge_db::DbHandles::single(db),
                 driver_registry: Arc::new(crate::storage::DriverRegistry::noop()),
                 runtime_config,
                 policy_snapshot: Arc::new(crate::storage::PolicySnapshot::new()),
