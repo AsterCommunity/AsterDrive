@@ -3,9 +3,10 @@ use sea_orm::{
     QuerySelect,
 };
 
-use crate::api::pagination::{SortBy, SortOrder};
+use crate::api::pagination::SortBy;
 use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, MapAsterErr, Result};
+use aster_forge_api::SortOrder;
 
 use crate::db::repository::file_repo::common::{
     FileScope, active_scope_condition, apply_folder_condition,

@@ -878,7 +878,7 @@ pub async fn setup() -> PrimaryAppState {
 #[allow(dead_code)]
 pub async fn setup_with_memory_cache() -> PrimaryAppState {
     let base = setup().await;
-    let cache_config = aster_drive::config::CacheConfig {
+    let cache_config = aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()
@@ -1115,7 +1115,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     .unwrap();
 
     // 测试用内存缓存。
-    let cache_config = aster_drive::config::CacheConfig::default();
+    let cache_config = aster_forge_cache::CacheConfig::default();
     let cache = aster_forge_cache::create_cache(&cache_config).await;
 
     // 初始化全局 config（WebDAV file.rs 内部调 get_config() 需要）
@@ -1295,11 +1295,11 @@ pub fn system_config_model(key: &str, value: &str) -> aster_forge_db::system_con
         id: 0,
         key: key.to_string(),
         value: value.to_string(),
-        value_type: aster_drive::types::ConfigValueType::String,
+        value_type: aster_forge_config::ConfigValueType::String,
         requires_restart: false,
         is_sensitive: false,
-        source: aster_drive::types::ConfigSource::System,
-        visibility: aster_drive::types::ConfigVisibility::Private,
+        source: aster_forge_config::ConfigSource::System,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: aster_drive::config::definitions::CONFIG_CATEGORY_SITE.to_string(),
         description: "test".to_string(),

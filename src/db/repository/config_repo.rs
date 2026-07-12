@@ -7,7 +7,8 @@ use crate::config::definitions::{
 use crate::config::media_processing;
 use crate::errors::{AsterError, Result};
 use crate::services::preview::apps;
-use crate::types::{ConfigVisibility, MediaProcessorKind};
+use crate::types::MediaProcessorKind;
+use aster_forge_config::ConfigVisibility;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::system_config::{
     self, Entity as SystemConfig, SystemConfigDbBinding, SystemConfigUpsert,

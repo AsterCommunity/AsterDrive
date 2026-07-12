@@ -71,7 +71,7 @@ mod tests {
             mime_type: mime_type.to_string(),
             extension: String::new(),
             compound_extension: None,
-            file_category: crate::types::FileCategory::Archive,
+            file_category: aster_forge_file_classification::FileCategory::Archive,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,

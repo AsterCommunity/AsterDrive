@@ -1,10 +1,11 @@
 //! 团队服务子模块：`admin`。
 
-use crate::api::pagination::{AdminTeamSortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminTeamSortBy, load_offset_page};
 use crate::db::repository::team_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::types::TeamMemberRole;
+use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::shared::{
     archive_team_record, build_admin_team_info, build_admin_team_info_with_metadata,

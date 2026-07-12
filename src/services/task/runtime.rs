@@ -53,92 +53,129 @@ pub enum SystemRuntimeTaskKind {
     WopiSessionCleanup,
 }
 
+pub(crate) type SystemRuntimeTaskDefinition =
+    aster_forge_tasks::RuntimeTaskDefinition<SystemRuntimeTaskKind, TaskPresentationCode>;
+
+aster_forge_tasks::runtime_task_registry! {
+    pub(super) mod system_runtime_task_registry {
+        kind: super::SystemRuntimeTaskKind;
+        presentation: crate::services::task::types::TaskPresentationCode;
+        tasks {
+            super::SystemRuntimeTaskKind::MailOutboxDispatch => {
+                wire: "mail-outbox-dispatch",
+                display: "Mail outbox dispatch",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskMailOutboxDispatch,
+            },
+            super::SystemRuntimeTaskKind::BackgroundTaskDispatch => {
+                wire: "background-task-dispatch",
+                display: "Background task dispatch",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskBackgroundTaskDispatch,
+            },
+            super::SystemRuntimeTaskKind::UploadCleanup => {
+                wire: "upload-cleanup",
+                display: "Upload cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskUploadCleanup,
+            },
+            super::SystemRuntimeTaskKind::CompletedUploadCleanup => {
+                wire: "completed-upload-cleanup",
+                display: "Completed upload cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskCompletedUploadCleanup,
+            },
+            super::SystemRuntimeTaskKind::BlobReconcile => {
+                wire: "blob-reconcile",
+                display: "Blob reconcile",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskBlobReconcile,
+            },
+            super::SystemRuntimeTaskKind::SystemHealthCheck => {
+                wire: "system-health-check",
+                display: "System health check",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskSystemHealthCheck,
+            },
+            super::SystemRuntimeTaskKind::RemoteNodeHealthTest => {
+                wire: "remote-node-health-test",
+                display: "Remote node health test",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskRemoteNodeHealthTest,
+            },
+            super::SystemRuntimeTaskKind::TrashCleanup => {
+                wire: "trash-cleanup",
+                display: "Trash cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskTrashCleanup,
+            },
+            super::SystemRuntimeTaskKind::TeamArchiveCleanup => {
+                wire: "team-archive-cleanup",
+                display: "Team archive cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskTeamArchiveCleanup,
+            },
+            super::SystemRuntimeTaskKind::LockCleanup => {
+                wire: "lock-cleanup",
+                display: "Lock cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskLockCleanup,
+            },
+            super::SystemRuntimeTaskKind::AuthSessionCleanup => {
+                wire: "auth-session-cleanup",
+                display: "Auth session cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskAuthSessionCleanup,
+            },
+            super::SystemRuntimeTaskKind::ExternalAuthFlowCleanup => {
+                wire: "external-auth-flow-cleanup",
+                display: "External auth flow cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskExternalAuthFlowCleanup,
+            },
+            super::SystemRuntimeTaskKind::MfaFlowCleanup => {
+                wire: "mfa-flow-cleanup",
+                display: "MFA flow cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskMfaFlowCleanup,
+            },
+            super::SystemRuntimeTaskKind::AuditCleanup => {
+                wire: "audit-cleanup",
+                display: "Audit log cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskAuditCleanup,
+            },
+            super::SystemRuntimeTaskKind::TaskCleanup => {
+                wire: "task-cleanup",
+                display: "Task artifact cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskTaskCleanup,
+            },
+            super::SystemRuntimeTaskKind::WopiSessionCleanup => {
+                wire: "wopi-session-cleanup",
+                display: "WOPI session cleanup",
+                presentation: crate::services::task::types::TaskPresentationCode::RuntimeTaskWopiSessionCleanup,
+            },
+        }
+    }
+}
+
 impl SystemRuntimeTaskKind {
     pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::MailOutboxDispatch => "mail-outbox-dispatch",
-            Self::BackgroundTaskDispatch => "background-task-dispatch",
-            Self::UploadCleanup => "upload-cleanup",
-            Self::CompletedUploadCleanup => "completed-upload-cleanup",
-            Self::BlobReconcile => "blob-reconcile",
-            Self::SystemHealthCheck => "system-health-check",
-            Self::RemoteNodeHealthTest => "remote-node-health-test",
-            Self::TrashCleanup => "trash-cleanup",
-            Self::TeamArchiveCleanup => "team-archive-cleanup",
-            Self::LockCleanup => "lock-cleanup",
-            Self::AuthSessionCleanup => "auth-session-cleanup",
-            Self::ExternalAuthFlowCleanup => "external-auth-flow-cleanup",
-            Self::MfaFlowCleanup => "mfa-flow-cleanup",
-            Self::AuditCleanup => "audit-cleanup",
-            Self::TaskCleanup => "task-cleanup",
-            Self::WopiSessionCleanup => "wopi-session-cleanup",
-        }
+        system_runtime_task_registry::as_str(self)
     }
 
     pub const fn display_name(self) -> &'static str {
-        match self {
-            Self::MailOutboxDispatch => "Mail outbox dispatch",
-            Self::BackgroundTaskDispatch => "Background task dispatch",
-            Self::UploadCleanup => "Upload cleanup",
-            Self::CompletedUploadCleanup => "Completed upload cleanup",
-            Self::BlobReconcile => "Blob reconcile",
-            Self::SystemHealthCheck => "System health check",
-            Self::RemoteNodeHealthTest => "Remote node health test",
-            Self::TrashCleanup => "Trash cleanup",
-            Self::TeamArchiveCleanup => "Team archive cleanup",
-            Self::LockCleanup => "Lock cleanup",
-            Self::AuthSessionCleanup => "Auth session cleanup",
-            Self::ExternalAuthFlowCleanup => "External auth flow cleanup",
-            Self::MfaFlowCleanup => "MFA flow cleanup",
-            Self::AuditCleanup => "Audit log cleanup",
-            Self::TaskCleanup => "Task artifact cleanup",
-            Self::WopiSessionCleanup => "WOPI session cleanup",
-        }
+        system_runtime_task_registry::display_name(self)
     }
 
     pub const fn presentation_code(self) -> TaskPresentationCode {
-        match self {
-            Self::MailOutboxDispatch => TaskPresentationCode::RuntimeTaskMailOutboxDispatch,
-            Self::BackgroundTaskDispatch => TaskPresentationCode::RuntimeTaskBackgroundTaskDispatch,
-            Self::UploadCleanup => TaskPresentationCode::RuntimeTaskUploadCleanup,
-            Self::CompletedUploadCleanup => TaskPresentationCode::RuntimeTaskCompletedUploadCleanup,
-            Self::BlobReconcile => TaskPresentationCode::RuntimeTaskBlobReconcile,
-            Self::SystemHealthCheck => TaskPresentationCode::RuntimeTaskSystemHealthCheck,
-            Self::RemoteNodeHealthTest => TaskPresentationCode::RuntimeTaskRemoteNodeHealthTest,
-            Self::TrashCleanup => TaskPresentationCode::RuntimeTaskTrashCleanup,
-            Self::TeamArchiveCleanup => TaskPresentationCode::RuntimeTaskTeamArchiveCleanup,
-            Self::LockCleanup => TaskPresentationCode::RuntimeTaskLockCleanup,
-            Self::AuthSessionCleanup => TaskPresentationCode::RuntimeTaskAuthSessionCleanup,
-            Self::ExternalAuthFlowCleanup => {
-                TaskPresentationCode::RuntimeTaskExternalAuthFlowCleanup
-            }
-            Self::MfaFlowCleanup => TaskPresentationCode::RuntimeTaskMfaFlowCleanup,
-            Self::AuditCleanup => TaskPresentationCode::RuntimeTaskAuditCleanup,
-            Self::TaskCleanup => TaskPresentationCode::RuntimeTaskTaskCleanup,
-            Self::WopiSessionCleanup => TaskPresentationCode::RuntimeTaskWopiSessionCleanup,
-        }
+        system_runtime_task_registry::presentation_code(self)
     }
 
     pub fn from_wire_value(value: &str) -> Option<Self> {
-        match value {
-            "mail-outbox-dispatch" => Some(Self::MailOutboxDispatch),
-            "background-task-dispatch" => Some(Self::BackgroundTaskDispatch),
-            "upload-cleanup" => Some(Self::UploadCleanup),
-            "completed-upload-cleanup" => Some(Self::CompletedUploadCleanup),
-            "blob-reconcile" => Some(Self::BlobReconcile),
-            "system-health-check" => Some(Self::SystemHealthCheck),
-            "remote-node-health-test" => Some(Self::RemoteNodeHealthTest),
-            "trash-cleanup" => Some(Self::TrashCleanup),
-            "team-archive-cleanup" => Some(Self::TeamArchiveCleanup),
-            "lock-cleanup" => Some(Self::LockCleanup),
-            "auth-session-cleanup" => Some(Self::AuthSessionCleanup),
-            "external-auth-flow-cleanup" => Some(Self::ExternalAuthFlowCleanup),
-            "mfa-flow-cleanup" => Some(Self::MfaFlowCleanup),
-            "audit-cleanup" => Some(Self::AuditCleanup),
-            "task-cleanup" => Some(Self::TaskCleanup),
-            "wopi-session-cleanup" => Some(Self::WopiSessionCleanup),
-            _ => None,
-        }
+        system_runtime_task_registry::from_wire_value(value)
+    }
+}
+
+pub fn registered_system_runtime_tasks() -> &'static [SystemRuntimeTaskDefinition] {
+    system_runtime_task_registry::DEFINITIONS
+}
+
+impl aster_forge_tasks::RegisteredRuntimeTaskKind for SystemRuntimeTaskKind {
+    fn as_str(self) -> &'static str {
+        Self::as_str(self)
+    }
+    fn display_name(self) -> &'static str {
+        Self::display_name(self)
+    }
+    fn from_wire_value(value: &str) -> Option<Self> {
+        Self::from_wire_value(value)
     }
 }
 
@@ -246,6 +283,49 @@ pub async fn record_runtime_task_run(
     finished_at: DateTime<Utc>,
     outcome: &RuntimeTaskRunOutcome,
 ) -> Result<Option<background_task::Model>> {
+    record_runtime_task_run_with_dedupe_key(
+        state,
+        task_name,
+        started_at,
+        finished_at,
+        outcome,
+        None,
+    )
+    .await
+}
+
+pub async fn record_scheduled_runtime_task_run(
+    state: &impl SharedRuntimeState,
+    task_name: SystemRuntimeTaskKind,
+    scheduled_at: DateTime<Utc>,
+    started_at: DateTime<Utc>,
+    finished_at: DateTime<Utc>,
+    outcome: &RuntimeTaskRunOutcome,
+) -> Result<Option<background_task::Model>> {
+    let dedupe_key = aster_forge_tasks::scheduled_task_dedupe_key(
+        "aster_drive",
+        task_name.as_str(),
+        scheduled_at,
+    )?;
+    record_runtime_task_run_with_dedupe_key(
+        state,
+        task_name,
+        started_at,
+        finished_at,
+        outcome,
+        Some(dedupe_key),
+    )
+    .await
+}
+
+async fn record_runtime_task_run_with_dedupe_key(
+    state: &impl SharedRuntimeState,
+    task_name: SystemRuntimeTaskKind,
+    started_at: DateTime<Utc>,
+    finished_at: DateTime<Utc>,
+    outcome: &RuntimeTaskRunOutcome,
+    dedupe_key: Option<aster_forge_tasks::TaskDedupeKey>,
+) -> Result<Option<background_task::Model>> {
     if !outcome.should_record() {
         // Quiet 代表“这轮什么都没发生，不值得留痕”。
         // 比如 background-task-dispatch 空轮询时，不会每 5 秒往任务表里灌一行噪音数据。
@@ -316,6 +396,9 @@ pub async fn record_runtime_task_run(
     if let Some(summary) = summary {
         create = create.status_text(summary);
     }
+    if let Some(dedupe_key) = dedupe_key {
+        create = create.dedupe_key(dedupe_key);
+    }
 
     let task = insert_typed_task_record(state, state.writer_db(), create).await?;
 
@@ -337,4 +420,116 @@ fn should_refresh_latest_success(
                 ..
             }
         )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run,
+        record_scheduled_runtime_task_run, registered_system_runtime_tasks,
+    };
+    use crate::runtime::SharedRuntimeState;
+    use chrono::{Duration, Utc};
+    use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
+
+    #[test]
+    fn runtime_task_registry_has_unique_complete_metadata() {
+        let definitions = registered_system_runtime_tasks();
+        assert_eq!(definitions.len(), 16);
+
+        let mut wire_values = std::collections::BTreeSet::new();
+        for definition in definitions {
+            assert!(!definition.wire_value.is_empty());
+            assert!(!definition.display_name.is_empty());
+            assert!(wire_values.insert(definition.wire_value));
+            assert_eq!(definition.kind.as_str(), definition.wire_value);
+            assert_eq!(definition.kind.display_name(), definition.display_name);
+        }
+    }
+
+    #[tokio::test]
+    async fn scheduled_runtime_record_deduplicates_same_firing() {
+        let state = crate::runtime::tasks::test_support::setup_primary_state().await;
+        let scheduled_at = Utc::now() - Duration::minutes(1);
+        let outcome = RuntimeTaskRunOutcome::succeeded(Some("completed".to_string()));
+
+        let first = record_scheduled_runtime_task_run(
+            state.get_ref(),
+            SystemRuntimeTaskKind::AuditCleanup,
+            scheduled_at,
+            scheduled_at + Duration::seconds(1),
+            scheduled_at + Duration::seconds(2),
+            &outcome,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let second = record_scheduled_runtime_task_run(
+            state.get_ref(),
+            SystemRuntimeTaskKind::AuditCleanup,
+            scheduled_at,
+            scheduled_at + Duration::seconds(3),
+            scheduled_at + Duration::seconds(4),
+            &outcome,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_eq!(first.id, second.id);
+        assert_eq!(first.dedupe_key, second.dedupe_key);
+        assert!(first.dedupe_key.is_some());
+        assert_eq!(
+            crate::entities::background_task::Entity::find()
+                .filter(crate::entities::background_task::Column::DedupeKey.is_not_null())
+                .count(state.writer_db())
+                .await
+                .unwrap(),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn scheduled_runtime_record_distinguishes_firings_and_manual_records() {
+        let state = crate::runtime::tasks::test_support::setup_primary_state().await;
+        let scheduled_at = Utc::now() - Duration::minutes(2);
+        let outcome = RuntimeTaskRunOutcome::succeeded(Some("completed".to_string()));
+
+        let first = record_scheduled_runtime_task_run(
+            state.get_ref(),
+            SystemRuntimeTaskKind::TaskCleanup,
+            scheduled_at,
+            scheduled_at,
+            scheduled_at + Duration::seconds(1),
+            &outcome,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let second = record_scheduled_runtime_task_run(
+            state.get_ref(),
+            SystemRuntimeTaskKind::TaskCleanup,
+            scheduled_at + Duration::minutes(1),
+            scheduled_at + Duration::minutes(1),
+            scheduled_at + Duration::minutes(1) + Duration::seconds(1),
+            &outcome,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        let manual = record_runtime_task_run(
+            state.get_ref(),
+            SystemRuntimeTaskKind::TaskCleanup,
+            scheduled_at + Duration::minutes(2),
+            scheduled_at + Duration::minutes(2) + Duration::seconds(1),
+            &outcome,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+
+        assert_ne!(first.id, second.id);
+        assert_ne!(first.dedupe_key, second.dedupe_key);
+        assert!(manual.dedupe_key.is_none());
+    }
 }

@@ -52,7 +52,7 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
 
 async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
     let db = build_dispatch_test_db().await;
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;

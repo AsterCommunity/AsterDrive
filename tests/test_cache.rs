@@ -1,4 +1,4 @@
-use aster_drive::config::CacheConfig;
+use aster_forge_cache::CacheConfig;
 use aster_forge_cache::{CacheExt, create_cache};
 use testcontainers::{
     GenericImage,

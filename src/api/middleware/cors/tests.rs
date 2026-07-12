@@ -7,7 +7,7 @@ use super::{
 };
 use crate::config::cors::{CorsAllowedOrigins, RuntimeCorsPolicy};
 use crate::config::definitions::CONFIG_CATEGORY_NETWORK;
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::runtime::PrimaryAppState;
 use actix_web::{
     App, HttpResponse,
@@ -15,6 +15,7 @@ use actix_web::{
     test as actix_test, web,
 };
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 use aster_forge_db::system_config;
 use chrono::Utc;
 use std::sync::Arc;
@@ -24,11 +25,11 @@ fn config_model(key: &str, value: &str) -> system_config::Model {
         id: 0,
         key: key.to_string(),
         value: value.to_string(),
-        value_type: crate::types::ConfigValueType::String,
+        value_type: aster_forge_config::ConfigValueType::String,
         requires_restart: false,
         is_sensitive: false,
-        source: crate::types::ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        source: aster_forge_config::ConfigSource::System,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: CONFIG_CATEGORY_NETWORK.to_string(),
         description: "test".to_string(),

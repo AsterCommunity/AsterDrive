@@ -22,6 +22,7 @@ pub struct Model {
     pub team_id: Option<i64>,
     pub share_id: Option<i64>,
     pub display_name: String,
+    pub dedupe_key: Option<String>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub payload_json: StoredTaskPayload,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]

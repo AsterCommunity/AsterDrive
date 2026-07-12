@@ -10,9 +10,10 @@ use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::{
-    FileCategory, MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus, MediaProcessorKind,
+    MediaMetadataKind, MediaMetadataPayload, MediaMetadataStatus, MediaProcessorKind,
     StoredMediaMetadataPayload, VideoMediaMetadata,
 };
+use aster_forge_file_classification::FileCategory;
 
 mod audio;
 mod image;

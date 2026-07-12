@@ -5,10 +5,11 @@ use sea_orm::{
 };
 
 use super::common::{AdminTaskFilters, active_processing_by_kinds_condition, apply_admin_filters};
-use crate::api::pagination::{AdminTaskSortBy, SortOrder};
+use crate::api::pagination::AdminTaskSortBy;
 use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 
@@ -18,6 +19,17 @@ pub async fn find_by_id(db: &DatabaseConnection, id: i64) -> Result<background_t
         .await
         .map_err(AsterError::from)?
         .ok_or_else(|| AsterError::record_not_found(format!("task #{id}")))
+}
+
+pub async fn find_by_dedupe_key<C: ConnectionTrait>(
+    db: &C,
+    dedupe_key: &str,
+) -> Result<Option<background_task::Model>> {
+    BackgroundTask::find()
+        .filter(background_task::Column::DedupeKey.eq(dedupe_key))
+        .one(db)
+        .await
+        .map_err(AsterError::from)
 }
 
 pub async fn find_paginated_personal(

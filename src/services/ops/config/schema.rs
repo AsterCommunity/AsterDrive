@@ -10,7 +10,8 @@ use crate::config::operations::{
     OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
 use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
-use crate::types::{AuditAction, ConfigValueType};
+use crate::types::AuditAction;
+use aster_forge_config::ConfigValueType;
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;

@@ -98,7 +98,7 @@ async fn test_completed_remote_node_enrollment_rejects_new_token() {
         10,
         0,
         aster_drive::api::pagination::AdminRemoteNodeSortBy::CreatedAt,
-        aster_drive::api::pagination::SortOrder::Desc,
+        aster_forge_api::SortOrder::Desc,
     )
     .await
     .expect("remote node list should load");

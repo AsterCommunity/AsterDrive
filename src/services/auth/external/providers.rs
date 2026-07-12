@@ -1,7 +1,7 @@
 use chrono::Utc;
 use sea_orm::{ActiveValue::Set, IntoActiveModel};
 
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::load_offset_page;
 use crate::db::repository::external_auth_provider_repo;
 use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, Result};
@@ -16,6 +16,7 @@ use crate::types::{
 };
 use crate::utils::id;
 use aster_forge_api::NullablePatch;
+use aster_forge_api::OffsetPage;
 
 use super::REDACTED_SECRET;
 use super::normalize::{

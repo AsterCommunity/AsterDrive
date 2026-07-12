@@ -4,9 +4,6 @@ use crate::api::dto::validate_request;
 use crate::api::dto::webdav::{CreateWebdavAccountReq, TestConnectionReq, WebdavSettingsInfo};
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
-use crate::api::pagination::LimitOffsetQuery;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -17,6 +14,9 @@ use crate::services::{auth::local::Claims, ops::audit, webdav::account};
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_api::LimitOffsetQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
 use serde_json::json;
 
 pub fn routes(

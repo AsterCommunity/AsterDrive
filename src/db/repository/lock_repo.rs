@@ -7,13 +7,14 @@ use sea_orm::{
     sea_query::{Expr, Query, SelectStatement},
 };
 
-use crate::api::pagination::{AdminLockSortBy, SortOrder};
+use crate::api::pagination::AdminLockSortBy;
 use crate::entities::{
     file, folder,
     resource_lock::{self, Entity as ResourceLock},
 };
 use crate::errors::{AsterError, Result};
 use crate::types::EntityType;
+use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 

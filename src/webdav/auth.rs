@@ -197,7 +197,7 @@ async fn authenticate_basic(
 #[cfg(test)]
 mod tests {
     use super::{authenticate_webdav, invalidate_webdav_auth_for_username};
-    use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+    use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::{user, webdav_account};
     use crate::errors::AsterError;
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -207,6 +207,7 @@ mod tests {
     use crate::utils::hash;
     use actix_web::http::header::{self, HeaderMap, HeaderValue};
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
     use base64::Engine;
     use chrono::Utc;
     use migration::Migrator;

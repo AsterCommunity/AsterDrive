@@ -489,7 +489,7 @@ mod tests {
             mime_type: "text/plain".to_string(),
             extension: "txt".to_string(),
             compound_extension: None,
-            file_category: crate::types::FileCategory::Document,
+            file_category: aster_forge_file_classification::FileCategory::Document,
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,

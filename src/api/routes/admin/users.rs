@@ -4,9 +4,6 @@ use crate::api::dto::admin::{
     AdminUserListQuery, CreateUserInvitationReq, CreateUserReq, PatchUserReq, ResetUserPasswordReq,
 };
 use crate::api::dto::validate_request;
-use crate::api::pagination::LimitOffsetQuery;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -19,6 +16,9 @@ use crate::services::{
     user::profile,
 };
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_api::LimitOffsetQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
 
 #[aster_forge_api_docs_macros::path(
     post,
@@ -135,7 +135,7 @@ pub async fn create_user_invitation(
     operation_id = "admin_list_user_invitations",
     params(LimitOffsetQuery),
     responses(
-        (status = 200, description = "List user invitations", body = inline(ApiResponse<crate::api::pagination::OffsetPage<crate::services::user::invitation::AdminUserInvitationInfo>>)),
+        (status = 200, description = "List user invitations", body = inline(ApiResponse<aster_forge_api::OffsetPage<crate::services::user::invitation::AdminUserInvitationInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),

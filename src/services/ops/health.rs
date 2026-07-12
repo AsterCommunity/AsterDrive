@@ -1,12 +1,12 @@
 //! 服务模块：`ops::health`。
 
-use crate::config::CacheConfig;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{FollowerRuntimeState, RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::services::task::types::{
     RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
 };
 use crate::services::{remote::remote_node, task};
+use aster_forge_cache::CacheConfig;
 use sea_orm::DatabaseConnection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -289,8 +289,8 @@ async fn check_remote_nodes_component<S: RemoteProtocolRuntimeState>(
 #[cfg(test)]
 mod tests {
     use super::{HealthComponentReport, HealthStatus, SystemHealthReport, check_cache_backend};
-    use crate::config::CacheConfig;
     use crate::services::task::{RuntimeTaskRunOutcome, types::RuntimeSystemHealthStatus};
+    use aster_forge_cache::CacheConfig;
     use aster_forge_cache::{CacheBackend, CacheError};
     use async_trait::async_trait;
 

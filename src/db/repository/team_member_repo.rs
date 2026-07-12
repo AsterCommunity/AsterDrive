@@ -2,8 +2,9 @@
 
 use std::collections::HashMap;
 
-use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
+use crate::api::pagination::AdminTeamMemberSortBy;
 use crate::db::repository::team_repo::team_keyword_condition;
+use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,
     sqlite_match_query,

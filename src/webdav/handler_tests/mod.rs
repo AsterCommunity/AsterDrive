@@ -1,4 +1,4 @@
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -17,6 +17,7 @@ use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, web};
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;

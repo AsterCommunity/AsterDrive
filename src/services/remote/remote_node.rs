@@ -1,7 +1,7 @@
 //! 服务模块：`remote::remote_node`。
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::{AdminRemoteNodeSortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminRemoteNodeSortBy, load_offset_page};
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo, policy_repo};
 use crate::entities::{follower_enrollment_session, managed_follower};
 use crate::errors::{
@@ -15,6 +15,7 @@ use crate::storage::remote_protocol::{
     normalize_remote_base_url,
 };
 use crate::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_forge_api::{OffsetPage, SortOrder};
 use chrono::Utc;
 use futures::{StreamExt, stream};
 use sea_orm::{ActiveModelTrait, DbErr, Set, SqlErr};

@@ -12,7 +12,7 @@ use crate::config::{
     offline_download, operations, site_url, webdav, wopi,
 };
 use crate::services::preview::apps;
-use crate::types::ConfigValueType;
+use aster_forge_config::ConfigValueType;
 use aster_forge_config::{ConfigCoreError, ConfigValueLookup, Result as ConfigCoreResult};
 
 // ── Category keys ───────────────────────────────────────────────────────────

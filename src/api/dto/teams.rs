@@ -5,7 +5,8 @@ use serde::Deserialize;
 use utoipa::{IntoParams, ToSchema};
 use validator::{Validate, ValidationError};
 
-use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
+use crate::api::pagination::AdminTeamMemberSortBy;
+use aster_forge_api::SortOrder;
 
 pub const DEFAULT_TEAM_LIST_LIMIT: u64 = 100;
 pub const MAX_TEAM_LIST_LIMIT: u64 = 200;

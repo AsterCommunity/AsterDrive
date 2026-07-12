@@ -8,9 +8,10 @@ use sea_orm::{
 };
 use unicode_normalization::{UnicodeNormalization, is_nfc, is_nfd};
 
-use crate::api::pagination::{SortBy, SortOrder};
+use crate::api::pagination::SortBy;
 use crate::entities::folder::{self, Entity as Folder};
 use crate::errors::{AsterError, Result};
+use aster_forge_api::SortOrder;
 
 use super::common::{FolderScope, active_scope_condition, apply_parent_condition, scope_condition};
 

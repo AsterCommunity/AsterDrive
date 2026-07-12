@@ -206,6 +206,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "registry test".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(payload_json.to_string()),
             result_json: result_json.map(|value| StoredTaskResult(value.to_string())),
             runtime_json: None,

@@ -12,9 +12,9 @@ use crate::config::system_config as shared_system_config;
 use crate::db::repository::config_repo;
 use crate::errors::{AsterError, Result};
 use crate::services::ops::config::SystemConfig;
-use crate::types::{ConfigSource, ConfigValueType};
 use crate::utils::char_count;
 use aster_forge_config::ConfigValue;
+use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use chrono::Utc;
 use clap::{Args, Subcommand};
@@ -668,7 +668,7 @@ fn preview_system_config(key: &str, value: &str) -> SystemConfig {
             requires_restart: def.requires_restart,
             is_sensitive: def.is_sensitive,
             source: ConfigSource::System,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: def.category.to_string(),
             description: def.description.to_string(),
@@ -684,7 +684,7 @@ fn preview_system_config(key: &str, value: &str) -> SystemConfig {
             requires_restart: false,
             is_sensitive: false,
             source: ConfigSource::Custom,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: String::new(),
             description: String::new(),

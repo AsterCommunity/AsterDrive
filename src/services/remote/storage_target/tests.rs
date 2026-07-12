@@ -102,7 +102,7 @@ async fn setup_state() -> TestFollowerState {
         },
         ..Default::default()
     });
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;

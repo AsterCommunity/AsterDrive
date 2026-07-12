@@ -9,9 +9,9 @@ use aster_drive::db::repository::{
 };
 use aster_drive::entities::{file, file_blob};
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, ConfigSource, ConfigValueType, FileCategory,
-};
+use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_forge_config::{ConfigSource, ConfigValueType};
+use aster_forge_file_classification::FileCategory;
 use base64::Engine;
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::{Value, json};

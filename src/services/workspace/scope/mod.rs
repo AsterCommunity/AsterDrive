@@ -504,7 +504,7 @@ pub(crate) async fn list_folders_in_parent(
 #[cfg(test)]
 mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
-    use crate::config::{CacheConfig, Config, RuntimeConfig};
+    use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
     use crate::entities::{
         storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
@@ -518,6 +518,7 @@ mod tests {
         UserRole, UserStatus,
     };
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};

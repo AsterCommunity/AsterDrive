@@ -7,7 +7,7 @@ use chrono::{Duration, Utc};
 use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
 use crate::entities::{file, file_blob, resource_lock, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -18,6 +18,7 @@ use crate::types::{
     StoredStoragePolicyOptions, UserRole, UserStatus,
 };
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 
 fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model {
     resource_lock::Model {

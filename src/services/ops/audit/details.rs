@@ -2,9 +2,10 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 use crate::types::{
-    BackgroundTaskKind, BackgroundTaskStatus, ConfigVisibility, EntityType, MfaMethod,
-    MfaPersistentFactorMethod, TeamMemberRole, UserRole, UserStatus,
+    BackgroundTaskKind, BackgroundTaskStatus, EntityType, MfaMethod, MfaPersistentFactorMethod,
+    TeamMemberRole, UserRole, UserStatus,
 };
+use aster_forge_config::ConfigVisibility;
 
 #[derive(Serialize)]
 pub struct ConfigUpdateDetails<'a> {

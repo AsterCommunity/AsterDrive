@@ -393,7 +393,8 @@ mod tests {
         RuntimeConfig,
         operations::{IMAGE_PREVIEW_MAX_DIMENSION_KEY, THUMBNAIL_MAX_DIMENSION_KEY},
     };
-    use crate::types::{ConfigSource, ConfigValueType, MediaProcessorKind};
+    use crate::types::MediaProcessorKind;
+    use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;
     use std::io::Cursor;
@@ -409,7 +410,7 @@ mod tests {
             requires_restart: false,
             is_sensitive: false,
             source: ConfigSource::System,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA.to_string(),
             description: "test".to_string(),

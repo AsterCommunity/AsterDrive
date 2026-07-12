@@ -5,9 +5,10 @@ use sea_orm::{
     TryInsertResult, sea_query::Expr,
 };
 
-use crate::api::pagination::{AdminFileBlobSortBy, SortOrder};
+use crate::api::pagination::AdminFileBlobSortBy;
 use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
+use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::lower_like_condition;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 

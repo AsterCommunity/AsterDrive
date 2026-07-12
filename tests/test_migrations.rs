@@ -24,6 +24,7 @@ const ALIGN_FORGE_SYSTEM_CONFIG_CONTRACT_MIGRATION: &str =
     "m20260712_000003_align_forge_system_config_contract";
 const ALIGN_FORGE_MAIL_OUTBOX_CONTRACT_MIGRATION: &str =
     "m20260712_000004_align_forge_mail_outbox_contract";
+const RUNTIME_LEASES_MIGRATION: &str = "m20260713_000001_runtime_leases";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -187,6 +188,67 @@ async fn sqlite_column_is_not_null(
         })
     })
     .unwrap_or(false)
+}
+
+#[tokio::test]
+async fn forge_task_runtime_schema_uses_shared_tables_indexes_and_dedupe_column() {
+    let db = setup_current_schema().await;
+
+    assert!(sqlite_table_exists(&db, aster_forge_db::RUNTIME_LEASES_TABLE).await);
+    assert!(sqlite_table_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE).await);
+    assert!(
+        sqlite_table_columns(&db, "background_tasks")
+            .await
+            .iter()
+            .any(|column| column == "dedupe_key")
+    );
+    assert!(
+        sqlite_table_index_exists(
+            &db,
+            "background_tasks",
+            "idx_background_tasks_dedupe_key_unique",
+        )
+        .await
+    );
+    for index in [
+        "idx_scheduled_tasks_namespace_name_unique",
+        "idx_scheduled_tasks_next_run",
+    ] {
+        assert!(
+            sqlite_table_index_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE, index).await,
+            "scheduled task index {index} should exist"
+        );
+    }
+}
+
+#[tokio::test]
+async fn forge_task_runtime_migrations_roll_back_and_reapply_as_one_contract() {
+    let db = setup_current_schema().await;
+    let steps = steps_to_roll_back_migration(RUNTIME_LEASES_MIGRATION);
+
+    CurrentMigrator::down(&db, Some(steps))
+        .await
+        .expect("Forge task runtime migrations should roll back");
+    assert!(!sqlite_table_exists(&db, aster_forge_db::RUNTIME_LEASES_TABLE).await);
+    assert!(!sqlite_table_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE).await);
+    assert!(
+        !sqlite_table_columns(&db, "background_tasks")
+            .await
+            .iter()
+            .any(|column| column == "dedupe_key")
+    );
+
+    CurrentMigrator::up(&db, None)
+        .await
+        .expect("Forge task runtime migrations should reapply");
+    assert!(sqlite_table_exists(&db, aster_forge_db::RUNTIME_LEASES_TABLE).await);
+    assert!(sqlite_table_exists(&db, aster_forge_db::SCHEDULED_TASKS_TABLE).await);
+    assert!(
+        sqlite_table_columns(&db, "background_tasks")
+            .await
+            .iter()
+            .any(|column| column == "dedupe_key")
+    );
 }
 
 async fn sqlite_column_type_and_default(

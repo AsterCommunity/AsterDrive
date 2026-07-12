@@ -343,7 +343,7 @@ async fn test_file_service_get_info() {
 #[actix_web::test]
 async fn test_file_active_model_partial_name_update_refreshes_classification() {
     use aster_drive::entities::file;
-    use aster_drive::types::FileCategory;
+    use aster_forge_file_classification::FileCategory;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;
@@ -379,7 +379,7 @@ async fn test_file_active_model_partial_name_update_refreshes_classification() {
 #[actix_web::test]
 async fn test_file_active_model_partial_mime_update_refreshes_classification() {
     use aster_drive::entities::file;
-    use aster_drive::types::FileCategory;
+    use aster_forge_file_classification::FileCategory;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;

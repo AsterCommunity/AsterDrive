@@ -238,9 +238,10 @@ impl FollowerRuntimeState for FollowerAppState {}
 #[cfg(test)]
 pub(crate) mod test_support {
     use super::SharedRuntimeState;
-    use crate::config::{CacheConfig, Config, RuntimeConfig};
+    use crate::config::{Config, RuntimeConfig};
     use crate::metrics::SharedMetricsRecorder;
     use crate::storage::{DriverRegistry, PolicySnapshot};
+    use aster_forge_cache::CacheConfig;
     use sea_orm::DatabaseConnection;
     use std::sync::Arc;
 
@@ -306,9 +307,10 @@ pub(crate) mod test_support {
 #[cfg(test)]
 mod tests {
     use super::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
-    use crate::config::{CacheConfig, Config, RuntimeConfig};
+    use crate::config::{Config, RuntimeConfig};
     use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
+    use aster_forge_cache::CacheConfig;
     use migration::Migrator;
     use std::sync::Arc;
 

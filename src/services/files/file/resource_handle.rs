@@ -374,7 +374,7 @@ mod tests {
         FileResourceHandleRequest, FileResourcePurpose, FileResourceRedirectPolicy,
         FileResourceRepresentation,
     };
-    use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+    use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
     use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
@@ -387,6 +387,7 @@ mod tests {
         UserStatus,
     };
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
 
     use super::{
         FileResourcePathSet, can_browser_render_image, resolve_file_resource_handle_for_file,
@@ -736,7 +737,7 @@ mod tests {
             mime_type: "application/octet-stream".to_string(),
             extension: "jpg".to_string(),
             compound_extension: None,
-            file_category: crate::types::FileCategory::Image,
+            file_category: aster_forge_file_classification::FileCategory::Image,
             created_at: Utc::now(),
             updated_at: Utc::now(),
             deleted_at: None,

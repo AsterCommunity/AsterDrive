@@ -7,13 +7,14 @@ use actix_web::body::{MessageBody, to_bytes};
 use actix_web::cookie::SameSite;
 use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
-use aster_drive::api::pagination::{AdminAuditLogSortBy, SortOrder};
+use aster_drive::api::pagination::AdminAuditLogSortBy;
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
 use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
 use aster_drive::types::{AuditAction, UserStatus};
+use aster_forge_api::SortOrder;
 use base64::Engine as _;
 use serde_json::Value;
 use std::io::Cursor;
@@ -3646,7 +3647,7 @@ async fn test_unauthorized_access() {
 #[actix_web::test]
 async fn test_user_status_cached_in_auth_middleware() {
     // 明确使用 MemoryCache 验证认证缓存命中。
-    let cache_config = aster_drive::config::CacheConfig {
+    let cache_config = aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()
@@ -3694,7 +3695,7 @@ async fn test_user_status_cached_in_auth_middleware() {
 /// admin 禁用用户后，缓存立即失效，后续请求被拒
 #[actix_web::test]
 async fn test_disable_user_invalidates_status_cache() {
-    let cache_config = aster_drive::config::CacheConfig {
+    let cache_config = aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         default_ttl: 60,
         ..Default::default()

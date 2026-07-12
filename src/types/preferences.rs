@@ -129,7 +129,7 @@ pub struct UserPreferences {
     pub view_mode: Option<PrefViewMode>,
     pub browser_open_mode: Option<BrowserOpenMode>,
     pub sort_by: Option<crate::api::pagination::SortBy>,
-    pub sort_order: Option<crate::api::pagination::SortOrder>,
+    pub sort_order: Option<aster_forge_api::SortOrder>,
     pub language: Option<Language>,
     pub display_time_zone: Option<String>,
     pub storage_event_stream_enabled: Option<bool>,

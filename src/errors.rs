@@ -450,6 +450,12 @@ impl From<aster_forge_config::ConfigCoreError> for AsterError {
     }
 }
 
+impl From<aster_forge_tasks::TaskCoreError> for AsterError {
+    fn from(value: aster_forge_tasks::TaskCoreError) -> Self {
+        Self::internal_error(value.to_string())
+    }
+}
+
 impl From<aster_forge_file_classification::FileClassificationError> for AsterError {
     fn from(error: aster_forge_file_classification::FileClassificationError) -> Self {
         Self::validation_error(error.message())

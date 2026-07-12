@@ -11,7 +11,7 @@ use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 use tokio::io::{AsyncRead, AsyncWriteExt};
 
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
@@ -26,6 +26,7 @@ use crate::types::{
 };
 use crate::utils::numbers::usize_to_i64;
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 
 use super::build::build_download_outcome_with_disposition_and_range;
 use super::response::outcome_to_response;

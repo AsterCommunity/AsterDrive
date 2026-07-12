@@ -1,4 +1,3 @@
-use crate::api::pagination::OffsetPage;
 use crate::config::definitions::CONFIG_REGISTRY;
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{MEDIA_METADATA_ENABLED_KEY, MEDIA_METADATA_MAX_SOURCE_BYTES_KEY};
@@ -8,7 +7,8 @@ use crate::db::repository::config_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::{ConfigSource, ConfigValueType, ConfigVisibility};
+use aster_forge_api::OffsetPage;
+use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_config::{ConfigValue, config_value_audit_string};
 use aster_forge_db::system_config;
 use aster_forge_db::transaction;
@@ -446,7 +446,8 @@ mod tests {
             .reload(&db)
             .await
             .expect("config sync service runtime config should load");
-        let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig::default()).await;
+        let cache =
+            aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default()).await;
         let notifier = Arc::new(aster_forge_config::InMemoryConfigNotifier::default());
         let subscription = notifier
             .subscribe()
@@ -569,5 +570,53 @@ mod tests {
             ]
         );
         assert_eq!(message.source, ConfigNotificationSource::Api);
+    }
+
+    #[tokio::test]
+    async fn email_code_mfa_requires_complete_mail_settings() {
+        let (state, _subscription) = test_state().await;
+
+        let error = set(
+            &state,
+            crate::config::auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+            "true",
+            1,
+        )
+        .await
+        .expect_err("email-code MFA must reject incomplete mail settings");
+        assert!(
+            error
+                .message()
+                .contains("email code MFA requires complete SMTP mail configuration")
+        );
+
+        for (key, value) in [
+            (crate::config::mail::MAIL_SMTP_HOST_KEY, "smtp.example.com"),
+            (
+                crate::config::mail::MAIL_FROM_ADDRESS_KEY,
+                "drive@example.com",
+            ),
+            (crate::config::mail::MAIL_SMTP_USERNAME_KEY, "drive"),
+            (crate::config::mail::MAIL_SMTP_PASSWORD_KEY, "secret"),
+        ] {
+            let model =
+                crate::db::repository::config_repo::upsert(state.writer_db(), key, value, 1)
+                    .await
+                    .unwrap();
+            state.runtime_config().apply(model);
+        }
+
+        let saved = set(
+            &state,
+            crate::config::auth_runtime::AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY,
+            "true",
+            1,
+        )
+        .await
+        .expect("email-code MFA should accept complete mail settings");
+        assert_eq!(
+            saved.value,
+            aster_forge_config::ConfigValue::String("true".to_string())
+        );
     }
 }

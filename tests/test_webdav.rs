@@ -10,10 +10,8 @@ use aster_drive::db::repository::{file_repo, property_repo};
 use aster_drive::entities::{audit_log, folder, team, team_member, user, webdav_account};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::ops::audit;
-use aster_drive::types::{
-    AuditAction, ConfigSource, ConfigValueType, ConfigVisibility, EntityType, TeamMemberRole,
-    UserRole, UserStatus,
-};
+use aster_drive::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
+use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_db::system_config;
 use base64::Engine;
 use chrono::Utc;

@@ -220,7 +220,7 @@ async fn build_oauth_test_state(
         crate::config::site_url::PUBLIC_SITE_URL_KEY,
         r#"["https://drive.example.test"]"#,
     ));
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
         ..Default::default()
     })
@@ -259,11 +259,11 @@ fn test_config_model(key: &str, value: &str) -> aster_forge_db::system_config::M
         id: 1,
         key: key.to_string(),
         value: value.to_string(),
-        value_type: crate::types::ConfigValueType::String,
+        value_type: aster_forge_config::ConfigValueType::String,
         requires_restart: false,
         is_sensitive: false,
-        source: crate::types::ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        source: aster_forge_config::ConfigSource::System,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: crate::config::definitions::CONFIG_CATEGORY_SITE.to_string(),
         description: "test".to_string(),

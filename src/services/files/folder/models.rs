@@ -29,7 +29,7 @@ pub struct FileListItem {
     /// Populated only when the file name ends with a supported compound extension.
     pub compound_extension: Option<String>,
     /// Category derived from the extension first, then MIME type as fallback.
-    pub file_category: crate::types::FileCategory,
+    pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
     pub is_locked: bool,
@@ -144,7 +144,7 @@ mod tests {
         is_locked: bool,
         extension: &str,
         compound_extension: Option<&str>,
-        file_category: crate::types::FileCategory,
+        file_category: aster_forge_file_classification::FileCategory,
     ) -> file::Model {
         file::Model {
             id,
@@ -193,7 +193,7 @@ mod tests {
                 false,
                 "txt",
                 None,
-                crate::types::FileCategory::Document,
+                aster_forge_file_classification::FileCategory::Document,
             ),
             mock_file(
                 2,
@@ -201,7 +201,7 @@ mod tests {
                 true,
                 "gz",
                 Some("tar.gz"),
-                crate::types::FileCategory::Archive,
+                aster_forge_file_classification::FileCategory::Archive,
             ),
             mock_file(
                 3,
@@ -209,7 +209,7 @@ mod tests {
                 false,
                 "",
                 None,
-                crate::types::FileCategory::Other,
+                aster_forge_file_classification::FileCategory::Other,
             ),
         ];
         let shared: HashSet<i64> = [1].into_iter().collect();
@@ -220,18 +220,27 @@ mod tests {
         assert_eq!(items[0].name, "a.txt");
         assert_eq!(items[0].extension, "txt");
         assert_eq!(items[0].compound_extension, None);
-        assert_eq!(items[0].file_category, crate::types::FileCategory::Document);
+        assert_eq!(
+            items[0].file_category,
+            aster_forge_file_classification::FileCategory::Document
+        );
         assert!(items[0].is_shared);
         assert!(!items[0].is_locked);
         assert_eq!(items[1].id, 2);
         assert_eq!(items[1].extension, "gz");
         assert_eq!(items[1].compound_extension.as_deref(), Some("tar.gz"));
-        assert_eq!(items[1].file_category, crate::types::FileCategory::Archive);
+        assert_eq!(
+            items[1].file_category,
+            aster_forge_file_classification::FileCategory::Archive
+        );
         assert!(!items[1].is_shared);
         assert!(items[1].is_locked);
         assert_eq!(items[2].extension, "");
         assert_eq!(items[2].compound_extension, None);
-        assert_eq!(items[2].file_category, crate::types::FileCategory::Other);
+        assert_eq!(
+            items[2].file_category,
+            aster_forge_file_classification::FileCategory::Other
+        );
     }
 
     #[test]
@@ -249,7 +258,7 @@ mod tests {
                 false,
                 "txt",
                 None,
-                crate::types::FileCategory::Document,
+                aster_forge_file_classification::FileCategory::Document,
             ),
             mock_file(
                 2,
@@ -257,7 +266,7 @@ mod tests {
                 false,
                 "txt",
                 None,
-                crate::types::FileCategory::Document,
+                aster_forge_file_classification::FileCategory::Document,
             ),
         ];
         let shared: HashSet<i64> = [1].into_iter().collect();

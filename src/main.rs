@@ -286,9 +286,15 @@ async fn run_primary_http_server(
             metrics,
         ))?
         .component(
-            aster_drive::runtime::components::primary_background_tasks_component(
-                state,
-                share_download_rollback_worker,
+            aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
+                aster_drive::services::task::registered_system_runtime_tasks(),
+                move |shutdown_token| {
+                    aster_drive::runtime::tasks::spawn_primary_background_tasks(
+                        state,
+                        share_download_rollback_worker,
+                        shutdown_token,
+                    )
+                },
             ),
         )
         .component(aster_forge_mail::mail_outbox_component(
@@ -335,7 +341,17 @@ async fn run_follower_http_server(
             state.clone(),
             metrics,
         ))?
-        .component(aster_drive::runtime::components::follower_background_tasks_component(state))
+        .component(
+            aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
+                aster_drive::services::task::registered_system_runtime_tasks(),
+                move |shutdown_token| {
+                    aster_drive::runtime::tasks::spawn_follower_background_tasks(
+                        state,
+                        shutdown_token,
+                    )
+                },
+            ),
+        )
         .component(aster_drive::runtime::components::follower_audit_component(
             audit_state,
         ))

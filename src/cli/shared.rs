@@ -8,7 +8,7 @@ use std::io::{self, IsTerminal};
 use crate::db;
 use crate::db::repository::config_repo;
 use crate::errors::{AsterError, Result};
-use crate::types::ConfigSource;
+use aster_forge_config::ConfigSource;
 use clap::ValueEnum;
 use clap::builder::styling::{AnsiColor, Effects, Styles};
 use serde::Serialize;

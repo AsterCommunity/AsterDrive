@@ -6,10 +6,11 @@ use sea_orm::{
     QueryOrder, QuerySelect, Select,
 };
 
-use crate::api::pagination::{AdminAuditLogSortBy, SortOrder};
+use crate::api::pagination::AdminAuditLogSortBy;
 use crate::entities::audit_log as product_audit_log;
 use crate::errors::{AsterError, Result};
 use crate::types::AuditAction;
+use aster_forge_api::SortOrder;
 use aster_forge_db::audit_log::{self, Entity as AuditLog};
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
 

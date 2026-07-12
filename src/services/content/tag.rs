@@ -6,7 +6,7 @@ use std::collections::{HashMap, HashSet};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::api::pagination::{MAX_PAGE_SIZE, OffsetPage, load_offset_page};
+use crate::api::pagination::load_offset_page;
 use crate::db::repository::{file_repo, folder_repo, property_repo, tag_repo};
 use crate::entities::tag;
 use crate::errors::{AsterError, Result};
@@ -20,6 +20,7 @@ use crate::services::{
 };
 use crate::types::{EntityType, TagScopeType};
 use crate::utils::char_count;
+use aster_forge_api::{MAX_PAGE_SIZE, OffsetPage};
 
 pub const TAG_PROPERTY_NAMESPACE: &str = "system.tags";
 pub const TAG_NAME_MAX_CHARS: usize = 64;

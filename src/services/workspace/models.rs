@@ -26,7 +26,7 @@ pub struct FileInfo {
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
-    pub file_category: crate::types::FileCategory,
+    pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

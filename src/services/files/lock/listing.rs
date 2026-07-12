@@ -1,9 +1,10 @@
-use crate::api::pagination::{AdminLockSortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminLockSortBy, load_offset_page};
 use crate::db::repository::lock_repo;
 use crate::entities::resource_lock;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
+use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::ResourceLock;
 use super::owner_info::deserialize_resource_lock_owner_info;

@@ -255,7 +255,7 @@ REST 创建分享时使用 `target: { type, id }` 描述目标；服务层会把
 - 用户可见、可能较耗时的业务任务，例如归档压缩、解压、缩略图生成
 - 系统周期任务的执行记录，例如清理、派发和巡检
 
-它不是一个独立的任务服务，也不是外部消息队列，而是单体进程里的持久化任务子系统。
+它不是一个独立的任务服务，也不是外部消息队列，而是产品持久化任务子系统。通用执行机制由 `aster_forge_tasks` 提供，并支持多实例协调。
 
 核心目标是：
 
@@ -279,6 +279,17 @@ REST 创建分享时使用 `target: { type, id }` 描述目标；服务层会把
 - retry、清理、归档保留期都可以直接基于同一条记录操作
 
 代价是表结构字段会比较重，但对当前单体规模是可接受的。
+
+`background_tasks.dedupe_key` 是 nullable unique 字段。普通用户任务保持 `NULL`；系统计划任务使用 Forge `scheduled_task_dedupe_key(...)`，确保同一 scheduled firing 最多产生一条历史记录。
+
+### 多实例周期任务协调
+
+周期任务不再由每个进程各自启动本地 timer。`aster_forge_tasks::LeasedScheduledRuntimeConfig` 组合两层数据库协调：
+
+- `runtime_leases`：选出当前 primary scheduler group owner。
+- `scheduled_tasks`：保存每个任务的 next run、claim owner 和 claim 过期时间。
+
+runtime lease 降低重复执行概率，scheduled claim 决定某次触发由谁执行，`background_tasks.dedupe_key` 负责最终写入幂等。三层缺一不可，不能把 lease 当成 exactly-once 保证。
 
 ### 认领模型：租约 + fencing token
 

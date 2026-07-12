@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 
-use crate::api::pagination::{AdminShareSortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminShareSortBy, load_offset_page};
 use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::entities::share;
 use crate::errors::{AsterError, Result};
@@ -21,6 +21,7 @@ use crate::services::{
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::utils::{hash, id};
+use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::cache::{
     invalidate_active_share_target_cache_for_scope, invalidate_active_share_target_cache_for_share,

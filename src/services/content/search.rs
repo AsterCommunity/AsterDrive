@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use utoipa::{IntoParams, ToSchema};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::{SortBy, SortOrder};
+use crate::api::pagination::SortBy;
 use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
@@ -18,7 +18,8 @@ use crate::services::{
     workspace::storage::WorkspaceResourceScope,
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::types::FileCategory;
+use aster_forge_api::SortOrder;
+use aster_forge_file_classification::FileCategory;
 use aster_forge_file_classification::{parse_extension_filters, parse_file_category};
 
 #[derive(Deserialize)]

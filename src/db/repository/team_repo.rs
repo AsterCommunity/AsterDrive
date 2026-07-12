@@ -1,6 +1,7 @@
 //! 仓储模块：`team_repo`。
 
-use crate::api::pagination::{AdminTeamSortBy, SortOrder};
+use crate::api::pagination::AdminTeamSortBy;
+use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,

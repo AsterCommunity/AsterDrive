@@ -77,6 +77,8 @@ fn all_entity_schemas() -> Vec<EntitySchema> {
         entity_schema!(storage_policy_group::Entity),
         entity_schema!(storage_policy_group_item::Entity),
         entity_schema!(aster_forge_db::system_config::Entity),
+        entity_schema!(aster_forge_db::runtime_lease::Entity),
+        entity_schema!(aster_forge_db::scheduled_task::Entity),
         entity_schema!(tag::Entity),
         entity_schema!(team::Entity),
         entity_schema!(team_member::Entity),

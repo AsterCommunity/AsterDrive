@@ -1,8 +1,9 @@
 use crate::config::definitions::CONFIG_CATEGORY_FILE_PROCESSING_MEDIA;
 use crate::config::media_processing::command_is_available;
 use crate::config::{RuntimeConfig, media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY};
-use crate::types::{ConfigSource, ConfigValueType, MediaProcessorKind};
+use crate::types::MediaProcessorKind;
 use actix_web::ResponseError;
+use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use chrono::Utc;
 use image::{GenericImageView, ImageFormat, Rgb, RgbImage};
@@ -21,7 +22,7 @@ fn config_model(key: &str, value: &str) -> system_config::Model {
         requires_restart: false,
         is_sensitive: false,
         source: ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA.to_string(),
         description: "test".to_string(),

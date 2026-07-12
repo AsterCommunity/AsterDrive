@@ -168,7 +168,7 @@ pub(crate) async fn list_team_audit_entries(
     mut filters: audit::AuditLogFilters,
     limit: u64,
     offset: u64,
-) -> Result<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>> {
+) -> Result<aster_forge_api::OffsetPage<audit::TeamAuditEntryInfo>> {
     let team = get_team(state, team_id, actor_user_id).await?;
     if !team.my_role.can_manage_team() {
         return Err(AsterError::auth_forbidden(
@@ -375,7 +375,7 @@ pub(crate) async fn list_admin_team_audit_entries(
     mut filters: audit::AuditLogFilters,
     limit: u64,
     offset: u64,
-) -> Result<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>> {
+) -> Result<aster_forge_api::OffsetPage<audit::TeamAuditEntryInfo>> {
     let team = get_admin_team(state, team_id).await?;
     filters.entity_type = Some(crate::services::ops::audit::AuditEntityType::Team);
     filters.entity_id = Some(team.id);

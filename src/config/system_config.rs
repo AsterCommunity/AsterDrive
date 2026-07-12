@@ -2,7 +2,7 @@
 
 use crate::config::RuntimeConfig;
 use crate::config::definitions::CONFIG_REGISTRY;
-use crate::types::ConfigSource;
+use aster_forge_config::ConfigSource;
 use aster_forge_config::{ConfigValueLookup, StoredConfig};
 use aster_forge_db::system_config;
 
@@ -57,7 +57,7 @@ mod tests {
         MIN_SHARE_STREAM_SESSION_TTL_SECS, SHARE_DOWNLOAD_ROLLBACK_QUEUE_CAPACITY_KEY,
         SHARE_STREAM_SESSION_TTL_SECS_KEY, THUMBNAIL_MAX_DIMENSION_KEY,
     };
-    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;
     use std::collections::HashMap;
@@ -71,7 +71,7 @@ mod tests {
             requires_restart: false,
             is_sensitive: false,
             source,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: String::new(),
             description: String::new(),
@@ -174,25 +174,28 @@ mod tests {
     }
 
     #[test]
-    fn normalize_system_value_handles_archive_compress_enabled_as_boolean() {
+    fn normalize_system_value_enforces_boolean_storage_contract() {
         let lookup = HashMap::new();
         assert_eq!(
             CONFIG_REGISTRY
-                .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, " yes ")
+                .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, "true")
                 .unwrap(),
             "true"
         );
         assert_eq!(
             CONFIG_REGISTRY
-                .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, " off ")
+                .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, "false")
                 .unwrap(),
             "false"
         );
-        assert!(
-            CONFIG_REGISTRY
-                .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, "sometimes")
-                .is_err()
-        );
+        for invalid in [" yes ", "off", "sometimes", "1"] {
+            assert!(
+                CONFIG_REGISTRY
+                    .normalize_value(&lookup, ARCHIVE_COMPRESS_ENABLED_KEY, invalid)
+                    .is_err(),
+                "{invalid:?} must not bypass Forge boolean storage validation"
+            );
+        }
     }
 
     #[test]

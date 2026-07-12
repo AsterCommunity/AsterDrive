@@ -973,7 +973,7 @@ async fn test_admin_create_blob_maintenance_task_audits_and_deduplicates_targets
             limit: 10,
             offset: 0,
             sort_by: aster_drive::api::pagination::AdminAuditLogSortBy::CreatedAt,
-            sort_order: aster_drive::api::pagination::SortOrder::Desc,
+            sort_order: aster_forge_api::SortOrder::Desc,
         },
     )
     .await

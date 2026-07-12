@@ -9,7 +9,7 @@ use aster_drive::db::repository::{file_repo, policy_repo, user_repo};
 use aster_drive::entities::{file, file_blob};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::events::storage_change::StorageChangeKind;
-use aster_drive::types::FileCategory;
+use aster_forge_file_classification::FileCategory;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
@@ -471,7 +471,7 @@ async fn test_file_download_inline_dangerous_mime_keeps_csp_sandbox() {
 #[actix_web::test]
 async fn test_file_preview_link_supports_public_inline_access_without_request_limit() {
     let mut state = common::setup().await;
-    state.cache = aster_forge_cache::create_cache(&aster_drive::config::CacheConfig {
+    state.cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -552,7 +552,7 @@ async fn test_file_download_honors_single_range_header() {
 #[actix_web::test]
 async fn test_file_preview_link_honors_single_range_header() {
     let mut state = common::setup().await;
-    state.cache = aster_forge_cache::create_cache(&aster_drive::config::CacheConfig {
+    state.cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -752,7 +752,7 @@ async fn test_dangerous_html_direct_link_stays_inline_with_csp_sandbox() {
 #[actix_web::test]
 async fn test_dangerous_svg_preview_link_stays_inline_with_csp_sandbox() {
     let mut state = common::setup().await;
-    state.cache = aster_forge_cache::create_cache(&aster_drive::config::CacheConfig {
+    state.cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;

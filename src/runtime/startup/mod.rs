@@ -50,7 +50,7 @@ mod tests {
             .reload(&db)
             .await
             .expect("runtime config should load");
-        let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+        let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
             ..Default::default()
         })
         .await;

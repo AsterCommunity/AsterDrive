@@ -1107,7 +1107,7 @@ pub async fn shared_folder_file_image_preview(
 #[cfg(test)]
 mod tests {
     use super::{direct_routes, routes};
-    use crate::config::{CacheConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
+    use crate::config::{Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
     use crate::entities::{file, file_blob, folder, storage_policy, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -1122,6 +1122,7 @@ mod tests {
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, HttpResponse, test, web};
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use image::codecs::png::PngEncoder;
     use image::{ColorType, ImageEncoder};

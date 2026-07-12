@@ -43,7 +43,7 @@ mod tests {
         CONFIG_CATEGORY_WEBDAV, DEFAULT_WEBDAV_MAX_ACTIVE_LOCKS_PER_USER,
         WEBDAV_MAX_ACTIVE_LOCKS_PER_USER_KEY,
     };
-    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;
 
@@ -56,7 +56,7 @@ mod tests {
             requires_restart: false,
             is_sensitive: false,
             source: ConfigSource::System,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_WEBDAV.to_string(),
             description: "test".to_string(),

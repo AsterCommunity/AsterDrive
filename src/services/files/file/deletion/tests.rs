@@ -11,7 +11,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::io::{AsyncRead, empty};
 
 use super::*;
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -23,6 +23,7 @@ use crate::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 
 #[derive(Clone, Default)]
 struct TrackingDeleteDriver {

@@ -3,13 +3,14 @@ use std::collections::BTreeMap;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::api::pagination::{AdminUserSortBy, SortBy, SortOrder};
+use crate::api::pagination::{AdminUserSortBy, SortBy};
 use crate::entities::user;
 use crate::services::{auth::local, user::profile};
 use crate::types::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode, UserConfig,
     UserPreferences as StoredUserPreferences, UserRole, UserStatus,
 };
+use aster_forge_api::SortOrder;
 
 /// API-facing user preference payload: built-in preferences plus custom frontend KV entries.
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

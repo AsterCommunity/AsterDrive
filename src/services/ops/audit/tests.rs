@@ -412,7 +412,7 @@ async fn log_writes_synchronously_without_global_manager() {
         .reload(&db)
         .await
         .expect("runtime config should load");
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -473,7 +473,7 @@ async fn follower_state_can_record_allowed_audit_log() {
         .reload(&db)
         .await
         .expect("runtime config should load");
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;
@@ -516,18 +516,18 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         id: 1,
         key: crate::config::audit::AUDIT_LOG_RECORDED_ACTIONS_KEY.to_string(),
         value: r#"["user_login"]"#.to_string(),
-        value_type: crate::types::ConfigValueType::StringEnumSet,
+        value_type: aster_forge_config::ConfigValueType::StringEnumSet,
         requires_restart: false,
         is_sensitive: false,
-        source: crate::types::ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        source: aster_forge_config::ConfigSource::System,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: crate::config::definitions::CONFIG_CATEGORY_AUDIT.to_string(),
         description: String::new(),
         updated_at: chrono::Utc::now(),
         updated_by: None,
     });
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;

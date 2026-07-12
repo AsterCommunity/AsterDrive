@@ -5,13 +5,14 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::{AdminPolicySortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
 use crate::db::repository::{file_repo, policy_group_repo, policy_repo, upload_session_repo};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::remote::storage_target;
 use crate::types::{DriverType, parse_storage_policy_options};
+use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
     CreateStoragePolicyInput, ExecuteDraftStoragePolicyActionInput,
@@ -765,7 +766,7 @@ pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+    use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
     use crate::db::repository::{
         storage_connector_application_config_repo, storage_policy_credential_repo,
@@ -780,6 +781,7 @@ mod tests {
         StorageCredentialKind, StorageCredentialProvider, StoragePolicyOptions,
         StoredStoragePolicyAllowedTypes,
     };
+    use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
     use migration::Migrator;
     use sea_orm::ActiveValue::Set;

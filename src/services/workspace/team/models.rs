@@ -4,9 +4,10 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::api::pagination::{AdminTeamMemberSortBy, SortOrder};
+use crate::api::pagination::AdminTeamMemberSortBy;
 use crate::services::user::account;
 use crate::types::{TeamMemberRole, UserStatus};
+use aster_forge_api::SortOrder;
 
 #[derive(Debug, Clone)]
 pub struct CreateTeamInput {

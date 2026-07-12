@@ -29,10 +29,10 @@ use aster_drive::storage::{
     BlobMetadata, MultipartStorageDriver, StorageDriver, StorageErrorKind, StreamUploadDriver,
 };
 use aster_drive::types::{
-    BackgroundTaskStatus, DriverType, FileCategory, StoredStoragePolicyAllowedTypes,
-    StoredStoragePolicyOptions,
+    BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
 };
 use aster_drive::utils::numbers::usize_to_u64;
+use aster_forge_file_classification::FileCategory;
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
 

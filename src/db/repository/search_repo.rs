@@ -1,6 +1,6 @@
 //! 仓储模块：`search_repo`。
 
-use crate::api::pagination::{SortBy, SortOrder};
+use crate::api::pagination::SortBy;
 use crate::entities::{
     entity_property::{self, Entity as EntityProperty},
     file::{self, Entity as File},
@@ -9,12 +9,14 @@ use crate::entities::{
 };
 use crate::errors::{AsterError, Result};
 use crate::services::content::tag::TAG_PROPERTY_NAMESPACE;
-use crate::types::{EntityType, FileCategory};
+use crate::types::EntityType;
+use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,
     sqlite_match_query,
 };
 use aster_forge_db::sort::order_by_column_with_id;
+use aster_forge_file_classification::FileCategory;
 use chrono::{DateTime, Utc};
 use sea_orm::sea_query::Query;
 use sea_orm::sea_query::extension::postgres::PgExpr;

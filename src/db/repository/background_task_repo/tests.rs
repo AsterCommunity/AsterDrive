@@ -3,10 +3,11 @@ use super::{
     delete_terminal_by_filters, find_paginated_all_filtered, list_claimable_by_kinds,
     release_processing,
 };
-use crate::api::pagination::{AdminTaskSortBy, SortOrder};
+use crate::api::pagination::AdminTaskSortBy;
 use crate::config::DatabaseConfig;
 use crate::entities::background_task;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskSteps};
+use aster_forge_api::SortOrder;
 use chrono::{Duration, Utc};
 use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};

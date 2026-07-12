@@ -16,7 +16,7 @@ use crate::services::files::archive::core::test_utils::create_single_file_zip_wi
 use crate::services::task::{TaskExecutionContext, TaskLease};
 use crate::storage::BlobMetadata;
 use crate::storage::StorageDriver;
-use crate::types::{ConfigSource, ConfigValueType};
+use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 
 struct PreviewMemoryRangeDriver {
@@ -150,7 +150,7 @@ fn preview_test_file(size: i64) -> file::Model {
         mime_type: "application/zip".to_string(),
         extension: "zip".to_string(),
         compound_extension: None,
-        file_category: crate::types::FileCategory::Archive,
+        file_category: aster_forge_file_classification::FileCategory::Archive,
         created_at: now,
         updated_at: now,
         deleted_at: None,
@@ -188,7 +188,7 @@ fn apply_runtime_config_value(
         requires_restart: false,
         is_sensitive: false,
         source: ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_PREVIEW.to_string(),
         description: "test".to_string(),

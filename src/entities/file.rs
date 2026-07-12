@@ -31,7 +31,7 @@ pub struct Model {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub compound_extension: Option<String>,
     /// Category derived from the extension first, then MIME type as fallback.
-    pub file_category: crate::types::FileCategory,
+    pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTimeUtc,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

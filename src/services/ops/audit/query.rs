@@ -1,13 +1,14 @@
 use chrono::{Duration, Utc};
 use std::collections::{HashMap, HashSet};
 
-use crate::api::pagination::{AdminAuditLogSortBy, OffsetPage, SortOrder, load_offset_page};
+use crate::api::pagination::{AdminAuditLogSortBy, load_offset_page};
 use crate::db::repository::audit_log_repo;
 use crate::entities::audit_log;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
 use crate::types::TeamMemberRole;
+use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::filters::AuditLogFilters;
 use super::manager::flush_global_audit_log_manager;

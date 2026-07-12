@@ -4,7 +4,8 @@ use crate::config::operations::{
     DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES, MEDIA_METADATA_ENABLED_KEY,
     MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
 };
-use crate::types::{ConfigSource, ConfigValueType, MediaProcessorKind};
+use crate::types::MediaProcessorKind;
+use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use chrono::Utc;
 
@@ -37,7 +38,7 @@ fn config_model(key: &str, value: &str) -> system_config::Model {
         requires_restart: false,
         is_sensitive: false,
         source: ConfigSource::System,
-        visibility: crate::types::ConfigVisibility::Private,
+        visibility: aster_forge_config::ConfigVisibility::Private,
         namespace: String::new(),
         category: CONFIG_CATEGORY_FILE_PROCESSING_MEDIA.to_string(),
         description: "test".to_string(),

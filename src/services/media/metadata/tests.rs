@@ -550,7 +550,7 @@ async fn test_state_with_driver_and_options(
     let driver_registry = Arc::new(crate::storage::DriverRegistry::noop());
     driver_registry.insert_for_test(policy.id, driver);
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
-    let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig {
+    let cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         ..Default::default()
     })
     .await;

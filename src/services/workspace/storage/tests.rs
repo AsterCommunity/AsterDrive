@@ -1,7 +1,7 @@
 //! 工作空间存储服务测试。
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
@@ -12,6 +12,7 @@ use crate::storage::{
 };
 use crate::types::{DriverType, UserRole, UserStatus};
 use aster_forge_cache as cache;
+use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;

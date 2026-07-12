@@ -1060,7 +1060,7 @@ mod tests {
         FileResourceHandle, FileResourcePurpose, FileResourceRedirectPolicy,
         FileResourceRepresentation,
     };
-    use crate::config::{CacheConfig, Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
+    use crate::config::{Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
     use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -1077,6 +1077,7 @@ mod tests {
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, test, web};
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use image::codecs::png::PngEncoder;
     use image::{ColorType, ImageEncoder};

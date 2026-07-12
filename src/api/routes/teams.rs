@@ -4,7 +4,6 @@ pub use crate::api::dto::teams::*;
 use crate::api::dto::validate_request;
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
-use crate::api::pagination::LimitOffsetQuery;
 use crate::api::response::ApiResponse;
 use crate::api::routes::{batch, folders, search, shares, tags, tasks, trash, webdav_accounts};
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -15,6 +14,7 @@ use crate::types::TeamMemberRole;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_api::LimitOffsetQuery;
 
 pub fn routes(
     rl: &RateLimitConfig,
@@ -253,7 +253,7 @@ pub async fn restore_team(
         audit::AuditLogFilterQuery
     ),
     responses(
-        (status = 200, description = "Team audit log entries", body = inline(ApiResponse<crate::api::pagination::OffsetPage<audit::TeamAuditEntryInfo>>)),
+        (status = 200, description = "Team audit log entries", body = inline(ApiResponse<aster_forge_api::OffsetPage<audit::TeamAuditEntryInfo>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
         (status = 404, description = crate::api::constants::OPENAPI_NOT_FOUND),

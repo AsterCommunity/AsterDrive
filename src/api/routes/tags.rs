@@ -6,9 +6,6 @@ use crate::api::dto::{
 };
 use crate::api::middleware::auth::JwtAuth;
 use crate::api::middleware::rate_limit;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
-use crate::api::pagination::{LimitOffsetQuery, MAX_PAGE_SIZE};
 use crate::api::response::ApiResponse;
 use crate::api::routes::team_scope;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
@@ -26,6 +23,9 @@ use crate::types::EntityType;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
+use aster_forge_api::{LimitOffsetQuery, MAX_PAGE_SIZE};
 
 pub fn routes(
     rl: &RateLimitConfig,

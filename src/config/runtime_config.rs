@@ -108,7 +108,7 @@ mod tests {
     use crate::config::definitions::CONFIG_CATEGORY_SITE;
     use crate::db;
     use crate::db::repository::config_repo;
-    use crate::types::{ConfigSource, ConfigValueType};
+    use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;
     use migration::Migrator;
@@ -140,7 +140,7 @@ mod tests {
             requires_restart,
             is_sensitive: false,
             source: ConfigSource::System,
-            visibility: crate::types::ConfigVisibility::Private,
+            visibility: aster_forge_config::ConfigVisibility::Private,
             namespace: String::new(),
             category: CONFIG_CATEGORY_SITE.to_string(),
             description: "test".to_string(),

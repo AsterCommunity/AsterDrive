@@ -7,7 +7,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::{OffsetPage, load_offset_page};
+use crate::api::pagination::load_offset_page;
 use crate::db::repository::webdav_account_repo;
 use crate::entities::webdav_account;
 use crate::errors::{AsterError, Result, validation_error_with_code};
@@ -20,6 +20,7 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::utils::hash;
+use aster_forge_api::OffsetPage;
 
 fn webdav_username_exists_error() -> AsterError {
     validation_error_with_code(

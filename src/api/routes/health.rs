@@ -132,7 +132,7 @@ fn status_response(status: &str) -> HealthResponse {
 #[cfg(test)]
 mod tests {
     use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, ready};
-    use crate::config::{CacheConfig, Config, DatabaseConfig, RuntimeConfig};
+    use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::storage_policy;
     use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
@@ -141,6 +141,7 @@ mod tests {
     use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use actix_web::{body, http::StatusCode, web};
     use aster_forge_cache as cache;
+    use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
     use chrono::Utc;
     use migration::Migrator;

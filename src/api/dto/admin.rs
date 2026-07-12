@@ -10,8 +10,9 @@ use validator::{Validate, ValidationError};
 use crate::api::pagination::{
     AdminAuditLogSortBy, AdminFileBlobSortBy, AdminFileSortBy, AdminLockSortBy,
     AdminPolicyGroupSortBy, AdminPolicySortBy, AdminRemoteNodeSortBy, AdminShareSortBy,
-    AdminTaskSortBy, AdminTeamSortBy, AdminUserSortBy, SortOrder,
+    AdminTaskSortBy, AdminTeamSortBy, AdminUserSortBy,
 };
+use aster_forge_api::SortOrder;
 
 // ── Users ──────────────────────────────────────────────────────────────────
 
@@ -336,7 +337,7 @@ fn default_true() -> bool {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct SetConfigReq {
     pub value: aster_forge_config::ConfigValue,
-    pub visibility: Option<crate::types::ConfigVisibility>,
+    pub visibility: Option<aster_forge_config::ConfigVisibility>,
 }
 
 /// Execute a config action (e.g., send test email).
@@ -649,7 +650,7 @@ pub struct AdminFileInfo {
     pub mime_type: String,
     pub extension: String,
     pub compound_extension: Option<String>,
-    pub file_category: crate::types::FileCategory,
+    pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: DateTime<Utc>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

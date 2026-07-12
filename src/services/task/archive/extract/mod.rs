@@ -485,6 +485,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Extract archive.zip".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload("{}".to_string()),
             result_json: None,
             runtime_json: None,

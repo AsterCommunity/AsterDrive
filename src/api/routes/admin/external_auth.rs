@@ -1,8 +1,5 @@
 //! 管理员 API 路由：`external-auth`。
 
-use crate::api::pagination::LimitOffsetQuery;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
@@ -14,6 +11,9 @@ use crate::services::auth::external::{
 use crate::services::auth::local::Claims;
 use crate::services::ops::audit;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_api::LimitOffsetQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
 use serde::Serialize;
 
 fn external_auth_provider_audit_details(

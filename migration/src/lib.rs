@@ -52,6 +52,9 @@ mod m20260712_000001_align_forge_audit_contract;
 mod m20260712_000002_add_forge_audit_query_indexes;
 mod m20260712_000003_align_forge_system_config_contract;
 mod m20260712_000004_align_forge_mail_outbox_contract;
+mod m20260713_000001_runtime_leases;
+mod m20260713_000002_background_task_dedupe_key;
+mod m20260713_000003_scheduled_tasks;
 mod search_acceleration;
 mod time;
 
@@ -168,6 +171,9 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260712_000002_add_forge_audit_query_indexes::Migration),
             Box::new(m20260712_000003_align_forge_system_config_contract::Migration),
             Box::new(m20260712_000004_align_forge_mail_outbox_contract::Migration),
+            Box::new(m20260713_000001_runtime_leases::Migration),
+            Box::new(m20260713_000002_background_task_dedupe_key::Migration),
+            Box::new(m20260713_000003_scheduled_tasks::Migration),
         ]
     }
 }

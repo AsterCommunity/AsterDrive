@@ -162,7 +162,8 @@ async fn ensure_default_policy(db: &sea_orm::DatabaseConnection) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{ConfigSource, DriverType};
+    use crate::types::DriverType;
+    use aster_forge_config::ConfigSource;
     use migration::Migrator;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, Set};
 

@@ -269,11 +269,12 @@ pub fn routes() -> actix_web::Scope {
 #[cfg(test)]
 mod tests {
     use super::{FrontendAssets, routes};
-    use crate::config::{CacheConfig, Config, RuntimeConfig};
+    use crate::config::{Config, RuntimeConfig};
     use crate::runtime::PrimaryAppState;
     use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{App, http::StatusCode, http::header, test};
+    use aster_forge_cache::CacheConfig;
     use migration::Migrator;
     use std::sync::Arc;
 

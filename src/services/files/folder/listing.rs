@@ -26,7 +26,7 @@ pub struct FolderListParams {
     pub(crate) file_limit: u64,
     pub(crate) file_cursor: Option<(String, i64)>,
     pub(crate) sort_by: crate::api::pagination::SortBy,
-    pub(crate) sort_order: crate::api::pagination::SortOrder,
+    pub(crate) sort_order: aster_forge_api::SortOrder,
 }
 
 impl From<&crate::api::pagination::FolderListQuery> for FolderListParams {

@@ -55,7 +55,7 @@ use std::time::{Duration as StdDuration, Instant};
 use tokio_util::sync::CancellationToken;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::{AdminTaskSortBy, OffsetPage, SortOrder};
+use crate::api::pagination::AdminTaskSortBy;
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
@@ -71,10 +71,15 @@ use crate::services::{
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
 use crate::utils::numbers::{i64_to_i32, i64_to_u64};
+use aster_forge_api::{OffsetPage, SortOrder};
 
 pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
 use registry::{build_task_presentation, decode_task_payload, decode_task_result};
-pub use runtime::{RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run};
+pub use runtime::registered_system_runtime_tasks;
+pub use runtime::{
+    RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run,
+    record_scheduled_runtime_task_run,
+};
 use spec::BackgroundTaskSpec;
 use steps::{parse_task_steps_json, serialize_task_steps};
 use types::{TaskInfo, TaskPresentation, TaskResult, TaskStepInfo};
@@ -614,6 +619,7 @@ fn task_can_retry(task: &background_task::Model) -> bool {
 pub(in crate::services::task) struct TypedTaskCreate<S: BackgroundTaskSpec> {
     display_name: String,
     payload: S::Payload,
+    dedupe_key: Option<String>,
     creator_user_id: Option<i64>,
     team_id: Option<i64>,
     status: BackgroundTaskStatus,
@@ -651,6 +657,7 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         Self {
             display_name: display_name.into(),
             payload,
+            dedupe_key: None,
             creator_user_id: None,
             team_id: None,
             status: BackgroundTaskStatus::Pending,
@@ -681,6 +688,14 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
         creator_user_id: Option<i64>,
     ) -> Self {
         self.creator_user_id = creator_user_id;
+        self
+    }
+
+    pub(in crate::services::task) fn dedupe_key(
+        mut self,
+        dedupe_key: aster_forge_tasks::TaskDedupeKey,
+    ) -> Self {
+        self.dedupe_key = Some(dedupe_key.into_string());
         self
     }
 
@@ -784,6 +799,7 @@ impl<S: BackgroundTaskSpec> TypedTaskCreate<S> {
             team_id: Set(self.team_id),
             share_id: Set(None),
             display_name: Set(truncate_display_name(&self.display_name)),
+            dedupe_key: Set(self.dedupe_key),
             payload_json: Set(payload_json),
             result_json: Set(self.result_json),
             runtime_json: Set(None),
@@ -821,7 +837,20 @@ pub(in crate::services::task) async fn insert_typed_task_record<
     db: &C,
     request: TypedTaskCreate<S>,
 ) -> Result<background_task::Model> {
-    background_task_repo::create(db, request.into_active_model(state)?).await
+    let dedupe_key = request.dedupe_key.clone();
+    let active = request.into_active_model(state)?;
+    match background_task_repo::create(db, active).await {
+        Ok(task) => Ok(task),
+        Err(error) => {
+            if let Some(dedupe_key) = dedupe_key
+                && let Some(existing) =
+                    background_task_repo::find_by_dedupe_key(db, &dedupe_key).await?
+            {
+                return Ok(existing);
+            }
+            Err(error)
+        }
+    }
 }
 
 pub(in crate::services::task) async fn create_typed_task_record<S: BackgroundTaskSpec>(
@@ -1240,6 +1269,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "failed task".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "file_ids": [],
@@ -1287,6 +1317,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Generate thumbnail for blob #42 via AsterDrive built-in".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "blob_id": 42,
@@ -1357,6 +1388,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Generate image preview for blob #42 via AsterDrive built-in".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "blob_id": 42,
@@ -1430,6 +1462,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Import from https://example.com/file.bin via aria2".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "url": "https://example.com/file.bin",
@@ -1495,6 +1528,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Import report.html from link via AsterDrive built-in".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "url": "https://example.com/report.html",
@@ -1569,6 +1603,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Completed upload cleanup".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "task_name": "completed-upload-cleanup"
@@ -1632,6 +1667,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Completed upload cleanup".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "task_name": "completed-upload-cleanup"
@@ -1696,6 +1732,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Legacy runtime task".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "task_name": "legacy-runtime-task"
@@ -1757,6 +1794,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "Clean deleted storage policy #7 temporary uploads".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "policy": {
@@ -1827,6 +1865,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "System health check".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "task_name": "system-health-check"
@@ -1909,6 +1948,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "wrong kind".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload(
                 serde_json::json!({
                     "blob_id": 42,
@@ -2029,6 +2069,7 @@ mod tests {
             team_id: None,
             share_id: None,
             display_name: "missing creator".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload("{}".to_string()),
             result_json: None,
             runtime_json: None,
@@ -2070,6 +2111,7 @@ mod tests {
             team_id: Some(9),
             share_id: None,
             display_name: "team task".to_string(),
+            dedupe_key: None,
             payload_json: StoredTaskPayload("{}".to_string()),
             result_json: None,
             runtime_json: None,

@@ -21,8 +21,6 @@ pub mod system_config;
 pub mod webdav;
 pub mod wopi;
 
-pub use aster_forge_cache::CacheConfig;
-pub use aster_forge_logging::LoggingConfig;
 pub use runtime_config::RuntimeConfig;
 pub use schema::{
     AuthConfig, Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig, RateLimitTier,

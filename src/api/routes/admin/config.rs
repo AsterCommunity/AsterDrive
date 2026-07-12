@@ -1,14 +1,14 @@
 //! 管理员 API 路由：`config`。
 
 use crate::api::dto::admin::{ExecuteConfigActionReq, ExecuteConfigActionResp, SetConfigReq};
-use crate::api::pagination::LimitOffsetQuery;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{ops::audit, ops::config};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_api::LimitOffsetQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
 
 #[aster_forge_api_docs_macros::path(
     get,

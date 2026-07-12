@@ -209,7 +209,7 @@ fn normalize_policy_domain(domain: &str) -> Result<String> {
 mod tests {
     use super::*;
     use crate::config::RuntimeConfig;
-    use crate::types::{ConfigSource, ConfigValueType, ConfigVisibility};
+    use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
     use aster_forge_db::system_config;
     use chrono::Utc;
 

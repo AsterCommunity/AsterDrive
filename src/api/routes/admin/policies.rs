@@ -7,9 +7,6 @@ use crate::api::dto::admin::{
     PromoteS3CompatiblePolicyDriverReq, StartStorageAuthorizationReq, TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
-use crate::api::pagination::LimitOffsetQuery;
-#[cfg(all(debug_assertions, feature = "openapi"))]
-use crate::api::pagination::OffsetPage;
 use crate::api::response::{ApiEmptyData, ApiResponse};
 use crate::config::site_url;
 use crate::errors::Result;
@@ -18,6 +15,9 @@ use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
+use aster_forge_api::LimitOffsetQuery;
+#[cfg(all(debug_assertions, feature = "openapi"))]
+use aster_forge_api::OffsetPage;
 
 // ── Conversion helpers (must stay here because they use storage_policy::policy types) ──────────
 

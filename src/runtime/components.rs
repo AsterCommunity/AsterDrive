@@ -7,23 +7,15 @@ use actix_web::web;
 use actix_web::{App, HttpServer};
 use aster_forge_runtime::{
     RuntimeComponentBundle, RuntimeComponentBundleRegistration, RuntimeComponentKind,
-    RuntimeComponentWithShutdown, RuntimeServiceComponent, TryRuntimeComponentWithShutdown,
+    RuntimeServiceComponent, TryRuntimeComponentWithShutdown,
 };
 use tokio_util::sync::CancellationToken;
 
 use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
-use crate::runtime::tasks::BackgroundTasks;
-use crate::services::share::ShareDownloadRollbackWorker;
 use aster_forge_mail::MailSender;
 
-pub const BACKGROUND_TASKS_COMPONENT: &str = "background_tasks";
-const BACKGROUND_TASKS_SHUTDOWN_PHASE: &str = "background_tasks";
 const DATABASE_SHUTDOWN_DEPENDENCIES: &[&str] = &[aster_forge_audit::AUDIT_MANAGER_COMPONENT];
 const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
-
-type BackgroundTasksRegistration = RuntimeComponentBundleRegistration<
-    aster_forge_runtime::ShutdownResourceComponent<BackgroundTasks>,
->;
 
 type HttpServiceComponent = RuntimeServiceComponent<actix_web::dev::Server>;
 
@@ -161,49 +153,6 @@ fn http_service_component(
     )
 }
 
-pub fn primary_background_tasks_component(
-    state: web::Data<PrimaryAppState>,
-    share_download_rollback_worker: ShareDownloadRollbackWorker,
-) -> RuntimeComponentWithShutdown<
-    BackgroundTasksRegistration,
-    impl FnOnce(CancellationToken) -> BackgroundTasksRegistration,
-> {
-    aster_forge_runtime::runtime_component_with_shutdown(move |shutdown_token| {
-        background_tasks_component(crate::runtime::tasks::spawn_primary_background_tasks(
-            state,
-            share_download_rollback_worker,
-            shutdown_token,
-        ))
-    })
-}
-
-pub fn follower_background_tasks_component(
-    state: web::Data<FollowerAppState>,
-) -> RuntimeComponentWithShutdown<
-    BackgroundTasksRegistration,
-    impl FnOnce(CancellationToken) -> BackgroundTasksRegistration,
-> {
-    aster_forge_runtime::runtime_component_with_shutdown(move |shutdown_token| {
-        background_tasks_component(crate::runtime::tasks::spawn_follower_background_tasks(
-            state,
-            shutdown_token,
-        ))
-    })
-}
-
-fn background_tasks_component(background_tasks: BackgroundTasks) -> BackgroundTasksRegistration {
-    aster_forge_runtime::shutdown_resource_component(
-        BACKGROUND_TASKS_COMPONENT,
-        RuntimeComponentKind::Product,
-        BACKGROUND_TASKS_SHUTDOWN_PHASE,
-        background_tasks,
-        |background_tasks| async move {
-            background_tasks.shutdown().await;
-            Ok(())
-        },
-    )
-}
-
 pub async fn drain_mail_outbox_on_shutdown(
     resources: MailOutboxRuntimeResources,
 ) -> Result<(), String> {
@@ -232,7 +181,7 @@ pub fn follower_audit_component<S>(
 where
     S: SharedRuntimeState + Clone + Send + Sync + 'static,
 {
-    audit_component_after(state, &[BACKGROUND_TASKS_COMPONENT])
+    audit_component_after(state, &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT])
 }
 
 fn audit_component_after<S>(
@@ -274,14 +223,14 @@ mod tests {
     use migration::Migrator;
 
     use super::{
-        BACKGROUND_TASKS_COMPONENT, MailOutboxRuntimeResources, database_component,
-        drain_mail_outbox_on_shutdown, follower_audit_component, primary_audit_component,
+        MailOutboxRuntimeResources, database_component, drain_mail_outbox_on_shutdown,
+        follower_audit_component, primary_audit_component,
     };
     use crate::runtime::{FollowerAppState, SharedRuntimeState};
 
     fn register_background_tasks(registry: &mut aster_forge_runtime::RuntimeComponentRegistry) {
         registry
-            .component(BACKGROUND_TASKS_COMPONENT)
+            .component(aster_forge_tasks::BACKGROUND_TASKS_COMPONENT)
             .kind(aster_forge_runtime::RuntimeComponentKind::Product);
     }
 
@@ -304,7 +253,8 @@ mod tests {
             .reload(&db)
             .await
             .expect("runtime config should load");
-        let cache = aster_forge_cache::create_cache(&crate::config::CacheConfig::default()).await;
+        let cache =
+            aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default()).await;
 
         FollowerAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
@@ -335,7 +285,7 @@ mod tests {
                 .descriptor(aster_forge_audit::AUDIT_LOGS_COMPONENT)
                 .expect("audit logs component should exist")
                 .dependencies,
-            vec![BACKGROUND_TASKS_COMPONENT]
+            vec![aster_forge_tasks::BACKGROUND_TASKS_COMPONENT]
         );
         assert_eq!(
             registry
@@ -370,7 +320,7 @@ mod tests {
                 .descriptor(aster_forge_mail::MAIL_OUTBOX_COMPONENT)
                 .expect("mail outbox component should exist")
                 .dependencies,
-            vec![BACKGROUND_TASKS_COMPONENT]
+            vec![aster_forge_tasks::BACKGROUND_TASKS_COMPONENT]
         );
         assert_eq!(
             registry
@@ -385,6 +335,40 @@ mod tests {
                 .expect("database component should exist")
                 .dependencies,
             vec![aster_forge_audit::AUDIT_MANAGER_COMPONENT]
+        );
+    }
+
+    #[test]
+    fn forge_background_task_component_registers_complete_drive_catalog() {
+        let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
+            aster_forge_tasks::background_task_component_with_definitions(
+                aster_forge_tasks::BackgroundTasks::new(),
+                crate::services::task::registered_system_runtime_tasks(),
+            )
+            .register(registry);
+        });
+
+        registry
+            .validate()
+            .expect("Forge background task component should validate");
+        let descriptor = registry
+            .descriptor(aster_forge_tasks::BACKGROUND_TASKS_COMPONENT)
+            .expect("background task component should exist");
+        assert_eq!(
+            descriptor.kind,
+            aster_forge_runtime::RuntimeComponentKind::Tasks
+        );
+        assert_eq!(descriptor.tasks.len(), 16);
+        assert_eq!(
+            descriptor
+                .tasks
+                .iter()
+                .map(|task| task.task_name)
+                .collect::<Vec<_>>(),
+            crate::services::task::registered_system_runtime_tasks()
+                .iter()
+                .map(|task| task.wire_value)
+                .collect::<Vec<_>>()
         );
     }
 }

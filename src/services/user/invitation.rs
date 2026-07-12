@@ -8,7 +8,6 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::pagination::OffsetPage;
 use crate::config::{auth_runtime, branding, local_email_policy::LocalEmailPolicy, site_url};
 use crate::db::repository::{user_invitation_repo, user_repo};
 use crate::entities::{user, user_invitation};
@@ -21,6 +20,7 @@ use crate::services::{
 };
 use crate::types::{UserInvitationStatus, UserRole, UserStatus};
 use crate::utils::{hash, id, numbers::u64_to_i64};
+use aster_forge_api::OffsetPage;
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
