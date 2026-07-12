@@ -19,7 +19,7 @@ use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_err
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
 use crate::types::TeamMemberRole;
-use crate::utils::char_count;
+use aster_forge_validation::filename::char_count;
 
 use super::{
     AdminTeamInfo, CreateTeamInput, TeamInfo, TeamMemberInfo, TeamMemberListFilters,

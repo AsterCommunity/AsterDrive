@@ -725,7 +725,7 @@ async fn create_blob_with_object(
     ref_count: i32,
 ) -> file_blob::Model {
     let hash = aster_drive::utils::hash::sha256_hex(bytes);
-    let storage_path = aster_drive::utils::storage_path_from_blob_key(&hash);
+    let storage_path = aster_forge_validation::filename::storage_path_from_blob_key(&hash).unwrap();
     let full_path = std::path::Path::new(&policy.base_path).join(&storage_path);
     tokio::fs::create_dir_all(full_path.parent().expect("blob path should have parent"))
         .await
@@ -786,7 +786,8 @@ async fn create_opaque_blob_with_object(
     bytes: &[u8],
     ref_count: i32,
 ) -> file_blob::Model {
-    let storage_path = aster_drive::utils::storage_path_from_blob_key(blob_key);
+    let storage_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(blob_key).unwrap();
     let full_path = std::path::Path::new(&policy.base_path).join(&storage_path);
     tokio::fs::create_dir_all(full_path.parent().expect("blob path should have parent"))
         .await
@@ -1293,7 +1294,7 @@ async fn test_storage_migration_moves_blob_to_empty_target_policy() {
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(
         migrated.storage_path,
-        aster_drive::utils::storage_path_from_blob_key(&blob.hash)
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap()
     );
     assert!(migrated.thumbnail_path.is_none());
     assert!(
@@ -1338,12 +1339,12 @@ async fn test_storage_migration_moves_opaque_local_blob_key_without_content_hash
         .expect("blob should still exist");
     assert_eq!(migrated.hash, blob.hash);
     assert_eq!(migrated.policy_id, target.id);
-    let target_object = tokio::fs::read(
-        std::path::Path::new(&target.base_path)
-            .join(aster_drive::utils::storage_path_from_blob_key(&blob.hash)),
-    )
-    .await
-    .expect("target object should exist");
+    let target_object =
+        tokio::fs::read(std::path::Path::new(&target.base_path).join(
+            aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap(),
+        ))
+        .await
+        .expect("target object should exist");
     assert_eq!(target_object, b"opaque blob bytes");
 
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
@@ -1398,7 +1399,7 @@ async fn test_storage_migration_local_to_rustfs_s3_e2e() {
     assert_eq!(migrated.policy_id, target.id);
     assert_eq!(
         migrated.storage_path,
-        aster_drive::utils::storage_path_from_blob_key(&blob.hash)
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap()
     );
     let object_key = policy_object_key(&target, &migrated.storage_path);
     let target_bytes = read_s3_object(&rustfs.endpoint, &rustfs.bucket, &object_key).await;
@@ -1486,7 +1487,7 @@ async fn test_storage_migration_local_to_rustfs_s3_resume_after_partial_failure_
     );
     let failed_second_key = policy_object_key(
         &target,
-        &aster_drive::utils::storage_path_from_blob_key(&second.hash),
+        &aster_forge_validation::filename::storage_path_from_blob_key(&second.hash).unwrap(),
     );
     assert!(
         !s3_object_exists(&rustfs.endpoint, &rustfs.bucket, &failed_second_key).await,
@@ -1911,7 +1912,8 @@ async fn test_storage_migration_cleans_target_object_when_verification_fails() {
         .driver_registry
         .get_driver(&target)
         .expect("target driver should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     assert!(
         !target_driver
             .exists(&target_path)
@@ -1945,7 +1947,8 @@ async fn test_storage_migration_cleans_target_object_when_stream_upload_returns_
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
 
     let stats = task::drain(&state)
         .await
@@ -1989,7 +1992,8 @@ async fn test_storage_migration_stream_upload_error_without_target_object_stays_
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
 
     let stats = task::drain(&state)
         .await
@@ -2028,7 +2032,8 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
 
     let stats = task::drain(&state)
         .await
@@ -2071,7 +2076,8 @@ async fn test_storage_migration_stream_upload_error_does_not_delete_referenced_t
     let bytes = b"referenced-target-object";
     let blob = create_blob_with_object(&state, &source, bytes, 1).await;
     create_file_for_blob(&state, blob.id, "cleanup-referenced.txt").await;
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     target_driver
         .put(&target_path, bytes)
         .await
@@ -2132,7 +2138,8 @@ async fn test_storage_migration_large_blob_uses_multipart_upload() {
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart migration task should drain");
@@ -2180,7 +2187,8 @@ async fn test_storage_migration_multipart_retries_transient_part_upload() {
     create_file_for_blob(&state, blob.id, "multipart-retry.7z").await;
 
     create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart retry migration task should drain");
@@ -2213,7 +2221,8 @@ async fn test_storage_migration_multipart_part_failure_aborts_and_keeps_source_b
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart failing task should drain");
@@ -2254,7 +2263,8 @@ async fn test_storage_migration_multipart_complete_timeout_accepts_existing_obje
     create_file_for_blob(&state, blob.id, "multipart-complete-timeout.7z").await;
 
     create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart complete-timeout task should drain");
@@ -2286,7 +2296,8 @@ async fn test_storage_migration_multipart_verification_failure_cleans_object_and
 
     let body = create_migration_task_via_api(&app, &token, source.id, target.id, false).await;
     let task_id = body["data"]["id"].as_i64().expect("task id should exist");
-    let target_path = aster_drive::utils::storage_path_from_blob_key(&blob.hash);
+    let target_path =
+        aster_forge_validation::filename::storage_path_from_blob_key(&blob.hash).unwrap();
     let stats = task::drain(&state)
         .await
         .expect("multipart verification failure task should drain");

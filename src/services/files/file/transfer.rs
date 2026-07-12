@@ -76,7 +76,7 @@ pub(crate) async fn copy_file_in_scope(
                 break;
             }
             Err(err) if file_repo::is_duplicate_name_error(&err, &candidate_name) => {
-                candidate_name = crate::utils::next_copy_name(&candidate_name);
+                candidate_name = aster_forge_validation::filename::next_copy_name(&candidate_name);
             }
             Err(err) => return Err(err),
         }

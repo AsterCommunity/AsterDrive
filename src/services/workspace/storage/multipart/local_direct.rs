@@ -48,7 +48,7 @@ pub(super) async fn upload_local_direct(
             } else {
                 name
             };
-            let filename = crate::utils::normalize_validate_name(&filename)?;
+            let filename = aster_forge_validation::filename::normalize_validate_name(&filename)?;
 
             let staging_token = format!("{}.upload", crate::utils::id::new_uuid());
             let staging_path =

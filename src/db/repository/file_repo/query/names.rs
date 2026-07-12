@@ -88,11 +88,13 @@ pub(super) async fn find_by_name_in_folder_in_scope<C: ConnectionTrait>(
         return Ok(exact);
     }
 
-    let normalized_name = crate::utils::normalize_name(name);
+    let normalized_name = aster_forge_validation::filename::normalize_name(name);
     Ok(find_by_folder_in_scope(db, scope, folder_id)
         .await?
         .into_iter()
-        .find(|file| crate::utils::normalize_name(&file.name) == normalized_name))
+        .find(|file| {
+            aster_forge_validation::filename::normalize_name(&file.name) == normalized_name
+        }))
 }
 
 pub(super) async fn find_by_names_in_folder_in_scope<C: ConnectionTrait>(
@@ -127,7 +129,9 @@ pub(super) async fn find_by_names_in_folder_in_scope<C: ConnectionTrait>(
                 .into_iter()
                 .filter(|file| !existing_ids.contains(&file.id))
                 .filter(|file| {
-                    normalized_names.contains(&crate::utils::normalize_name(&file.name))
+                    normalized_names.contains(&aster_forge_validation::filename::normalize_name(
+                        &file.name,
+                    ))
                 }),
         );
     }
@@ -180,7 +184,7 @@ fn checked_candidate_copy_number(
 }
 
 fn build_copy_filename_candidate_batch(
-    template: &crate::utils::CopyNameTemplate,
+    template: &aster_forge_validation::filename::CopyNameTemplate,
     normalized_name: &str,
     start_copy_number: u32,
     count: usize,
@@ -189,13 +193,16 @@ fn build_copy_filename_candidate_batch(
     for offset in 0..count {
         let copy_number =
             checked_candidate_copy_number(normalized_name, start_copy_number, offset)?;
-        candidates.push(crate::utils::format_copy_name(template, copy_number));
+        candidates.push(aster_forge_validation::filename::format_copy_name(
+            template,
+            copy_number,
+        ));
     }
     Ok(candidates)
 }
 
 fn build_unique_filename_candidates(normalized_name: &str) -> Result<Vec<String>> {
-    let template = crate::utils::copy_name_template(normalized_name);
+    let template = aster_forge_validation::filename::copy_name_template(normalized_name);
     let mut candidates = Vec::with_capacity(UNIQUE_FILENAME_CANDIDATE_BATCH_SIZE);
     candidates.push(normalized_name.to_string());
     candidates.extend(build_copy_filename_candidate_batch(
@@ -256,7 +263,7 @@ fn normalized_non_ascii_names(names: &[String]) -> HashSet<String> {
     names
         .iter()
         .filter(|name| !name.is_ascii())
-        .map(|name| crate::utils::normalize_name(name))
+        .map(|name| aster_forge_validation::filename::normalize_name(name))
         .collect()
 }
 
@@ -272,7 +279,7 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
     folder_id: Option<i64>,
     name: &str,
 ) -> Result<String> {
-    let normalized_name = crate::utils::normalize_validate_name(name)?;
+    let normalized_name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let candidates = build_unique_filename_candidates(&normalized_name)?;
     let query_names = add_normalization_query_variants(&candidates);
     let existing_candidate_names: HashSet<String> =
@@ -289,7 +296,7 @@ async fn resolve_unique_filename_in_scope<C: ConnectionTrait>(
         return Ok(candidate);
     }
 
-    let template = crate::utils::copy_name_template(&normalized_name);
+    let template = aster_forge_validation::filename::copy_name_template(&normalized_name);
     let mut next_copy_number = checked_candidate_copy_number(
         &normalized_name,
         template.next_copy_number,

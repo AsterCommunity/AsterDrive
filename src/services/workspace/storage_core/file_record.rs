@@ -37,7 +37,7 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
         name_mode,
         actor_username,
     } = params;
-    let normalized_filename = crate::utils::normalize_validate_name(filename)?;
+    let normalized_filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
     let created_by_username = match actor_username {
         Some(username) => username.to_string(),
         None => load_scope_actor_username(db, scope).await?,
@@ -114,7 +114,7 @@ async fn create_file_from_blob_with_name_mode<C: ConnectionTrait>(
                         normalized_filename
                     )));
                 }
-                final_name = crate::utils::next_copy_name(&final_name);
+                final_name = aster_forge_validation::filename::next_copy_name(&final_name);
             }
             Err(err) => return Err(AsterError::from(err)),
         }

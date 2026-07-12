@@ -7,7 +7,7 @@ use crate::db::repository::{user_profile_repo, user_repo};
 use crate::entities::{user, user_profile};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::utils::char_count;
+use aster_forge_validation::filename::char_count;
 
 use super::info::{AvatarAudience, UserProfileInfo, build_profile_info, resolve_gravatar_base_url};
 use super::shared::default_profile_active_model;

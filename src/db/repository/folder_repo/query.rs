@@ -294,11 +294,13 @@ async fn find_by_name_in_parent_in_scope<C: ConnectionTrait>(
         return Ok(exact);
     }
 
-    let normalized_name = crate::utils::normalize_name(name);
+    let normalized_name = aster_forge_validation::filename::normalize_name(name);
     Ok(find_children_in_scope(db, scope, parent_id)
         .await?
         .into_iter()
-        .find(|folder| crate::utils::normalize_name(&folder.name) == normalized_name))
+        .find(|folder| {
+            aster_forge_validation::filename::normalize_name(&folder.name) == normalized_name
+        }))
 }
 
 async fn find_by_names_in_parent_in_scope<C: ConnectionTrait>(
@@ -331,7 +333,9 @@ async fn find_by_names_in_parent_in_scope<C: ConnectionTrait>(
                 .into_iter()
                 .filter(|folder| !existing_ids.contains(&folder.id))
                 .filter(|folder| {
-                    normalized_names.contains(&crate::utils::normalize_name(&folder.name))
+                    normalized_names.contains(&aster_forge_validation::filename::normalize_name(
+                        &folder.name,
+                    ))
                 }),
         );
     }
@@ -379,7 +383,7 @@ fn normalized_non_ascii_names(names: &[String]) -> HashSet<String> {
     names
         .iter()
         .filter(|name| !name.is_ascii())
-        .map(|name| crate::utils::normalize_name(name))
+        .map(|name| aster_forge_validation::filename::normalize_name(name))
         .collect()
 }
 

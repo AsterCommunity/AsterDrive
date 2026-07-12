@@ -353,7 +353,7 @@ pub(crate) async fn copy_folder_between_scopes(
         };
 
         if exists {
-            dest_name = crate::utils::next_copy_name(&dest_name);
+            dest_name = aster_forge_validation::filename::next_copy_name(&dest_name);
             continue;
         }
 
@@ -391,7 +391,7 @@ pub(crate) async fn copy_folder_between_scopes(
                 return Ok(copied);
             }
             Err(err) if folder_repo::is_duplicate_name_error(&err, &dest_name) => {
-                dest_name = crate::utils::next_copy_name(&dest_name);
+                dest_name = aster_forge_validation::filename::next_copy_name(&dest_name);
             }
             Err(err) => return Err(err),
         }

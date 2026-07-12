@@ -1,7 +1,7 @@
 //! `tags` API DTO 定义。
 
 use crate::services::content::tag::TAG_NAME_MAX_CHARS;
-use crate::utils::char_count;
+use aster_forge_validation::filename::char_count;
 use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};

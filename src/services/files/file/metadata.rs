@@ -73,7 +73,9 @@ pub(crate) async fn update_in_scope(
     }
 
     let name = match name {
-        Some(name) => Some(crate::utils::normalize_validate_name(&name)?),
+        Some(name) => Some(aster_forge_validation::filename::normalize_validate_name(
+            &name,
+        )?),
         None => None,
     };
 

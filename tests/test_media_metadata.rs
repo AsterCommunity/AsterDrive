@@ -440,7 +440,7 @@ async fn insert_synthetic_media_file(
         .expect("default policy should exist");
     let driver = state.driver_registry.get_driver(&policy).unwrap();
     let hash = hex::encode(Sha256::digest(bytes));
-    let storage_path = aster_drive::utils::storage_path_from_blob_key(&hash);
+    let storage_path = aster_forge_validation::filename::storage_path_from_blob_key(&hash).unwrap();
     driver.put(&storage_path, bytes).await.unwrap();
     let now = chrono::Utc::now();
     let blob = file_blob::ActiveModel {

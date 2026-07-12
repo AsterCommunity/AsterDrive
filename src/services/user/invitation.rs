@@ -58,7 +58,7 @@ pub async fn create_invitation(
     email: &str,
     invited_by: i64,
 ) -> Result<AdminUserInvitationInfo> {
-    let email = crate::utils::email::normalize_email(email)?;
+    let email = aster_forge_validation::email::normalize_email(email)?;
     LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&email)?;
 
     let token = id::new_short_token();

@@ -125,7 +125,7 @@ async fn resolve_upload_target(
             })
         }
         None => {
-            let filename = crate::utils::normalize_validate_name(filename)?;
+            let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
             let folder = match folder_id {
                 Some(folder_id) => {
                     let folder = storage::verify_folder_access(state, scope, folder_id).await?;

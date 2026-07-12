@@ -8,7 +8,9 @@ pub(crate) fn validate_request<T: Validate>(value: &T) -> Result<()> {
 }
 
 pub(crate) fn validate_name(value: &str) -> std::result::Result<(), ValidationError> {
-    crate::utils::validate_name(value).map_err(aster_to_validation_error)
+    aster_forge_validation::filename::validate_name(value)
+        .map_err(AsterError::from)
+        .map_err(aster_to_validation_error)
 }
 
 pub(crate) fn validate_uuid(value: &str) -> std::result::Result<(), ValidationError> {

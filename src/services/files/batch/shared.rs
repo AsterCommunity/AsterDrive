@@ -192,7 +192,7 @@ pub(crate) fn reserve_unique_name(
 ) -> String {
     let mut candidate = original_name.to_string();
     while !reserved_names.insert(candidate.clone()) {
-        candidate = crate::utils::next_copy_name(&candidate);
+        candidate = aster_forge_validation::filename::next_copy_name(&candidate);
     }
     candidate
 }

@@ -462,6 +462,12 @@ impl From<aster_forge_file_classification::FileClassificationError> for AsterErr
     }
 }
 
+impl From<aster_forge_validation::ValidationError> for AsterError {
+    fn from(error: aster_forge_validation::ValidationError) -> Self {
+        Self::validation_error(error.message())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ResponseLogLevel {
     Skip,

@@ -145,7 +145,9 @@ fn parse_overwrite_relative_target(raw: Option<&str>) -> Result<bool> {
 }
 
 pub(crate) fn normalize_relative_target_name(value: &str) -> Result<String> {
-    crate::utils::normalize_validate_name(value)
+    Ok(aster_forge_validation::filename::normalize_validate_name(
+        value,
+    )?)
 }
 
 pub(crate) fn normalize_requested_rename_target(
@@ -175,7 +177,9 @@ fn build_requested_rename_filename(source_file_name: &str, requested_name: &str)
     }
 
     let full_name = rename_target_name(source_file_name, requested_name);
-    crate::utils::normalize_validate_name(&full_name)
+    Ok(aster_forge_validation::filename::normalize_validate_name(
+        &full_name,
+    )?)
 }
 
 fn sanitize_requested_rename_name(source_file_name: &str, requested_name: &str) -> Option<String> {
@@ -258,7 +262,7 @@ fn sanitize_suggested_target_name(candidate: &str, fallback: &str) -> String {
         sanitized = sanitized.trim().trim_end_matches('.').to_string();
     }
 
-    if let Ok(normalized) = crate::utils::normalize_validate_name(&sanitized) {
+    if let Ok(normalized) = aster_forge_validation::filename::normalize_validate_name(&sanitized) {
         normalized
     } else {
         fallback.to_string()

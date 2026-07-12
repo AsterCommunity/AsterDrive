@@ -19,11 +19,21 @@ const MAX_BRANDING_DESCRIPTION_LEN: usize = 300;
 const MAX_BRANDING_ASSET_URL_LEN: usize = 2048;
 
 pub fn normalize_title_config_value(value: &str) -> Result<String> {
-    normalize_text_value("branding_title", value, MAX_BRANDING_TITLE_LEN)
+    aster_forge_validation::display::normalize_bounded_display_text(
+        "branding_title",
+        value,
+        MAX_BRANDING_TITLE_LEN,
+    )
+    .map_err(AsterError::from)
 }
 
 pub fn normalize_description_config_value(value: &str) -> Result<String> {
-    normalize_text_value("branding_description", value, MAX_BRANDING_DESCRIPTION_LEN)
+    aster_forge_validation::display::normalize_bounded_display_text(
+        "branding_description",
+        value,
+        MAX_BRANDING_DESCRIPTION_LEN,
+    )
+    .map_err(AsterError::from)
 }
 
 pub fn normalize_favicon_url_config_value(value: &str) -> Result<String> {
@@ -39,7 +49,7 @@ pub fn normalize_wordmark_light_url_config_value(value: &str) -> Result<String> 
 }
 
 pub fn title_or_default(runtime_config: &RuntimeConfig) -> String {
-    string_or_default(
+    aster_forge_validation::display::display_text_or_default(
         runtime_config.get(BRANDING_TITLE_KEY),
         DEFAULT_BRANDING_TITLE,
         "branding_title",
@@ -48,7 +58,7 @@ pub fn title_or_default(runtime_config: &RuntimeConfig) -> String {
 }
 
 pub fn description_or_default(runtime_config: &RuntimeConfig) -> String {
-    string_or_default(
+    aster_forge_validation::display::display_text_or_default(
         runtime_config.get(BRANDING_DESCRIPTION_KEY),
         DEFAULT_BRANDING_DESCRIPTION,
         "branding_description",
@@ -81,71 +91,16 @@ pub fn wordmark_light_url_or_default(runtime_config: &RuntimeConfig) -> String {
 }
 
 fn normalize_asset_url_config_value(field_name: &str, value: &str) -> Result<String> {
-    let normalized = value.trim();
-    if normalized.is_empty() {
-        return Ok(String::new());
-    }
-    if normalized.len() > MAX_BRANDING_ASSET_URL_LEN {
-        return Err(AsterError::validation_error(format!(
-            "{field_name} exceeds {MAX_BRANDING_ASSET_URL_LEN} characters",
-        )));
-    }
-    if normalized.chars().any(char::is_whitespace) {
-        return Err(AsterError::validation_error(format!(
-            "{field_name} cannot contain whitespace",
-        )));
-    }
-    if !is_allowed_branding_asset_url(normalized) {
-        return Err(AsterError::validation_error(format!(
-            "{field_name} must be an absolute http(s) URL or a root-relative path",
-        )));
-    }
-    Ok(normalized.to_string())
+    aster_forge_validation::display::normalize_public_asset_url(
+        field_name,
+        value,
+        MAX_BRANDING_ASSET_URL_LEN,
+    )
+    .map_err(AsterError::from)
 }
 
 fn asset_url_or_default(runtime_config: &RuntimeConfig, key: &str, default: &str) -> String {
-    runtime_config
-        .get(key)
-        .map(|value| value.trim().to_string())
-        .filter(|value| !value.is_empty())
-        .filter(|value| is_allowed_branding_asset_url(value))
-        .unwrap_or_else(|| default.to_string())
-}
-
-fn normalize_text_value(field_name: &str, value: &str, max_len: usize) -> Result<String> {
-    let normalized = value.trim();
-    if normalized.len() > max_len {
-        return Err(AsterError::validation_error(format!(
-            "{field_name} exceeds {max_len} characters",
-        )));
-    }
-    if strip_control_chars(normalized) != normalized {
-        return Err(AsterError::validation_error(format!(
-            "{field_name} cannot contain control characters",
-        )));
-    }
-    Ok(normalized.to_string())
-}
-
-fn strip_control_chars(value: &str) -> String {
-    value.chars().filter(|ch| !ch.is_control()).collect()
-}
-
-fn string_or_default(
-    value: Option<String>,
-    default: &str,
-    field_name: &str,
-    max_len: usize,
-) -> String {
-    value
-        .map(|value| strip_control_chars(&value))
-        .and_then(|value| normalize_text_value(field_name, &value, max_len).ok())
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| default.to_string())
-}
-
-fn is_allowed_branding_asset_url(value: &str) -> bool {
-    value.starts_with('/') || value.starts_with("https://") || value.starts_with("http://")
+    aster_forge_validation::display::public_asset_url_or_default(runtime_config.get(key), default)
 }
 
 #[cfg(test)]

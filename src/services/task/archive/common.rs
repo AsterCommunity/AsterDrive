@@ -93,7 +93,8 @@ pub(super) async fn create_unique_folder_in_scope(
     parent_id: Option<i64>,
     base_name: &str,
 ) -> Result<folder::Model> {
-    let normalized_base_name = crate::utils::normalize_validate_name(base_name)?;
+    let normalized_base_name =
+        aster_forge_validation::filename::normalize_validate_name(base_name)?;
     let mut final_name =
         resolve_unique_folder_name_in_scope(state, scope, parent_id, &normalized_base_name).await?;
 
@@ -109,7 +110,7 @@ pub(super) async fn create_unique_folder_in_scope(
                         normalized_base_name
                     )));
                 }
-                final_name = crate::utils::next_copy_name(&final_name);
+                final_name = aster_forge_validation::filename::next_copy_name(&final_name);
             }
             Err(err) => return Err(err),
         }
@@ -127,7 +128,7 @@ pub(super) async fn create_folder_exact_in_scope(
     parent_id: Option<i64>,
     name: &str,
 ) -> Result<folder::Model> {
-    let name = crate::utils::normalize_validate_name(name)?;
+    let name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let exists = match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             folder_repo::find_by_name_in_parent(state.writer_db(), user_id, parent_id, &name)
@@ -170,7 +171,7 @@ async fn resolve_unique_folder_name_in_scope(
     parent_id: Option<i64>,
     base_name: &str,
 ) -> Result<String> {
-    let mut candidate = crate::utils::normalize_validate_name(base_name)?;
+    let mut candidate = aster_forge_validation::filename::normalize_validate_name(base_name)?;
     loop {
         let exists = match scope {
             WorkspaceStorageScope::Personal { user_id } => {
@@ -195,7 +196,7 @@ async fn resolve_unique_folder_name_in_scope(
         if exists.is_none() {
             return Ok(candidate);
         }
-        candidate = crate::utils::next_copy_name(&candidate);
+        candidate = aster_forge_validation::filename::next_copy_name(&candidate);
     }
 }
 

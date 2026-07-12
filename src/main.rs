@@ -12,7 +12,6 @@
     )
 )]
 
-use actix_web::web;
 #[cfg(feature = "cli")]
 use clap::{Parser, Subcommand};
 use std::io;
@@ -236,128 +235,17 @@ async fn main() -> std::io::Result<()> {
             let prepared = aster_drive::runtime::startup::prepare_primary()
                 .await
                 .map_err(io_other)?;
-            run_primary_http_server(prepared).await
+            aster_drive::runtime::assembly::run_primary(prepared).await
         }
         aster_drive::config::node_mode::NodeRuntimeMode::Follower => {
             let prepared = aster_drive::runtime::startup::prepare_follower()
                 .await
                 .map_err(io_other)?;
-            run_follower_http_server(prepared).await
+            aster_drive::runtime::assembly::run_follower(prepared).await
         }
     }
 }
 
 fn io_other(error: impl std::fmt::Display) -> io::Error {
     io::Error::other(error.to_string())
-}
-
-async fn run_primary_http_server(
-    prepared: aster_drive::runtime::startup::PreparedPrimaryRuntime,
-) -> std::io::Result<()> {
-    let aster_drive::runtime::startup::PreparedPrimaryRuntime {
-        state,
-        share_download_rollback_worker,
-    } = prepared;
-    let host = state.config.server.host.clone();
-    let port = state.config.server.port;
-    let workers = match state.config.server.workers {
-        0 => num_cpus::get(),
-        n => n,
-    };
-    tracing::info!(
-        mode = "primary",
-        host = %host,
-        port,
-        "starting HTTP service"
-    );
-
-    let db_handles = state.db_handles.clone();
-    let audit_state = state.clone();
-    let mail_state = state.clone();
-    let state = web::Data::new(state);
-    let metrics =
-        web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
-    let runtime = aster_forge_runtime::AsterRuntime::builder()
-        .component(aster_drive::runtime::components::primary_http_component(
-            host,
-            port,
-            workers,
-            state.clone(),
-            metrics,
-        ))?
-        .component(
-            aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
-                aster_drive::services::task::registered_system_runtime_tasks(),
-                move |shutdown_token| {
-                    aster_drive::runtime::tasks::spawn_primary_background_tasks(
-                        state,
-                        share_download_rollback_worker,
-                        shutdown_token,
-                    )
-                },
-            ),
-        )
-        .component(aster_forge_mail::mail_outbox_component(
-            aster_drive::runtime::components::MailOutboxRuntimeResources::from_state(&mail_state),
-            aster_drive::runtime::components::drain_mail_outbox_on_shutdown,
-        ))
-        .component(aster_drive::runtime::components::primary_audit_component(
-            audit_state,
-        ))
-        .component(aster_drive::runtime::components::database_component(
-            db_handles,
-        ));
-
-    runtime.run().await.map_err(io_other)?
-}
-
-async fn run_follower_http_server(
-    prepared: aster_drive::runtime::startup::PreparedFollowerRuntime,
-) -> std::io::Result<()> {
-    let state = prepared.state;
-    let host = state.config.server.host.clone();
-    let port = state.config.server.port;
-    let workers = match state.config.server.workers {
-        0 => num_cpus::get(),
-        n => n,
-    };
-    tracing::info!(
-        mode = "follower",
-        host = %host,
-        port,
-        "starting HTTP service"
-    );
-
-    let db_handles = state.db_handles.clone();
-    let audit_state = state.clone();
-    let state = web::Data::new(state);
-    let metrics =
-        web::Data::<dyn aster_forge_metrics::MetricsRecorder>::from(state.metrics.forge_recorder());
-    let runtime = aster_forge_runtime::AsterRuntime::builder()
-        .component(aster_drive::runtime::components::follower_http_component(
-            host,
-            port,
-            workers,
-            state.clone(),
-            metrics,
-        ))?
-        .component(
-            aster_forge_tasks::background_task_component_with_definitions_from_shutdown(
-                aster_drive::services::task::registered_system_runtime_tasks(),
-                move |shutdown_token| {
-                    aster_drive::runtime::tasks::spawn_follower_background_tasks(
-                        state,
-                        shutdown_token,
-                    )
-                },
-            ),
-        )
-        .component(aster_drive::runtime::components::follower_audit_component(
-            audit_state,
-        ))
-        .component(aster_drive::runtime::components::database_component(
-            db_handles,
-        ));
-
-    runtime.run().await.map_err(io_other)?
 }

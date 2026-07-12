@@ -1,9 +1,9 @@
-use std::collections::BTreeSet;
-
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::RuntimeConfig;
 use crate::errors::{AsterError, Result, validation_error_with_code};
-use crate::utils::email::{email_domain, normalize_email};
+use aster_forge_validation::email_policy::{
+    EmailPolicyList, normalize_email_policy_items, normalized_email_and_domain,
+};
 
 pub use crate::config::definitions::{
     AUTH_LOCAL_EMAIL_ALLOWLIST_KEY, AUTH_LOCAL_EMAIL_BLOCKLIST_KEY,
@@ -13,12 +13,6 @@ pub use crate::config::definitions::{
 pub struct LocalEmailPolicy {
     allowlist: EmailPolicyList,
     blocklist: EmailPolicyList,
-}
-
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-struct EmailPolicyList {
-    emails: BTreeSet<String>,
-    domains: BTreeSet<String>,
 }
 
 impl LocalEmailPolicy {
@@ -32,8 +26,7 @@ impl LocalEmailPolicy {
     }
 
     pub fn check(&self, email: &str) -> Result<()> {
-        let normalized = normalize_policy_email(email)?;
-        let domain = email_domain(&normalized)?;
+        let (normalized, domain) = normalized_email_and_domain(email)?;
 
         if self.blocklist.matches(&normalized, &domain) {
             return Err(email_blocked_error());
@@ -50,8 +43,7 @@ impl LocalEmailPolicy {
     }
 
     pub fn check_not_blocked(&self, email: &str) -> Result<()> {
-        let normalized = normalize_policy_email(email)?;
-        let domain = email_domain(&normalized)?;
+        let (normalized, domain) = normalized_email_and_domain(email)?;
 
         if self.blocklist.matches(&normalized, &domain) {
             return Err(email_blocked_error());
@@ -68,38 +60,11 @@ fn email_blocked_error() -> AsterError {
     )
 }
 
-impl EmailPolicyList {
-    fn is_empty(&self) -> bool {
-        self.emails.is_empty() && self.domains.is_empty()
-    }
-
-    fn matches(&self, email: &str, domain: &str) -> bool {
-        self.emails.contains(email) || self.domains.contains(domain)
-    }
-
-    fn insert(&mut self, item: PolicyEntry) {
-        match item {
-            PolicyEntry::Email(value) => {
-                self.emails.insert(value);
-            }
-            PolicyEntry::Domain(value) => {
-                self.domains.insert(value);
-            }
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-enum PolicyEntry {
-    Email(String),
-    Domain(String),
-}
-
 pub fn normalize_local_email_policy_config_value(key: &str, value: &str) -> Result<String> {
     let raw_items = serde_json::from_str::<Vec<String>>(value).map_err(|error| {
         AsterError::validation_error(format!("{key} must be a JSON array of strings: {error}"))
     })?;
-    let normalized = normalize_policy_items(raw_items)?;
+    let normalized = normalize_email_policy_items(raw_items)?;
     serde_json::to_string(&normalized).map_err(|error| {
         AsterError::internal_error(format!("failed to serialize {key} config value: {error}"))
     })
@@ -110,27 +75,14 @@ fn read_policy_list(runtime_config: &RuntimeConfig, key: &str) -> EmailPolicyLis
         return EmailPolicyList::default();
     };
     match serde_json::from_str::<Vec<String>>(&raw) {
-        Ok(items) => {
-            let mut list = EmailPolicyList::default();
-            for item in items {
-                let item = item.trim();
-                if item.is_empty() {
-                    continue;
-                }
-                match parse_policy_item(item) {
-                    Ok(entry) => list.insert(entry),
-                    Err(error) => {
-                        tracing::warn!(
-                            key,
-                            item,
-                            error = %error,
-                            "invalid local email policy item; ignoring"
-                        );
-                    }
-                }
-            }
-            list
-        }
+        Ok(items) => EmailPolicyList::from_items_lossy(items, |item, error| {
+            tracing::warn!(
+                key,
+                item,
+                error = %error,
+                "invalid local email policy item; ignoring"
+            );
+        }),
         Err(error) => {
             tracing::warn!(
                 key,
@@ -141,68 +93,6 @@ fn read_policy_list(runtime_config: &RuntimeConfig, key: &str) -> EmailPolicyLis
             EmailPolicyList::default()
         }
     }
-}
-
-fn normalize_policy_items(items: Vec<String>) -> Result<Vec<String>> {
-    let mut normalized = BTreeSet::new();
-    for item in items {
-        let item = item.trim();
-        if item.is_empty() {
-            continue;
-        }
-        let entry = parse_policy_item(item)?;
-        match entry {
-            PolicyEntry::Email(value) | PolicyEntry::Domain(value) => {
-                normalized.insert(value);
-            }
-        }
-    }
-    Ok(normalized.into_iter().collect())
-}
-
-fn parse_policy_item(item: &str) -> Result<PolicyEntry> {
-    if let Some(domain) = item.strip_prefix('@')
-        && !domain.contains('@')
-    {
-        return normalize_policy_domain(domain).map(PolicyEntry::Domain);
-    }
-
-    if item.contains('@') {
-        return normalize_policy_email(item).map(PolicyEntry::Email);
-    }
-
-    normalize_policy_domain(item).map(PolicyEntry::Domain)
-}
-
-fn normalize_policy_email(email: &str) -> Result<String> {
-    let normalized = normalize_email(email)?;
-    Ok(normalized.to_ascii_lowercase())
-}
-
-fn normalize_policy_domain(domain: &str) -> Result<String> {
-    let normalized = domain.trim().trim_start_matches('@').to_ascii_lowercase();
-    if normalized.is_empty()
-        || normalized.len() > 253
-        || normalized.contains('@')
-        || !normalized.contains('.')
-        || normalized.starts_with('.')
-        || normalized.ends_with('.')
-        || normalized.contains("..")
-    {
-        return Err(AsterError::validation_error(format!(
-            "invalid email policy domain '{domain}'"
-        )));
-    }
-
-    if !normalized.split('.').all(|label| {
-        !label.is_empty() && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
-    }) {
-        return Err(AsterError::validation_error(format!(
-            "invalid email policy domain '{domain}'"
-        )));
-    }
-
-    Ok(normalized)
 }
 
 #[cfg(test)]

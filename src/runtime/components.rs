@@ -6,15 +6,13 @@ use std::sync::Arc;
 use actix_web::web;
 use actix_web::{App, HttpServer};
 use aster_forge_runtime::{
-    RuntimeComponentBundle, RuntimeComponentBundleRegistration, RuntimeComponentKind,
-    RuntimeServiceComponent, TryRuntimeComponentWithShutdown,
+    RuntimeComponentKind, RuntimeServiceComponent, TryRuntimeComponentWithShutdown,
 };
 use tokio_util::sync::CancellationToken;
 
 use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use aster_forge_mail::MailSender;
 
-const DATABASE_SHUTDOWN_DEPENDENCIES: &[&str] = &[aster_forge_audit::AUDIT_MANAGER_COMPONENT];
 const HTTP_SHUTDOWN_TIMEOUT_SECS: u64 = 8;
 
 type HttpServiceComponent = RuntimeServiceComponent<actix_web::dev::Server>;
@@ -166,55 +164,6 @@ pub async fn drain_mail_outbox_on_shutdown(
     .map_err(|error| error.to_string())
 }
 
-pub fn primary_audit_component<S>(
-    state: S,
-) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
-where
-    S: SharedRuntimeState + Clone + Send + Sync + 'static,
-{
-    audit_component_after(state, &[aster_forge_mail::MAIL_OUTBOX_COMPONENT])
-}
-
-pub fn follower_audit_component<S>(
-    state: S,
-) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
-where
-    S: SharedRuntimeState + Clone + Send + Sync + 'static,
-{
-    audit_component_after(state, &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT])
-}
-
-fn audit_component_after<S>(
-    state: S,
-    dependencies: &'static [&'static str],
-) -> RuntimeComponentBundleRegistration<impl RuntimeComponentBundle + use<S>>
-where
-    S: SharedRuntimeState + Clone + Send + Sync + 'static,
-{
-    aster_forge_audit::audit_component_after(
-        state,
-        dependencies,
-        |state| async move {
-            crate::runtime::startup::record_server_start(&state).await;
-            Ok(())
-        },
-        |state| async move {
-            crate::runtime::shutdown::record_server_shutdown(&state).await;
-            Ok(())
-        },
-        |()| async {
-            crate::services::ops::audit::shutdown_global_audit_log_manager().await;
-            Ok(())
-        },
-    )
-}
-
-pub fn database_component(
-    db_handles: aster_forge_db::DbHandles,
-) -> RuntimeComponentBundleRegistration<aster_forge_db::DatabaseRuntimeComponent> {
-    aster_forge_db::database_component_after(db_handles, DATABASE_SHUTDOWN_DEPENDENCIES)
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
@@ -222,10 +171,7 @@ mod tests {
     use aster_forge_runtime::RuntimeComponentBundle;
     use migration::Migrator;
 
-    use super::{
-        MailOutboxRuntimeResources, database_component, drain_mail_outbox_on_shutdown,
-        follower_audit_component, primary_audit_component,
-    };
+    use super::{MailOutboxRuntimeResources, drain_mail_outbox_on_shutdown};
     use crate::runtime::{FollowerAppState, SharedRuntimeState};
 
     fn register_background_tasks(registry: &mut aster_forge_runtime::RuntimeComponentRegistry) {
@@ -273,8 +219,23 @@ mod tests {
         let state = follower_state().await;
         let registry = aster_forge_runtime::RuntimeComponentRegistry::configured(|registry| {
             aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
-            follower_audit_component(state.clone()).register(registry);
-            database_component(state.db_handles.clone()).register(registry);
+            aster_forge_audit::audit_component_after_infallible(
+                state.clone(),
+                &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT],
+                |state| async move { crate::runtime::startup::record_server_start(&state).await },
+                |state| async move {
+                    crate::runtime::shutdown::record_server_shutdown(&state).await
+                },
+                |()| async {
+                    crate::services::ops::audit::shutdown_global_audit_log_manager().await
+                },
+            )
+            .register(registry);
+            aster_forge_db::database_component_after(
+                state.db_handles.clone(),
+                &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
+            )
+            .register(registry);
         });
 
         registry
@@ -308,8 +269,22 @@ mod tests {
             aster_forge_runtime::runtime_component(register_background_tasks).register(registry);
             aster_forge_mail::mail_outbox_component(resources, drain_mail_outbox_on_shutdown)
                 .register(registry);
-            primary_audit_component(state.clone()).register(registry);
-            database_component(state.db_handles.clone()).register(registry);
+            aster_forge_audit::audit_component_infallible(
+                state.clone(),
+                |state| async move { crate::runtime::startup::record_server_start(&state).await },
+                |state| async move {
+                    crate::runtime::shutdown::record_server_shutdown(&state).await
+                },
+                |()| async {
+                    crate::services::ops::audit::shutdown_global_audit_log_manager().await
+                },
+            )
+            .register(registry);
+            aster_forge_db::database_component_after(
+                state.db_handles.clone(),
+                &[aster_forge_audit::AUDIT_MANAGER_COMPONENT],
+            )
+            .register(registry);
         });
 
         registry

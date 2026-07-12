@@ -870,7 +870,7 @@ pub(in crate::services::task) async fn create_typed_task_record<S: BackgroundTas
 }
 
 pub(super) fn truncate_display_name(value: &str) -> String {
-    crate::utils::truncate_utf8_to_max_bytes(value, TASK_DISPLAY_NAME_MAX_LEN)
+    aster_forge_validation::filename::truncate_utf8_to_max_bytes(value, TASK_DISPLAY_NAME_MAX_LEN)
 }
 
 pub(super) fn task_scope(task: &background_task::Model) -> Result<WorkspaceStorageScope> {

@@ -45,14 +45,15 @@ pub(super) fn filename_from_content_disposition(raw: &str) -> Option<String> {
         let name = name.trim();
         if name.eq_ignore_ascii_case("filename*") {
             if let Some(decoded) = decode_rfc5987_filename(value.trim())
-                && let Ok(name) = crate::utils::normalize_validate_name(&decoded)
+                && let Ok(name) =
+                    aster_forge_validation::filename::normalize_validate_name(&decoded)
             {
                 return Some(name);
             }
         } else if name.eq_ignore_ascii_case("filename") {
             let value = value.trim().trim_matches('"');
             if !value.is_empty()
-                && let Ok(name) = crate::utils::normalize_validate_name(value)
+                && let Ok(name) = aster_forge_validation::filename::normalize_validate_name(value)
             {
                 fallback = Some(name);
             }
@@ -80,10 +81,14 @@ pub(super) fn resolve_offline_download_filename(
     url: &Url,
 ) -> Result<String> {
     if let Some(name) = requested {
-        return crate::utils::normalize_validate_name(name);
+        return Ok(aster_forge_validation::filename::normalize_validate_name(
+            name,
+        )?);
     }
     if let Some(name) = response {
-        return crate::utils::normalize_validate_name(name);
+        return Ok(aster_forge_validation::filename::normalize_validate_name(
+            name,
+        )?);
     }
     let from_path = url
         .path_segments()
@@ -96,7 +101,7 @@ pub(super) fn resolve_offline_download_filename(
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty());
     if let Some(name) = from_path
-        && let Ok(name) = crate::utils::normalize_validate_name(&name)
+        && let Ok(name) = aster_forge_validation::filename::normalize_validate_name(&name)
     {
         return Ok(name);
     }

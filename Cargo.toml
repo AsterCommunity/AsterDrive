@@ -101,6 +101,7 @@ aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", pa
 aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_tasks", features = ["runtime-component"] }
 aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
 aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
+aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
 argon2 = "0.5.3"
 async-stream = "0.3"
 async-trait = "0.1"

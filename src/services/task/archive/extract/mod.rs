@@ -412,7 +412,7 @@ fn resolve_extract_output_folder_name(
         Some(value) if !value.is_empty() => value.to_string(),
         _ => default_extract_output_folder_name(source_file_name),
     };
-    crate::utils::validate_name(&candidate)?;
+    aster_forge_validation::filename::validate_name(&candidate)?;
     Ok(candidate)
 }
 

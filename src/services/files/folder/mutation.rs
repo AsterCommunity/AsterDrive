@@ -177,7 +177,7 @@ pub(crate) async fn create_in_scope(
             .await?;
     }
 
-    let name = crate::utils::normalize_validate_name(name)?;
+    let name = aster_forge_validation::filename::normalize_validate_name(name)?;
     let created_by_username = load_scope_actor_username(state.writer_db(), scope).await?;
 
     let now = Utc::now();
@@ -359,7 +359,9 @@ pub(crate) async fn update_in_scope(
     }
 
     let name = match name {
-        Some(name) => Some(crate::utils::normalize_validate_name(&name)?),
+        Some(name) => Some(aster_forge_validation::filename::normalize_validate_name(
+            &name,
+        )?),
         None => None,
     };
 

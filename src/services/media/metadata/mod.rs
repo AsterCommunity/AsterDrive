@@ -595,5 +595,8 @@ pub fn task_display_name(blob_id: i64, kind: MediaMetadataKind) -> String {
 }
 
 pub fn cache_error_message(error: &AsterError) -> String {
-    crate::utils::truncate_utf8_to_max_bytes(error.message(), CACHE_ERROR_MAX_LEN)
+    aster_forge_validation::filename::truncate_utf8_to_max_bytes(
+        error.message(),
+        CACHE_ERROR_MAX_LEN,
+    )
 }

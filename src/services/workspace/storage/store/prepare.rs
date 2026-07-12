@@ -85,7 +85,7 @@ pub(super) async fn prepare_store_from_temp(
         "storing file from temp"
     );
 
-    let filename = crate::utils::normalize_validate_name(filename)?;
+    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
 
     let policy = match resolved_policy {
         Some(policy) => policy,
@@ -230,7 +230,7 @@ async fn compute_dedup_target(
     };
 
     Ok(DedupTarget {
-        storage_path: crate::utils::storage_path_from_blob_key(&file_hash),
+        storage_path: aster_forge_validation::filename::storage_path_from_blob_key(&file_hash)?,
         file_hash,
     })
 }

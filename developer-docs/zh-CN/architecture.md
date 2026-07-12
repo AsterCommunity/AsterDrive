@@ -172,8 +172,9 @@ WebDAV 不走 `src/api/routes/**`，而是：
 
 | 模块 | 当前职责 |
 | --- | --- |
-| `src/main.rs` | 进程入口、选择节点模式，并把产品 runtime component 交给 `AsterRuntime` 执行 |
-| `src/runtime/components.rs` | 构造 primary / follower HTTP、mail outbox、audit 和 database component，声明 shutdown 依赖图；后台任务 component 直接使用 Forge factory |
+| `src/main.rs` | 进程和 CLI 入口，完成通用 bootstrap、选择节点模式并把 prepared state 交给 runtime assembly |
+| `src/runtime/assembly.rs` | 组装 primary / follower 的完整 Forge component graph；直接使用 Forge factory，不为单个 component 增加改名转发层 |
+| `src/runtime/components.rs` | 构造 Drive 自有资源适配所需的 primary / follower HTTP 和 mail outbox component |
 | `src/runtime/startup/common.rs` | 连接数据库、跑 migration、准备默认策略和运行时配置、加载 policy snapshot / driver registry / cache |
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
@@ -210,9 +211,9 @@ WebDAV 不走 `src/api/routes/**`，而是：
 5. 初始化日志
 6. 清理 runtime 临时目录
 7. 根据 `config.server.start_mode` 选择 `primary` 或 `follower`
-8. 用 `aster_forge_runtime::AsterRuntime` 组装 HTTP、后台任务、mail outbox、audit 和 database component；启动审计作为 required startup phase 执行
+8. 把 prepared primary / follower state 交给 `src/runtime/assembly.rs`，由它使用 `aster_forge_runtime::AsterRuntime` 组装 HTTP、后台任务、mail outbox、audit 和 database component；启动审计作为 required startup phase 执行
 
-优雅关闭不再由 `main.rs` 手写调用顺序。`src/runtime/components.rs` 声明的依赖图是：
+优雅关闭不再由 `main.rs` 手写调用顺序。`src/runtime/assembly.rs` 使用 Forge component factory 声明的依赖图是：
 
 primary 的依赖图是：
 
@@ -225,6 +226,8 @@ database       -> depends_on audit_manager
 ```
 
 follower 没有邮件发送器，因此不会注册假的 mail component；它保持 `audit_logs -> background_tasks`。关闭 primary 时会先停止后台任务，再 drain mail outbox、记录 `server_shutdown`、flush audit buffer，最后关闭全部 reader / writer DB pool。注册顺序不决定关闭顺序，component graph 会在服务启动前完成校验。
+
+primary 的 audit assembly 直接调用 `aster_forge_audit::audit_component_infallible(...)`；`mail-outbox-dependency` feature 负责声明 `audit_logs -> mail_outbox`，Drive 不再重复传递这个依赖，也不需要为内部自行处理错误的审计 hook 重复包装 `Ok(())`。follower 因为没有 mail outbox，直接调用 `audit_component_after_infallible(...)` 声明 `audit_logs -> background_tasks`。database assembly 同样直接调用 `aster_forge_db::database_component_after(...)`，不保留只改名转发的产品 wrapper。
 
 邮件 outbox 的共享边界也已收敛到 Forge：
 

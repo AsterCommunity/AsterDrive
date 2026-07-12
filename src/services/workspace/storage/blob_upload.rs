@@ -77,7 +77,9 @@ pub(crate) fn prepare_non_dedup_blob_upload(
             let blob_key = crate::utils::id::new_short_token();
             Ok(PreparedNonDedupBlobUpload::Local {
                 base_path: crate::storage::drivers::local::effective_base_path(policy),
-                storage_path: crate::utils::storage_path_from_blob_key(&blob_key),
+                storage_path: aster_forge_validation::filename::storage_path_from_blob_key(
+                    &blob_key,
+                )?,
                 blob_key,
                 size,
                 policy_id: policy.id,

@@ -41,7 +41,12 @@ async fn load_target_file_name_map(
     };
     Ok(files
         .into_iter()
-        .map(|file| (crate::utils::normalize_name(&file.name), file.id))
+        .map(|file| {
+            (
+                aster_forge_validation::filename::normalize_name(&file.name),
+                file.id,
+            )
+        })
         .collect())
 }
 
@@ -73,7 +78,12 @@ async fn load_target_folder_name_map(
     };
     Ok(folders
         .into_iter()
-        .map(|folder| (crate::utils::normalize_name(&folder.name), folder.id))
+        .map(|folder| {
+            (
+                aster_forge_validation::filename::normalize_name(&folder.name),
+                folder.id,
+            )
+        })
         .collect())
 }
 
@@ -158,7 +168,7 @@ pub(crate) async fn batch_move_in_scope(
             result.record_failure("file", id, error.clone());
             continue;
         }
-        let normalized_name = crate::utils::normalize_name(&file.name);
+        let normalized_name = aster_forge_validation::filename::normalize_name(&file.name);
         if matches!(target_file_names.get(&normalized_name), Some(existing_id) if *existing_id != file.id)
         {
             result.record_failure(
@@ -222,7 +232,7 @@ pub(crate) async fn batch_move_in_scope(
             );
             continue;
         }
-        let normalized_name = crate::utils::normalize_name(&folder.name);
+        let normalized_name = aster_forge_validation::filename::normalize_name(&folder.name);
         if matches!(target_folder_names.get(&normalized_name), Some(existing_id) if *existing_id != folder.id)
         {
             result.record_failure(

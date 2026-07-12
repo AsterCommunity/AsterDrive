@@ -26,7 +26,7 @@ pub(crate) fn validate_username(username: &str) -> Result<()> {
 }
 
 pub(crate) fn validate_email(email: &str) -> Result<()> {
-    crate::utils::email::validate_email(email)
+    aster_forge_validation::email::validate_email(email).map_err(AsterError::from)
 }
 
 pub(crate) fn validate_password(password: &str) -> Result<()> {
@@ -50,5 +50,5 @@ pub(super) fn normalize_username(username: &str) -> Result<String> {
 }
 
 pub(super) fn normalize_email(email: &str) -> Result<String> {
-    crate::utils::email::normalize_email(email)
+    aster_forge_validation::email::normalize_email(email).map_err(AsterError::from)
 }

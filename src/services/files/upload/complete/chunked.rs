@@ -316,7 +316,8 @@ async fn stage_assembled_blob_upload(
         file_hash,
     } = assembled;
     if let Some(file_hash) = file_hash {
-        let storage_path = crate::utils::storage_path_from_blob_key(&file_hash);
+        let storage_path =
+            aster_forge_validation::filename::storage_path_from_blob_key(&file_hash)?;
         crate::storage::drivers::local::promote_local_file_if_absent(
             driver,
             &storage_path,

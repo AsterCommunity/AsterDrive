@@ -228,13 +228,15 @@ pub(crate) fn normalize_archive_entry_path(
 
 fn normalize_archive_entry_name(name: &str, name_policy: ArchiveScanNamePolicy) -> Result<String> {
     match name_policy {
-        ArchiveScanNamePolicy::StrictAsterName => crate::utils::normalize_validate_name(name),
+        ArchiveScanNamePolicy::StrictAsterName => Ok(
+            aster_forge_validation::filename::normalize_validate_name(name)?,
+        ),
         ArchiveScanNamePolicy::PreviewDisplayName => normalize_preview_entry_name(name),
     }
 }
 
 fn normalize_preview_entry_name(name: &str) -> Result<String> {
-    let normalized = crate::utils::normalize_name(name);
+    let normalized = aster_forge_validation::filename::normalize_name(name);
     if normalized.is_empty() {
         return Err(AsterError::validation_error(
             "archive entry path cannot contain empty names",

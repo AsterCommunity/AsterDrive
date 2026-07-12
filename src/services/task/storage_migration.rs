@@ -618,7 +618,7 @@ async fn migrate_one_blob(
     } else {
         format!("migration-{}", uuid::Uuid::new_v4())
     };
-    let target_path = crate::utils::storage_path_from_blob_key(&target_hash);
+    let target_path = aster_forge_validation::filename::storage_path_from_blob_key(&target_hash)?;
 
     copy_blob_streaming(migration, &latest, &target_path).await?;
     let moved = transaction::with_transaction(state.writer_db(), async |txn| {

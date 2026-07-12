@@ -801,20 +801,22 @@ fn resolve_archive_name(
         _ => default_archive_name(selection),
     };
     let final_name = normalize_archive_zip_name(&base)?;
-    crate::utils::validate_name(&final_name)?;
+    aster_forge_validation::filename::validate_name(&final_name)?;
     Ok(final_name)
 }
 
 fn normalize_archive_zip_name(base: &str) -> Result<String> {
     if ends_with_ignore_ascii_case(base, ".zip") {
-        return crate::utils::normalize_validate_name(base);
+        return Ok(aster_forge_validation::filename::normalize_validate_name(
+            base,
+        )?);
     }
 
-    let max_stem_len = crate::utils::MAX_FILENAME_LEN
+    let max_stem_len = aster_forge_validation::filename::MAX_FILENAME_LEN
         .checked_sub(".zip".len())
         .ok_or_else(|| AsterError::internal_error("archive name length limit is too small"))?;
-    let stem = crate::utils::normalize_name(base);
-    let stem = crate::utils::truncate_utf8_to_max_bytes(&stem, max_stem_len);
+    let stem = aster_forge_validation::filename::normalize_name(base);
+    let stem = aster_forge_validation::filename::truncate_utf8_to_max_bytes(&stem, max_stem_len);
     let stem = stem.trim_end_matches([' ', '.']);
     if stem.is_empty() {
         return Err(AsterError::validation_error("name cannot be empty"));
@@ -895,10 +897,16 @@ mod tests {
 
     #[test]
     fn normalize_archive_zip_name_truncates_stem_before_suffix() {
-        let name = normalize_archive_zip_name(&"a".repeat(crate::utils::MAX_FILENAME_LEN)).unwrap();
+        let name = normalize_archive_zip_name(
+            &"a".repeat(aster_forge_validation::filename::MAX_FILENAME_LEN),
+        )
+        .unwrap();
 
         assert!(name.ends_with(".zip"));
-        assert_eq!(name.len(), crate::utils::MAX_FILENAME_LEN);
-        crate::utils::validate_name(&name).unwrap();
+        assert_eq!(
+            name.len(),
+            aster_forge_validation::filename::MAX_FILENAME_LEN
+        );
+        aster_forge_validation::filename::validate_name(&name).unwrap();
     }
 }

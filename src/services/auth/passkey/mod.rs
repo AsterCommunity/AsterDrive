@@ -24,10 +24,11 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local::{self, LoginResult, is_email_verified};
 use crate::types::StoredPasskeyCredential;
 use crate::utils::{
-    char_count, id,
+    id,
     net::is_loopback_host,
     numbers::{u32_to_i64, u64_to_i64},
 };
+use aster_forge_validation::filename::char_count;
 
 const PASSKEY_NAME_MAX_LEN: usize = 128;
 

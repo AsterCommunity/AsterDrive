@@ -127,7 +127,7 @@ pub(crate) async fn create_empty(
     if let Some(folder_id) = folder_id {
         verify_folder_access(state, scope, folder_id).await?;
     }
-    let filename = crate::utils::normalize_validate_name(filename)?;
+    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
 
     const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
     const EMPTY_SIZE: i64 = 0;
@@ -139,7 +139,8 @@ pub(crate) async fn create_empty(
 
     let txn = transaction::begin(state.writer_db()).await?;
     let blob = if should_dedup {
-        let storage_path = crate::utils::storage_path_from_blob_key(EMPTY_SHA256);
+        let storage_path =
+            aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
         let blob = file_repo::find_or_create_blob(
             &txn,
             EMPTY_SHA256,
@@ -210,7 +211,7 @@ pub(crate) async fn store_preuploaded_nondedup(
         "storing file from preuploaded blob"
     );
 
-    let filename = crate::utils::normalize_validate_name(filename)?;
+    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
 
     let driver = state.driver_registry().get_driver(policy)?;
     let verified_blob = match VerifiedPreuploadedNondedupStoreBlob::new(

@@ -19,8 +19,8 @@ use crate::services::{
     },
 };
 use crate::types::{EntityType, TagScopeType};
-use crate::utils::char_count;
 use aster_forge_api::{MAX_PAGE_SIZE, OffsetPage};
+use aster_forge_validation::filename::char_count;
 
 pub const TAG_PROPERTY_NAMESPACE: &str = "system.tags";
 pub const TAG_NAME_MAX_CHARS: usize = 64;

@@ -33,7 +33,9 @@ pub(super) fn normalize_offline_download_request(
             if trimmed.is_empty() {
                 None
             } else {
-                Some(crate::utils::normalize_validate_name(trimmed)?)
+                Some(aster_forge_validation::filename::normalize_validate_name(
+                    trimmed,
+                )?)
             }
         }
         None => None,

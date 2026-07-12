@@ -48,11 +48,14 @@ pub(crate) async fn parse_relative_upload_path(
     let filename = segments
         .last()
         .ok_or_else(|| AsterError::validation_error("relative_path cannot be empty"))?;
-    let filename = crate::utils::normalize_validate_name(filename)?;
+    let filename = aster_forge_validation::filename::normalize_validate_name(filename)?;
 
     let parent_segments: Vec<String> = segments[..segments.len().saturating_sub(1)]
         .iter()
-        .map(|segment| crate::utils::normalize_validate_name(segment))
+        .map(|segment| {
+            aster_forge_validation::filename::normalize_validate_name(segment)
+                .map_err(AsterError::from)
+        })
         .collect::<Result<Vec<_>>>()?;
 
     Ok(ParsedUploadPath {
@@ -109,7 +112,7 @@ async fn ensure_folder_in_parent<C: sea_orm::ConnectionTrait>(
 ) -> Result<folder::Model> {
     // 目录上传 / 解压导入会并发命中同一路径。
     // 这里先查后建，并在插入冲突后回读，保证“得到该目录”的语义是幂等的。
-    let name = crate::utils::normalize_validate_name(name)?;
+    let name = aster_forge_validation::filename::normalize_validate_name(name)?;
 
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {

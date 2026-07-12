@@ -58,7 +58,7 @@ pub(super) async fn upload_streaming_direct(
             } else {
                 name
             };
-            let filename = crate::utils::normalize_validate_name(&filename)?;
+            let filename = aster_forge_validation::filename::normalize_validate_name(&filename)?;
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
             let upload_driver = driver.clone();
