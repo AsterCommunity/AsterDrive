@@ -89,7 +89,7 @@ async fn start_real_webdav_server(state: PrimaryAppState) -> RunningWebdavServer
         let webdav_config = webdav_config.clone();
         App::new()
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state.clone()))
@@ -332,7 +332,7 @@ async fn setup_with_custom_webdav_config(
 
     test::init_service(
         App::new()
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state))
@@ -369,7 +369,7 @@ async fn setup_webdav_with_runtime_config(
 
     test::init_service(
         App::new()
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state))
@@ -949,7 +949,7 @@ async fn test_webdav_range_download_audit_is_coalesced_by_default() {
     let webdav_config = WebDavConfig::default();
     let app = test::init_service(
         App::new()
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state.clone()))
@@ -1043,7 +1043,7 @@ async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories()
     let webdav_config = WebDavConfig::default();
     let app = test::init_service(
         App::new()
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state.clone()))
@@ -4190,7 +4190,7 @@ async fn test_webdav_hides_and_rejects_system_property_namespace() {
     let webdav_config = aster_drive::config::WebDavConfig::default();
     let app = test::init_service(
         App::new()
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state.clone()))

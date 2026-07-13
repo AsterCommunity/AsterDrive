@@ -6,10 +6,10 @@ use super::{
     AuthTokenResp, ChangePasswordReq, LoginResponse, MeQuery, apply_auth_mail_response_floor,
     storage_event_frame,
 };
-use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::api::response::{ApiResponse, RemovedCountResponse};
 use crate::config::auth_runtime::RuntimeAuthPolicy;
+use crate::config::site_url;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::auth::local::Claims;
@@ -19,6 +19,7 @@ use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth::local, user::account, workspace::team};
 use crate::types::TokenType;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 use aster_forge_utils::numbers::{u64_to_i64, usize_to_i64};
 use bytes::Bytes;
 use tokio_util::sync::CancellationToken;
@@ -268,7 +269,7 @@ pub async fn login(
     let response = async {
         csrf::ensure_request_source_allowed(
             &req,
-            state.get_ref().runtime_config(),
+            &site_url::public_site_urls(state.get_ref().runtime_config()),
             RequestSourceMode::OptionalWhenPresent,
         )?;
         let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
@@ -302,7 +303,7 @@ pub async fn login(
 pub async fn refresh(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
     csrf::ensure_double_submit_token(&req)?;
@@ -350,13 +351,13 @@ pub async fn logout(state: web::Data<PrimaryAppState>, req: HttpRequest) -> Http
     if access_cookie_token(&req).is_some() || req.cookie(REFRESH_COOKIE).is_some() {
         if let Err(error) = csrf::ensure_request_source_allowed(
             &req,
-            state.get_ref().runtime_config(),
+            &site_url::public_site_urls(state.get_ref().runtime_config()),
             RequestSourceMode::OptionalWhenPresent,
         ) {
-            return actix_web::ResponseError::error_response(&error);
+            return actix_web::ResponseError::error_response(&AsterError::from(error));
         }
         if let Err(error) = csrf::ensure_double_submit_token(&req) {
-            return actix_web::ResponseError::error_response(&error);
+            return actix_web::ResponseError::error_response(&AsterError::from(error));
         }
     }
 

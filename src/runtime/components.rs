@@ -66,9 +66,9 @@ pub fn primary_http_component(
             App::new()
                 .wrap(actix_web::middleware::Compress::default())
                 .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
-                .wrap(crate::api::middleware::request_id::RequestIdMiddleware)
-                .wrap(crate::api::middleware::cors::RuntimeCors)
-                .wrap(crate::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::request_id::RequestIdMiddleware)
+                .wrap(crate::api::middleware::cors::runtime_cors())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(actix_web::web::PayloadConfig::new(
                     crate::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))
@@ -110,8 +110,8 @@ pub fn follower_http_component(
             App::new()
                 .wrap(actix_web::middleware::Compress::default())
                 .wrap(aster_forge_actix_middleware::metrics::MetricsMiddleware)
-                .wrap(crate::api::middleware::request_id::RequestIdMiddleware)
-                .wrap(crate::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::request_id::RequestIdMiddleware)
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(actix_web::web::PayloadConfig::new(
                     crate::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))

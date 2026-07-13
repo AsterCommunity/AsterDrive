@@ -1,7 +1,6 @@
 //! 认证 API 路由：`external-auth`。
 
 use super::cookies::{build_access_cookie, build_csrf_cookie, build_refresh_cookie};
-use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::response::ApiResponse;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
@@ -18,6 +17,7 @@ use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::types::ExternalAuthProviderKind;
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 use aster_forge_utils::numbers::u64_to_i64;
 
 fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {
@@ -64,7 +64,7 @@ pub async fn start_login(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
     let (kind, provider) = path.into_inner();
@@ -163,7 +163,7 @@ pub async fn start_email_verification(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
     let response = external::start_email_verification(state.get_ref(), body.into_inner()).await?;
@@ -189,7 +189,7 @@ pub async fn link_with_password(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(

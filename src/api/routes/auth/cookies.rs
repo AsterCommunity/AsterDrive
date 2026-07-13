@@ -1,9 +1,9 @@
 //! 认证 API 路由：`cookies`。
 
-use crate::api::middleware::csrf;
 use crate::api::request_auth::ACCESS_COOKIE;
 use actix_web::cookie::time::Duration as CookieDuration;
 use actix_web::cookie::{Cookie, SameSite};
+use aster_forge_actix_middleware::csrf::CSRF_COOKIE;
 
 pub(super) const REFRESH_COOKIE: &str = "aster_refresh";
 const ACCESS_COOKIE_PATH: &str = "/";
@@ -67,7 +67,7 @@ pub(super) fn clear_refresh_cookie(secure: bool) -> Cookie<'static> {
 }
 
 pub(super) fn build_csrf_cookie(value: &str, max_age_secs: i64, secure: bool) -> Cookie<'static> {
-    Cookie::build(csrf::CSRF_COOKIE.to_string(), value.to_string())
+    Cookie::build(CSRF_COOKIE.to_string(), value.to_string())
         .path("/".to_string())
         .http_only(false)
         .same_site(SameSite::Lax)
@@ -77,7 +77,7 @@ pub(super) fn build_csrf_cookie(value: &str, max_age_secs: i64, secure: bool) ->
 }
 
 pub(super) fn clear_csrf_cookie(secure: bool) -> Cookie<'static> {
-    Cookie::build(csrf::CSRF_COOKIE.to_string(), "")
+    Cookie::build(CSRF_COOKIE.to_string(), "")
         .path("/".to_string())
         .http_only(false)
         .same_site(SameSite::Lax)

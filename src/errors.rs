@@ -468,6 +468,60 @@ impl From<aster_forge_utils::UtilsError> for AsterError {
     }
 }
 
+impl From<aster_forge_actix_middleware::csrf::CsrfError> for AsterError {
+    fn from(error: aster_forge_actix_middleware::csrf::CsrfError) -> Self {
+        csrf_error(error.kind(), error.message())
+    }
+}
+
+fn csrf_error(
+    kind: aster_forge_actix_middleware::csrf::CsrfErrorKind,
+    message: impl Into<String>,
+) -> AsterError {
+    use aster_forge_actix_middleware::csrf::CsrfErrorKind;
+
+    let message = message.into();
+    match kind {
+        CsrfErrorKind::TokenNameInvalid => AsterError::config_error(message),
+        CsrfErrorKind::CookieMissing => {
+            auth_forbidden_with_code(ApiErrorCode::AuthCsrfCookieMissing, message)
+        }
+        CsrfErrorKind::HeaderMissing => {
+            auth_forbidden_with_code(ApiErrorCode::AuthCsrfHeaderMissing, message)
+        }
+        CsrfErrorKind::TokenInvalid => {
+            auth_forbidden_with_code(ApiErrorCode::AuthCsrfTokenInvalid, message)
+        }
+        CsrfErrorKind::RequestSourceUntrusted => {
+            auth_forbidden_with_code(ApiErrorCode::AuthRequestSourceUntrusted, message)
+        }
+        CsrfErrorKind::RequestOriginUntrusted => {
+            auth_forbidden_with_code(ApiErrorCode::AuthRequestOriginUntrusted, message)
+        }
+        CsrfErrorKind::RequestRefererUntrusted => {
+            auth_forbidden_with_code(ApiErrorCode::AuthRequestRefererUntrusted, message)
+        }
+        CsrfErrorKind::RequestSourceMissing => {
+            auth_forbidden_with_code(ApiErrorCode::AuthRequestSourceMissing, message)
+        }
+        CsrfErrorKind::RequestSchemeInvalid => {
+            validation_error_with_code(ApiErrorCode::ValidationRequestSchemeInvalid, message)
+        }
+        CsrfErrorKind::RequestHostInvalid => {
+            validation_error_with_code(ApiErrorCode::ValidationRequestHostInvalid, message)
+        }
+        CsrfErrorKind::RequestOriginInvalid => {
+            validation_error_with_code(ApiErrorCode::ValidationRequestOriginInvalid, message)
+        }
+        CsrfErrorKind::RequestRefererInvalid => {
+            validation_error_with_code(ApiErrorCode::ValidationRequestRefererInvalid, message)
+        }
+        CsrfErrorKind::RequestHeaderValueInvalid => {
+            validation_error_with_code(ApiErrorCode::ValidationRequestHeaderValueInvalid, message)
+        }
+    }
+}
+
 impl From<aster_forge_file_classification::FileClassificationError> for AsterError {
     fn from(error: aster_forge_file_classification::FileClassificationError) -> Self {
         Self::validation_error(error.message())
@@ -907,6 +961,7 @@ mod tests {
     use crate::storage::error::{StorageErrorKind, storage_driver_error};
     use actix_web::body;
     use actix_web::http::StatusCode;
+    use aster_forge_actix_middleware::csrf::CsrfErrorKind;
 
     #[test]
     fn quota_exceeded_507_logs_as_warn() {
@@ -964,6 +1019,66 @@ mod tests {
         for (forge_error, expected_code) in cases {
             let error = AsterError::from(forge_error);
             assert_eq!(error.code(), expected_code);
+        }
+    }
+
+    #[test]
+    fn forge_csrf_errors_preserve_every_product_error_code() {
+        let cases = [
+            (CsrfErrorKind::TokenNameInvalid, ApiErrorCode::ConfigError),
+            (
+                CsrfErrorKind::CookieMissing,
+                ApiErrorCode::AuthCsrfCookieMissing,
+            ),
+            (
+                CsrfErrorKind::HeaderMissing,
+                ApiErrorCode::AuthCsrfHeaderMissing,
+            ),
+            (
+                CsrfErrorKind::TokenInvalid,
+                ApiErrorCode::AuthCsrfTokenInvalid,
+            ),
+            (
+                CsrfErrorKind::RequestSourceUntrusted,
+                ApiErrorCode::AuthRequestSourceUntrusted,
+            ),
+            (
+                CsrfErrorKind::RequestOriginUntrusted,
+                ApiErrorCode::AuthRequestOriginUntrusted,
+            ),
+            (
+                CsrfErrorKind::RequestRefererUntrusted,
+                ApiErrorCode::AuthRequestRefererUntrusted,
+            ),
+            (
+                CsrfErrorKind::RequestSourceMissing,
+                ApiErrorCode::AuthRequestSourceMissing,
+            ),
+            (
+                CsrfErrorKind::RequestSchemeInvalid,
+                ApiErrorCode::ValidationRequestSchemeInvalid,
+            ),
+            (
+                CsrfErrorKind::RequestHostInvalid,
+                ApiErrorCode::ValidationRequestHostInvalid,
+            ),
+            (
+                CsrfErrorKind::RequestOriginInvalid,
+                ApiErrorCode::ValidationRequestOriginInvalid,
+            ),
+            (
+                CsrfErrorKind::RequestRefererInvalid,
+                ApiErrorCode::ValidationRequestRefererInvalid,
+            ),
+            (
+                CsrfErrorKind::RequestHeaderValueInvalid,
+                ApiErrorCode::ValidationRequestHeaderValueInvalid,
+            ),
+        ];
+
+        for (kind, expected_code) in cases {
+            let error = super::csrf_error(kind, "csrf boundary error");
+            assert_eq!(error.api_error_code(), expected_code, "{kind:?}");
         }
     }
 

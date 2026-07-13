@@ -9,11 +9,12 @@ use futures::future::{LocalBoxFuture, Ready, ok};
 use std::rc::Rc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::request_auth::{access_cookie_token, bearer_token};
+use crate::config::site_url;
 use crate::errors::{AsterError, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::auth::local;
+use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 
 /// JWT 认证中间件
 /// 优先从 cookie 取 token，fallback 到 Authorization: Bearer header
@@ -76,10 +77,11 @@ where
             if cookie_token.is_some() && csrf::is_unsafe_method(req.method()) {
                 csrf::ensure_service_request_source_allowed(
                     &req,
-                    state.get_ref().runtime_config(),
+                    &site_url::public_site_urls(state.get_ref().runtime_config()),
                     RequestSourceMode::OptionalWhenPresent,
-                )?;
-                csrf::ensure_service_double_submit_token(&req)?;
+                )
+                .map_err(AsterError::from)?;
+                csrf::ensure_service_double_submit_token(&req).map_err(AsterError::from)?;
             }
 
             let token = cookie_token.or_else(|| bearer_token(req.request()));

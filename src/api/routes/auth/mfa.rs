@@ -1,12 +1,13 @@
 //! 认证 API 路由：`mfa`。
 
-use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::response::ApiResponse;
+use crate::config::site_url;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::auth::local::Claims;
 use crate::services::{auth::mfa, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 use mfa::{MfaChallengeVerifyRequest, MfaEmailCodeSendRequest};
 
 #[aster_forge_api_docs_macros::path(
@@ -27,7 +28,7 @@ pub async fn verify_challenge(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
     let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(
@@ -69,7 +70,7 @@ pub async fn send_email_code(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
     let audit_info = audit::AuditRequestInfo::from_request_with_trusted_proxies(

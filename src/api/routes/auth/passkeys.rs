@@ -4,14 +4,15 @@ use super::{
     PasskeyLoginFinishReq, PasskeyLoginStartReq, PasskeyRegisterFinishReq, PasskeyRegisterStartReq,
     PatchPasskeyReq,
 };
-use crate::api::middleware::csrf::{self, RequestSourceMode};
 use crate::api::response::ApiResponse;
+use crate::config::site_url;
 use crate::db::repository::passkey_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth::local::Claims, auth::passkey};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 use serde_json::json;
 
 #[aster_forge_api_docs_macros::path(
@@ -211,7 +212,7 @@ pub async fn start_login(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::Required,
     )?;
     let resp = passkey::start_login(
@@ -241,7 +242,7 @@ pub async fn finish_login(
 ) -> Result<HttpResponse> {
     csrf::ensure_request_source_allowed(
         &req,
-        state.get_ref().runtime_config(),
+        &site_url::public_site_urls(state.get_ref().runtime_config()),
         RequestSourceMode::OptionalWhenPresent,
     )?;
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(

@@ -433,7 +433,7 @@ pub fn remember_csrf_token(session_token: &str, csrf_token: &str) {
 
 #[allow(dead_code)]
 pub fn seed_csrf_token(session_token: &str) -> String {
-    let csrf_token = aster_drive::api::middleware::csrf::build_csrf_token();
+    let csrf_token = aster_forge_actix_middleware::csrf::build_csrf_token();
     remember_csrf_token(session_token, &csrf_token);
     csrf_token
 }
@@ -1319,7 +1319,7 @@ macro_rules! create_test_app {
         let db = state.writer_db().clone();
         test::init_service(
             App::new()
-                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(
                     aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))
@@ -1588,7 +1588,7 @@ macro_rules! setup_with_webdav {
         let webdav_config = aster_drive::config::WebDavConfig::default();
         let app = test::init_service(
             App::new()
-                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(
                     aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))
@@ -1617,7 +1617,7 @@ macro_rules! setup_with_webdav_and_mail {
         let webdav_config = aster_drive::config::WebDavConfig::default();
         let app = test::init_service(
             App::new()
-                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(
                     aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
                 ))

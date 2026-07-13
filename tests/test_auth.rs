@@ -3083,7 +3083,7 @@ async fn test_storage_events_stream_closes_on_server_shutdown() {
         let db = state.writer_db().clone();
         test::init_service(
             App::new()
-                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
                 .app_data(web::Data::new(shutdown_token.clone()))
@@ -3120,7 +3120,7 @@ async fn test_storage_events_stream_rejects_new_connections_after_shutdown() {
         let db = state.writer_db().clone();
         test::init_service(
             App::new()
-                .wrap(aster_drive::api::middleware::security_headers::default_headers())
+                .wrap(aster_forge_actix_middleware::security_headers::default_headers())
                 .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
                 .app_data(web::JsonConfig::default().limit(1024 * 1024))
                 .app_data(web::Data::new(shutdown_token.clone()))

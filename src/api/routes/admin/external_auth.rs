@@ -14,6 +14,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
+#[cfg(feature = "openapi")]
 use aster_forge_external_auth::ExternalAuthProviderTestResult;
 use serde::Serialize;
 

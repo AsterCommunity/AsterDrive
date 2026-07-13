@@ -1,7 +1,6 @@
 use crate::services::auth::local::Claims;
 use actix_web::HttpRequest;
-use ipnet::IpNet;
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 
 pub(super) const MAX_AUDIT_IP_ADDRESS_LEN: usize = 45;
 pub(super) const MAX_AUDIT_USER_AGENT_LEN: usize = 512;
@@ -85,34 +84,14 @@ impl AuditRequestInfo {
 
 fn trusted_request_ip(req: &HttpRequest, trusted_proxies: &[String]) -> Option<IpAddr> {
     let peer = req.peer_addr()?.ip();
-    if trusted_proxy_matches(peer, trusted_proxies)
-        && let Some(forwarded_ip) = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-            .and_then(|s| s.split(',').next())
-            .and_then(parse_forwarded_ip)
-    {
-        return Some(forwarded_ip);
-    }
-    Some(peer)
-}
-
-fn parse_forwarded_ip(value: &str) -> Option<IpAddr> {
-    let value = value.trim();
-    value
-        .parse::<IpAddr>()
-        .or_else(|_| value.parse::<SocketAddr>().map(|addr| addr.ip()))
-        .ok()
-}
-
-fn trusted_proxy_matches(peer: IpAddr, trusted_proxies: &[String]) -> bool {
-    trusted_proxies.iter().any(|entry| {
-        entry
-            .parse::<IpNet>()
-            .or_else(|_| entry.parse::<IpAddr>().map(IpNet::from))
-            .is_ok_and(|net| net.contains(&peer))
-    })
+    let trusted = aster_forge_utils::net::parse_trusted_proxies(trusted_proxies);
+    Some(
+        aster_forge_actix_middleware::client_ip::real_ip_from_trusted_headers(
+            req.headers(),
+            peer,
+            &trusted,
+        ),
+    )
 }
 
 pub(super) fn bounded_audit_value(value: &str, max_len: usize) -> String {

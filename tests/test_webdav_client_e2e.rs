@@ -96,7 +96,7 @@ async fn start_real_webdav_server(state: PrimaryAppState) -> RunningWebdavServer
         let webdav_config = webdav_config.clone();
         App::new()
             .wrap(actix_web::middleware::Compress::default())
-            .wrap(aster_drive::api::middleware::security_headers::default_headers())
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
             .app_data(web::PayloadConfig::new(10 * 1024 * 1024))
             .app_data(web::JsonConfig::default().limit(1024 * 1024))
             .app_data(web::Data::new(state.clone()))
