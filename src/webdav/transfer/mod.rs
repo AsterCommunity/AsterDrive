@@ -4,13 +4,14 @@ use std::time::Instant;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_utils::http_validators::format_http_date;
 use futures::StreamExt;
 use tokio_util::io::ReaderStream;
 
 use crate::services::files::file;
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavMetaData, FsError, OpenOptions};
 use crate::webdav::{
-    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, format_http_date, fs,
+    ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked, fs,
     fs_error_response, href_for_relative, protocol, request_origin, request_path, responses,
     system_file,
 };

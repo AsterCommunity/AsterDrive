@@ -187,8 +187,8 @@ fn oidc_external_auth_provider_model(
         key: Set(key.to_string()),
         display_name: Set(format!("{key} provider")),
         icon_url: Set(None),
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Oidc),
-        protocol: Set(aster_drive::types::ExternalAuthProtocol::Oidc),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Oidc),
+        protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::Oidc),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
@@ -223,7 +223,7 @@ pub fn google_external_auth_provider_model(
     enabled: bool,
 ) -> external_auth_provider::ActiveModel {
     external_auth_provider::ActiveModel {
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Google),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Google),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
@@ -243,7 +243,7 @@ pub fn microsoft_external_auth_provider_model(
     enabled: bool,
 ) -> external_auth_provider::ActiveModel {
     external_auth_provider::ActiveModel {
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Microsoft),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Microsoft),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),

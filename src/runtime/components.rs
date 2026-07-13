@@ -227,7 +227,7 @@ mod tests {
                     crate::runtime::shutdown::record_server_shutdown(&state).await
                 },
                 |()| async {
-                    crate::services::ops::audit::shutdown_global_audit_log_manager().await
+                    aster_forge_audit::shutdown_global_audit_log_manager().await
                 },
             )
             .register(registry);
@@ -276,7 +276,7 @@ mod tests {
                     crate::runtime::shutdown::record_server_shutdown(&state).await
                 },
                 |()| async {
-                    crate::services::ops::audit::shutdown_global_audit_log_manager().await
+                    aster_forge_audit::shutdown_global_audit_log_manager().await
                 },
             )
             .register(registry);

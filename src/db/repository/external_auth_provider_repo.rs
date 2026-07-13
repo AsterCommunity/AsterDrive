@@ -8,8 +8,8 @@ use sea_orm::{
 
 use crate::entities::external_auth_provider::{self, Entity as ExternalAuthProvider};
 use crate::errors::{AsterError, Result};
-use crate::types::ExternalAuthProviderKind;
 use aster_forge_db::pagination::fetch_offset_page;
+use aster_forge_external_auth::ExternalAuthProviderKind;
 
 pub async fn find_all(db: &DatabaseConnection) -> Result<Vec<external_auth_provider::Model>> {
     ExternalAuthProvider::find()

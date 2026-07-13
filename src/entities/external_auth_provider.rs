@@ -7,7 +7,7 @@ use std::fmt;
 use utoipa::ToSchema;
 
 use crate::types::external_auth_provider::StoredExternalAuthProviderOptions;
-use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
+use aster_forge_external_auth::{ExternalAuthProtocol, ExternalAuthProviderKind};
 
 #[derive(Clone, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

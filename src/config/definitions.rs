@@ -13,7 +13,9 @@ use crate::config::{
 };
 use crate::services::preview::apps;
 use aster_forge_config::ConfigValueType;
-use aster_forge_config::{ConfigCoreError, ConfigValueLookup, Result as ConfigCoreResult};
+use aster_forge_config::{
+    ConfigCoreError, ConfigDefinition as ConfigDef, ConfigValueLookup, Result as ConfigCoreResult,
+};
 
 // ── Category keys ───────────────────────────────────────────────────────────
 pub const CONFIG_CATEGORY_SITE: &str = "site";
@@ -564,9 +566,6 @@ fn validate_email_code_mail_settings(
         ))
     }
 }
-
-/// 单条配置定义由 Forge 提供结构，具体 key 与产品语义仍由 Drive 持有。
-pub type ConfigDef = aster_forge_config::ConfigDefinition;
 
 /// 所有运行时配置项
 pub static ALL_CONFIGS: &[ConfigDef] = &[

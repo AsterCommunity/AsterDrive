@@ -12,10 +12,10 @@ import { invalidateAdminConfigMetadataCache } from "@/lib/adminConfigMetadataCac
 import AdminSettingsPage from "@/pages/admin/AdminSettingsPage";
 import type {
 	ConfigSchemaItem,
+	ConfigSource,
+	ConfigValueType,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigSource,
-	SystemConfigValueType,
-	SystemConfigVisibility,
 	TemplateVariableGroup,
 } from "@/types/api";
 
@@ -658,11 +658,11 @@ function getMockConfigCategory(key: string) {
 	return "storage";
 }
 
-function getMockConfigSource(key: string): SystemConfigSource {
+function getMockConfigSource(key: string): ConfigSource {
 	return key.startsWith("custom") ? "custom" : "system";
 }
 
-function getMockConfigValueType(key: string): SystemConfigValueType {
+function getMockConfigValueType(key: string): ConfigValueType {
 	if (key === "audit_log_recorded_actions") {
 		return "string_enum_set";
 	}
@@ -756,7 +756,7 @@ describe("AdminSettingsPage", () => {
 			createTemplateVariableGroup(),
 		]);
 		mockState.setConfig.mockImplementation(
-			(key: string, value: string, visibility?: SystemConfigVisibility) =>
+			(key: string, value: string, visibility?: ConfigVisibility) =>
 				Promise.resolve(
 					createConfig({
 						category: getMockConfigCategory(key),

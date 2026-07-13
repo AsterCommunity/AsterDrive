@@ -33,7 +33,7 @@ fn attach_optional_routes(scope: actix_web::Scope) -> actix_web::Scope {
     #[cfg(all(debug_assertions, feature = "openapi"))]
     let scope = scope.route("/memory", web::get().to(memory));
 
-    crate::metrics::configure_route(scope)
+    aster_forge_actix_observability::configure_prometheus_route(scope)
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -60,7 +60,7 @@ pub async fn health() -> HttpResponse {
     ),
 )]
 pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
-    if let Err(error) = health::ping_database(state.get_ref().writer_db()).await {
+    if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
 
@@ -71,7 +71,7 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
 }
 
 pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse {
-    if let Err(error) = health::ping_database(state.get_ref().writer_db()).await {
+    if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
 
@@ -81,7 +81,7 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
     }
 }
 
-fn ready_database_error(error: crate::errors::AsterError) -> HttpResponse {
+fn ready_database_error(error: impl std::fmt::Display) -> HttpResponse {
     tracing::error!(error = %error, "health readiness database ping failed");
     HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
         ApiErrorCode::DatabaseError,

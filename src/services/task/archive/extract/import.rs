@@ -1,18 +1,18 @@
 //! 归档解包任务子模块：`import`。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 
 use crate::entities::folder;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
     task::{
-        TaskExecutionContext,
-        archive::common::create_folder_exact_in_scope,
-        mark_task_progress,
-        steps::{TASK_STEP_IMPORT_RESULT, set_task_step_active},
-        types::TaskStepInfo,
+        archive::common::create_folder_exact_in_scope, mark_task_progress,
+        steps::TASK_STEP_IMPORT_RESULT,
     },
     workspace::storage,
     workspace::storage::WorkspaceStorageScope,
@@ -108,7 +108,7 @@ pub(super) async fn materialize_archive_extract_stage(
                 size,
             ),
             storage::StoreFromTempHints {
-                operation_context: context.storage_operation_context(),
+                operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
             },
         )

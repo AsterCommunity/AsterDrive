@@ -1,11 +1,8 @@
-//! 后台任务服务子模块：`steps`。
-
-use chrono::Utc;
+//! Background task step keys and persisted JSON boundary.
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::{BackgroundTaskKind, StoredTaskSteps};
-
-use super::types::{TaskStepInfo, TaskStepStatus};
+use crate::types::StoredTaskSteps;
+use aster_forge_tasks::TaskStepInfo;
 
 pub(super) const TASK_STEP_WAITING: &str = "waiting";
 pub(super) const TASK_STEP_PREPARE_SOURCES: &str = "prepare_sources";
@@ -31,50 +28,7 @@ pub(super) const TASK_STEP_CHECK_BLOBS: &str = "check_blobs";
 pub(super) const TASK_STEP_RECONCILE_REFS: &str = "reconcile_refs";
 pub(super) const TASK_STEP_FINISH: &str = "finish";
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct TaskStepSpec {
-    pub(super) key: &'static str,
-    pub(super) title: &'static str,
-}
-
-fn new_task_step(spec: TaskStepSpec, status: TaskStepStatus, detail: Option<&str>) -> TaskStepInfo {
-    let now = (status == TaskStepStatus::Active).then(Utc::now);
-    TaskStepInfo {
-        key: spec.key.to_string(),
-        title: spec.title.to_string(),
-        status,
-        progress_current: 0,
-        progress_total: 0,
-        detail: detail.map(str::to_string),
-        started_at: now,
-        finished_at: None,
-    }
-}
-
-pub(super) fn initial_task_steps_from_specs(specs: &[TaskStepSpec]) -> Vec<TaskStepInfo> {
-    let mut steps = Vec::with_capacity(specs.len());
-    for (index, spec) in specs.iter().enumerate() {
-        steps.push(new_task_step(
-            *spec,
-            if index == 0 {
-                TaskStepStatus::Active
-            } else {
-                TaskStepStatus::Pending
-            },
-            if index == 0 {
-                Some("Waiting for worker")
-            } else {
-                None
-            },
-        ));
-    }
-    steps
-}
-
-pub(super) fn parse_task_steps_json(
-    steps_json: Option<&str>,
-    _kind: BackgroundTaskKind,
-) -> Result<Vec<TaskStepInfo>> {
+pub(super) fn parse_task_steps_json(steps_json: Option<&str>) -> Result<Vec<TaskStepInfo>> {
     match steps_json {
         Some(raw) if !raw.trim().is_empty() => serde_json::from_str(raw)
             .map_aster_err_ctx("parse task steps json", AsterError::internal_error),
@@ -88,98 +42,145 @@ pub(super) fn serialize_task_steps(steps: &[TaskStepInfo]) -> Result<StoredTaskS
         .map_aster_err_ctx("serialize task steps", AsterError::internal_error)
 }
 
-fn find_task_step_mut<'a>(
-    steps: &'a mut [TaskStepInfo],
-    key: &str,
-) -> Result<&'a mut TaskStepInfo> {
-    steps
-        .iter_mut()
-        .find(|step| step.key == key)
-        .ok_or_else(|| AsterError::internal_error(format!("task step '{key}' not found")))
-}
+#[cfg(test)]
+mod tests {
+    use super::{parse_task_steps_json, serialize_task_steps};
+    use crate::errors::AsterError;
+    use aster_forge_tasks::{
+        TaskStepInfo, TaskStepSpec, TaskStepStatus, initial_task_steps_from_specs,
+        mark_active_step_failed, set_task_step_active, set_task_step_skipped,
+        set_task_step_succeeded,
+    };
 
-pub(super) fn set_task_step_active(
-    steps: &mut [TaskStepInfo],
-    key: &str,
-    detail: Option<&str>,
-    progress: Option<(i64, i64)>,
-) -> Result<()> {
-    let now = Utc::now();
-    let step = find_task_step_mut(steps, key)?;
-    step.status = TaskStepStatus::Active;
-    if step.started_at.is_none() {
-        step.started_at = Some(now);
-    }
-    step.finished_at = None;
-    step.detail = detail.map(str::to_string);
-    if let Some((current, total)) = progress {
-        step.progress_current = current;
-        step.progress_total = total;
-    }
-    Ok(())
-}
-
-pub(super) fn set_task_step_succeeded(
-    steps: &mut [TaskStepInfo],
-    key: &str,
-    detail: Option<&str>,
-    progress: Option<(i64, i64)>,
-) -> Result<()> {
-    let now = Utc::now();
-    let step = find_task_step_mut(steps, key)?;
-    step.status = TaskStepStatus::Succeeded;
-    if step.started_at.is_none() {
-        step.started_at = Some(now);
-    }
-    step.finished_at = Some(now);
-    step.detail = detail.map(str::to_string);
-    if let Some((current, total)) = progress {
-        step.progress_current = current;
-        step.progress_total = total;
-    } else if step.progress_total > 0 {
-        step.progress_current = step.progress_total;
-    }
-    Ok(())
-}
-
-pub(super) fn set_task_step_skipped(
-    steps: &mut [TaskStepInfo],
-    key: &str,
-    detail: Option<&str>,
-) -> Result<()> {
-    let now = Utc::now();
-    let step = find_task_step_mut(steps, key)?;
-    step.status = TaskStepStatus::Skipped;
-    if step.started_at.is_none() {
-        step.started_at = Some(now);
-    }
-    step.finished_at = Some(now);
-    step.detail = detail.map(str::to_string);
-    Ok(())
-}
-
-pub(super) fn mark_active_step_failed(steps: &mut [TaskStepInfo], detail: Option<&str>) {
-    let now = Utc::now();
-    if let Some(step) = steps
-        .iter_mut()
-        .find(|step| step.status == TaskStepStatus::Active)
-    {
-        step.status = TaskStepStatus::Failed;
-        if step.started_at.is_none() {
-            step.started_at = Some(now);
+    fn step(key: &str, status: TaskStepStatus) -> TaskStepInfo {
+        TaskStepInfo {
+            key: key.to_string(),
+            title: key.to_string(),
+            status,
+            progress_current: 2,
+            progress_total: 5,
+            detail: Some("detail".to_string()),
+            started_at: None,
+            finished_at: None,
         }
-        step.finished_at = Some(now);
-        step.detail = detail.map(str::to_string);
-        return;
     }
-    if let Some(step) = steps
-        .iter_mut()
-        .rev()
-        .find(|step| step.status == TaskStepStatus::Pending)
-    {
-        step.status = TaskStepStatus::Failed;
-        step.started_at = Some(now);
-        step.finished_at = Some(now);
-        step.detail = detail.map(str::to_string);
+
+    #[test]
+    fn parse_steps_json_accepts_missing_blank_and_valid_json() {
+        assert!(parse_task_steps_json(None).unwrap().is_empty());
+        assert!(parse_task_steps_json(Some(" \n\t ")).unwrap().is_empty());
+
+        let stored = serialize_task_steps(&[step("prepare", TaskStepStatus::Succeeded)]).unwrap();
+        let parsed = parse_task_steps_json(Some(stored.as_ref())).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0].key, "prepare");
+        assert_eq!(parsed[0].status, TaskStepStatus::Succeeded);
+        assert_eq!(parsed[0].progress_current, 2);
+        assert_eq!(parsed[0].detail.as_deref(), Some("detail"));
+    }
+
+    #[test]
+    fn parse_steps_json_preserves_forge_snake_case_statuses() {
+        for (json_status, expected) in [
+            ("pending", TaskStepStatus::Pending),
+            ("active", TaskStepStatus::Active),
+            ("succeeded", TaskStepStatus::Succeeded),
+            ("failed", TaskStepStatus::Failed),
+            ("skipped", TaskStepStatus::Skipped),
+            ("canceled", TaskStepStatus::Canceled),
+        ] {
+            let json = format!(
+                r#"[{{"key":"step","title":"Step","status":"{json_status}","progress_current":0,"progress_total":0,"detail":null,"started_at":null,"finished_at":null}}]"#
+            );
+            let parsed = parse_task_steps_json(Some(&json)).unwrap();
+            assert_eq!(parsed[0].status, expected);
+        }
+    }
+
+    #[test]
+    fn parse_steps_json_maps_invalid_json_to_product_error() {
+        let error = parse_task_steps_json(Some("not json")).unwrap_err();
+        assert!(matches!(error, AsterError::InternalError(_)));
+        assert!(error.message().contains("parse task steps json"));
+    }
+
+    #[test]
+    fn forge_step_helpers_integrate_with_product_error_mapping() {
+        let mut steps = initial_task_steps_from_specs(&[
+            TaskStepSpec {
+                key: "prepare",
+                title: "Prepare",
+            },
+            TaskStepSpec {
+                key: "finish",
+                title: "Finish",
+            },
+        ]);
+        assert_eq!(steps[0].status, TaskStepStatus::Active);
+        assert_eq!(steps[1].status, TaskStepStatus::Pending);
+
+        let error = set_task_step_active(&mut steps, "missing", None, None)
+            .map_err(AsterError::from)
+            .unwrap_err();
+        assert!(matches!(error, AsterError::InternalError(_)));
+        assert!(error.message().contains("task step 'missing' not found"));
+    }
+
+    #[test]
+    fn forge_step_mutations_round_trip_through_product_persistence() {
+        let mut steps = initial_task_steps_from_specs(&[
+            TaskStepSpec {
+                key: "prepare",
+                title: "Prepare",
+            },
+            TaskStepSpec {
+                key: "optional",
+                title: "Optional",
+            },
+            TaskStepSpec {
+                key: "finish",
+                title: "Finish",
+            },
+        ]);
+
+        set_task_step_active(&mut steps, "prepare", Some("running"), Some((2, 5))).unwrap();
+        set_task_step_succeeded(&mut steps, "prepare", Some("done"), None).unwrap();
+        set_task_step_skipped(&mut steps, "optional", Some("not needed")).unwrap();
+        set_task_step_active(&mut steps, "finish", Some("finishing"), None).unwrap();
+        mark_active_step_failed(&mut steps, Some("failed"));
+
+        let stored = serialize_task_steps(&steps).unwrap();
+        let parsed = parse_task_steps_json(Some(stored.as_ref())).unwrap();
+        assert_eq!(parsed[0].status, TaskStepStatus::Succeeded);
+        assert_eq!(parsed[0].progress_current, 5);
+        assert!(parsed[0].started_at.is_some());
+        assert!(parsed[0].finished_at.is_some());
+        assert_eq!(parsed[1].status, TaskStepStatus::Skipped);
+        assert_eq!(parsed[1].detail.as_deref(), Some("not needed"));
+        assert!(parsed[1].finished_at.is_some());
+        assert_eq!(parsed[2].status, TaskStepStatus::Failed);
+        assert_eq!(parsed[2].detail.as_deref(), Some("failed"));
+        assert!(parsed[2].started_at.is_some());
+        assert!(parsed[2].finished_at.is_some());
+    }
+
+    #[test]
+    fn forge_failure_marker_falls_back_to_last_pending_step() {
+        let mut steps = vec![
+            step("first", TaskStepStatus::Succeeded),
+            step("second", TaskStepStatus::Pending),
+            step("third", TaskStepStatus::Pending),
+        ];
+
+        mark_active_step_failed(&mut steps, Some("worker failed before activation"));
+
+        assert_eq!(steps[1].status, TaskStepStatus::Pending);
+        assert_eq!(steps[2].status, TaskStepStatus::Failed);
+        assert_eq!(
+            steps[2].detail.as_deref(),
+            Some("worker failed before activation")
+        );
+        assert!(steps[2].started_at.is_some());
+        assert!(steps[2].finished_at.is_some());
     }
 }

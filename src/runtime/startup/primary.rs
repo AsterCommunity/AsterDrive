@@ -27,7 +27,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             rollback_queue_capacity,
             common.metrics.clone(),
         );
-    crate::services::ops::audit::init_global_audit_log_manager(common.database.clone());
+    aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(common.database.clone());

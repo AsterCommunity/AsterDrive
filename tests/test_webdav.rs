@@ -9,7 +9,6 @@ use aster_drive::config::{RateLimitConfig, WebDavConfig};
 use aster_drive::db::repository::{file_repo, property_repo};
 use aster_drive::entities::{audit_log, folder, team, team_member, user, webdav_account};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::services::ops::audit;
 use aster_drive::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
 use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_db::system_config;
@@ -36,7 +35,7 @@ fn webdav_test_password(label: &str) -> String {
 }
 
 async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
-    audit::flush_global_audit_log_manager().await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
     audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::FileDownload))
         .filter(audit_log::Column::EntityName.eq(entity_name))

@@ -13,7 +13,7 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
     let common = prepare_common(NodeRuntimeMode::Follower).await?;
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
     runtime_config.reload(&common.database).await?;
-    crate::services::ops::audit::init_global_audit_log_manager(common.database.clone());
+    aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
     tracing::info!(
         mode = NodeRuntimeMode::Follower.as_str(),

@@ -1,3 +1,4 @@
+use aster_forge_tasks::TaskExecutionContext;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::path::PathBuf;
 
@@ -23,7 +24,8 @@ use super::runtime::{
 };
 use super::source::validate_public_download_ip;
 use super::*;
-use crate::services::task::{TaskExecutionContext, TaskLease, is_task_worker_shutdown_requested};
+use crate::services::task::is_task_worker_shutdown_requested;
+use aster_forge_tasks::TaskLease;
 
 fn request(url: &str) -> CreateOfflineDownloadTaskParams {
     CreateOfflineDownloadTaskParams {
@@ -209,7 +211,11 @@ fn transient_storage_error_marks_error_as_retryable_text() {
 
 #[tokio::test]
 async fn offline_download_throttle_returns_immediately_when_unconfigured() {
-    let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+    let context = TaskExecutionContext::new(
+        TaskLease::new(42, 7),
+        std::time::Duration::from_secs(60),
+        CancellationToken::new(),
+    );
 
     OfflineDownloadRateLimiter::throttle(None, 1024, &context)
         .await
@@ -219,7 +225,11 @@ async fn offline_download_throttle_returns_immediately_when_unconfigured() {
 #[tokio::test]
 async fn offline_download_throttle_stops_on_shutdown_before_reserving_capacity() {
     let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+    let context = TaskExecutionContext::new(
+        TaskLease::new(42, 7),
+        std::time::Duration::from_secs(60),
+        shutdown_token.clone(),
+    );
     let limiter = OfflineDownloadRateLimiter::new(Some(1)).unwrap();
 
     shutdown_token.cancel();

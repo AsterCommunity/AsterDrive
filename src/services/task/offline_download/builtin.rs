@@ -1,3 +1,4 @@
+use aster_forge_tasks::TaskExecutionContext;
 use std::time::{Duration as StdDuration, Instant};
 
 use async_trait::async_trait;
@@ -7,11 +8,11 @@ use tokio::io::AsyncWriteExt;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::task::types::TaskStepInfo;
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 use aster_forge_utils::numbers::usize_to_i64;
 
-use super::super::steps::{TASK_STEP_DOWNLOAD_SOURCE, set_task_step_active};
-use super::super::{TaskExecutionContext, mark_task_progress};
+use super::super::mark_task_progress;
+use super::super::steps::TASK_STEP_DOWNLOAD_SOURCE;
 use super::{
     OfflineDownloadComplete, OfflineDownloadEngine, OfflineDownloadRateLimiter,
     OfflineDownloadStartRequest, PROGRESS_UPDATE_INTERVAL, declared_content_length,

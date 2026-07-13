@@ -1,17 +1,12 @@
 use actix_web::test as actix_test;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
-use std::time::{Duration, Instant};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::AuditAction;
 use super::context::{
     AuditContext, AuditRequestInfo, MAX_AUDIT_IP_ADDRESS_LEN, MAX_AUDIT_USER_AGENT_LEN,
     bounded_audit_value,
 };
-use super::manager::{AUDIT_LOG_BATCH_SIZE, AUDIT_LOG_QUEUE_CAPACITY, AuditLogManager};
 use crate::entities::audit_log;
 
 async fn in_memory_db() -> sea_orm::DatabaseConnection {
@@ -22,48 +17,6 @@ async fn in_memory_db() -> sea_orm::DatabaseConnection {
         .await
         .expect("migrations should run");
     db
-}
-
-fn audit_model(index: i64) -> aster_forge_db::AuditLogCreate {
-    aster_forge_db::AuditLogCreate {
-        user_id: 42,
-        action: AuditAction::FileUpload.as_str().to_string(),
-        entity_type: "file".to_string(),
-        entity_id: Some(index),
-        entity_name: Some(format!("file-{index}.txt")),
-        details: None,
-        ip_address: None,
-        user_agent: None,
-        created_at: chrono::Utc::now(),
-    }
-}
-
-async fn audit_log_count(db: &sea_orm::DatabaseConnection) -> u64 {
-    audit_log::Entity::find()
-        .filter(audit_log::Column::Action.eq(AuditAction::FileUpload))
-        .count(db)
-        .await
-        .expect("audit query should succeed")
-}
-
-async fn wait_for_audit_log_count(db: &sea_orm::DatabaseConnection, expected: u64) {
-    let deadline = Instant::now() + Duration::from_secs(1);
-
-    loop {
-        let last_count = audit_log_count(db).await;
-        if last_count == expected {
-            return;
-        }
-        assert!(
-            last_count < expected,
-            "audit log count exceeded expected value: expected {expected}, got {last_count}"
-        );
-        assert!(
-            Instant::now() < deadline,
-            "timed out waiting for audit log count {expected}; last count was {last_count}"
-        );
-        tokio::time::sleep(Duration::from_millis(10)).await;
-    }
 }
 
 #[test]
@@ -582,166 +535,4 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         .await
         .expect("audit query should succeed");
     assert_eq!(count, 0);
-}
-
-#[tokio::test]
-async fn audit_log_manager_flushes_threshold_batch() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_secs(5),
-    ));
-
-    for index in 0..AUDIT_LOG_BATCH_SIZE {
-        let index = i64::try_from(index).expect("audit batch test index fits i64");
-        manager.record(audit_model(index)).await;
-    }
-
-    let expected = u64::try_from(AUDIT_LOG_BATCH_SIZE).expect("audit batch size fits u64");
-    wait_for_audit_log_count(&db, expected).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_flushes_single_log_after_delay() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(20),
-    ));
-
-    manager.record(audit_model(1)).await;
-
-    wait_for_audit_log_count(&db, 1).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_flushes_partial_batch_after_delay() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(20),
-    ));
-
-    for index in 0..3 {
-        manager.record(audit_model(index)).await;
-    }
-
-    wait_for_audit_log_count(&db, 3).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_partial_batch_waits_for_delayed_flush() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(120),
-    ));
-
-    manager.record(audit_model(1)).await;
-    tokio::time::sleep(Duration::from_millis(30)).await;
-    assert_eq!(audit_log_count(&db).await, 0);
-
-    wait_for_audit_log_count(&db, 1).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_flushes_buffer_on_shutdown() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_secs(5),
-    ));
-
-    manager.record(audit_model(1)).await;
-    manager.cancel();
-    manager.flush().await;
-
-    assert_eq!(audit_log_count(&db).await, 1);
-}
-
-#[tokio::test]
-async fn audit_log_manager_manual_flush_allows_later_delayed_flush() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(20),
-    ));
-
-    manager.record(audit_model(1)).await;
-    manager.flush().await;
-    assert_eq!(audit_log_count(&db).await, 1);
-
-    manager.record(audit_model(2)).await;
-
-    wait_for_audit_log_count(&db, 2).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_cancel_stops_delayed_flush_until_explicit_flush() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(20),
-    ));
-
-    manager.record(audit_model(1)).await;
-    manager.cancel();
-    tokio::time::sleep(Duration::from_millis(60)).await;
-    assert_eq!(audit_log_count(&db).await, 0);
-
-    manager.flush().await;
-    assert_eq!(audit_log_count(&db).await, 1);
-}
-
-#[tokio::test]
-async fn audit_log_manager_overflow_writes_extra_log_directly_and_flushes_buffer() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_secs(5),
-    ));
-    let flush_guard = manager.lock_flush_for_test().await;
-
-    for index in 0..AUDIT_LOG_QUEUE_CAPACITY {
-        let index = i64::try_from(index).expect("audit queue test index fits i64");
-        manager.record(audit_model(index)).await;
-    }
-    manager.record(audit_model(10_000)).await;
-
-    assert_eq!(audit_log_count(&db).await, 1);
-    drop(flush_guard);
-
-    let expected = u64::try_from(AUDIT_LOG_QUEUE_CAPACITY + 1).expect("audit queue size fits u64");
-    wait_for_audit_log_count(&db, expected).await;
-    manager.cancel();
-}
-
-#[tokio::test]
-async fn audit_log_manager_flushes_delayed_batch_after_pending_immediate_flush() {
-    let db = in_memory_db().await;
-    let manager = Arc::new(AuditLogManager::new_with_delayed_flush_after(
-        db.clone(),
-        Duration::from_millis(20),
-    ));
-    let flush_guard = manager.lock_flush_for_test().await;
-
-    for index in 0..AUDIT_LOG_BATCH_SIZE {
-        let index = i64::try_from(index).expect("audit batch test index fits i64");
-        manager.record(audit_model(index)).await;
-    }
-
-    let extra_index = i64::try_from(AUDIT_LOG_BATCH_SIZE).expect("audit batch size fits i64");
-    manager.record(audit_model(extra_index)).await;
-    assert_eq!(audit_log_count(&db).await, 0);
-
-    drop(flush_guard);
-
-    let expected = u64::try_from(AUDIT_LOG_BATCH_SIZE + 1).expect("audit batch size fits u64");
-    wait_for_audit_log_count(&db, expected).await;
-    manager.cancel();
 }

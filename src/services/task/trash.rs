@@ -4,17 +4,13 @@ use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 
 use super::spec::{self, TrashPurgeAllTask, decode_payload_as};
-use super::steps::{
-    TASK_STEP_PURGE_TRASH, TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active,
-    set_task_step_succeeded,
-};
+use super::steps::{TASK_STEP_PURGE_TRASH, TASK_STEP_WAITING, parse_task_steps_json};
 use super::types::{TaskInfo, TrashPurgeAllTaskPayload, TrashPurgeAllTaskResult};
-use super::{
-    TaskExecutionContext, create_typed_task_record, mark_task_progress, mark_task_succeeded,
-    task_scope,
-};
+use super::{create_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope};
 
 pub(crate) async fn create_trash_purge_all_task_in_scope(
     state: &PrimaryAppState,
@@ -35,8 +31,7 @@ pub(super) async fn process_trash_purge_all_task(
     let lease_guard = context.lease_guard().clone();
     let scope = task_scope(task)?;
     let _payload = decode_payload_as::<TrashPurgeAllTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_WAITING,

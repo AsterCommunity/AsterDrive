@@ -110,10 +110,10 @@ pub struct TestRemoteNodeInput {
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct RemoteNodeHealthTestStats {
-    pub checked: usize,
-    pub healthy: usize,
-    pub failed: usize,
-    pub skipped: usize,
+    pub checked: u64,
+    pub healthy: u64,
+    pub failed: u64,
+    pub skipped: u64,
 }
 
 struct ProbedRemoteNode {

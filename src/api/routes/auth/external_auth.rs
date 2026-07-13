@@ -14,10 +14,10 @@ use crate::services::auth::external::{
 use crate::services::auth::local::Claims;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
-use crate::types::ExternalAuthProviderKind;
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
+use aster_forge_external_auth::ExternalAuthProviderKind;
 use aster_forge_utils::numbers::u64_to_i64;
 
 fn parse_provider_kind(value: &str) -> Result<ExternalAuthProviderKind> {

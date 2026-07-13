@@ -4,10 +4,10 @@ import { Icon } from "@/components/ui/icon";
 import { logger } from "@/lib/logger";
 import { cn } from "@/lib/utils";
 import type {
+	ConfigSource,
+	ConfigValueType,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigSource,
-	SystemConfigValueType,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const TEMPLATE_GROUP_EXPAND_DURATION_MS = 280;
@@ -81,7 +81,7 @@ export type NewCustomDraft = {
 	id: string;
 	key: string;
 	value: string;
-	visibility: SystemConfigVisibility;
+	visibility: ConfigVisibility;
 };
 
 type CategoryPath = {
@@ -191,23 +191,23 @@ export function getConfigValueType(config: SystemConfig) {
 	return config.value_type ?? "string";
 }
 
-export function isBooleanType(valueType: SystemConfigValueType) {
+export function isBooleanType(valueType: ConfigValueType) {
 	return valueType === "boolean";
 }
 
-export function isNumberType(valueType: SystemConfigValueType) {
+export function isNumberType(valueType: ConfigValueType) {
 	return valueType === "number";
 }
 
-export function isMultilineType(valueType: SystemConfigValueType) {
+export function isMultilineType(valueType: ConfigValueType) {
 	return valueType === "multiline";
 }
 
-export function isStringArrayType(valueType: SystemConfigValueType) {
+export function isStringArrayType(valueType: ConfigValueType) {
 	return valueType === "string_array";
 }
 
-export function isStringEnumSetType(valueType: SystemConfigValueType) {
+export function isStringEnumSetType(valueType: ConfigValueType) {
 	return valueType === "string_enum_set";
 }
 
@@ -274,7 +274,7 @@ export function configDraftValueChanged(
 	return !configDraftValuesEqual(draftValue, currentValue);
 }
 
-export function isSystemConfigSource(source: SystemConfigSource) {
+export function isSystemConfigSource(source: ConfigSource) {
 	return source === "system";
 }
 

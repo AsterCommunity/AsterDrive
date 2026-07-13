@@ -1,6 +1,9 @@
 //! 归档任务子模块：`compress`。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
+
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active, set_task_step_succeeded};
 
 use super::common::{ArchiveSinkContext, build_file_display_path, write_archive_to_sink};
 use super::selection::{
@@ -16,18 +19,17 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::batch,
     task::{
-        TaskExecutionContext, cleanup_task_temp_dir_for_task_kind, create_typed_task_record,
-        get_task_in_scope, mark_task_progress, mark_task_succeeded, prepare_task_temp_dir,
+        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, get_task_in_scope,
+        mark_task_progress, mark_task_succeeded,
         spec::{self, ArchiveCompressTask, decode_payload_as},
         steps::{
             TASK_STEP_BUILD_ARCHIVE, TASK_STEP_PREPARE_SOURCES, TASK_STEP_STORE_RESULT,
-            TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active,
-            set_task_step_succeeded,
+            TASK_STEP_WAITING, parse_task_steps_json,
         },
         task_scope,
         types::{
             ArchiveCompressTaskPayload, ArchiveCompressTaskResult, CreateArchiveCompressTaskParams,
-            CreateArchiveTaskParams, TaskInfo, TaskStepInfo,
+            CreateArchiveTaskParams, TaskInfo,
         },
         update_task_progress_db,
     },
@@ -92,8 +94,7 @@ pub(super) async fn process_archive_compress_task(
     let result = async {
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<ArchiveCompressTask>(task)?;
-        let mut steps =
-            parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_WAITING,
@@ -160,7 +161,11 @@ pub(super) async fn process_archive_compress_task(
         )
         .await?;
 
-        let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
+        let task_temp_dir = aster_forge_tasks::prepare_task_temp_dir_in_root(
+            &state.config().server.temp_dir,
+            lease_guard.lease(),
+        )
+        .await?;
         let archive_temp_path = Path::new(&task_temp_dir).join(&payload.archive_name);
         let archive_temp_path_string = archive_temp_path.to_string_lossy().into_owned();
         let archive_temp_path_for_worker = archive_temp_path.clone();
@@ -263,7 +268,7 @@ pub(super) async fn process_archive_compress_task(
                 archive_size,
             ),
             storage::StoreFromTempHints {
-                operation_context: context.storage_operation_context(),
+                operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
             },
             storage::NewFileMode::ResolveUnique,

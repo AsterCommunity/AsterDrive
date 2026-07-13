@@ -12,8 +12,8 @@ import {
 } from "@/components/admin/settings/AdminSettingsConfigRows";
 import type {
 	ConfigSchemaItem,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -588,7 +588,7 @@ describe("AdminSettingsConfigRows", () => {
 			target: { value: "dark" },
 		});
 		fireEvent.change(screen.getByLabelText("custom_config_visibility"), {
-			target: { value: "authenticated" satisfies SystemConfigVisibility },
+			target: { value: "authenticated" satisfies ConfigVisibility },
 		});
 		const deleteButtons = screen.getAllByRole("button", {
 			name: "core:delete",

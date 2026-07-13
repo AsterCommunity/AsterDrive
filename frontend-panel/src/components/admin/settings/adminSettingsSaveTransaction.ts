@@ -7,8 +7,8 @@ import { collectAdminSettingsInvalidationTargets } from "@/components/admin/sett
 import { adminConfigService } from "@/services/adminService";
 import type {
 	ConfigSchemaItem,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY = "auth_email_code_login_enabled";
@@ -19,7 +19,7 @@ export interface AdminSettingsSaveTransactionInput {
 	changedExistingConfigs: SystemConfig[];
 	configs: SystemConfig[];
 	deletedCustomConfigs: SystemConfig[];
-	getCustomVisibilityDraft: (config: SystemConfig) => SystemConfigVisibility;
+	getCustomVisibilityDraft: (config: SystemConfig) => ConfigVisibility;
 	getDraftValue: (config: SystemConfig) => ConfigDraftValue;
 	schemas?: ConfigSchemaItem[];
 }

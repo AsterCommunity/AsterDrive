@@ -1,3 +1,4 @@
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::PathBuf;
 use std::time::Duration as StdDuration;
 
@@ -7,12 +8,10 @@ use url::Url;
 use crate::config::operations;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::services::task::types::TaskStepInfo;
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 
-use super::super::steps::{TASK_STEP_DOWNLOAD_SOURCE, set_task_step_active};
-use super::super::{
-    TaskExecutionContext, mark_task_progress, set_task_display_name, set_task_runtime_json,
-};
+use super::super::steps::TASK_STEP_DOWNLOAD_SOURCE;
+use super::super::{mark_task_progress, set_task_display_name, set_task_runtime_json};
 use super::naming::offline_download_task_display_name_with_engine;
 use super::runtime::{
     decode_offline_download_runtime_state, persist_offline_download_runtime_state,

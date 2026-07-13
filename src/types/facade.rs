@@ -10,8 +10,8 @@
 pub use super::archive::ArchiveFilenameEncoding;
 pub use super::audit::{AuditAction, AuditEntityType};
 pub use super::auth::{
-    ExternalAuthProtocol, ExternalAuthProviderKind, MfaFirstFactor, MfaMethod,
-    MfaPersistentFactorMethod, TokenType, VerificationChannel, VerificationPurpose,
+    MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod, TokenType, VerificationChannel,
+    VerificationPurpose,
 };
 pub use super::entity::EntityType;
 pub use super::media_metadata::{

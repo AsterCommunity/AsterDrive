@@ -4,10 +4,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 
-use actix_web::Scope;
 #[cfg(feature = "metrics")]
 use aster_forge_metrics::MetricsRecorder as ForgeMetricsRecorder;
 use aster_forge_metrics::{DbQueryMetric, SharedMetricsRecorder as SharedForgeMetricsRecorder};
+use aster_forge_runtime::{HealthCheckScope, SystemHealthReport};
 use tokio_util::sync::CancellationToken;
 
 /// Drive 应用指标记录接口。
@@ -222,9 +222,16 @@ pub fn create_metrics_recorder() -> SharedMetricsRecorder {
     crate::metrics::NoopMetrics::arc()
 }
 
-/// Adds the metrics HTTP route when the metrics feature is enabled.
-pub fn configure_route(scope: Scope) -> Scope {
-    aster_forge_actix_observability::configure_prometheus_route(scope)
+/// Records one Forge runtime health report when the metrics backend is enabled.
+pub fn record_health_report(scope: HealthCheckScope, report: &SystemHealthReport) {
+    #[cfg(feature = "metrics")]
+    report.record_metrics(
+        scope.as_str(),
+        &aster_forge_metrics::prometheus::PrometheusMetricsRecorder,
+    );
+
+    #[cfg(not(feature = "metrics"))]
+    let _ = (scope, report);
 }
 
 #[cfg(feature = "metrics")]

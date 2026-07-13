@@ -7,7 +7,6 @@ use actix_web::test;
 use aster_drive::config::{auth_runtime, local_email_policy, site_url};
 use aster_drive::entities::{audit_log, user_invitation};
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::ops::audit;
 use aster_drive::types::{AuditAction, UserInvitationStatus};
 use aster_forge_db::mail_outbox;
 use aster_forge_mail::MailTemplateCode;
@@ -356,7 +355,7 @@ async fn test_invitation_create_and_revoke_audit_invitation_entity() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    audit::flush_global_audit_log_manager().await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
     let entries = audit_log::Entity::find()
         .filter(audit_log::Column::Action.is_in([
             AuditAction::AdminCreateInvitation,

@@ -8,8 +8,8 @@ import type {
 } from "@/components/admin/settings/adminSettingsContentShared";
 import type {
 	ConfigSchemaItem,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 type TranslationFn = (key: string, options?: Record<string, unknown>) => string;
@@ -40,7 +40,7 @@ export interface AdminSettingsCategoryContentProps {
 	getSystemConfigLabel: (config: SystemConfig) => string;
 	getSystemConfigSchema: (config: SystemConfig) => ConfigSchemaItem | undefined;
 	getSystemConfigSchemas: () => ConfigSchemaItem[];
-	getCustomVisibilityDraft: (config: SystemConfig) => SystemConfigVisibility;
+	getCustomVisibilityDraft: (config: SystemConfig) => ConfigVisibility;
 	handleBuildWopiDiscoveryPreviewConfig: (options: {
 		discoveryUrl: string;
 		value: string;
@@ -71,7 +71,7 @@ export interface AdminSettingsCategoryContentProps {
 	updateDraftValue: (key: string, value: ConfigDraftValue) => void;
 	updateCustomVisibilityDraft: (
 		key: string,
-		visibility: SystemConfigVisibility,
+		visibility: ConfigVisibility,
 	) => void;
 	navigateToMailSettings: () => void;
 	updateNewCustomRow: (

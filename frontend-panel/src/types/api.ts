@@ -491,10 +491,9 @@ export type PublicFrontendConfig =
 	components["schemas"]["PublicFrontendConfig"];
 export type SystemConfig = components["schemas"]["SystemConfig"];
 export type SystemConfigPage = components["schemas"]["OffsetPage_SystemConfig"];
-export type SystemConfigSource = components["schemas"]["SystemConfigSource"];
-export type SystemConfigVisibility = "private" | "public" | "authenticated";
-export type SystemConfigValueType =
-	components["schemas"]["SystemConfigValueType"];
+export type ConfigSource = components["schemas"]["ConfigSource"];
+export type ConfigVisibility = components["schemas"]["ConfigVisibility"];
+export type ConfigValueType = components["schemas"]["ConfigValueType"];
 export type WebdavAccount = components["schemas"]["WebdavAccount"];
 export type WebdavAccountCreated =
 	components["schemas"]["WebdavAccountCreated"];

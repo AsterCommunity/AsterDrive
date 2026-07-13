@@ -1,3 +1,4 @@
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
 use std::time::{Duration as StdDuration, Instant};
 
@@ -10,12 +11,12 @@ use url::Url;
 use crate::config::operations;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::task::types::TaskStepInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error_with_code};
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 use aster_forge_utils::numbers::u64_to_i64;
 
-use super::super::steps::{TASK_STEP_DOWNLOAD_SOURCE, set_task_step_active};
-use super::super::{TaskExecutionContext, mark_task_progress};
+use super::super::mark_task_progress;
+use super::super::steps::TASK_STEP_DOWNLOAD_SOURCE;
 use super::runtime::{
     Aria2TaskRuntime, decode_offline_download_runtime_state, persist_offline_download_runtime_state,
 };

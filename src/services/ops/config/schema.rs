@@ -76,23 +76,6 @@ pub enum ConfigInvalidationTarget {
     MediaDataSupport,
 }
 
-#[derive(Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct TemplateVariableItem {
-    pub token: String,
-    pub label_i18n_key: String,
-    pub description_i18n_key: String,
-}
-
-#[derive(Serialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct TemplateVariableGroup {
-    pub category: String,
-    pub template_code: String,
-    pub label_i18n_key: String,
-    pub variables: Vec<TemplateVariableItem>,
-}
-
 pub fn get_schema() -> Vec<ConfigSchemaItem> {
     ALL_CONFIGS
         .iter()
@@ -258,26 +241,6 @@ fn config_schema_invalidates(key: &str) -> Vec<ConfigInvalidationTarget> {
         }
         _ => Vec::new(),
     }
-}
-
-pub fn list_template_variable_groups() -> Vec<TemplateVariableGroup> {
-    crate::services::mail::template::list_template_variable_groups()
-        .into_iter()
-        .map(|group| TemplateVariableGroup {
-            category: group.category,
-            template_code: group.template_code,
-            label_i18n_key: group.label_i18n_key,
-            variables: group
-                .variables
-                .into_iter()
-                .map(|variable| TemplateVariableItem {
-                    token: variable.token,
-                    label_i18n_key: variable.label_i18n_key,
-                    description_i18n_key: variable.description_i18n_key,
-                })
-                .collect(),
-        })
-        .collect()
 }
 
 #[cfg(test)]

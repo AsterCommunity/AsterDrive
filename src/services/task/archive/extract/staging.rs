@@ -1,9 +1,11 @@
 //! 归档解包任务子模块：`staging`。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::io::Read;
 use std::path::Path;
 use std::time::Instant;
 
+use aster_forge_tasks::{TaskStepInfo, set_task_step_active, set_task_step_succeeded};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::operations;
@@ -20,11 +22,8 @@ use crate::services::{
         zip_scan::scan_zip_archive,
     },
     task::{
-        TaskExecutionContext,
         archive::common::copy_reader_to_writer_with_execution_and_expected_size,
-        steps::{TASK_STEP_EXTRACT_ARCHIVE, set_task_step_active, set_task_step_succeeded},
-        types::TaskStepInfo,
-        update_task_progress_db,
+        steps::TASK_STEP_EXTRACT_ARCHIVE, update_task_progress_db,
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
@@ -533,17 +532,20 @@ fn ensure_archive_entry_matches_preflight<R: Read>(
 
 #[cfg(test)]
 mod tests {
+    use aster_forge_tasks::{TaskExecutionContext, TaskLease};
     use tokio_util::sync::CancellationToken;
 
-    use crate::services::task::{
-        TaskExecutionContext, TaskLease, is_task_worker_shutdown_requested,
-    };
+    use crate::services::task::is_task_worker_shutdown_requested;
 
     use super::copy_async_reader_to_writer_with_execution_and_expected_size;
 
     #[tokio::test]
     async fn source_archive_copy_writes_bytes_when_declared_size_matches() {
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            CancellationToken::new(),
+        );
         let mut reader = &b"archive bytes"[..];
         let mut writer = Vec::new();
 
@@ -563,7 +565,11 @@ mod tests {
 
     #[tokio::test]
     async fn source_archive_copy_rejects_stream_larger_than_declared_size() {
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            CancellationToken::new(),
+        );
         let mut reader = &b"too large"[..];
         let mut writer = Vec::new();
 
@@ -586,7 +592,11 @@ mod tests {
 
     #[tokio::test]
     async fn source_archive_copy_rejects_stream_smaller_than_declared_size() {
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            CancellationToken::new(),
+        );
         let mut reader = &b"short"[..];
         let mut writer = Vec::new();
 
@@ -606,7 +616,11 @@ mod tests {
     #[tokio::test]
     async fn source_archive_copy_stops_on_shutdown_before_reading() {
         let shutdown_token = CancellationToken::new();
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            shutdown_token.clone(),
+        );
         let mut reader = tokio::io::repeat(1);
         let mut writer = tokio::io::sink();
 

@@ -458,7 +458,21 @@ impl From<aster_forge_crypto::CryptoError> for AsterError {
 
 impl From<aster_forge_tasks::TaskCoreError> for AsterError {
     fn from(value: aster_forge_tasks::TaskCoreError) -> Self {
-        Self::internal_error(value.to_string())
+        let message = value.to_string();
+        match value {
+            aster_forge_tasks::TaskCoreError::LeaseLost { .. } => {
+                precondition_failed_with_code(ApiErrorCode::TaskLeaseLost, message)
+            }
+            aster_forge_tasks::TaskCoreError::LeaseRenewalTimedOut { .. } => {
+                precondition_failed_with_code(ApiErrorCode::TaskLeaseRenewalTimedOut, message)
+            }
+            aster_forge_tasks::TaskCoreError::WorkerShutdownRequested { .. } => {
+                precondition_failed_with_code(ApiErrorCode::TaskWorkerShutdownRequested, message)
+            }
+            aster_forge_tasks::TaskCoreError::Codec(_)
+            | aster_forge_tasks::TaskCoreError::InvalidValue(_)
+            | aster_forge_tasks::TaskCoreError::Io(_) => Self::internal_error(message),
+        }
     }
 }
 

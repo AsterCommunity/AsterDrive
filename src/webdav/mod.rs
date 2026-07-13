@@ -466,10 +466,6 @@ pub(crate) fn parent_relative_path(relative: &str) -> Option<String> {
     Some(format!("/{}/", segments[..segments.len() - 1].join("/")))
 }
 
-pub(crate) fn format_http_date(time: std::time::SystemTime) -> String {
-    aster_forge_utils::http_validators::format_http_date(time)
-}
-
 pub(crate) fn format_creation_date(time: std::time::SystemTime) -> String {
     chrono::DateTime::<chrono::Utc>::from(time).to_rfc3339()
 }

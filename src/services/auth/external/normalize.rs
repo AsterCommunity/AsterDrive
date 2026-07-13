@@ -3,8 +3,8 @@ use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local;
-use crate::types::ExternalAuthProviderKind;
 use aster_forge_api::NullablePatch;
+use aster_forge_external_auth::ExternalAuthProviderKind;
 
 use super::REDACTED_SECRET;
 

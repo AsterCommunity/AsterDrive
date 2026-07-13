@@ -1,3 +1,4 @@
+use aster_forge_tasks::TaskExecutionContext;
 use async_trait::async_trait;
 use base64::Engine as _;
 use chrono::Utc;
@@ -13,11 +14,11 @@ use super::scan::build_manifest_from_raw;
 use super::*;
 use crate::config::definitions::CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_PREVIEW;
 use crate::services::files::archive::core::test_utils::create_single_file_zip_with_raw_name;
-use crate::services::task::{TaskExecutionContext, TaskLease};
 use crate::storage::BlobMetadata;
 use crate::storage::StorageDriver;
 use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
+use aster_forge_tasks::TaskLease;
 
 struct PreviewMemoryRangeDriver {
     data: Vec<u8>,
@@ -680,7 +681,11 @@ async fn bounded_copy_rejects_short_and_long_streams() {
 #[tokio::test]
 async fn bounded_copy_stops_before_reading_when_shutdown_requested() {
     let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+    let context = TaskExecutionContext::new(
+        TaskLease::new(42, 7),
+        std::time::Duration::from_secs(60),
+        shutdown_token.clone(),
+    );
     shutdown_token.cancel();
     let mut reader = tokio::io::empty();
     let mut output = Vec::new();
@@ -705,7 +710,11 @@ async fn bounded_copy_stops_before_reading_when_shutdown_requested() {
 }
 
 fn test_execution_context() -> TaskExecutionContext {
-    TaskExecutionContext::new(TaskLease::new(42, 7), CancellationToken::new())
+    TaskExecutionContext::new(
+        TaskLease::new(42, 7),
+        std::time::Duration::from_secs(60),
+        CancellationToken::new(),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread")]

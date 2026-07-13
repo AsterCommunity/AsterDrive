@@ -1,7 +1,10 @@
 //! Offline download background task.
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
 use std::time::Duration as StdDuration;
+
+use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succeeded};
 
 use crate::config::operations;
 use crate::entities::{background_task, file};
@@ -10,14 +13,12 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::folder,
     task::{
-        TaskExecutionContext, cleanup_task_temp_dir_for_task_in_root, create_typed_task_record,
-        get_task_in_scope, is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
-        mark_task_succeeded, prepare_task_temp_dir_in_root,
+        create_typed_task_record, get_task_in_scope, is_task_lease_lost,
+        is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
         spec::{self, OfflineDownloadTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_STORE_RESULT, TASK_STEP_VALIDATE_SOURCE,
             TASK_STEP_VERIFY_SOURCE, TASK_STEP_WAITING, parse_task_steps_json,
-            set_task_step_active, set_task_step_succeeded,
         },
         task_scope,
         types::{
@@ -102,8 +103,7 @@ pub(super) async fn process_offline_download_task(
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<OfflineDownloadTask>(task)?;
         let base_display_name = offline_download_task_base_display_name(&payload);
-        let mut steps =
-            parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_WAITING,
@@ -135,7 +135,9 @@ pub(super) async fn process_offline_download_task(
             .clone()
             .unwrap_or_else(|| redact_url_for_display(&source_url));
         let temp_root = offline_download_temp_root(state);
-        let task_temp_dir = prepare_task_temp_dir_in_root(&temp_root, lease_guard.lease()).await?;
+        let task_temp_dir =
+            aster_forge_tasks::prepare_task_temp_dir_in_root(&temp_root, lease_guard.lease())
+                .await?;
         let temp_path = Path::new(&task_temp_dir).join(OFFLINE_DOWNLOAD_TEMP_FILE_NAME);
         let max_bytes = operations::offline_download_max_file_size_bytes(state.runtime_config());
         let max_bytes_per_sec =
@@ -259,14 +261,14 @@ pub(super) async fn process_offline_download_task(
             ),
             storage::StoreFromTempHints {
                 precomputed_hash: Some(&downloaded.sha256),
-                operation_context: context.storage_operation_context(),
+                operation_context: storage::StorageOperationContext::new(context.clone()),
                 ..Default::default()
             },
             storage::NewFileMode::ResolveUnique,
             true,
         )
         .await?;
-        cleanup_task_temp_dir_for_task_in_root(&temp_root, task.id).await?;
+        aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(&temp_root, task.id).await?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_STORE_RESULT,
@@ -302,11 +304,12 @@ pub(super) async fn process_offline_download_task(
         Err(error) => {
             if !is_task_lease_lost(&error)
                 && !is_task_lease_renewal_timed_out(&error)
-                && let Err(cleanup_error) = cleanup_task_temp_dir_for_task_in_root(
-                    &offline_download_temp_root(state),
-                    task.id,
-                )
-                .await
+                && let Err(cleanup_error) =
+                    aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(
+                        &offline_download_temp_root(state),
+                        task.id,
+                    )
+                    .await
             {
                 tracing::warn!(
                     task_id = task.id,
@@ -326,11 +329,9 @@ pub(super) fn offline_download_temp_root(state: &PrimaryAppState) -> String {
 pub(super) struct OfflineDownloadRetryPolicy;
 
 impl super::retry::TaskRetryPolicy for OfflineDownloadRetryPolicy {
-    fn retry_class(error: &AsterError) -> super::retry::TaskRetryClass {
+    fn retry_class(error: &AsterError) -> TaskRetryClass {
         match error {
-            AsterError::ValidationError(_) | AsterError::FileTooLarge(_) => {
-                super::retry::TaskRetryClass::Never
-            }
+            AsterError::ValidationError(_) | AsterError::FileTooLarge(_) => TaskRetryClass::Never,
             _ => super::retry::default_retry_class(error),
         }
     }

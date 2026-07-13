@@ -5,7 +5,7 @@ use crate::types::BackgroundTaskKind;
 use super::super::registry;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(in crate::services::task) enum TaskLane {
+pub(crate) enum TaskLane {
     Archive,
     Thumbnail,
     OfflineDownload,
@@ -13,12 +13,7 @@ pub(in crate::services::task) enum TaskLane {
     Fallback,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub(super) struct TaskLaneConfig {
-    pub(super) lane: TaskLane,
-    pub(super) limit: usize,
-    pub(super) fast_continue: bool,
-}
+pub(super) type TaskLaneConfig = aster_forge_tasks::TaskLaneConfig<BackgroundTaskKind, TaskLane>;
 
 pub(super) const TASK_LANES: [TaskLane; 5] = [
     TaskLane::Archive,
@@ -32,6 +27,7 @@ pub(super) fn task_lane_configs(state: &impl SharedRuntimeState) -> Vec<TaskLane
         .into_iter()
         .map(|lane| TaskLaneConfig {
             lane,
+            kinds: registry::task_lane_kinds(lane),
             limit: match lane {
                 TaskLane::Archive => {
                     operations::background_task_archive_max_concurrency(state.runtime_config())
@@ -52,26 +48,17 @@ pub(super) fn task_lane_configs(state: &impl SharedRuntimeState) -> Vec<TaskLane
                 }
             },
             fast_continue: matches!(lane, TaskLane::Archive | TaskLane::Thumbnail),
+            lock_key: match lane {
+                TaskLane::Archive => operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+                TaskLane::Thumbnail => operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
+                TaskLane::OfflineDownload => operations::OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
+                TaskLane::StorageMigration => {
+                    operations::BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY
+                }
+                TaskLane::Fallback => operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
+            },
         })
         .collect()
-}
-
-impl TaskLaneConfig {
-    pub(super) fn kinds(self) -> &'static [BackgroundTaskKind] {
-        registry::task_lane_kinds(self.lane)
-    }
-
-    pub(super) fn lock_key(self) -> &'static str {
-        match self.lane {
-            TaskLane::Archive => operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
-            TaskLane::Thumbnail => operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY,
-            TaskLane::OfflineDownload => operations::OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY,
-            TaskLane::StorageMigration => {
-                operations::BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY
-            }
-            TaskLane::Fallback => operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
-        }
-    }
 }
 
 pub(super) fn task_lane(kind: BackgroundTaskKind) -> TaskLane {

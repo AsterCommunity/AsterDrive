@@ -21,8 +21,7 @@ pub(crate) use public::{
 };
 pub use schema::{
     ConfigActionDescriptor, ConfigActionPresentation, ConfigInvalidationTarget, ConfigSchemaItem,
-    ConfigSchemaOption, TemplateVariableGroup, TemplateVariableItem, get_schema,
-    list_template_variable_groups,
+    ConfigSchemaOption, get_schema,
 };
 pub use system::{
     SystemConfig, delete, delete_with_audit, get_by_key, list_paginated, set, set_with_audit,

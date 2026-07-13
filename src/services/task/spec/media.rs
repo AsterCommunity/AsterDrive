@@ -1,10 +1,12 @@
+use aster_forge_tasks::TaskStepSpec;
+
 use crate::services::task::{
     dispatch::TaskLane,
     media_metadata,
     retry::TaskRetryPolicy,
     steps::{
         TASK_STEP_EXTRACT_METADATA, TASK_STEP_INSPECT_SOURCE, TASK_STEP_PERSIST_METADATA,
-        TASK_STEP_PERSIST_THUMBNAIL, TASK_STEP_RENDER_THUMBNAIL, TASK_STEP_WAITING, TaskStepSpec,
+        TASK_STEP_PERSIST_THUMBNAIL, TASK_STEP_RENDER_THUMBNAIL, TASK_STEP_WAITING,
     },
     thumbnail,
     types::{

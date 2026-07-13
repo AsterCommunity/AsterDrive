@@ -1,5 +1,6 @@
 //! 后台任务服务子模块：`types`。
 
+use aster_forge_tasks::TaskStepInfo;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -14,33 +15,6 @@ use crate::storage::connectors::{
 use crate::types::{ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType};
 
 use super::runtime::SystemRuntimeTaskKind;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-#[serde(rename_all = "snake_case")]
-pub enum TaskStepStatus {
-    Pending,
-    Active,
-    Succeeded,
-    Failed,
-    Skipped,
-    Canceled,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
-pub struct TaskStepInfo {
-    pub key: String,
-    pub title: String,
-    pub status: TaskStepStatus,
-    pub progress_current: i64,
-    pub progress_total: i64,
-    pub detail: Option<String>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub started_at: Option<chrono::DateTime<chrono::Utc>>,
-    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
-    pub finished_at: Option<chrono::DateTime<chrono::Utc>>,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -300,12 +274,35 @@ pub enum RuntimeSystemHealthStatus {
     Unhealthy,
 }
 
+impl From<aster_forge_runtime::HealthStatus> for RuntimeSystemHealthStatus {
+    fn from(value: aster_forge_runtime::HealthStatus) -> Self {
+        match value {
+            aster_forge_runtime::HealthStatus::Healthy => Self::Healthy,
+            aster_forge_runtime::HealthStatus::Degraded => Self::Degraded,
+            aster_forge_runtime::HealthStatus::Unhealthy => Self::Unhealthy,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct RuntimeSystemHealthComponent {
     pub name: String,
     pub status: RuntimeSystemHealthStatus,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<aster_forge_runtime::HealthComponentDetail>,
+}
+
+impl From<&aster_forge_runtime::HealthComponentReport> for RuntimeSystemHealthComponent {
+    fn from(value: &aster_forge_runtime::HealthComponentReport) -> Self {
+        Self {
+            name: value.name.to_string(),
+            status: value.status.into(),
+            message: value.message.clone(),
+            details: value.details.clone(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -313,6 +310,15 @@ pub struct RuntimeSystemHealthComponent {
 pub struct RuntimeSystemHealthResult {
     pub status: RuntimeSystemHealthStatus,
     pub components: Vec<RuntimeSystemHealthComponent>,
+}
+
+impl From<&aster_forge_runtime::SystemHealthReport> for RuntimeSystemHealthResult {
+    fn from(value: &aster_forge_runtime::SystemHealthReport) -> Self {
+        Self {
+            status: value.status().into(),
+            components: value.components.iter().map(Into::into).collect(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

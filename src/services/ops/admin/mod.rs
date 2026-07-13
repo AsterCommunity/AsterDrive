@@ -133,6 +133,8 @@ pub struct AdminSystemHealthComponent {
     pub name: String,
     pub status: AdminSystemHealthStatus,
     pub message: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub details: Vec<aster_forge_runtime::HealthComponentDetail>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -401,6 +403,7 @@ fn build_system_health_summary(
                         name: component.name,
                         status: admin_health_status_from_runtime(component.status),
                         message: component.message,
+                        details: component.details,
                     })
                     .collect(),
             )
@@ -477,7 +480,7 @@ async fn build_daily_reports(
     let start = start_of_local_day(oldest_date, timezone)?;
     let end = start_of_local_day(today + Duration::days(1), timezone)?;
 
-    audit::flush_global_audit_log_manager().await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
     let mut cursor = None;
     loop {
         let events = audit_log_repo::find_action_page_in_range(

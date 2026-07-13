@@ -3,8 +3,10 @@
 mod import;
 mod staging;
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
 
+use aster_forge_tasks::{TaskLease, set_task_step_active, set_task_step_succeeded};
 use chrono::Utc;
 
 use super::common::{build_folder_display_path, create_unique_folder_in_scope};
@@ -19,14 +21,13 @@ use crate::services::files::archive::core::format::{
 use crate::services::{
     events::storage_change,
     task::{
-        TaskExecutionContext, TaskLease, cleanup_task_temp_dir_for_task_kind,
-        create_typed_task_record, get_task_in_scope, is_task_lease_lost,
-        is_task_lease_renewal_timed_out, mark_task_progress, mark_task_succeeded,
-        prepare_task_temp_dir,
+        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, get_task_in_scope,
+        is_task_lease_lost, is_task_lease_renewal_timed_out, mark_task_progress,
+        mark_task_succeeded,
         spec::{self, ArchiveExtractTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_IMPORT_RESULT, TASK_STEP_WAITING,
-            parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
+            parse_task_steps_json,
         },
         task_scope,
         types::{
@@ -84,8 +85,7 @@ pub(super) async fn process_archive_extract_task(
     let result = async {
         let scope = task_scope(task)?;
         let payload = decode_payload_as::<ArchiveExtractTask>(task)?;
-        let mut steps =
-            parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_WAITING,
@@ -119,7 +119,11 @@ pub(super) async fn process_archive_extract_task(
         )
         .await?;
         ensure_source_archive_allowed(source_file.size, max_staging_bytes, extract_limits)?;
-        let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
+        let task_temp_dir = aster_forge_tasks::prepare_task_temp_dir_in_root(
+            &state.config().server.temp_dir,
+            lease_guard.lease(),
+        )
+        .await?;
         let task_temp_path = Path::new(&task_temp_dir);
         let source_archive_path = task_temp_path.join(archive_format.temp_file_name());
         let stage_root = task_temp_path.join("extract");
@@ -472,8 +476,8 @@ mod tests {
 
     use super::should_cleanup_created_extract_root_for_lease_error;
     use crate::entities::background_task;
-    use crate::services::task::TaskLease;
     use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+    use aster_forge_tasks::TaskLease;
 
     fn task_model(status: BackgroundTaskStatus, processing_token: i64) -> background_task::Model {
         let now = Utc::now();

@@ -1,5 +1,6 @@
 //! 存储策略间 blob 迁移任务。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
@@ -16,12 +17,13 @@ use crate::storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
 use crate::types::BackgroundTaskKind;
 use aster_forge_crypto::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use aster_forge_db::transaction;
+use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use aster_forge_utils::numbers::{bytes_to_usize, u64_to_i64};
 
 use super::spec::{self, StoragePolicyMigrationTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_FINISH, TASK_STEP_MIGRATE_BLOBS, TASK_STEP_PREPARE_SOURCES, TASK_STEP_SCAN_BLOBS,
-    TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
+    TASK_STEP_WAITING, parse_task_steps_json,
 };
 use super::types::{
     StoragePolicyMigrationCapacityCheck, StoragePolicyMigrationDryRun,
@@ -29,8 +31,7 @@ use super::types::{
     StoragePolicyMigrationTaskResult, TaskInfo,
 };
 use super::{
-    TaskExecutionContext, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
-    mark_task_succeeded, task_scope,
+    TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope,
 };
 
 const MIGRATION_BATCH_SIZE: u64 = 100;
@@ -356,8 +357,7 @@ pub(super) async fn process_storage_policy_migration_task(
 ) -> Result<()> {
     let lease_guard = context.lease_guard().clone();
     let payload = decode_payload_as::<StoragePolicyMigrationTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_WAITING,
@@ -1370,8 +1370,9 @@ impl HashDigestHandle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::services::task::{TaskLease, is_task_worker_shutdown_requested};
+    use crate::services::task::is_task_worker_shutdown_requested;
     use crate::storage::{StorageCapacityInfo, StorageCapacityStatus};
+    use aster_forge_tasks::TaskLease;
     use tokio_util::sync::CancellationToken;
 
     fn capacity(
@@ -1439,7 +1440,11 @@ mod tests {
     #[tokio::test]
     async fn hashing_reader_stops_when_shutdown_is_requested() {
         let shutdown_token = CancellationToken::new();
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            shutdown_token.clone(),
+        );
         shutdown_token.cancel();
 
         let mut reader =
@@ -1454,6 +1459,7 @@ mod tests {
 
         let shutdown_error = context
             .ensure_active()
+            .map_err(AsterError::from)
             .expect_err("cancelled context should remain visible as a task shutdown");
         assert!(is_task_worker_shutdown_requested(&shutdown_error));
     }

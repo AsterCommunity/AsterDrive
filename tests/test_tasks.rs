@@ -784,6 +784,7 @@ fn healthy_system_health_result() -> RuntimeSystemHealthResult {
             name: "database".to_string(),
             status: RuntimeSystemHealthStatus::Healthy,
             message: "database ping succeeded".to_string(),
+            details: Vec::new(),
         }],
     }
 }
@@ -2472,6 +2473,7 @@ async fn test_record_runtime_task_run_keeps_health_failure_history_before_recove
                     name: "cache".to_string(),
                     status: RuntimeSystemHealthStatus::Degraded,
                     message: "fallback active".to_string(),
+                    details: Vec::new(),
                 }],
             },
         ),

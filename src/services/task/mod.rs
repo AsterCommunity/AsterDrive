@@ -47,21 +47,15 @@ pub(crate) mod trash;
 pub mod types;
 
 use chrono::{Duration, Utc};
-use parking_lot::Mutex;
 use sea_orm::{ConnectionTrait, DatabaseConnection, Set};
 use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration as StdDuration, Instant};
-use tokio_util::sync::CancellationToken;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::AdminTaskSortBy;
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
 use crate::entities::background_task;
-use crate::errors::{
-    AsterError, Result, precondition_failed_with_code, validation_error_with_code,
-};
+use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     ops::audit::{self, AuditContext},
@@ -71,9 +65,10 @@ use crate::services::{
 };
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
 use aster_forge_api::{OffsetPage, SortOrder};
-use aster_forge_utils::numbers::{i64_to_i32, i64_to_u64};
+use aster_forge_tasks::{TaskLeaseGuard, TaskStepInfo};
+use aster_forge_utils::numbers::i64_to_i32;
 
-pub use dispatch::{DispatchStats, cleanup_expired, dispatch_due, drain};
+pub use dispatch::{cleanup_expired, dispatch_due, drain};
 use registry::{build_task_presentation, decode_task_payload, decode_task_result};
 pub use runtime::registered_system_runtime_tasks;
 pub use runtime::{
@@ -82,7 +77,7 @@ pub use runtime::{
 };
 use spec::BackgroundTaskSpec;
 use steps::{parse_task_steps_json, serialize_task_steps};
-use types::{TaskInfo, TaskPresentation, TaskResult, TaskStepInfo};
+use types::{TaskInfo, TaskPresentation, TaskResult};
 
 pub(super) const DEFAULT_TASK_RETENTION_HOURS: i64 = 24;
 pub(super) const TASK_HEARTBEAT_INTERVAL_SECS: u64 = 10;
@@ -91,10 +86,6 @@ pub(super) const TASK_DISPLAY_NAME_MAX_LEN: usize = 512;
 pub(super) const TASK_LAST_ERROR_MAX_LEN: usize = 1024;
 pub(super) const TASK_STATUS_TEXT_MAX_LEN: usize = 255;
 pub(super) const TASK_DRAIN_MAX_ROUNDS: usize = 32;
-const TASK_LEASE_LOST_MESSAGE_PREFIX: &str = "background task lease lost";
-const TASK_LEASE_RENEWAL_TIMEOUT_MESSAGE_PREFIX: &str = "background task lease renewal timed out";
-const TASK_WORKER_SHUTDOWN_REQUESTED_MESSAGE_PREFIX: &str =
-    "background task worker shutdown requested";
 
 #[derive(Debug, Clone, Copy, Default)]
 pub(crate) struct AdminTaskListFilters {
@@ -109,199 +100,9 @@ pub(crate) struct AdminTaskCleanupFilters {
     pub(crate) status: Option<BackgroundTaskStatus>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(super) struct TaskLease {
-    // processing_token 是持久化的 fencing token，不跟进程生命周期绑定。
-    // 任务每次被重新认领时都会拿到更大的 token，旧 worker 之后的写入必须被拒绝。
-    // 这里的 lease 只表达“当前这次处理资格”，不表达任务本身的业务内容。
-    pub(super) task_id: i64,
-    pub(super) processing_token: i64,
-}
-
-impl TaskLease {
-    pub(super) fn new(task_id: i64, processing_token: i64) -> Self {
-        Self {
-            task_id,
-            processing_token,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct TaskLeaseGuard {
-    // TaskLeaseGuard 是进程内的“租约看门狗”：
-    // 1. 它持有当前 worker 的 task_id + processing_token；
-    // 2. 只要心跳、进度写库、完成写库任意一次成功，就刷新 last_renewed_at；
-    // 3. 如果 token 不再匹配，或者连续太久没有任何成功续约，就让当前执行流自我终止。
-    //
-    // processing_token 负责“防旧 worker 回写数据库”；
-    // lease guard 负责“防旧 worker 在本地继续做副作用”。
-    lease: TaskLease,
-    renewal_timeout: StdDuration,
-    shutdown_token: Option<CancellationToken>,
-    state: Arc<Mutex<TaskLeaseGuardState>>,
-}
-
-#[derive(Debug)]
-struct TaskLeaseGuardState {
-    last_renewed_at: Instant,
-    termination: Option<TaskLeaseTermination>,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TaskLeaseTermination {
-    Lost,
-    RenewalTimedOut,
-    ShutdownRequested,
-}
-
-impl TaskLeaseGuard {
-    pub(super) fn new(lease: TaskLease) -> Self {
-        Self::with_renewal_timeout(lease, task_lease_renewal_timeout())
-    }
-
-    pub(super) fn with_renewal_timeout(lease: TaskLease, renewal_timeout: StdDuration) -> Self {
-        Self {
-            lease,
-            renewal_timeout,
-            shutdown_token: None,
-            state: Arc::new(Mutex::new(TaskLeaseGuardState {
-                last_renewed_at: Instant::now(),
-                termination: None,
-            })),
-        }
-    }
-
-    fn with_shutdown_token(lease: TaskLease, shutdown_token: CancellationToken) -> Self {
-        Self {
-            shutdown_token: Some(shutdown_token),
-            ..Self::new(lease)
-        }
-    }
-
-    pub(super) fn lease(&self) -> TaskLease {
-        self.lease
-    }
-
-    pub(super) fn record_renewed(&self) {
-        let mut state = self.state.lock();
-        if state.termination.is_none() {
-            state.last_renewed_at = Instant::now();
-        }
-    }
-
-    pub(super) fn mark_lost(&self) -> AsterError {
-        let mut state = self.state.lock();
-        state.termination = Some(TaskLeaseTermination::Lost);
-        task_lease_lost(self.lease)
-    }
-
-    fn mark_shutdown_requested(&self) -> AsterError {
-        let mut state = self.state.lock();
-        state.termination = Some(TaskLeaseTermination::ShutdownRequested);
-        task_worker_shutdown_requested(self.lease)
-    }
-
-    pub(super) fn ensure_active(&self) -> Result<()> {
-        let mut state = self.state.lock();
-        match state.termination {
-            Some(TaskLeaseTermination::Lost) => return Err(task_lease_lost(self.lease)),
-            Some(TaskLeaseTermination::RenewalTimedOut) => {
-                return Err(task_lease_renewal_timed_out(self.lease));
-            }
-            Some(TaskLeaseTermination::ShutdownRequested) => {
-                return Err(task_worker_shutdown_requested(self.lease));
-            }
-            None => {}
-        }
-        if self
-            .shutdown_token
-            .as_ref()
-            .is_some_and(CancellationToken::is_cancelled)
-        {
-            state.termination = Some(TaskLeaseTermination::ShutdownRequested);
-            return Err(task_worker_shutdown_requested(self.lease));
-        }
-        if state.last_renewed_at.elapsed() >= self.renewal_timeout {
-            state.termination = Some(TaskLeaseTermination::RenewalTimedOut);
-            return Err(task_lease_renewal_timed_out(self.lease));
-        }
-        Ok(())
-    }
-}
-
-#[derive(Debug, Clone)]
-pub(super) struct TaskExecutionContext {
-    // Public task implementations should depend on this context, not on a bare
-    // lease guard. The context keeps shutdown cancellation and lease fencing
-    // together, so deep helper code cannot accidentally keep running after the
-    // dispatcher has started graceful shutdown.
-    //
-    // The same cancellation token is intentionally held twice:
-    // - TaskLeaseGuard uses it from synchronous ensure_active() checkpoints.
-    // - TaskExecutionContext uses it in async select! paths, such as sleeps and
-    //   stream reads, where waiting must be interrupted immediately.
-    lease_guard: TaskLeaseGuard,
-    shutdown_token: CancellationToken,
-}
-
-impl TaskExecutionContext {
-    pub(super) fn new(lease: TaskLease, shutdown_token: CancellationToken) -> Self {
-        Self {
-            lease_guard: TaskLeaseGuard::with_shutdown_token(lease, shutdown_token.clone()),
-            shutdown_token,
-        }
-    }
-
-    #[cfg(test)]
-    pub(super) fn with_lease_guard(
-        lease_guard: TaskLeaseGuard,
-        shutdown_token: CancellationToken,
-    ) -> Self {
-        Self {
-            lease_guard,
-            shutdown_token,
-        }
-    }
-
-    pub(super) fn lease_guard(&self) -> &TaskLeaseGuard {
-        &self.lease_guard
-    }
-
-    pub(super) fn ensure_active(&self) -> Result<()> {
-        self.lease_guard.ensure_active()
-    }
-
-    pub(super) fn storage_operation_context(&self) -> storage::StorageOperationContext {
-        storage::StorageOperationContext::new(TaskStorageCancellationCheck {
-            context: self.clone(),
-        })
-    }
-
-    pub(super) async fn sleep_or_shutdown(&self, duration: StdDuration) -> Result<()> {
-        self.lease_guard.ensure_active()?;
-
-        tokio::select! {
-            biased;
-            _ = self.shutdown_token.cancelled() => Err(self.lease_guard.mark_shutdown_requested()),
-            _ = tokio::time::sleep(duration) => Ok(()),
-        }
-    }
-
-    pub(super) async fn shutdown_requested(&self) -> Result<()> {
-        self.shutdown_token.cancelled().await;
-        Err(self.lease_guard.mark_shutdown_requested())
-    }
-}
-
-#[derive(Clone)]
-struct TaskStorageCancellationCheck {
-    context: TaskExecutionContext,
-}
-
-impl storage::StorageCancellationCheck for TaskStorageCancellationCheck {
+impl storage::StorageCancellationCheck for aster_forge_tasks::TaskExecutionContext {
     fn checkpoint(&self) -> Result<()> {
-        self.context.ensure_active()
+        self.ensure_active().map_err(AsterError::from)
     }
 }
 
@@ -530,14 +331,9 @@ fn build_task_info_with_creator(
     let can_retry = task_can_retry(&task);
     let status_text = task.status_text;
     let presentation_context = task_presentation_context(kind, task.runtime_json.as_ref());
-    let presentation = build_task_presentation(
-        kind,
-        &payload,
-        result.as_ref(),
-        task.status,
-        presentation_context,
-    )?;
-    let steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), kind)?;
+    let presentation =
+        build_task_presentation(&payload, result.as_ref(), task.status, presentation_context)?;
+    let steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
 
     Ok(TaskInfo {
         id: task.id,
@@ -576,7 +372,6 @@ pub(crate) fn build_task_presentation_for_model(
     let payload = decode_task_payload(task)?;
     let result = decode_task_result_or_none(task);
     build_task_presentation(
-        task.kind,
         &payload,
         result.as_ref(),
         task.status,
@@ -925,7 +720,10 @@ pub(super) async fn update_task_progress_db(
             id: lease.task_id,
             processing_token: lease.processing_token,
             now,
-            lease_expires_at: task_lease_expires_at(now),
+            lease_expires_at: aster_forge_tasks::task_lease_expires_at(
+                now,
+                TASK_PROCESSING_STALE_SECS,
+            ),
             current,
             total,
             status_text: status_text.as_deref(),
@@ -937,7 +735,7 @@ pub(super) async fn update_task_progress_db(
         lease_guard.record_renewed();
         Ok(())
     } else {
-        Err(lease_guard.mark_lost())
+        Err(lease_guard.mark_lost().into())
     }
 }
 
@@ -960,7 +758,7 @@ pub(super) async fn set_task_runtime_json(
         lease_guard.record_renewed();
         Ok(())
     } else {
-        Err(lease_guard.mark_lost())
+        Err(lease_guard.mark_lost().into())
     }
 }
 
@@ -984,7 +782,7 @@ pub(super) async fn set_task_display_name(
         lease_guard.record_renewed();
         Ok(())
     } else {
-        Err(lease_guard.mark_lost())
+        Err(lease_guard.mark_lost().into())
     }
 }
 
@@ -1020,58 +818,8 @@ pub(super) async fn mark_task_succeeded(
         lease_guard.record_renewed();
         Ok(())
     } else {
-        Err(lease_guard.mark_lost())
+        Err(lease_guard.mark_lost().into())
     }
-}
-
-pub(super) async fn prepare_task_temp_dir(
-    state: &impl SharedRuntimeState,
-    lease: TaskLease,
-) -> Result<String> {
-    prepare_task_temp_dir_in_root(&state.config().server.temp_dir, lease).await
-}
-
-pub(super) async fn prepare_task_temp_dir_in_root(
-    temp_root: &str,
-    lease: TaskLease,
-) -> Result<String> {
-    // 临时目录按 task_id/token 隔离：
-    // temp/tasks/{task_id}/{processing_token}
-    //
-    // 这样任务被 stale reclaim 后，新旧 worker 不会写进同一个目录。
-    // 这里也只清当前 lease 的 token 目录，避免旧 worker 启动时把新 lease 的产物删掉。
-    cleanup_task_temp_dir_for_lease_in_root(temp_root, lease).await?;
-    let task_temp_dir = aster_forge_utils::paths::task_token_temp_dir(
-        temp_root,
-        lease.task_id,
-        lease.processing_token,
-    );
-    tokio::fs::create_dir_all(&task_temp_dir)
-        .await
-        .map_err(|error| {
-            AsterError::storage_driver_error(format!("create task temp dir: {error}"))
-        })?;
-    Ok(task_temp_dir)
-}
-
-pub(super) async fn cleanup_task_temp_dir_for_lease_in_root(
-    temp_root: &str,
-    lease: TaskLease,
-) -> Result<()> {
-    aster_forge_utils::fs::cleanup_temp_dir(&aster_forge_utils::paths::task_token_temp_dir(
-        temp_root,
-        lease.task_id,
-        lease.processing_token,
-    ))
-    .await;
-    Ok(())
-}
-
-pub(super) async fn cleanup_task_temp_dir_for_task(
-    state: &impl SharedRuntimeState,
-    task_id: i64,
-) -> Result<()> {
-    cleanup_task_temp_dir_for_task_in_root(&state.config().server.temp_dir, task_id).await
 }
 
 pub(super) async fn cleanup_task_temp_dir_for_task_kind(
@@ -1079,26 +827,17 @@ pub(super) async fn cleanup_task_temp_dir_for_task_kind(
     kind: BackgroundTaskKind,
     task_id: i64,
 ) -> Result<()> {
-    cleanup_task_temp_dir_for_task(state, task_id).await?;
+    aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(
+        &state.config().server.temp_dir,
+        task_id,
+    )
+    .await?;
     if kind == BackgroundTaskKind::OfflineDownload
         && let Some(temp_root) = operations::offline_download_temp_dir(state.runtime_config())
         && temp_root != state.config().server.temp_dir
     {
-        cleanup_task_temp_dir_for_task_in_root(&temp_root, task_id).await?;
+        aster_forge_tasks::cleanup_task_temp_dir_for_task_in_root(&temp_root, task_id).await?;
     }
-    Ok(())
-}
-
-pub(super) async fn cleanup_task_temp_dir_for_task_in_root(
-    temp_root: &str,
-    task_id: i64,
-) -> Result<()> {
-    // 成功路径会删整个任务根目录，因为到这里说明已经没有活跃 lease 需要保留产物了。
-    // 如果任务在失败/崩溃/重启中断时没走到这里，后续由 task-cleanup 周期任务兜底清理。
-    aster_forge_utils::fs::cleanup_temp_dir(&aster_forge_utils::paths::task_temp_dir(
-        temp_root, task_id,
-    ))
-    .await;
     Ok(())
 }
 
@@ -1132,12 +871,6 @@ pub(super) fn task_expiration_from(
     now + Duration::hours(load_task_retention_hours(state))
 }
 
-pub(super) fn task_lease_expires_at(
-    now: chrono::DateTime<chrono::Utc>,
-) -> chrono::DateTime<chrono::Utc> {
-    now + Duration::seconds(TASK_PROCESSING_STALE_SECS.max(1))
-}
-
 fn validate_admin_task_cleanup_status(status: Option<BackgroundTaskStatus>) -> Result<()> {
     if status.is_some_and(|value| !value.is_terminal()) {
         return Err(AsterError::validation_error(
@@ -1163,36 +896,6 @@ fn load_task_retention_hours(state: &impl SharedRuntimeState) -> i64 {
     }
 }
 
-pub(super) fn task_lease_lost(lease: TaskLease) -> AsterError {
-    precondition_failed_with_code(
-        ApiErrorCode::TaskLeaseLost,
-        format!(
-            "{TASK_LEASE_LOST_MESSAGE_PREFIX} for task #{} with token {}",
-            lease.task_id, lease.processing_token
-        ),
-    )
-}
-
-pub(super) fn task_lease_renewal_timed_out(lease: TaskLease) -> AsterError {
-    precondition_failed_with_code(
-        ApiErrorCode::TaskLeaseRenewalTimedOut,
-        format!(
-            "{TASK_LEASE_RENEWAL_TIMEOUT_MESSAGE_PREFIX} for task #{} with token {}",
-            lease.task_id, lease.processing_token
-        ),
-    )
-}
-
-pub(super) fn task_worker_shutdown_requested(lease: TaskLease) -> AsterError {
-    precondition_failed_with_code(
-        ApiErrorCode::TaskWorkerShutdownRequested,
-        format!(
-            "{TASK_WORKER_SHUTDOWN_REQUESTED_MESSAGE_PREFIX} for task #{} with token {}",
-            lease.task_id, lease.processing_token
-        ),
-    )
-}
-
 pub(super) fn is_task_lease_lost(error: &AsterError) -> bool {
     error.api_error_code_override() == Some(ApiErrorCode::TaskLeaseLost)
 }
@@ -1203,16 +906,6 @@ pub(super) fn is_task_lease_renewal_timed_out(error: &AsterError) -> bool {
 
 pub(super) fn is_task_worker_shutdown_requested(error: &AsterError) -> bool {
     error.api_error_code_override() == Some(ApiErrorCode::TaskWorkerShutdownRequested)
-}
-
-fn task_lease_renewal_timeout() -> StdDuration {
-    let stale_secs = i64_to_u64(
-        TASK_PROCESSING_STALE_SECS.max(1),
-        "task processing stale seconds",
-    )
-    .unwrap_or(u64::MAX);
-    let heartbeat_secs = TASK_HEARTBEAT_INTERVAL_SECS.max(1);
-    StdDuration::from_secs(stale_secs.saturating_sub(heartbeat_secs).max(1))
 }
 
 pub(super) fn truncate_status_text(value: &str) -> String {
@@ -1890,11 +1583,13 @@ mod tests {
                                 name: "database".to_string(),
                                 status: RuntimeSystemHealthStatus::Degraded,
                                 message: "lagging".to_string(),
+                                details: Vec::new(),
                             },
                             RuntimeSystemHealthComponent {
                                 name: "cache".to_string(),
                                 status: RuntimeSystemHealthStatus::Healthy,
                                 message: String::new(),
+                                details: Vec::new(),
                             },
                         ],
                     }),

@@ -62,8 +62,8 @@ import {
 import { adminConfigService } from "@/services/adminService";
 import type {
 	ConfigSchemaItem,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 	TemplateVariableGroup,
 } from "@/types/api";
 
@@ -138,7 +138,7 @@ export function useAdminSettingsData({
 	const [saving, setSaving] = useState(false);
 	const [draftValues, setDraftValues] = useState<DraftValues>({});
 	const [customVisibilityDrafts, setCustomVisibilityDrafts] = useState<
-		Record<string, SystemConfigVisibility>
+		Record<string, ConfigVisibility>
 	>({});
 	const [displayUnits, setDisplayUnits] = useState<
 		Partial<Record<string, TimeDisplayUnitValue | SizeDisplayUnitValue>>
@@ -558,8 +558,7 @@ export function useAdminSettingsData({
 					!isSystemConfigSource(config.source) &&
 					Object.hasOwn(customVisibilityDrafts, config.key) &&
 					customVisibilityDrafts[config.key] !==
-						((config.visibility as SystemConfigVisibility | undefined) ??
-							"private");
+						((config.visibility as ConfigVisibility | undefined) ?? "private");
 				return valueChanged || visibilityChanged;
 			}),
 		[configs, customVisibilityDrafts, deletedCustomKeySet, draftValues],
@@ -732,7 +731,7 @@ export function useAdminSettingsData({
 	const getCustomVisibilityDraft = useCallback(
 		(config: SystemConfig) =>
 			customVisibilityDrafts[config.key] ??
-			(config.visibility as SystemConfigVisibility | undefined) ??
+			(config.visibility as ConfigVisibility | undefined) ??
 			"private",
 		[customVisibilityDrafts],
 	);
@@ -774,7 +773,7 @@ export function useAdminSettingsData({
 	);
 
 	const updateCustomVisibilityDraft = useCallback(
-		(key: string, visibility: SystemConfigVisibility) => {
+		(key: string, visibility: ConfigVisibility) => {
 			setCustomVisibilityDrafts((previous) => ({
 				...previous,
 				[key]: visibility,

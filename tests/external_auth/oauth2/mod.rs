@@ -322,8 +322,8 @@ pub fn external_auth_provider_model(
         key: Set(key.to_string()),
         display_name: Set(format!("{key} provider")),
         icon_url: Set(None),
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::GenericOAuth2),
-        protocol: Set(aster_drive::types::ExternalAuthProtocol::OAuth2),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::GenericOAuth2),
+        protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
@@ -362,8 +362,8 @@ pub fn github_external_auth_provider_model(
         key: Set(key.to_string()),
         display_name: Set(format!("{key} provider")),
         icon_url: Set(None),
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::GitHub),
-        protocol: Set(aster_drive::types::ExternalAuthProtocol::OAuth2),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::GitHub),
+        protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
@@ -403,8 +403,8 @@ pub fn qq_external_auth_provider_model(
         key: Set(key.to_string()),
         display_name: Set(format!("{key} provider")),
         icon_url: Set(None),
-        provider_kind: Set(aster_drive::types::ExternalAuthProviderKind::Qq),
-        protocol: Set(aster_drive::types::ExternalAuthProtocol::OAuth2),
+        provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Qq),
+        protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
             aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),

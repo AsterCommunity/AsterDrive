@@ -15,10 +15,10 @@ import {
 } from "@/components/admin/previewAppsConfigEditorShared";
 import { useAdminSettingsData } from "@/components/admin/settings/useAdminSettingsData";
 import type {
+	ConfigSource,
+	ConfigValueType,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigSource,
-	SystemConfigValueType,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -327,11 +327,11 @@ function getConfigCategory(key: string) {
 	return "site";
 }
 
-function getMockConfigSource(key: string): SystemConfigSource {
+function getMockConfigSource(key: string): ConfigSource {
 	return key.startsWith("custom") ? "custom" : "system";
 }
 
-function getMockConfigValueType(key: string): SystemConfigValueType {
+function getMockConfigValueType(key: string): ConfigValueType {
 	if (key === "public_site_url") return "string_array";
 	if (
 		key === PREVIEW_APPS_CONFIG_KEY ||
@@ -395,11 +395,7 @@ describe("useAdminSettingsData", () => {
 		mockState.thumbnailSupportLoad.mockResolvedValue(undefined);
 		mockState.deleteConfig.mockResolvedValue(undefined);
 		mockState.setConfig.mockImplementation(
-			(
-				key: string,
-				value: string | string[],
-				visibility?: SystemConfigVisibility,
-			) =>
+			(key: string, value: string | string[], visibility?: ConfigVisibility) =>
 				Promise.resolve(
 					createConfig({
 						category: getConfigCategory(key),

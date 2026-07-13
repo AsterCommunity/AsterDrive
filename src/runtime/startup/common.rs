@@ -21,6 +21,7 @@ pub(super) struct CommonRuntimeParts {
 
 pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
+    crate::services::mail::template::validate_template_registry()?;
     let metrics = crate::metrics::create_metrics_recorder();
 
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;

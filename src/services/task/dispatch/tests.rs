@@ -1,9 +1,10 @@
-use std::sync::{
-    Arc,
-    atomic::{AtomicUsize, Ordering},
-};
+use std::sync::Arc;
 
 use aster_forge_db::transaction;
+use aster_forge_tasks::{
+    TaskClaimCandidate, TaskLease, TaskLeaseGuard, available_lane_capacity,
+    spawn_task_heartbeat_with_interval,
+};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::time::{Duration, sleep};
@@ -14,20 +15,14 @@ use crate::db::{self, repository::config_repo};
 use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
-use crate::services::task::{
-    SystemRuntimeTaskKind, TaskExecutionContext, TaskLease, TaskLeaseGuard, is_task_lease_lost,
-    is_task_lease_renewal_timed_out, is_task_worker_shutdown_requested,
-};
+use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use migration::Migrator;
 use tokio_util::sync::CancellationToken;
 
-use super::claim::{TaskClaimCandidate, available_lane_capacity, claim_candidates_for_lane};
-use super::execute::{
-    evaluate_heartbeat_result, run_claimed_tasks, run_with_concurrency_limit,
-    spawn_task_heartbeat_with_interval, task_retry_class,
-};
+use super::claim::claim_candidates_for_lane;
+use super::execute::{BackgroundTaskExecutionStore, run_claimed_tasks};
 use super::lane::{TaskLane, TaskLaneConfig, task_lane};
 
 async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
@@ -192,38 +187,27 @@ fn claim_candidate(index: usize, task: &background_task::Model) -> TaskClaimCand
     }
 }
 
-#[tokio::test]
-async fn run_with_concurrency_limit_caps_parallelism() {
-    let in_flight = Arc::new(AtomicUsize::new(0));
-    let max_in_flight = Arc::new(AtomicUsize::new(0));
-
-    let mut results = run_with_concurrency_limit(vec![1, 2, 3, 4, 5], 2, {
-        let in_flight = in_flight.clone();
-        let max_in_flight = max_in_flight.clone();
-        move |value| {
-            let in_flight = in_flight.clone();
-            let max_in_flight = max_in_flight.clone();
-            async move {
-                let current = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
-                if let Err(e) =
-                    max_in_flight.fetch_update(Ordering::SeqCst, Ordering::SeqCst, |existing| {
-                        Some(existing.max(current))
-                    })
-                {
-                    tracing::trace!("max_in_flight fetch_update failed: {e}");
-                }
-                sleep(Duration::from_millis(20)).await;
-                in_flight.fetch_sub(1, Ordering::SeqCst);
-                value * 2
-            }
+fn test_lane_config(lane: TaskLane, limit: usize, fast_continue: bool) -> TaskLaneConfig {
+    let lock_key = match lane {
+        TaskLane::Archive => crate::config::operations::BACKGROUND_TASK_ARCHIVE_MAX_CONCURRENCY_KEY,
+        TaskLane::Thumbnail => {
+            crate::config::operations::BACKGROUND_TASK_THUMBNAIL_MAX_CONCURRENCY_KEY
         }
-    })
-    .await;
-
-    results.sort_unstable();
-    assert_eq!(results, vec![2, 4, 6, 8, 10]);
-    assert_eq!(max_in_flight.load(Ordering::SeqCst), 2);
-    assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+        TaskLane::OfflineDownload => {
+            crate::config::operations::OFFLINE_DOWNLOAD_MAX_CONCURRENCY_KEY
+        }
+        TaskLane::StorageMigration => {
+            crate::config::operations::BACKGROUND_TASK_STORAGE_MIGRATION_MAX_CONCURRENCY_KEY
+        }
+        TaskLane::Fallback => crate::config::operations::BACKGROUND_TASK_MAX_CONCURRENCY_KEY,
+    };
+    TaskLaneConfig {
+        lane,
+        kinds: super::super::registry::task_lane_kinds(lane),
+        limit,
+        fast_continue,
+        lock_key,
+    }
 }
 
 #[tokio::test]
@@ -275,7 +259,7 @@ async fn run_claimed_tasks_releases_pre_cancelled_task_without_running_handler()
         .await
         .expect("shutdown release should be handled as a cooperative worker stop");
 
-    assert_eq!(stats, super::DispatchStats::default());
+    assert_eq!(stats, aster_forge_tasks::DispatchStats::default());
 
     let stored = background_task_repo::find_by_id(state.writer_db(), task.id)
         .await
@@ -296,7 +280,7 @@ async fn task_heartbeat_can_stop_while_sqlite_writer_pool_is_busy() {
     let state = build_dispatch_test_state().await;
     let task = insert_processing_system_runtime_task(state.writer_db()).await;
     let lease = TaskLease::new(task.id, task.processing_token);
-    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_secs(60));
+    let lease_guard = TaskLeaseGuard::new(lease, Duration::from_secs(60));
     let stop_token = CancellationToken::new();
     let writer_txn = transaction::begin(state.writer_db())
         .await
@@ -306,12 +290,11 @@ async fn task_heartbeat_can_stop_while_sqlite_writer_pool_is_busy() {
     // waiting in pool acquire while task code holds the only writer connection,
     // but cancelling the heartbeat must still let task completion proceed.
     let heartbeat = spawn_task_heartbeat_with_interval(
-        state.clone(),
-        task.id,
-        task.processing_token,
+        BackgroundTaskExecutionStore::new(state.clone()),
         lease_guard,
         stop_token.clone(),
         Duration::from_millis(10),
+        |now| aster_forge_tasks::task_lease_expires_at(now, super::TASK_PROCESSING_STALE_SECS),
     );
     sleep(Duration::from_millis(30)).await;
 
@@ -417,15 +400,14 @@ async fn claim_candidates_for_lane_claims_batch_up_to_rechecked_capacity() {
         .map(|(index, task)| claim_candidate(index, task))
         .collect::<Vec<_>>();
 
+    let claimed_at = Utc::now();
     let claimed = claim_candidates_for_lane(
         &db,
-        TaskLaneConfig {
-            lane: TaskLane::Archive,
-            limit: 2,
-            fast_continue: true,
-        },
+        test_lane_config(TaskLane::Archive, 2, true),
         &candidates,
-        Utc::now() - chrono::Duration::seconds(60),
+        claimed_at - chrono::Duration::seconds(60),
+        claimed_at,
+        aster_forge_tasks::task_lease_expires_at(claimed_at, super::TASK_PROCESSING_STALE_SECS),
     )
     .await
     .expect("batch claim should succeed");
@@ -472,15 +454,14 @@ async fn claim_candidates_for_lane_skips_claim_when_rechecked_capacity_is_full()
     .await;
     let candidates = vec![claim_candidate(0, &pending)];
 
+    let claimed_at = Utc::now();
     let claimed = claim_candidates_for_lane(
         &db,
-        TaskLaneConfig {
-            lane: TaskLane::Thumbnail,
-            limit: 1,
-            fast_continue: true,
-        },
+        test_lane_config(TaskLane::Thumbnail, 1, true),
         &candidates,
-        Utc::now() - chrono::Duration::seconds(60),
+        claimed_at - chrono::Duration::seconds(60),
+        claimed_at,
+        aster_forge_tasks::task_lease_expires_at(claimed_at, super::TASK_PROCESSING_STALE_SECS),
     )
     .await
     .expect("full lane batch claim should succeed without claiming");
@@ -522,15 +503,14 @@ async fn claim_candidates_for_lane_continues_after_stale_candidate_loses_cas() {
         claim_candidate(1, &next),
     ];
 
+    let claimed_at = Utc::now();
     let claimed = claim_candidates_for_lane(
         &db,
-        TaskLaneConfig {
-            lane: TaskLane::Archive,
-            limit: 1,
-            fast_continue: true,
-        },
+        test_lane_config(TaskLane::Archive, 1, true),
         &candidates,
-        Utc::now() - chrono::Duration::seconds(60),
+        claimed_at - chrono::Duration::seconds(60),
+        claimed_at,
+        aster_forge_tasks::task_lease_expires_at(claimed_at, super::TASK_PROCESSING_STALE_SECS),
     )
     .await
     .expect("batch claim should skip stale CAS misses");
@@ -544,127 +524,27 @@ async fn claim_candidates_for_lane_continues_after_stale_candidate_loses_cas() {
     assert_eq!(stale.processing_token, 0);
 }
 
-#[test]
-fn evaluate_heartbeat_result_keeps_retrying_after_transient_error() {
-    let lease = TaskLease::new(42, 7);
-    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_secs(60));
-    let result =
-        evaluate_heartbeat_result(&lease_guard, Err(AsterError::database_operation("boom")));
-    assert!(result.is_ok());
-}
-
-#[test]
-fn evaluate_heartbeat_result_reports_lease_loss_when_claim_replaced() {
-    let lease = TaskLease::new(42, 7);
-    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_secs(60));
-    let error = evaluate_heartbeat_result(&lease_guard, Ok(false))
-        .expect_err("heartbeat mismatch should report lease loss");
-    assert!(is_task_lease_lost(&error));
-}
-
 #[tokio::test]
-async fn evaluate_heartbeat_result_stops_worker_after_renewal_timeout() {
-    let lease = TaskLease::new(42, 7);
-    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_millis(20));
-    sleep(Duration::from_millis(30)).await;
-
-    let error =
-        evaluate_heartbeat_result(&lease_guard, Err(AsterError::database_operation("boom")))
-            .expect_err("expired renewal window should stop the worker");
-    assert!(is_task_lease_renewal_timed_out(&error));
-}
-
-#[tokio::test]
-async fn task_execution_context_reports_shutdown_request() {
+async fn forge_task_context_preserves_drive_shutdown_error_code() {
     let lease = TaskLease::new(42, 7);
     let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(lease, shutdown_token.clone());
+    let context = aster_forge_tasks::TaskExecutionContext::new(
+        lease,
+        Duration::from_secs(60),
+        shutdown_token.clone(),
+    );
 
     shutdown_token.cancel();
 
     let error = context
         .ensure_active()
+        .map_err(AsterError::from)
         .expect_err("cancelled shutdown token should stop the worker");
     assert!(is_task_worker_shutdown_requested(&error));
     assert_eq!(
         error.api_error_code_override(),
         Some(crate::api::api_error_code::ApiErrorCode::TaskWorkerShutdownRequested)
     );
-
-    let error = context
-        .ensure_active()
-        .expect_err("shutdown termination should remain sticky");
-    assert!(is_task_worker_shutdown_requested(&error));
-}
-
-#[tokio::test]
-async fn task_execution_context_shutdown_is_visible_through_cloned_lease_guard() {
-    let lease = TaskLease::new(42, 7);
-    let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(lease, shutdown_token.clone());
-    let lease_guard = context.lease_guard().clone();
-
-    shutdown_token.cancel();
-
-    let error = lease_guard
-        .ensure_active()
-        .expect_err("cloned lease guard should inherit shutdown cancellation");
-    assert!(is_task_worker_shutdown_requested(&error));
-
-    let error = context
-        .ensure_active()
-        .expect_err("shutdown observed through a clone should remain sticky");
-    assert!(is_task_worker_shutdown_requested(&error));
-}
-
-#[tokio::test]
-async fn task_execution_context_shutdown_requested_waits_until_cancelled() {
-    let lease = TaskLease::new(42, 7);
-    let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(lease, shutdown_token.clone());
-
-    assert!(
-        tokio::time::timeout(Duration::from_millis(10), context.shutdown_requested())
-            .await
-            .is_err()
-    );
-
-    shutdown_token.cancel();
-    let error = context
-        .shutdown_requested()
-        .await
-        .expect_err("cancelled token should resolve as a shutdown request");
-    assert!(is_task_worker_shutdown_requested(&error));
-}
-
-#[tokio::test]
-async fn task_execution_context_sleep_wakes_on_shutdown() {
-    let lease = TaskLease::new(42, 7);
-    let shutdown_token = CancellationToken::new();
-    let context = TaskExecutionContext::new(lease, shutdown_token.clone());
-
-    shutdown_token.cancel();
-
-    let error = context
-        .sleep_or_shutdown(Duration::from_secs(60))
-        .await
-        .expect_err("cancelled shutdown token should interrupt sleeps");
-    assert!(is_task_worker_shutdown_requested(&error));
-}
-
-#[tokio::test]
-async fn task_execution_context_sleep_without_shutdown_completes_normally() {
-    let lease = TaskLease::new(42, 7);
-    let lease_guard = TaskLeaseGuard::with_renewal_timeout(lease, Duration::from_secs(60));
-    let context = TaskExecutionContext::with_lease_guard(lease_guard, CancellationToken::new());
-
-    tokio::time::timeout(
-        Duration::from_millis(50),
-        context.sleep_or_shutdown(Duration::from_millis(1)),
-    )
-    .await
-    .expect("sleep without shutdown token should complete")
-    .expect("sleep without shutdown token should not report shutdown");
 }
 
 #[test]
@@ -673,31 +553,51 @@ fn thumbnail_retry_only_keeps_transient_storage_errors() {
     let misconfigured = storage_driver_error(StorageErrorKind::Misconfigured, "missing bucket");
 
     assert!(
-        task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &transient).should_auto_retry()
+        super::super::registry::task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &transient)
+            .should_auto_retry()
     );
     assert!(
-        !task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &misconfigured).can_manual_retry()
+        !super::super::registry::task_retry_class(
+            BackgroundTaskKind::ThumbnailGenerate,
+            &misconfigured,
+        )
+        .can_manual_retry()
     );
     assert!(
-        task_retry_class(BackgroundTaskKind::ImagePreviewGenerate, &transient).should_auto_retry()
+        super::super::registry::task_retry_class(
+            BackgroundTaskKind::ImagePreviewGenerate,
+            &transient,
+        )
+        .should_auto_retry()
     );
     assert!(
-        !task_retry_class(BackgroundTaskKind::ImagePreviewGenerate, &misconfigured)
-            .can_manual_retry()
+        !super::super::registry::task_retry_class(
+            BackgroundTaskKind::ImagePreviewGenerate,
+            &misconfigured,
+        )
+        .can_manual_retry()
     );
     assert!(
-        task_retry_class(BackgroundTaskKind::MediaMetadataExtract, &transient).should_auto_retry()
+        super::super::registry::task_retry_class(
+            BackgroundTaskKind::MediaMetadataExtract,
+            &transient,
+        )
+        .should_auto_retry()
     );
     assert!(
-        !task_retry_class(BackgroundTaskKind::MediaMetadataExtract, &misconfigured)
-            .can_manual_retry()
+        !super::super::registry::task_retry_class(
+            BackgroundTaskKind::MediaMetadataExtract,
+            &misconfigured,
+        )
+        .can_manual_retry()
     );
 }
 
 #[test]
 fn archive_validation_errors_are_not_retryable() {
     let error = AsterError::validation_error("archive entry compression ratio exceeds limit");
-    let retry_class = task_retry_class(BackgroundTaskKind::ArchiveExtract, &error);
+    let retry_class =
+        super::super::registry::task_retry_class(BackgroundTaskKind::ArchiveExtract, &error);
 
     assert!(!retry_class.should_auto_retry());
     assert!(!retry_class.can_manual_retry());
@@ -706,7 +606,8 @@ fn archive_validation_errors_are_not_retryable() {
 #[test]
 fn archive_transient_storage_errors_are_auto_retryable() {
     let error = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
-    let retry_class = task_retry_class(BackgroundTaskKind::ArchiveCompress, &error);
+    let retry_class =
+        super::super::registry::task_retry_class(BackgroundTaskKind::ArchiveCompress, &error);
 
     assert!(retry_class.should_auto_retry());
     assert!(retry_class.can_manual_retry());

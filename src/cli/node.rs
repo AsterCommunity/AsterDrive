@@ -169,7 +169,7 @@ fn render_node_human(report: &NodeEnrollReport) -> String {
 }
 
 fn build_connectivity_hint(server_host: &str, server_port: u16) -> String {
-    if host_is_loopback(server_host) {
+    if aster_forge_utils::net::is_loopback_host(server_host) {
         return format!(
             "Current server.host is {server_host}. Direct transport from another machine needs a reachable bind host or reverse proxy in front of port {server_port}."
         );
@@ -180,13 +180,9 @@ fn build_connectivity_hint(server_host: &str, server_port: u16) -> String {
     )
 }
 
-fn host_is_loopback(server_host: &str) -> bool {
-    aster_forge_utils::net::is_loopback_host(server_host)
-}
-
 #[cfg(test)]
 mod tests {
-    use super::{NodeEnrollReport, host_is_loopback, render_node_human};
+    use super::{NodeEnrollReport, render_node_human};
 
     #[test]
     fn render_node_human_focuses_on_connectivity_steps() {
@@ -214,15 +210,6 @@ mod tests {
         assert!(rendered.contains("confirm the master can reach this node"));
         assert!(rendered.contains("For reverse tunnel transport"));
         assert!(rendered.contains("keep outbound access"));
-    }
-
-    #[test]
-    fn host_is_loopback_detects_local_hosts() {
-        assert!(host_is_loopback("127.0.0.1"));
-        assert!(host_is_loopback("::1"));
-        assert!(host_is_loopback("localhost"));
-        assert!(!host_is_loopback("0.0.0.0"));
-        assert!(!host_is_loopback("192.168.1.10"));
     }
 
     #[test]

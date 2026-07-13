@@ -1,3 +1,5 @@
+use aster_forge_tasks::TaskStepSpec;
+
 use crate::services::task::{
     archive,
     dispatch::TaskLane,
@@ -5,7 +7,7 @@ use crate::services::task::{
     steps::{
         TASK_STEP_BUILD_ARCHIVE, TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_EXTRACT_ARCHIVE,
         TASK_STEP_IMPORT_RESULT, TASK_STEP_PERSIST_MANIFEST, TASK_STEP_PREPARE_SOURCES,
-        TASK_STEP_SCAN_ARCHIVE, TASK_STEP_STORE_RESULT, TASK_STEP_WAITING, TaskStepSpec,
+        TASK_STEP_SCAN_ARCHIVE, TASK_STEP_STORE_RESULT, TASK_STEP_WAITING,
     },
     types::{
         ArchiveCompressTaskPayload, ArchiveCompressTaskResult, ArchiveExtractTaskPayload,

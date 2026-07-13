@@ -15,217 +15,137 @@
 //! - 在 `registry.rs::spec_for_kind` 注册 spec，并把 kind 放入对应 lane。
 //! - 创建记录时走 `TypedTaskCreate` / `create_typed_task_record`，不要直接 serialize JSON。
 
-use std::future::Future;
-use std::pin::Pin;
+use aster_forge_tasks::TaskExecutionContext;
 
-use sea_orm::ActiveEnum;
-use serde::{Serialize, de::DeserializeOwned};
-
-use crate::config::{RuntimeConfig, operations};
+use crate::config::RuntimeConfig;
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use crate::types::BackgroundTaskKind;
 
-use super::TaskExecutionContext;
 use super::dispatch::TaskLane;
-use super::presentation;
-use super::retry::{TaskRetryClass, default_retry_class};
-use super::steps::TaskStepSpec;
-use super::types::{TaskPayload, TaskPresentation, TaskResult};
+use super::types::{TaskPayload, TaskResult};
 
-pub(super) type TaskProcessFuture<'a> = Pin<Box<dyn Future<Output = Result<()>> + Send + 'a>>;
+pub(super) type TaskProcessFuture<'a> = aster_forge_tasks::TaskProcessFuture<'a, AsterError>;
+pub(super) type ErasedBackgroundTaskSpec = dyn aster_forge_tasks::ErasedBackgroundTaskSpec<
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        BackgroundTaskKind,
+        TaskLane,
+        TaskPayload,
+        TaskResult,
+        AsterError,
+    >;
 
-pub(super) trait BackgroundTaskSpec {
-    type Payload: Serialize + DeserializeOwned + Clone + Send + Sync + 'static;
-    type Result: Serialize + DeserializeOwned + Clone + Send + Sync + 'static;
+pub(super) trait BackgroundTaskSpec:
+    aster_forge_tasks::BackgroundTaskSpec<
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+        Kind = BackgroundTaskKind,
+        Lane = TaskLane,
+        PayloadEnvelope = TaskPayload,
+        ResultEnvelope = TaskResult,
+    >
+{
+}
 
-    const KIND: BackgroundTaskKind;
+impl<T> BackgroundTaskSpec for T where
+    T: aster_forge_tasks::BackgroundTaskSpec<
+            PrimaryAppState,
+            background_task::Model,
+            RuntimeConfig,
+            TaskExecutionContext,
+            AsterError,
+            Kind = BackgroundTaskKind,
+            Lane = TaskLane,
+            PayloadEnvelope = TaskPayload,
+            ResultEnvelope = TaskResult,
+        >
+{
+}
 
-    fn step_specs() -> &'static [TaskStepSpec];
+pub(super) fn serialize_payload<S>(payload: &S::Payload) -> Result<crate::types::StoredTaskPayload>
+where
+    S: BackgroundTaskSpec,
+{
+    aster_forge_tasks::serialize_payload::<
+        S,
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+    >(payload)
+    .map(crate::types::StoredTaskPayload)
+    .map_err(AsterError::from)
+}
 
-    fn lane() -> TaskLane;
-
-    fn max_attempts(runtime_config: &RuntimeConfig) -> i32 {
-        operations::background_task_max_attempts(runtime_config)
+impl aster_forge_tasks::TaskRecord<BackgroundTaskKind> for background_task::Model {
+    fn id(&self) -> i64 {
+        self.id
     }
 
-    fn wrap_payload(payload: Self::Payload) -> TaskPayload;
+    fn kind(&self) -> BackgroundTaskKind {
+        self.kind
+    }
 
-    fn wrap_result(result: Self::Result) -> TaskResult;
+    fn payload_json(&self) -> &str {
+        self.payload_json.as_ref()
+    }
 
-    fn process<'a>(
-        state: &'a PrimaryAppState,
-        task: &'a background_task::Model,
-        context: TaskExecutionContext,
-    ) -> TaskProcessFuture<'a>;
-
-    fn retry_class(error: &AsterError) -> TaskRetryClass {
-        default_retry_class(error)
+    fn result_json(&self) -> Option<&str> {
+        self.result_json.as_ref().map(AsRef::as_ref)
     }
 }
 
-pub(super) fn serialize_payload<S: BackgroundTaskSpec>(
-    payload: &S::Payload,
-) -> Result<crate::types::StoredTaskPayload> {
-    serde_json::to_string(payload)
-        .map(crate::types::StoredTaskPayload)
-        .map_err(|error| {
-            AsterError::internal_error(format!(
-                "serialize {} task payload: {error}",
-                S::KIND.to_value()
-            ))
-        })
-}
-
-pub(super) fn serialize_result<S: BackgroundTaskSpec>(
-    result: &S::Result,
-) -> Result<crate::types::StoredTaskResult> {
-    serde_json::to_string(result)
-        .map(crate::types::StoredTaskResult)
-        .map_err(|error| {
-            AsterError::internal_error(format!(
-                "serialize {} task result: {error}",
-                S::KIND.to_value()
-            ))
-        })
+pub(super) fn serialize_result<S>(result: &S::Result) -> Result<crate::types::StoredTaskResult>
+where
+    S: BackgroundTaskSpec,
+{
+    aster_forge_tasks::serialize_result::<
+        S,
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+    >(result)
+    .map(crate::types::StoredTaskResult)
+    .map_err(AsterError::from)
 }
 
 pub(super) fn decode_payload_as<S: BackgroundTaskSpec>(
     task: &background_task::Model,
 ) -> Result<S::Payload> {
-    if task.kind != S::KIND {
-        return Err(AsterError::internal_error(format!(
-            "task #{} kind mismatch: expected {}, got {}",
-            task.id,
-            S::KIND.to_value(),
-            task.kind.to_value()
-        )));
-    }
-
-    serde_json::from_str(task.payload_json.as_ref()).map_err(|error| {
-        AsterError::internal_error(format!(
-            "parse payload for task #{} ({}): {error}",
-            task.id,
-            task.kind.to_value()
-        ))
-    })
+    aster_forge_tasks::decode_payload_as::<
+        S,
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+    >(task)
+    .map_err(AsterError::from)
 }
 
+#[cfg(test)]
 pub(super) fn decode_result_as<S: BackgroundTaskSpec>(
     task: &background_task::Model,
 ) -> Result<Option<S::Result>> {
-    if task.kind != S::KIND {
-        return Err(AsterError::internal_error(format!(
-            "task #{} kind mismatch: expected {}, got {}",
-            task.id,
-            S::KIND.to_value(),
-            task.kind.to_value()
-        )));
-    }
-
-    let Some(raw) = task.result_json.as_ref() else {
-        return Ok(None);
-    };
-
-    serde_json::from_str(raw.as_ref())
-        .map(Some)
-        .map_err(|error| {
-            AsterError::internal_error(format!(
-                "parse result for task #{} ({}): {error}",
-                task.id,
-                task.kind.to_value()
-            ))
-        })
-}
-
-pub(super) trait ErasedBackgroundTaskSpec: Sync {
-    fn step_specs(&self) -> &'static [TaskStepSpec];
-
-    fn lane(&self) -> TaskLane;
-
-    fn max_attempts(&self, runtime_config: &RuntimeConfig) -> i32;
-
-    fn decode_payload(&self, task: &background_task::Model) -> Result<TaskPayload>;
-
-    fn decode_result(&self, task: &background_task::Model) -> Result<Option<TaskResult>>;
-
-    fn presentation(
-        &self,
-        payload: &TaskPayload,
-        result: Option<&TaskResult>,
-        status: BackgroundTaskStatus,
-        context: presentation::TaskPresentationContext,
-    ) -> Result<Option<TaskPresentation>>;
-
-    fn retry_class(&self, error: &AsterError) -> TaskRetryClass;
-
-    fn process<'a>(
-        &self,
-        state: &'a PrimaryAppState,
-        task: &'a background_task::Model,
-        context: TaskExecutionContext,
-    ) -> TaskProcessFuture<'a>;
-}
-
-pub(super) struct TaskSpecAdapter<S>(std::marker::PhantomData<S>);
-
-impl<S> TaskSpecAdapter<S> {
-    pub(super) const fn new() -> Self {
-        Self(std::marker::PhantomData)
-    }
-}
-
-impl<S> ErasedBackgroundTaskSpec for TaskSpecAdapter<S>
-where
-    S: BackgroundTaskSpec + Sync,
-{
-    fn step_specs(&self) -> &'static [TaskStepSpec] {
-        S::step_specs()
-    }
-
-    fn lane(&self) -> TaskLane {
-        S::lane()
-    }
-
-    fn max_attempts(&self, runtime_config: &RuntimeConfig) -> i32 {
-        S::max_attempts(runtime_config)
-    }
-
-    fn decode_payload(&self, task: &background_task::Model) -> Result<TaskPayload> {
-        let payload = decode_payload_as::<S>(task)?;
-        Ok(S::wrap_payload(payload))
-    }
-
-    fn decode_result(&self, task: &background_task::Model) -> Result<Option<TaskResult>> {
-        let result = decode_result_as::<S>(task)?;
-        Ok(result.map(S::wrap_result))
-    }
-
-    fn presentation(
-        &self,
-        payload: &TaskPayload,
-        result: Option<&TaskResult>,
-        status: BackgroundTaskStatus,
-        context: presentation::TaskPresentationContext,
-    ) -> Result<Option<TaskPresentation>> {
-        Ok(presentation::build_task_presentation(
-            payload, result, status, context,
-        ))
-    }
-
-    fn retry_class(&self, error: &AsterError) -> TaskRetryClass {
-        S::retry_class(error)
-    }
-
-    fn process<'a>(
-        &self,
-        state: &'a PrimaryAppState,
-        task: &'a background_task::Model,
-        context: TaskExecutionContext,
-    ) -> TaskProcessFuture<'a> {
-        S::process(state, task, context)
-    }
+    aster_forge_tasks::decode_result_as::<
+        S,
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+    >(task)
+    .map_err(AsterError::from)
 }
 
 macro_rules! define_task_spec {
@@ -245,14 +165,24 @@ macro_rules! define_task_spec {
     ) => {
         pub(crate) struct $spec;
 
-        impl $crate::services::task::spec::BackgroundTaskSpec for $spec {
+        impl aster_forge_tasks::BackgroundTaskSpec<
+            $crate::runtime::PrimaryAppState,
+            $crate::entities::background_task::Model,
+            $crate::config::RuntimeConfig,
+            aster_forge_tasks::TaskExecutionContext,
+            $crate::errors::AsterError,
+        > for $spec {
+            type Kind = $crate::types::BackgroundTaskKind;
+            type Lane = $crate::services::task::dispatch::TaskLane;
             type Payload = $payload;
             type Result = $result;
+            type PayloadEnvelope = $crate::services::task::types::TaskPayload;
+            type ResultEnvelope = $crate::services::task::types::TaskResult;
 
             const KIND: $crate::types::BackgroundTaskKind =
                 $crate::types::BackgroundTaskKind::$kind;
 
-            fn step_specs() -> &'static [$crate::services::task::steps::TaskStepSpec] {
+            fn step_specs() -> &'static [aster_forge_tasks::TaskStepSpec] {
                 $steps
             }
 
@@ -275,25 +205,20 @@ macro_rules! define_task_spec {
             fn process<'a>(
                 state: &'a $crate::runtime::PrimaryAppState,
                 task: &'a $crate::entities::background_task::Model,
-                context: $crate::services::task::TaskExecutionContext,
+                context: aster_forge_tasks::TaskExecutionContext,
             ) -> $crate::services::task::spec::TaskProcessFuture<'a> {
                 Box::pin($process(state, task, context))
             }
 
-            $(
-                fn max_attempts(runtime_config: &$crate::config::RuntimeConfig) -> i32 {
-                    let _ = runtime_config;
-                    $max_attempts
-                }
-            )?
+            fn max_attempts(runtime_config: &$crate::config::RuntimeConfig) -> i32 {
+                define_task_spec!(@max_attempts runtime_config $(, $max_attempts)?)
+            }
 
-            $(
-                fn retry_class(
-                    error: &$crate::errors::AsterError,
-                ) -> $crate::services::task::retry::TaskRetryClass {
-                    <$retry>::retry_class(error)
-                }
-            )?
+            fn retry_class(
+                error: &$crate::errors::AsterError,
+            ) -> aster_forge_tasks::TaskRetryClass {
+                define_task_spec!(@retry error $(, $retry)?)
+            }
         }
     };
     (@payload_wrap $payload:ident, $variant:ident) => {
@@ -301,6 +226,19 @@ macro_rules! define_task_spec {
     };
     (@payload_wrap $payload:ident, $variant:ident, $payload_wrap:expr) => {
         $crate::services::task::types::TaskPayload::$variant($payload_wrap($payload))
+    };
+    (@max_attempts $runtime_config:ident) => {
+        $crate::config::operations::background_task_max_attempts($runtime_config)
+    };
+    (@max_attempts $runtime_config:ident, $max_attempts:expr) => {{
+        let _ = $runtime_config;
+        $max_attempts
+    }};
+    (@retry $error:ident) => {
+        $crate::services::task::retry::default_retry_class($error)
+    };
+    (@retry $error:ident, $retry:path) => {
+        <$retry>::retry_class($error)
     };
 }
 

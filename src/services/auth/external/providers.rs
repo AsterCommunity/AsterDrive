@@ -7,7 +7,6 @@ use crate::db::repository::external_auth_provider_repo;
 use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::ExternalAuthProviderKind;
 use crate::types::external_auth_provider::StoredExternalAuthProviderOptions;
 use aster_forge_api::NullablePatch;
 use aster_forge_api::OffsetPage;
@@ -15,10 +14,10 @@ use aster_forge_external_auth::providers::microsoft::{
     normalize_microsoft_tenant_input, normalize_microsoft_tenant_or_issuer_url,
 };
 use aster_forge_external_auth::{
-    ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderOptions,
-    ExternalAuthProviderTestResult, MicrosoftExternalAuthProviderOptions, default_registry,
-    normalize as external_auth_normalize, parse_external_auth_provider_options,
-    serialize_external_auth_provider_options,
+    ExternalAuthProviderConfig, ExternalAuthProviderDescriptor, ExternalAuthProviderKind,
+    ExternalAuthProviderOptions, ExternalAuthProviderTestResult,
+    MicrosoftExternalAuthProviderOptions, default_registry, normalize as external_auth_normalize,
+    parse_external_auth_provider_options, serialize_external_auth_provider_options,
 };
 use aster_forge_utils::id;
 
@@ -32,8 +31,8 @@ use super::{
 
 fn descriptor_to_info(descriptor: ExternalAuthProviderDescriptor) -> ExternalAuthProviderKindInfo {
     ExternalAuthProviderKindInfo {
-        kind: descriptor.kind.into(),
-        protocol: descriptor.protocol.into(),
+        kind: descriptor.kind,
+        protocol: descriptor.protocol,
         display_name: descriptor.display_name.to_string(),
         description: descriptor.description.to_string(),
         default_scopes: descriptor.default_scopes.to_string(),
@@ -178,8 +177,8 @@ pub(super) fn external_auth_provider_config(
     ExternalAuthProviderConfig {
         id: provider.id,
         key: provider.key.clone(),
-        provider_kind: provider.provider_kind.into(),
-        protocol: provider.protocol.into(),
+        provider_kind: provider.provider_kind,
+        protocol: provider.protocol,
         options: parse_external_auth_provider_options(provider.options.as_ref()),
         issuer_url: provider.issuer_url.clone(),
         authorization_url: provider.authorization_url.clone(),
@@ -202,7 +201,7 @@ pub(super) fn external_auth_provider_config(
 fn external_auth_provider_config_from_test_params(
     input: ExternalAuthProviderTestParamsInput,
 ) -> Result<ExternalAuthProviderConfig> {
-    let descriptor = default_registry().descriptor_for(input.provider_kind.into())?;
+    let descriptor = default_registry().descriptor_for(input.provider_kind)?;
     let options = normalize_provider_options_from_test_params(
         input.provider_kind,
         input.options,
@@ -211,7 +210,7 @@ fn external_auth_provider_config_from_test_params(
     Ok(ExternalAuthProviderConfig {
         id: 0,
         key: "draft".to_string(),
-        provider_kind: input.provider_kind.into(),
+        provider_kind: input.provider_kind,
         protocol: descriptor.protocol,
         options,
         issuer_url: normalize_provider_issuer_url_input(
@@ -459,7 +458,7 @@ pub async fn create_provider(
     state: &impl SharedRuntimeState,
     input: CreateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
-    let descriptor = default_registry().descriptor_for(input.provider_kind.into())?;
+    let descriptor = default_registry().descriptor_for(input.provider_kind)?;
     let key = id::new_best_effort_uuid("external auth provider key", |candidate| {
         let db = state.writer_db();
         let provider_kind = input.provider_kind;
@@ -526,7 +525,7 @@ pub async fn create_provider(
         display_name: Set(display_name),
         icon_url: Set(icon_url),
         provider_kind: Set(provider_kind),
-        protocol: Set(descriptor.protocol.into()),
+        protocol: Set(descriptor.protocol),
         options: Set(serialize_options(&options)?),
         issuer_url: Set(issuer_url),
         authorization_url: Set(authorization_url),
@@ -591,7 +590,7 @@ pub async fn update_provider(
             "external auth provider #{id}"
         )));
     }
-    let descriptor = default_registry().descriptor_for(existing.provider_kind.into())?;
+    let descriptor = default_registry().descriptor_for(existing.provider_kind)?;
     let mut active = existing.clone().into_active_model();
     if let Some(display_name) = input.display_name {
         active.display_name = Set(external_auth_normalize::normalize_required_field(

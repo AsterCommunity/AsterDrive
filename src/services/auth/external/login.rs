@@ -5,9 +5,9 @@ use crate::db::repository::{external_auth_login_flow_repo, external_auth_provide
 use crate::entities::external_auth_login_flow;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::ExternalAuthProviderKind;
 use aster_forge_external_auth::{
-    ExternalAuthCallback, default_registry, normalize as external_auth_normalize,
+    ExternalAuthCallback, ExternalAuthProviderKind, default_registry,
+    normalize as external_auth_normalize,
 };
 use aster_forge_utils::numbers::u64_to_i64;
 

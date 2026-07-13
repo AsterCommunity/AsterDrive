@@ -15,6 +15,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_forge_tasks::DispatchStats;
 
 use claim::claim_due_for_lane;
 use execute::run_claimed_tasks;
@@ -22,46 +23,11 @@ pub(in crate::services::task) use lane::TaskLane;
 use lane::{TASK_LANES, TaskLaneConfig, task_lane_configs};
 
 use super::{
-    TASK_DRAIN_MAX_ROUNDS, TASK_HEARTBEAT_INTERVAL_SECS, TASK_PROCESSING_STALE_SECS, TaskLease,
-    TaskLeaseGuard, is_task_lease_lost, is_task_lease_renewal_timed_out, task_expiration_from,
-    task_lease_expires_at, truncate_error,
+    TASK_DRAIN_MAX_ROUNDS, TASK_HEARTBEAT_INTERVAL_SECS, TASK_PROCESSING_STALE_SECS,
+    task_expiration_from, truncate_error,
 };
 
 pub use maintenance::{cleanup_expired, drain};
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct DispatchStats {
-    pub claimed: usize,
-    pub succeeded: usize,
-    pub retried: usize,
-    pub failed: usize,
-}
-
-impl DispatchStats {
-    fn add(&mut self, other: Self) {
-        self.claimed += other.claimed;
-        self.succeeded += other.succeeded;
-        self.retried += other.retried;
-        self.failed += other.failed;
-    }
-
-    pub fn has_activity(&self) -> bool {
-        self.claimed > 0 || self.succeeded > 0 || self.retried > 0 || self.failed > 0
-    }
-
-    pub(super) fn add_outcome(&mut self, outcome: TaskDispatchOutcome) {
-        self.succeeded += outcome.succeeded;
-        self.retried += outcome.retried;
-        self.failed += outcome.failed;
-    }
-}
-
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub(super) struct TaskDispatchOutcome {
-    succeeded: usize,
-    retried: usize,
-    failed: usize,
-}
 
 pub async fn dispatch_due(state: &PrimaryAppState) -> Result<DispatchStats> {
     dispatch_due_with_shutdown(state, CancellationToken::new()).await

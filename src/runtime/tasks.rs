@@ -114,7 +114,7 @@ async fn record_runtime_task_outcome(
 }
 
 fn background_task_dispatch_outcome(
-    result: crate::errors::Result<crate::services::task::DispatchStats>,
+    result: crate::errors::Result<aster_forge_tasks::DispatchStats>,
 ) -> crate::services::task::RuntimeTaskRunOutcome {
     match result {
         Ok(stats) => {
@@ -340,7 +340,7 @@ async fn run_primary_runtime_group(
                             "system health check completed"
                         );
                     }
-                    report.into_runtime_outcome()
+                    report.into()
                 },
             );
             runtime.scheduled(

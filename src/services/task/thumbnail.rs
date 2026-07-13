@@ -7,23 +7,24 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::media::processing;
 use crate::storage::StorageErrorKind;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::{
+    BackgroundTaskSpec, TaskRetryClass, set_task_step_active, set_task_step_succeeded,
+};
 use aster_forge_utils::numbers::usize_to_i64;
 
-use super::retry::{TaskRetryClass, TaskRetryPolicy};
+use super::retry::TaskRetryPolicy;
 use super::spec::ImagePreviewGenerateTask;
-use super::spec::{self, BackgroundTaskSpec, ThumbnailGenerateTask, decode_payload_as};
+use super::spec::{self, ThumbnailGenerateTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_INSPECT_SOURCE, TASK_STEP_PERSIST_THUMBNAIL, TASK_STEP_RENDER_THUMBNAIL,
-    TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
+    TASK_STEP_WAITING, parse_task_steps_json,
 };
 use super::types::{
     ImagePreviewGenerateTaskPayload, ImagePreviewGenerateTaskResult, ThumbnailGenerateTaskPayload,
     ThumbnailGenerateTaskResult,
 };
-use super::{
-    TaskExecutionContext, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
-    mark_task_succeeded,
-};
+use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded};
 
 pub(super) struct ThumbnailRetryPolicy;
 
@@ -194,8 +195,7 @@ pub(super) async fn process_thumbnail_generate_task(
         source_mime_type = payload.source_mime_type,
         "processing thumbnail background task"
     );
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_WAITING,
@@ -334,8 +334,7 @@ pub(super) async fn process_image_preview_generate_task(
         source_mime_type = payload.source_mime_type,
         "processing image preview background task"
     );
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_WAITING,

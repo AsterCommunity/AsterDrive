@@ -1,10 +1,10 @@
+use aster_forge_tasks::TaskExecutionContext;
 use std::num::NonZeroU32;
 
 use governor::{Quota, RateLimiter};
 use reqwest::header::CONTENT_LENGTH;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::task::TaskExecutionContext;
 use aster_forge_utils::numbers::{u64_to_i64, usize_to_u32};
 
 pub(in crate::services::task) struct OfflineDownloadRateLimiter {

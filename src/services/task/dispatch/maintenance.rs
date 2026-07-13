@@ -7,30 +7,17 @@ use crate::types::BackgroundTaskStatus;
 
 use crate::config::operations;
 
-use super::{DispatchStats, TASK_DRAIN_MAX_ROUNDS, dispatch_due};
+use super::{TASK_DRAIN_MAX_ROUNDS, dispatch_due};
+use aster_forge_tasks::DispatchStats;
 
 pub async fn drain(state: &PrimaryAppState) -> Result<DispatchStats> {
-    let mut total = DispatchStats::default();
-
-    for _ in 0..TASK_DRAIN_MAX_ROUNDS {
-        let stats = dispatch_due(state).await?;
-        let claimed = stats.claimed;
-        total.claimed += stats.claimed;
-        total.succeeded += stats.succeeded;
-        total.retried += stats.retried;
-        total.failed += stats.failed;
-        if claimed > 0 {
-            continue;
-        }
-
-        if background_task_repo::count_processing(state.writer_db()).await? == 0 {
-            break;
-        }
-
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-    }
-
-    Ok(total)
+    aster_forge_tasks::drain_dispatcher(
+        TASK_DRAIN_MAX_ROUNDS,
+        std::time::Duration::from_millis(10),
+        || dispatch_due(state),
+        || background_task_repo::count_processing(state.writer_db()),
+    )
+    .await
 }
 
 pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
@@ -109,7 +96,7 @@ async fn cleanup_expired_in_root(state: &impl SharedRuntimeState, temp_root: &st
             continue;
         }
 
-        aster_forge_utils::fs::cleanup_temp_dir(&path_display).await;
+        aster_forge_tasks::cleanup_temp_dir(&path_display).await;
         let still_exists = tokio::fs::try_exists(&path).await.map_err(|error| {
             AsterError::storage_driver_error(format!(
                 "verify task temp dir cleanup {path_display}: {error}"

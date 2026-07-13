@@ -63,7 +63,7 @@ async fn test_audit_log_persists_long_entity_type_values() {
         })),
     )
     .await;
-    audit::flush_global_audit_log_manager().await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
 
     let entry = audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(AuditAction::AdminTestExternalAuthProvider))

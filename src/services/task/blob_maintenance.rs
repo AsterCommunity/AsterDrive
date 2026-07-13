@@ -1,5 +1,6 @@
 //! Admin-triggered file blob maintenance tasks.
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -12,6 +13,9 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::StorageDriver;
 use aster_forge_db::transaction;
+use aster_forge_tasks::{
+    TaskStepInfo, set_task_step_active, set_task_step_skipped, set_task_step_succeeded,
+};
 
 const BLOB_MAINTENANCE_BATCH_SIZE: u64 = 1_000;
 const BLOB_MAINTENANCE_PROGRESS_INTERVAL: i64 = 1_000;
@@ -19,17 +23,12 @@ const BLOB_MAINTENANCE_PROGRESS_INTERVAL: i64 = 1_000;
 use super::spec::{self, BlobMaintenanceTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_CHECK_BLOBS, TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_FINISH, TASK_STEP_RECONCILE_REFS,
-    TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active,
-    set_task_step_skipped, set_task_step_succeeded,
+    TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING, parse_task_steps_json,
 };
 use super::types::{
     BlobMaintenanceAction, BlobMaintenanceTaskPayload, BlobMaintenanceTaskResult, TaskInfo,
-    TaskStepInfo,
 };
-use super::{
-    TaskExecutionContext, create_typed_task_record, mark_task_progress, mark_task_succeeded,
-    task_scope,
-};
+use super::{create_typed_task_record, mark_task_progress, mark_task_succeeded, task_scope};
 
 pub(crate) async fn create_blob_maintenance_task_for_admin(
     state: &PrimaryAppState,
@@ -73,8 +72,7 @@ pub(super) async fn process_blob_maintenance_task(
     let lease_guard = context.lease_guard().clone();
     let _scope = task_scope(task)?;
     let payload = decode_payload_as::<BlobMaintenanceTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
 
     set_task_step_succeeded(
         &mut steps,
@@ -275,7 +273,8 @@ async fn run_integrity_check(
         TASK_STEP_CHECK_BLOBS,
         Some("Storage object check finished"),
         Some((total, total)),
-    )
+    )?;
+    Ok(())
 }
 
 async fn run_ref_count_reconcile(
@@ -374,7 +373,8 @@ async fn run_ref_count_reconcile(
         TASK_STEP_RECONCILE_REFS,
         Some("Reference counts reconciled"),
         Some((total, total)),
-    )
+    )?;
+    Ok(())
 }
 
 async fn run_orphan_cleanup(
@@ -481,7 +481,8 @@ async fn run_orphan_cleanup(
         TASK_STEP_CLEANUP_OBJECTS,
         Some("Orphan cleanup finished"),
         Some((total, total)),
-    )
+    )?;
+    Ok(())
 }
 
 enum BlobObjectCheck {
@@ -794,7 +795,8 @@ fn skip_reconcile_and_cleanup_steps(steps: &mut [TaskStepInfo]) -> Result<()> {
         steps,
         TASK_STEP_CLEANUP_OBJECTS,
         Some("Orphan cleanup not requested"),
-    )
+    )?;
+    Ok(())
 }
 
 fn blob_maintenance_display_name(

@@ -1,5 +1,6 @@
 //! 归档文件只读预览服务。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::path::Path;
 
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
@@ -246,7 +247,7 @@ impl ArchivePreviewLimits {
 
 pub(in crate::services) async fn download_blob_to_temp(
     state: &impl SharedRuntimeState,
-    context: &task::TaskExecutionContext,
+    context: &TaskExecutionContext,
     source_file: &file::Model,
     blob: &file_blob::Model,
     temp_path: &Path,
@@ -280,7 +281,7 @@ pub(in crate::services) async fn download_blob_to_temp(
 }
 
 async fn copy_async_reader_to_writer_with_execution_and_expected_size<R, W, E>(
-    context: &task::TaskExecutionContext,
+    context: &TaskExecutionContext,
     reader: &mut R,
     writer: &mut W,
     expected_bytes: u64,

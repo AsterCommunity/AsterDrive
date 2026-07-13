@@ -1,12 +1,13 @@
-use super::{BackgroundTaskSpec, TaskProcessFuture};
+use super::TaskProcessFuture;
+use crate::config::RuntimeConfig;
 use crate::entities::background_task;
+use crate::errors::AsterError;
 use crate::runtime::PrimaryAppState;
 use crate::services::task::{
-    TaskExecutionContext,
     dispatch::TaskLane,
     steps::{
         TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_FINISH, TASK_STEP_MIGRATE_BLOBS,
-        TASK_STEP_PREPARE_SOURCES, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING, TaskStepSpec,
+        TASK_STEP_PREPARE_SOURCES, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING,
     },
     storage_migration, storage_policy_cleanup,
     types::{
@@ -16,6 +17,8 @@ use crate::services::task::{
     },
 };
 use crate::types::BackgroundTaskKind;
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::TaskStepSpec;
 
 const STORAGE_POLICY_TEMP_CLEANUP_STEPS: &[TaskStepSpec] = &[
     TaskStepSpec {
@@ -57,9 +60,21 @@ const STORAGE_POLICY_MIGRATION_STEPS: &[TaskStepSpec] = &[
 
 pub(crate) struct StoragePolicyTempCleanupTask;
 
-impl BackgroundTaskSpec for StoragePolicyTempCleanupTask {
+impl
+    aster_forge_tasks::BackgroundTaskSpec<
+        PrimaryAppState,
+        background_task::Model,
+        RuntimeConfig,
+        TaskExecutionContext,
+        AsterError,
+    > for StoragePolicyTempCleanupTask
+{
+    type Kind = BackgroundTaskKind;
+    type Lane = TaskLane;
     type Payload = StoragePolicyTempCleanupTaskPayload;
     type Result = StoragePolicyTempCleanupTaskResult;
+    type PayloadEnvelope = TaskPayload;
+    type ResultEnvelope = TaskResult;
 
     const KIND: BackgroundTaskKind = BackgroundTaskKind::StoragePolicyTempCleanup;
 
@@ -69,6 +84,14 @@ impl BackgroundTaskSpec for StoragePolicyTempCleanupTask {
 
     fn lane() -> TaskLane {
         TaskLane::Fallback
+    }
+
+    fn max_attempts(runtime_config: &RuntimeConfig) -> i32 {
+        crate::config::operations::background_task_max_attempts(runtime_config)
+    }
+
+    fn retry_class(error: &AsterError) -> aster_forge_tasks::TaskRetryClass {
+        crate::services::task::retry::default_retry_class(error)
     }
 
     fn wrap_payload(payload: Self::Payload) -> TaskPayload {

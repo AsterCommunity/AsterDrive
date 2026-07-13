@@ -4,8 +4,8 @@ import { executeAdminSettingsSaveTransaction } from "@/components/admin/settings
 import type {
 	ConfigInvalidationTarget,
 	ConfigSchemaItem,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -60,11 +60,7 @@ describe("adminSettingsSaveTransaction", () => {
 		mockState.deleteConfig.mockReset();
 		mockState.setConfig.mockReset();
 		mockState.setConfig.mockImplementation(
-			(
-				key: string,
-				value: string | string[],
-				visibility?: SystemConfigVisibility,
-			) =>
+			(key: string, value: string | string[], visibility?: ConfigVisibility) =>
 				Promise.resolve(
 					createConfig({
 						key,

@@ -4522,6 +4522,7 @@ export interface components {
         /** @enum {string} */
         AdminShareSortBy: "id" | "token" | "user_id" | "download_count" | "max_downloads" | "expires_at" | "created_at" | "updated_at";
         AdminSystemHealthComponent: {
+            details?: components["schemas"]["HealthComponentDetail"][];
             message: string;
             name: string;
             status: components["schemas"]["AdminSystemHealthStatus"];
@@ -4702,7 +4703,7 @@ export interface components {
                 label_i18n_key: string;
                 options?: components["schemas"]["ConfigSchemaOption"][];
                 requires_restart: boolean;
-                value_type: components["schemas"]["SystemConfigValueType"];
+                value_type: components["schemas"]["ConfigValueType"];
             }[];
             error?: null | components["schemas"]["ApiErrorInfo"];
             msg: string;
@@ -4716,9 +4717,13 @@ export interface components {
         ApiResponse_Vec_TemplateVariableGroup: {
             code: components["schemas"]["ApiErrorCode"];
             data?: {
+                /** @description Product-owned configuration category. */
                 category: string;
+                /** @description Product-owned i18n group label key. */
                 label_i18n_key: string;
+                /** @description Stable product template code. */
                 template_code: string;
+                /** @description Variables accepted by the template. */
                 variables: components["schemas"]["TemplateVariableItem"][];
             }[];
             error?: null | components["schemas"]["ApiErrorInfo"];
@@ -5091,13 +5096,30 @@ export interface components {
             label_i18n_key: string;
             options?: components["schemas"]["ConfigSchemaOption"][];
             requires_restart: boolean;
-            value_type: components["schemas"]["SystemConfigValueType"];
+            value_type: components["schemas"]["ConfigValueType"];
         };
         ConfigSchemaOption: {
             group: string;
             label_i18n_key: string;
             value: string;
         };
+        /**
+         * @description Origin of a stored configuration value.
+         * @enum {string}
+         */
+        ConfigSource: "system" | "custom";
+        /** @description API-facing configuration value. */
+        ConfigValue: string | string[];
+        /**
+         * @description Supported system configuration value types.
+         * @enum {string}
+         */
+        ConfigValueType: "string" | "multiline" | "string_array" | "string_enum" | "string_enum_set" | "number" | "boolean";
+        /**
+         * @description Consumer visibility for a stored configuration value.
+         * @enum {string}
+         */
+        ConfigVisibility: "private" | "public" | "authenticated";
         /** @description Query parameters for email contact verification confirmation. */
         ContactVerificationConfirmQuery: {
             token?: string | null;
@@ -5388,21 +5410,26 @@ export interface components {
             password: string;
         };
         /**
-         * @description 外部认证协议族。
+         * @description External authentication protocol families.
          * @enum {string}
          */
         ExternalAuthProtocol: "oidc" | "oauth2";
         /**
-         * @description 外部认证提供商类型。
+         * @description Built-in external authentication provider kinds.
          * @enum {string}
          */
         ExternalAuthProviderKind: "oidc" | "generic_oauth2" | "github" | "google" | "microsoft" | "qq";
+        /** @description Connector-specific runtime options decoded from application-owned storage. */
         ExternalAuthProviderOptions: {
             microsoft?: null | components["schemas"]["MicrosoftExternalAuthProviderOptions"];
         };
+        /** @description Single provider health/test check. */
         ExternalAuthProviderTestCheck: {
+            /** @description Human-readable check result. */
             message: string;
+            /** @description Machine-readable check name. */
             name: string;
+            /** @description Whether the check passed. */
             success: boolean;
         };
         ExternalAuthProviderTestParamsInput: {
@@ -5416,13 +5443,21 @@ export interface components {
             token_url?: string | null;
             userinfo_url?: string | null;
         };
+        /** @description Provider health/test result returned to admin tooling. */
         ExternalAuthProviderTestResult: {
+            /** @description Effective authorization endpoint, when applicable. */
             authorization_endpoint?: string | null;
+            /** @description Individual test checks. */
             checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+            /** @description Effective issuer URL, when applicable. */
             issuer?: string | null;
+            /** @description Number of discovered JWKS keys, when applicable. */
             jwks_key_count?: number | null;
+            /** @description Display name of the tested provider driver. */
             provider: string;
+            /** @description Effective token endpoint, when applicable. */
             token_endpoint?: string | null;
+            /** @description Effective userinfo endpoint, when applicable. */
             userinfo_endpoint?: string | null;
         };
         ExternalAuthPublicProvider: {
@@ -5445,7 +5480,7 @@ export interface components {
             target_folder_id?: number | null;
         };
         /**
-         * @description File category persisted on `files` for indexed browsing and search filters.
+         * @description High-level file category inferred from extension and MIME type.
          * @enum {string}
          */
         FileCategory: "image" | "video" | "audio" | "document" | "spreadsheet" | "presentation" | "archive" | "code" | "other";
@@ -5720,6 +5755,49 @@ export interface components {
             sort_by?: null | components["schemas"]["SortBy"];
             sort_order?: null | components["schemas"]["SortOrder"];
         };
+        /** @description Structured diagnostic detail attached to a component report. */
+        HealthComponentDetail: {
+            /** @description Stable detail key. */
+            key: string;
+            /** @description Typed detail value. */
+            value: components["schemas"]["HealthComponentDetailValue"];
+        };
+        /** @description Typed diagnostic value attached to a component detail. */
+        HealthComponentDetailValue: {
+            /** @enum {string} */
+            type: "text";
+            /** @description Human-facing text such as a backend, driver, region, or mode. */
+            value: string;
+        } | {
+            /** @enum {string} */
+            type: "integer";
+            /**
+             * Format: int64
+             * @description Signed integer value.
+             */
+            value: number;
+        } | {
+            /** @enum {string} */
+            type: "unsigned";
+            /**
+             * Format: int64
+             * @description Unsigned counter or depth value.
+             */
+            value: number;
+        } | {
+            /** @enum {string} */
+            type: "boolean";
+            /** @description Boolean flag. */
+            value: boolean;
+        } | {
+            /** @enum {string} */
+            type: "duration_millis";
+            /**
+             * Format: int64
+             * @description Duration value in milliseconds for latency, age, lag, or timeout diagnostics.
+             */
+            value: number;
+        };
         HealthResponse: {
             status: string;
         };
@@ -5809,10 +5887,17 @@ export interface components {
          * @enum {string}
          */
         Language: "en" | "zh";
+        /** @description Query parameters for limit/offset pagination. */
         LimitOffsetQuery: {
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Requested page size.
+             */
             limit?: number | null;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Requested offset from the beginning of the result set.
+             */
             offset?: number | null;
         };
         /** @description Query parameters for listing team members. */
@@ -6023,7 +6108,9 @@ export interface components {
             /** Format: int64 */
             recovery_codes_remaining: number;
         };
+        /** @description Microsoft connector options. */
         MicrosoftExternalAuthProviderOptions: {
+            /** @description Tenant selector: `common`, `organizations`, `consumers`, or a tenant UUID. */
             tenant: string;
         };
         MicrosoftGraphApplicationConfigInput: {
@@ -6130,7 +6217,9 @@ export interface components {
              */
             source_display_url: string;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AdminExternalAuthProviderInfo: {
+            /** @description Items in the current page. */
             items: {
                 allowed_domains: string[];
                 authorization_url?: string | null;
@@ -6163,14 +6252,25 @@ export interface components {
                 userinfo_url?: string | null;
                 username_claim?: string | null;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AdminFileBlobInfo: {
+            /** @description Items in the current page. */
             items: {
                 /** Format: int64 */
                 actual_ref_count: number;
@@ -6199,14 +6299,25 @@ export interface components {
                 /** Format: int64 */
                 version_ref_count: number;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AdminFileInfo: {
+            /** @description Items in the current page. */
             items: {
                 blob: components["schemas"]["AdminFileBlobSummary"];
                 /** Format: int64 */
@@ -6235,14 +6346,25 @@ export interface components {
                 team_id?: number | null;
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AdminTeamInfo: {
+            /** @description Items in the current page. */
             items: {
                 archived_at?: string | null;
                 created_at: string;
@@ -6261,14 +6383,25 @@ export interface components {
                 storage_used: number;
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AdminUserInvitationInfo: {
+            /** @description Items in the current page. */
             items: {
                 accepted_at?: string | null;
                 /** Format: int64 */
@@ -6286,14 +6419,25 @@ export interface components {
                 status: components["schemas"]["UserInvitationStatus"];
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_AuditLogEntry: {
+            /** @description Items in the current page. */
             items: {
                 action: components["schemas"]["AuditAction"];
                 created_at: string;
@@ -6309,14 +6453,25 @@ export interface components {
                 user?: null | components["schemas"]["UserSummary"];
                 user_agent?: string | null;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_MyShareInfo: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 /** Format: int64 */
@@ -6340,14 +6495,25 @@ export interface components {
                 /** Format: int64 */
                 view_count: number;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_RemoteNodeInfo: {
+            /** @description Items in the current page. */
             items: {
                 base_url: string;
                 capabilities: components["schemas"]["RemoteStorageCapabilities"];
@@ -6364,14 +6530,25 @@ export interface components {
                 tunnel: components["schemas"]["RemoteTunnelInfo"];
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_ResourceLock: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 deep: boolean;
@@ -6387,14 +6564,25 @@ export interface components {
                 timeout_at?: string | null;
                 token: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_ShareInfo: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 /** Format: int64 */
@@ -6413,14 +6601,25 @@ export interface components {
                 /** Format: int64 */
                 view_count: number;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_StoragePolicy: {
+            /** @description Items in the current page. */
             items: {
                 allowed_types: string[];
                 base_path: string;
@@ -6442,14 +6641,25 @@ export interface components {
                 remote_storage_target_key?: string | null;
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_StoragePolicyGroupInfo: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 description: string;
@@ -6461,14 +6671,25 @@ export interface components {
                 name: string;
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_SystemConfig: {
+            /** @description Items in the current page. */
             items: {
                 category: string;
                 description: string;
@@ -6478,22 +6699,33 @@ export interface components {
                 key: string;
                 namespace: string;
                 requires_restart: boolean;
-                source: components["schemas"]["SystemConfigSource"];
+                source: components["schemas"]["ConfigSource"];
                 updated_at: string;
                 /** Format: int64 */
                 updated_by?: number | null;
-                value: components["schemas"]["SystemConfigValue"];
-                value_type: components["schemas"]["SystemConfigValueType"];
-                visibility: components["schemas"]["SystemConfigVisibility"];
+                value: components["schemas"]["ConfigValue"];
+                value_type: components["schemas"]["ConfigValueType"];
+                visibility: components["schemas"]["ConfigVisibility"];
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_TagInfo: {
+            /** @description Items in the current page. */
             items: {
                 color: string;
                 created_at: string;
@@ -6512,14 +6744,25 @@ export interface components {
                 /** Format: int64 */
                 usage_count: number;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_TaskInfo: {
+            /** @description Items in the current page. */
             items: {
                 /** Format: int32 */
                 attempt_count: number;
@@ -6555,14 +6798,25 @@ export interface components {
                 team_id?: number | null;
                 updated_at: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_TeamAuditEntryInfo: {
+            /** @description Items in the current page. */
             items: {
                 action: components["schemas"]["AuditAction"];
                 actor?: null | components["schemas"]["UserSummary"];
@@ -6575,14 +6829,25 @@ export interface components {
                 previous_role?: null | components["schemas"]["TeamMemberRole"];
                 role?: null | components["schemas"]["TeamMemberRole"];
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_UserInfo: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 email: string;
@@ -6603,14 +6868,25 @@ export interface components {
                 updated_at: string;
                 username: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
+        /** @description Serialized offset page response. */
         OffsetPage_WebdavAccountInfo: {
+            /** @description Items in the current page. */
             items: {
                 created_at: string;
                 /** Format: int64 */
@@ -6628,11 +6904,20 @@ export interface components {
                 user_id: number;
                 username: string;
             }[];
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Effective page size.
+             */
             limit: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Offset used for this page.
+             */
             offset: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total number of items matching the query.
+             */
             total: number;
         };
         /**
@@ -7120,6 +7405,7 @@ export interface components {
             kind: "text";
         });
         RuntimeSystemHealthComponent: {
+            details?: components["schemas"]["HealthComponentDetail"][];
             message: string;
             name: string;
             status: components["schemas"]["RuntimeSystemHealthStatus"];
@@ -7196,8 +7482,8 @@ export interface components {
         };
         /** @description Set a system configuration value. */
         SetConfigReq: {
-            value: components["schemas"]["SystemConfigValue"];
-            visibility?: null | components["schemas"]["SystemConfigVisibility"];
+            value: components["schemas"]["ConfigValue"];
+            visibility?: null | components["schemas"]["ConfigVisibility"];
         };
         /** @description Lock or unlock a file. */
         SetLockReq: {
@@ -7268,7 +7554,10 @@ export interface components {
         };
         /** @enum {string} */
         SortBy: "name" | "size" | "created_at" | "updated_at" | "type";
-        /** @enum {string} */
+        /**
+         * @description Sort direction used by API query parameters.
+         * @enum {string}
+         */
         SortOrder: "asc" | "desc";
         /** @description Start an OAuth authorization flow for an administrator-managed storage policy credential. */
         StartStorageAuthorizationReq: {
@@ -7764,30 +8053,14 @@ export interface components {
             key: string;
             namespace: string;
             requires_restart: boolean;
-            source: components["schemas"]["SystemConfigSource"];
+            source: components["schemas"]["ConfigSource"];
             updated_at: string;
             /** Format: int64 */
             updated_by?: number | null;
-            value: components["schemas"]["SystemConfigValue"];
-            value_type: components["schemas"]["SystemConfigValueType"];
-            visibility: components["schemas"]["SystemConfigVisibility"];
+            value: components["schemas"]["ConfigValue"];
+            value_type: components["schemas"]["ConfigValueType"];
+            visibility: components["schemas"]["ConfigVisibility"];
         };
-        /**
-         * @description 运行时配置来源
-         * @enum {string}
-         */
-        SystemConfigSource: "system" | "custom";
-        SystemConfigValue: string | string[];
-        /**
-         * @description 运行时配置值类型
-         * @enum {string}
-         */
-        SystemConfigValueType: "string" | "multiline" | "string_array" | "string_enum_set" | "number" | "boolean";
-        /**
-         * @description 自定义运行时配置的消费侧可见度。
-         * @enum {string}
-         */
-        SystemConfigVisibility: "private" | "public" | "authenticated";
         SystemInfoResponse: {
             build_time: string;
             version: string;
@@ -7942,19 +8215,35 @@ export interface components {
             /** @enum {string} */
             kind: "system_runtime";
         });
+        /** @description Serialized task step shown in task APIs. */
         TaskStepInfo: {
+            /** @description Optional detail text. */
             detail?: string | null;
+            /** @description Step finish time. */
             finished_at?: string | null;
+            /** @description Stable step key. */
             key: string;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Current progress amount.
+             */
             progress_current: number;
-            /** Format: int64 */
+            /**
+             * Format: int64
+             * @description Total progress amount.
+             */
             progress_total: number;
+            /** @description Step start time. */
             started_at?: string | null;
+            /** @description Current step status. */
             status: components["schemas"]["TaskStepStatus"];
+            /** @description Human-readable step title. */
             title: string;
         };
-        /** @enum {string} */
+        /**
+         * @description Runtime status for a task step.
+         * @enum {string}
+         */
         TaskStepStatus: "pending" | "active" | "succeeded" | "failed" | "skipped" | "canceled";
         TeamAuditEntryInfo: {
             action: components["schemas"]["AuditAction"];
@@ -8019,15 +8308,24 @@ export interface components {
          * @enum {string}
          */
         TeamMemberRole: "owner" | "admin" | "member";
+        /** @description Variable metadata for one registered template. */
         TemplateVariableGroup: {
+            /** @description Product-owned configuration category. */
             category: string;
+            /** @description Product-owned i18n group label key. */
             label_i18n_key: string;
+            /** @description Stable product template code. */
             template_code: string;
+            /** @description Variables accepted by the template. */
             variables: components["schemas"]["TemplateVariableItem"][];
         };
+        /** @description Variable metadata exposed to product admin UIs. */
         TemplateVariableItem: {
+            /** @description Product-owned i18n description key. */
             description_i18n_key: string;
+            /** @description Product-owned i18n label key. */
             label_i18n_key: string;
+            /** @description Placeholder token displayed in UI, such as `{{username}}`. */
             token: string;
         };
         TencentCosCorsConfigResult: {
@@ -8539,7 +8837,9 @@ export interface operations {
     list_audit_logs: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
@@ -8564,7 +8864,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 action: components["schemas"]["AuditAction"];
                                 created_at: string;
@@ -8580,11 +8882,20 @@ export interface operations {
                                 user?: null | components["schemas"]["UserSummary"];
                                 user_agent?: string | null;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -8611,7 +8922,9 @@ export interface operations {
     list_config: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -8628,7 +8941,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 category: string;
                                 description: string;
@@ -8638,19 +8953,28 @@ export interface operations {
                                 key: string;
                                 namespace: string;
                                 requires_restart: boolean;
-                                source: components["schemas"]["SystemConfigSource"];
+                                source: components["schemas"]["ConfigSource"];
                                 updated_at: string;
                                 /** Format: int64 */
                                 updated_by?: number | null;
-                                value: components["schemas"]["SystemConfigValue"];
-                                value_type: components["schemas"]["SystemConfigValueType"];
-                                visibility: components["schemas"]["SystemConfigVisibility"];
+                                value: components["schemas"]["ConfigValue"];
+                                value_type: components["schemas"]["ConfigValueType"];
+                                visibility: components["schemas"]["ConfigVisibility"];
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -8771,13 +9095,13 @@ export interface operations {
                             key: string;
                             namespace: string;
                             requires_restart: boolean;
-                            source: components["schemas"]["SystemConfigSource"];
+                            source: components["schemas"]["ConfigSource"];
                             updated_at: string;
                             /** Format: int64 */
                             updated_by?: number | null;
-                            value: components["schemas"]["SystemConfigValue"];
-                            value_type: components["schemas"]["SystemConfigValueType"];
-                            visibility: components["schemas"]["SystemConfigVisibility"];
+                            value: components["schemas"]["ConfigValue"];
+                            value_type: components["schemas"]["ConfigValueType"];
+                            visibility: components["schemas"]["ConfigVisibility"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -8840,13 +9164,13 @@ export interface operations {
                             key: string;
                             namespace: string;
                             requires_restart: boolean;
-                            source: components["schemas"]["SystemConfigSource"];
+                            source: components["schemas"]["ConfigSource"];
                             updated_at: string;
                             /** Format: int64 */
                             updated_by?: number | null;
-                            value: components["schemas"]["SystemConfigValue"];
-                            value_type: components["schemas"]["SystemConfigValueType"];
-                            visibility: components["schemas"]["SystemConfigVisibility"];
+                            value: components["schemas"]["ConfigValue"];
+                            value_type: components["schemas"]["ConfigValueType"];
+                            visibility: components["schemas"]["ConfigVisibility"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -9045,7 +9369,9 @@ export interface operations {
     admin_list_external_auth_providers: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -9062,7 +9388,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 allowed_domains: string[];
                                 authorization_url?: string | null;
@@ -9095,11 +9423,20 @@ export interface operations {
                                 userinfo_url?: string | null;
                                 username_claim?: string | null;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9225,13 +9562,21 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Provider health/test result returned to admin tooling. */
                         data?: {
+                            /** @description Effective authorization endpoint, when applicable. */
                             authorization_endpoint?: string | null;
+                            /** @description Individual test checks. */
                             checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+                            /** @description Effective issuer URL, when applicable. */
                             issuer?: string | null;
+                            /** @description Number of discovered JWKS keys, when applicable. */
                             jwks_key_count?: number | null;
+                            /** @description Display name of the tested provider driver. */
                             provider: string;
+                            /** @description Effective token endpoint, when applicable. */
                             token_endpoint?: string | null;
+                            /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9495,13 +9840,21 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Provider health/test result returned to admin tooling. */
                         data?: {
+                            /** @description Effective authorization endpoint, when applicable. */
                             authorization_endpoint?: string | null;
+                            /** @description Individual test checks. */
                             checks: components["schemas"]["ExternalAuthProviderTestCheck"][];
+                            /** @description Effective issuer URL, when applicable. */
                             issuer?: string | null;
+                            /** @description Number of discovered JWKS keys, when applicable. */
                             jwks_key_count?: number | null;
+                            /** @description Display name of the tested provider driver. */
                             provider: string;
+                            /** @description Effective token endpoint, when applicable. */
                             token_endpoint?: string | null;
+                            /** @description Effective userinfo endpoint, when applicable. */
                             userinfo_endpoint?: string | null;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9542,7 +9895,9 @@ export interface operations {
     admin_list_file_blobs: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 hash?: string | null;
                 policy_id?: number | null;
@@ -9568,7 +9923,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 /** Format: int64 */
                                 actual_ref_count: number;
@@ -9597,11 +9954,20 @@ export interface operations {
                                 /** Format: int64 */
                                 version_ref_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9680,7 +10046,9 @@ export interface operations {
     admin_list_files: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 name?: string | null;
                 blob_id?: number | null;
@@ -9705,7 +10073,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 blob: components["schemas"]["AdminFileBlobSummary"];
                                 /** Format: int64 */
@@ -9734,11 +10104,20 @@ export interface operations {
                                 team_id?: number | null;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9816,7 +10195,9 @@ export interface operations {
     list_locks: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 sort_by?: null | components["schemas"]["AdminLockSortBy"];
                 sort_order?: null | components["schemas"]["SortOrder"];
@@ -9835,7 +10216,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 deep: boolean;
@@ -9851,11 +10234,20 @@ export interface operations {
                                 timeout_at?: string | null;
                                 token: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -9998,7 +10390,9 @@ export interface operations {
     list_policies: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 sort_by?: null | components["schemas"]["AdminPolicySortBy"];
                 sort_order?: null | components["schemas"]["SortOrder"];
@@ -10017,7 +10411,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 allowed_types: string[];
                                 base_path: string;
@@ -10039,11 +10435,20 @@ export interface operations {
                                 remote_storage_target_key?: string | null;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -10999,7 +11404,9 @@ export interface operations {
     list_policy_groups: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 sort_by?: null | components["schemas"]["AdminPolicyGroupSortBy"];
                 sort_order?: null | components["schemas"]["SortOrder"];
@@ -11018,7 +11425,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 description: string;
@@ -11030,11 +11439,20 @@ export interface operations {
                                 name: string;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -11370,7 +11788,9 @@ export interface operations {
     list_remote_nodes: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 sort_by?: null | components["schemas"]["AdminRemoteNodeSortBy"];
                 sort_order?: null | components["schemas"]["SortOrder"];
@@ -11389,7 +11809,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 base_url: string;
                                 capabilities: components["schemas"]["RemoteStorageCapabilities"];
@@ -11406,11 +11828,20 @@ export interface operations {
                                 tunnel: components["schemas"]["RemoteTunnelInfo"];
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12509,7 +12940,9 @@ export interface operations {
     list_all_shares: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 sort_by?: null | components["schemas"]["AdminShareSortBy"];
                 sort_order?: null | components["schemas"]["SortOrder"];
@@ -12528,7 +12961,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 /** Format: int64 */
@@ -12547,11 +12982,20 @@ export interface operations {
                                 /** Format: int64 */
                                 view_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -12912,7 +13356,9 @@ export interface operations {
     admin_list_tasks: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 kind?: null | components["schemas"]["BackgroundTaskKind"];
                 status?: null | components["schemas"]["BackgroundTaskStatus"];
@@ -12933,7 +13379,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 /** Format: int32 */
                                 attempt_count: number;
@@ -12969,11 +13417,20 @@ export interface operations {
                                 team_id?: number | null;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -13053,7 +13510,9 @@ export interface operations {
     admin_list_teams: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
                 archived?: boolean | null;
@@ -13074,7 +13533,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 archived_at?: string | null;
                                 created_at: string;
@@ -13093,11 +13554,20 @@ export interface operations {
                                 storage_used: number;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -13376,7 +13846,9 @@ export interface operations {
     admin_list_team_audit_logs: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
@@ -13402,7 +13874,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 action: components["schemas"]["AuditAction"];
                                 actor?: null | components["schemas"]["UserSummary"];
@@ -13415,11 +13889,20 @@ export interface operations {
                                 previous_role?: null | components["schemas"]["TeamMemberRole"];
                                 role?: null | components["schemas"]["TeamMemberRole"];
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -13453,7 +13936,9 @@ export interface operations {
     admin_list_team_members: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
                 role?: null | components["schemas"]["TeamMemberRole"];
@@ -13766,7 +14251,9 @@ export interface operations {
     list_users: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
                 role?: null | components["schemas"]["UserRole"];
@@ -13788,7 +14275,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 email: string;
@@ -13809,11 +14298,20 @@ export interface operations {
                                 updated_at: string;
                                 username: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -13893,7 +14391,9 @@ export interface operations {
     admin_list_user_invitations: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -13910,7 +14410,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 accepted_at?: string | null;
                                 /** Format: int64 */
@@ -13928,11 +14430,20 @@ export interface operations {
                                 status: components["schemas"]["UserInvitationStatus"];
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -20591,7 +21102,9 @@ export interface operations {
     list_my_shares: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -20608,7 +21121,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 /** Format: int64 */
@@ -20632,11 +21147,20 @@ export interface operations {
                                 /** Format: int64 */
                                 view_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -20863,7 +21387,9 @@ export interface operations {
     list_tags: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 q?: string | null;
             };
@@ -20881,7 +21407,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 color: string;
                                 created_at: string;
@@ -20900,11 +21428,20 @@ export interface operations {
                                 /** Format: int64 */
                                 usage_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -21073,7 +21610,9 @@ export interface operations {
     list_tasks: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -21090,7 +21629,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 /** Format: int32 */
                                 attempt_count: number;
@@ -21126,11 +21667,20 @@ export interface operations {
                                 team_id?: number | null;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -21689,7 +22239,9 @@ export interface operations {
     list_team_audit_logs: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 user_id?: number | null;
                 action?: string | null;
@@ -21715,7 +22267,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 action: components["schemas"]["AuditAction"];
                                 actor?: null | components["schemas"]["UserSummary"];
@@ -21728,11 +22282,20 @@ export interface operations {
                                 previous_role?: null | components["schemas"]["TeamMemberRole"];
                                 role?: null | components["schemas"]["TeamMemberRole"];
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -21766,7 +22329,9 @@ export interface operations {
     list_team_members: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 keyword?: string | null;
                 role?: null | components["schemas"]["TeamMemberRole"];
@@ -25143,7 +25708,9 @@ export interface operations {
     list_team_shares: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -25163,7 +25730,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 /** Format: int64 */
@@ -25187,11 +25756,20 @@ export interface operations {
                                 /** Format: int64 */
                                 view_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -25463,7 +26041,9 @@ export interface operations {
     list_team_tags: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
                 q?: string | null;
             };
@@ -25484,7 +26064,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 color: string;
                                 created_at: string;
@@ -25503,11 +26085,20 @@ export interface operations {
                                 /** Format: int64 */
                                 usage_count: number;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -25713,7 +26304,9 @@ export interface operations {
     list_team_tasks: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -25733,7 +26326,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 /** Format: int32 */
                                 attempt_count: number;
@@ -25769,11 +26364,20 @@ export interface operations {
                                 team_id?: number | null;
                                 updated_at: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -26293,7 +26897,9 @@ export interface operations {
     list_team_webdav_accounts: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -26313,7 +26919,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 /** Format: int64 */
@@ -26331,11 +26939,20 @@ export interface operations {
                                 user_id: number;
                                 username: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
@@ -26689,7 +27306,9 @@ export interface operations {
     list_webdav_accounts: {
         parameters: {
             query?: {
+                /** @description Requested page size. */
                 limit?: number | null;
+                /** @description Requested offset from the beginning of the result set. */
                 offset?: number | null;
             };
             header?: never;
@@ -26706,7 +27325,9 @@ export interface operations {
                 content: {
                     "application/json": {
                         code: components["schemas"]["ApiErrorCode"];
+                        /** @description Serialized offset page response. */
                         data?: {
+                            /** @description Items in the current page. */
                             items: {
                                 created_at: string;
                                 /** Format: int64 */
@@ -26724,11 +27345,20 @@ export interface operations {
                                 user_id: number;
                                 username: string;
                             }[];
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Effective page size.
+                             */
                             limit: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Offset used for this page.
+                             */
                             offset: number;
-                            /** Format: int64 */
+                            /**
+                             * Format: int64
+                             * @description Total number of items matching the query.
+                             */
                             total: number;
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];

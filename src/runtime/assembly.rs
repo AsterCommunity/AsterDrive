@@ -56,7 +56,7 @@ pub async fn run_primary(
             audit_state,
             |state| async move { crate::runtime::startup::record_server_start(&state).await },
             |state| async move { crate::runtime::shutdown::record_server_shutdown(&state).await },
-            |()| async { crate::services::ops::audit::shutdown_global_audit_log_manager().await },
+            |()| async { aster_forge_audit::shutdown_global_audit_log_manager().await },
         ))
         .component(aster_forge_db::database_component_after(
             db_handles,
@@ -103,7 +103,7 @@ pub async fn run_follower(
             &[aster_forge_tasks::BACKGROUND_TASKS_COMPONENT],
             |state| async move { crate::runtime::startup::record_server_start(&state).await },
             |state| async move { crate::runtime::shutdown::record_server_shutdown(&state).await },
-            |()| async { crate::services::ops::audit::shutdown_global_audit_log_manager().await },
+            |()| async { aster_forge_audit::shutdown_global_audit_log_manager().await },
         ))
         .component(aster_forge_db::database_component_after(
             db_handles,

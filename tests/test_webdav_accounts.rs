@@ -109,7 +109,7 @@ async fn webdav_audit_action_count(
     state: &aster_drive::runtime::PrimaryAppState,
     action: AuditAction,
 ) -> u64 {
-    aster_drive::services::ops::audit::flush_global_audit_log_manager().await;
+    aster_forge_audit::flush_global_audit_log_manager().await;
     audit_log::Entity::find()
         .filter(audit_log::Column::Action.eq(action))
         .count(state.writer_db())

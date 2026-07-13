@@ -1,5 +1,8 @@
 //! 后台任务服务子模块：`media_metadata`。
 
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succeeded};
+
 use crate::db::repository::background_task_repo;
 use crate::entities::{background_task, file, file_blob};
 use crate::errors::{AsterError, Result};
@@ -10,17 +13,14 @@ use crate::types::{
     BackgroundTaskKind, BackgroundTaskStatus, MediaMetadataKind, MediaMetadataStatus,
 };
 
-use super::retry::{TaskRetryClass, TaskRetryPolicy};
+use super::retry::TaskRetryPolicy;
 use super::spec::{self, MediaMetadataExtractTask, decode_payload_as};
 use super::steps::{
     TASK_STEP_EXTRACT_METADATA, TASK_STEP_INSPECT_SOURCE, TASK_STEP_PERSIST_METADATA,
-    TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active, set_task_step_succeeded,
+    TASK_STEP_WAITING, parse_task_steps_json,
 };
 use super::types::{MediaMetadataExtractTaskPayload, MediaMetadataExtractTaskResult};
-use super::{
-    TaskExecutionContext, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
-    mark_task_succeeded,
-};
+use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded};
 
 pub(super) struct MediaMetadataRetryPolicy;
 
@@ -94,8 +94,7 @@ pub(super) async fn process_media_metadata_extract_task(
 ) -> Result<()> {
     let lease_guard = context.lease_guard().clone();
     let payload = decode_payload_as::<MediaMetadataExtractTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     set_task_step_succeeded(
         &mut steps,
         TASK_STEP_WAITING,

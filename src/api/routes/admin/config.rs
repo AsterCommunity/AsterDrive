@@ -4,7 +4,7 @@ use crate::api::dto::admin::{ExecuteConfigActionReq, ExecuteConfigActionResp, Se
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
-use crate::services::{ops::audit, ops::config};
+use crate::services::{mail::template as mail_template, ops::audit, ops::config};
 use actix_web::{HttpRequest, HttpResponse, web};
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -55,14 +55,14 @@ pub async fn config_schema() -> Result<HttpResponse> {
     tag = "admin",
     operation_id = "config_template_variables",
     responses(
-        (status = 200, description = "Template variables", body = ApiResponse<Vec<config::TemplateVariableGroup>>),
+        (status = 200, description = "Template variables", body = ApiResponse<Vec<aster_forge_mail::TemplateVariableGroup>>),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),
     security(("bearer" = [])),
 )]
 pub async fn config_template_variables() -> Result<HttpResponse> {
-    let groups = config::list_template_variable_groups();
+    let groups = mail_template::MAIL_TEMPLATE_REGISTRY.variable_groups();
     Ok(HttpResponse::Ok().json(ApiResponse::ok(groups)))
 }
 

@@ -57,8 +57,8 @@ import { normalizePublicSiteUrl } from "@/lib/publicSiteUrl";
 import { cn } from "@/lib/utils";
 import type {
 	ConfigSchemaOption,
+	ConfigVisibility,
 	SystemConfig,
-	SystemConfigVisibility,
 } from "@/types/api";
 
 const PUBLIC_SITE_URL_KEY = "public_site_url";
@@ -66,7 +66,7 @@ const EMAIL_CODE_LOGIN_ENABLED_CONFIG_KEY = "auth_email_code_login_enabled";
 const AUTH_LOCAL_EMAIL_ALLOWLIST_KEY = "auth_local_email_allowlist";
 const AUTH_LOCAL_EMAIL_BLOCKLIST_KEY = "auth_local_email_blocklist";
 type ScaledDisplayUnitValue = TimeDisplayUnitValue | SizeDisplayUnitValue;
-const CUSTOM_VISIBILITY_OPTIONS: SystemConfigVisibility[] = [
+const CUSTOM_VISIBILITY_OPTIONS: ConfigVisibility[] = [
 	"private",
 	"public",
 	"authenticated",
@@ -923,8 +923,8 @@ function CustomVisibilitySelect({
 	onChange,
 }: {
 	id: string;
-	value: SystemConfigVisibility;
-	onChange: (value: SystemConfigVisibility) => void;
+	value: ConfigVisibility;
+	onChange: (value: ConfigVisibility) => void;
 }) {
 	const { t } = useAdminSettingsCategoryContent();
 
@@ -935,9 +935,7 @@ function CustomVisibilitySelect({
 				value: option,
 			}))}
 			value={value}
-			onValueChange={(nextValue) =>
-				onChange(nextValue as SystemConfigVisibility)
-			}
+			onValueChange={(nextValue) => onChange(nextValue as ConfigVisibility)}
 		>
 			<SelectTrigger
 				id={id}
@@ -1038,7 +1036,7 @@ export function CustomConfigRow({ config }: { config: SystemConfig }) {
 	const draftChanged =
 		configDraftValueChanged(config, draftValue) ||
 		visibilityDraft !==
-			((config.visibility as SystemConfigVisibility | undefined) ?? "private");
+			((config.visibility as ConfigVisibility | undefined) ?? "private");
 	const multiline = isMultilineType(valueType);
 	const configDescription = getConfigDescription(config);
 

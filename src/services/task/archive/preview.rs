@@ -1,5 +1,8 @@
 //! 归档预览任务子模块。
 
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
+
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::entities::{background_task, file, file_blob};
@@ -8,13 +11,12 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
     files::archive::preview,
     task::{
-        TaskExecutionContext, cleanup_task_temp_dir_for_task_kind, create_typed_task_record,
-        mark_task_progress, mark_task_succeeded, prepare_task_temp_dir,
+        cleanup_task_temp_dir_for_task_kind, create_typed_task_record, mark_task_progress,
+        mark_task_succeeded,
         spec::{self, ArchivePreviewGenerateTask, decode_payload_as},
         steps::{
             TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_PERSIST_MANIFEST, TASK_STEP_SCAN_ARCHIVE,
-            TASK_STEP_WAITING, parse_task_steps_json, set_task_step_active,
-            set_task_step_succeeded,
+            TASK_STEP_WAITING, parse_task_steps_json,
         },
         types::{ArchivePreviewTaskPayload, ArchivePreviewTaskResult},
     },
@@ -110,8 +112,7 @@ pub(super) async fn process_archive_preview_task(
     let lease_guard = context.lease_guard().clone();
     let result = async {
         let payload = decode_payload_as::<ArchivePreviewGenerateTask>(task)?;
-        let mut steps =
-            parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+        let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
         set_task_step_succeeded(
             &mut steps,
             TASK_STEP_WAITING,
@@ -173,7 +174,11 @@ pub(super) async fn process_archive_preview_task(
                 &steps,
             )
             .await?;
-            let task_temp_dir = prepare_task_temp_dir(state, lease_guard.lease()).await?;
+            let task_temp_dir = aster_forge_tasks::prepare_task_temp_dir_in_root(
+                &state.config().server.temp_dir,
+                lease_guard.lease(),
+            )
+            .await?;
             let source_archive_path =
                 std::path::Path::new(&task_temp_dir).join(archive_format.temp_file_name());
             preview::download_blob_to_temp(

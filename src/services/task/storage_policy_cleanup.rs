@@ -1,5 +1,6 @@
 //! 存储策略删除后的临时对象兜底清理任务。
 
+use aster_forge_tasks::TaskExecutionContext;
 use chrono::{Duration, Utc};
 
 use crate::api::constants::HOUR_SECS;
@@ -13,21 +14,16 @@ use crate::storage::connectors::{
     cleanup_snapshot_for_policy,
 };
 use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::spec::{self, StoragePolicyTempCleanupTask, decode_payload_as};
-use super::steps::{
-    TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_PREPARE_SOURCES, parse_task_steps_json,
-    set_task_step_active, set_task_step_succeeded,
-};
+use super::steps::{TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_PREPARE_SOURCES, parse_task_steps_json};
 use super::types::{
     StoragePolicyCleanupPolicySnapshot, StoragePolicyTempCleanupTarget,
     StoragePolicyTempCleanupTaskPayload, StoragePolicyTempCleanupTaskResult,
 };
-use super::{
-    TaskExecutionContext, TypedTaskCreate, insert_typed_task_record, mark_task_progress,
-    mark_task_succeeded,
-};
+use super::{TypedTaskCreate, insert_typed_task_record, mark_task_progress, mark_task_succeeded};
 
 const TEMP_CLEANUP_GRACE_SECS: u64 = HOUR_SECS + 60;
 
@@ -97,8 +93,7 @@ pub(super) async fn process_storage_policy_temp_cleanup_task(
 ) -> Result<()> {
     let lease_guard = context.lease_guard().clone();
     let payload = decode_payload_as::<StoragePolicyTempCleanupTask>(task)?;
-    let mut steps =
-        parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()), task.kind)?;
+    let mut steps = parse_task_steps_json(task.steps_json.as_ref().map(|raw| raw.as_ref()))?;
     let total_targets = cleanup_target_count(&payload)?;
 
     set_task_step_active(

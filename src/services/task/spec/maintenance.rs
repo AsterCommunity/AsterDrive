@@ -1,9 +1,11 @@
+use aster_forge_tasks::TaskStepSpec;
+
 use crate::services::task::{
     blob_maintenance,
     dispatch::TaskLane,
     steps::{
         TASK_STEP_CHECK_BLOBS, TASK_STEP_CLEANUP_OBJECTS, TASK_STEP_FINISH, TASK_STEP_PURGE_TRASH,
-        TASK_STEP_RECONCILE_REFS, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING, TaskStepSpec,
+        TASK_STEP_RECONCILE_REFS, TASK_STEP_SCAN_BLOBS, TASK_STEP_WAITING,
     },
     trash,
     types::{

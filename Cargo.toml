@@ -60,6 +60,7 @@ metrics = [
     "aster_forge_actix_observability/prometheus",
     "aster_forge_metrics/allocator-metrics",
     "aster_forge_metrics/backend-prometheus",
+    "aster_forge_metrics/runtime-health",
 ]
 openapi = [
     "dep:utoipa",
@@ -69,6 +70,9 @@ openapi = [
     "aster_forge_config/openapi",
     "aster_forge_external_auth/openapi",
     "aster_forge_file_classification/openapi",
+    "aster_forge_mail/openapi",
+    "aster_forge_runtime/openapi",
+    "aster_forge_tasks/openapi",
 ]
 full = ["server", "cli", "metrics", "openapi"]
 jemalloc = ["dep:tikv-jemallocator", "aster_forge_alloc/jemalloc"]
@@ -88,7 +92,7 @@ actix-ws = "0.4"
 aes-gcm = "0.11"
 aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api" }
 aster_forge_api_docs_macros = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api_docs_macros" }
-aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_audit", features = ["mail-outbox-dependency"] }
+aster_forge_audit = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_audit", features = ["db-writer", "mail-outbox-dependency"] }
 aster_forge_actix_middleware = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_middleware", features = ["metrics"] }
 aster_forge_actix_observability = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_actix_observability" }
 aster_forge_alloc = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_alloc" }
@@ -96,7 +100,7 @@ aster_forge_cache = { git = "https://github.com/AsterCommunity/AsterForge", pack
 aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_config", features = ["redis-pubsub", "sea-orm"] }
 aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_crypto" }
 aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db", features = ["audit-log", "mail-outbox", "runtime-component", "runtime-lease", "scheduled-task", "system-config"] }
-aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth", features = ["github", "google", "microsoft", "qq"] }
+aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth", features = ["github", "google", "microsoft", "qq", "sea-orm"] }
 aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification", features = ["sea-orm"] }
 aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
 aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_mail", features = ["persistence", "runtime-component"] }

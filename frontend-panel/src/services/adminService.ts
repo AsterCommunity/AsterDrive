@@ -36,6 +36,7 @@ import type {
 	AdminUserListQuery,
 	ConfigActionType,
 	ConfigSchemaItem,
+	ConfigVisibility,
 	CreateBlobMaintenanceTaskRequest,
 	CreateExternalAuthProviderInput,
 	CreatePolicyGroupRequest,
@@ -86,7 +87,6 @@ import type {
 	StoragePolicyPage,
 	SystemConfig,
 	SystemConfigPage,
-	SystemConfigVisibility,
 	SystemInfoResponse,
 	TaskInfo,
 	TaskPage,
@@ -698,11 +698,7 @@ export const adminConfigService = {
 
 	get: (key: string) => api.get<SystemConfig>(`/admin/config/${key}`),
 
-	set: (
-		key: string,
-		value: string | string[],
-		visibility?: SystemConfigVisibility,
-	) =>
+	set: (key: string, value: string | string[], visibility?: ConfigVisibility) =>
 		api.put<SystemConfig>(
 			`/admin/config/${key}`,
 			visibility ? { value, visibility } : { value },

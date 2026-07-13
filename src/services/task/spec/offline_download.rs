@@ -4,12 +4,13 @@ use crate::services::task::{
     retry::TaskRetryPolicy,
     steps::{
         TASK_STEP_DOWNLOAD_SOURCE, TASK_STEP_STORE_RESULT, TASK_STEP_VALIDATE_SOURCE,
-        TASK_STEP_VERIFY_SOURCE, TASK_STEP_WAITING, TaskStepSpec,
+        TASK_STEP_VERIFY_SOURCE, TASK_STEP_WAITING,
     },
     types::{
         OfflineDownloadTaskPayload, OfflineDownloadTaskPayloadInfo, OfflineDownloadTaskResult,
     },
 };
+use aster_forge_tasks::TaskStepSpec;
 use url::Url;
 
 const OFFLINE_DOWNLOAD_STEPS: &[TaskStepSpec] = &[

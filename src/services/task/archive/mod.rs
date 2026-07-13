@@ -17,9 +17,10 @@ pub(crate) use selection::{
 use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
+use aster_forge_tasks::TaskExecutionContext;
+use aster_forge_tasks::TaskRetryClass;
 
-use super::TaskExecutionContext;
-use super::retry::{TaskRetryClass, TaskRetryPolicy, default_retry_class};
+use super::retry::{TaskRetryPolicy, default_retry_class};
 
 pub(super) struct ArchiveCompressRetryPolicy;
 

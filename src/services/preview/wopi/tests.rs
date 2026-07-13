@@ -10,7 +10,6 @@ use super::discovery::{
     parse_discovery_xml, resolve_discovery_action_url, trusted_origins_for_app,
 };
 use super::operations::parse_wopi_max_expected_size;
-use super::session::access_token_hash;
 use super::targets::{
     PutRelativeTargetMode, decode_wopi_filename, encode_wopi_filename,
     normalize_relative_target_name, normalize_requested_rename_target, parse_put_relative_request,
@@ -430,14 +429,6 @@ fn build_discovered_apps_uses_view_when_no_editable_actions_exist() {
     assert_eq!(
         apps[0].extensions,
         vec!["doc".to_string(), "docx".to_string()]
-    );
-}
-
-#[test]
-fn access_token_hash_is_stable_sha256_hex() {
-    assert_eq!(
-        access_token_hash("wopi_abc123"),
-        aster_forge_crypto::sha256_hex(b"wopi_abc123")
     );
 }
 

@@ -15,9 +15,10 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::entities::user;
-use crate::types::{ExternalAuthProtocol, ExternalAuthProviderKind};
 use aster_forge_api::NullablePatch;
-use aster_forge_external_auth::ExternalAuthProviderOptions;
+use aster_forge_external_auth::{
+    ExternalAuthProtocol, ExternalAuthProviderKind, ExternalAuthProviderOptions,
+};
 
 pub use links::{cleanup_expired_flows, delete_link, list_links};
 pub use login::{finish_callback, start_login};

@@ -1,5 +1,6 @@
 //! 归档任务子模块：`common`。
 
+use aster_forge_tasks::TaskExecutionContext;
 use std::io::{Read, Write};
 use std::time::Instant;
 
@@ -10,7 +11,6 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::entities::{file, folder};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::task::TaskExecutionContext;
 use crate::services::{
     files::folder as folder_ops,
     workspace::storage::{WorkspaceStorageScope, load_scope_actor_username},
@@ -459,9 +459,9 @@ mod tests {
     use tokio_util::sync::CancellationToken;
 
     use crate::services::task::{
-        TaskExecutionContext, TaskLease, TaskLeaseGuard, is_task_lease_renewal_timed_out,
-        is_task_worker_shutdown_requested,
+        is_task_lease_renewal_timed_out, is_task_worker_shutdown_requested,
     };
+    use aster_forge_tasks::{TaskExecutionContext, TaskLease};
 
     use super::{
         copy_reader_to_writer_with_execution,
@@ -489,9 +489,11 @@ mod tests {
 
     #[test]
     fn copy_reader_to_writer_with_lease_stops_after_renewal_timeout() {
-        let lease_guard =
-            TaskLeaseGuard::with_renewal_timeout(TaskLease::new(42, 7), Duration::from_millis(20));
-        let context = TaskExecutionContext::with_lease_guard(lease_guard, CancellationToken::new());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            Duration::from_millis(20),
+            CancellationToken::new(),
+        );
         let mut reader = SlowSingleChunkReader {
             chunk: b"chunk".to_vec(),
             delay: Duration::from_millis(30),
@@ -509,7 +511,11 @@ mod tests {
     #[test]
     fn copy_reader_to_writer_with_execution_stops_on_shutdown_before_reading() {
         let shutdown_token = CancellationToken::new();
-        let context = TaskExecutionContext::new(TaskLease::new(42, 7), shutdown_token.clone());
+        let context = TaskExecutionContext::new(
+            TaskLease::new(42, 7),
+            std::time::Duration::from_secs(60),
+            shutdown_token.clone(),
+        );
         let mut reader = Cursor::new(b"abcdef".to_vec());
         let mut writer = Vec::new();
 

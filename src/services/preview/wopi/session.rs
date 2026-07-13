@@ -222,7 +222,7 @@ pub(crate) async fn resolve_access_token(
     access_token: &str,
     request_source: WopiRequestSource<'_>,
 ) -> Result<ResolvedWopiAccess> {
-    let token_hash = access_token_hash(access_token);
+    let token_hash = aster_forge_crypto::sha256_hex(access_token.as_bytes());
     let session = load_wopi_session_by_hash(state, &token_hash)
         .await?
         .ok_or_else(|| AsterError::auth_token_invalid("WOPI access token not found or expired"))?;
@@ -307,7 +307,7 @@ async fn create_access_token_session(
     payload: &WopiAccessTokenPayload,
 ) -> Result<String> {
     let token = format!("wopi_{}", aster_forge_utils::id::new_short_token());
-    let token_hash = access_token_hash(&token);
+    let token_hash = aster_forge_crypto::sha256_hex(token.as_bytes());
     let expires_at = DateTime::from_timestamp(payload.exp, 0)
         .ok_or_else(|| AsterError::internal_error("invalid WOPI access token expiry"))?;
     let now = Utc::now();
@@ -327,10 +327,6 @@ async fn create_access_token_session(
     )
     .await?;
     Ok(token)
-}
-
-pub(crate) fn access_token_hash(token: &str) -> String {
-    aster_forge_crypto::sha256_hex(token.as_bytes())
 }
 
 fn payload_from_session(session: &CachedWopiSession) -> Result<WopiAccessTokenPayload> {

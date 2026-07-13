@@ -7,6 +7,7 @@ use std::time::Instant;
 
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
+use aster_forge_utils::http_validators::format_http_date;
 use futures::{StreamExt, pin_mut};
 use xmltree::{Element, XMLNode};
 
@@ -19,9 +20,8 @@ use crate::webdav::protocol::{self, Depth};
 use crate::webdav::responses;
 use crate::webdav::{
     child_elements, child_relative_path, dav_element, display_name, ensure_unlocked,
-    format_creation_date, format_http_date, fs_error_response, href_for_dav_path,
-    href_for_relative, multi_status, request_origin, request_path, status_element, text_element,
-    xml_bytes, xml_response,
+    format_creation_date, fs_error_response, href_for_dav_path, href_for_relative, multi_status,
+    request_origin, request_path, status_element, text_element, xml_bytes, xml_response,
 };
 
 #[derive(Clone)]
