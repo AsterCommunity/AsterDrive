@@ -213,7 +213,7 @@ async fn execute_config_command_with_runtime(
                 None,
             )
             .await?;
-            publish_cli_config_reload(&config_sync, [saved.key.clone()]).await?;
+            publish_cli_config_reload(config_sync, [saved.key.clone()]).await?;
             Ok(ConfigCommandReport::config(
                 ConfigCommandKind::Set,
                 system_config_to_view(saved),
@@ -222,7 +222,7 @@ async fn execute_config_command_with_runtime(
         ConfigCommand::Delete(args) => {
             let config_sync = required_cli_config_sync(config_sync)?;
             config_repo::delete_by_key(&db, &args.key).await?;
-            publish_cli_config_reload(&config_sync, [args.key.clone()]).await?;
+            publish_cli_config_reload(config_sync, [args.key.clone()]).await?;
             Ok(ConfigCommandReport::delete(args.key.clone()))
         }
         ConfigCommand::Validate(args) => {
@@ -251,7 +251,7 @@ async fn execute_config_command_with_runtime(
                 saved.push(system_config_to_view(model));
             }
             transaction::commit(txn).await?;
-            publish_cli_config_reload(&config_sync, saved.iter().map(|config| config.key.clone()))
+            publish_cli_config_reload(config_sync, saved.iter().map(|config| config.key.clone()))
                 .await?;
             Ok(ConfigCommandReport::list(ConfigCommandKind::Import, saved))
         }

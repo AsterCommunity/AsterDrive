@@ -391,7 +391,7 @@ pub async fn list_public_providers(
     Ok(external_auth_provider_repo::find_enabled(state.writer_db())
         .await?
         .into_iter()
-        .filter(|provider| default_registry().contains(provider.provider_kind.into()))
+        .filter(|provider| default_registry().contains(provider.provider_kind))
         .map(provider_to_public)
         .collect())
 }
@@ -404,7 +404,7 @@ pub async fn list_public_providers_by_kind(
         external_auth_provider_repo::find_enabled_by_kind(state.writer_db(), provider_kind)
             .await?
             .into_iter()
-            .filter(|provider| default_registry().contains(provider.provider_kind.into()))
+            .filter(|provider| default_registry().contains(provider.provider_kind))
             .map(provider_to_public)
             .collect(),
     )
@@ -420,7 +420,7 @@ pub async fn list_admin_providers(
             state.writer_db(),
             limit,
             offset,
-            default_registry().supported_kinds().map(Into::into),
+            default_registry().supported_kinds(),
         )
         .await
     })
@@ -446,7 +446,7 @@ pub async fn get_admin_provider(
     id: i64,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
-    if !default_registry().contains(provider.provider_kind.into()) {
+    if !default_registry().contains(provider.provider_kind) {
         return Err(AsterError::record_not_found(format!(
             "external auth provider #{id}"
         )));
@@ -585,7 +585,7 @@ pub async fn update_provider(
     input: UpdateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let existing = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
-    if !default_registry().contains(existing.provider_kind.into()) {
+    if !default_registry().contains(existing.provider_kind) {
         return Err(AsterError::record_not_found(format!(
             "external auth provider #{id}"
         )));
@@ -663,7 +663,7 @@ pub async fn update_provider(
     if let Some(scopes) = input.scopes {
         active.scopes = Set(external_auth_normalize::normalize_scopes(
             Some(&scopes),
-            existing.protocol.into(),
+            existing.protocol,
         )?);
     }
     if let Some(enabled) = input.enabled {
@@ -734,7 +734,7 @@ pub async fn update_provider(
 
 pub async fn delete_provider(state: &impl SharedRuntimeState, id: i64) -> Result<()> {
     let provider = external_auth_provider_repo::find_by_id(state.writer_db(), id).await?;
-    if !default_registry().contains(provider.provider_kind.into()) {
+    if !default_registry().contains(provider.provider_kind) {
         return Err(AsterError::record_not_found(format!(
             "external auth provider #{id}"
         )));

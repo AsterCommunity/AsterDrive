@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- 移除计划于 `0.4.0` 到期的远程存储目标兼容层：管理 API 不再提供 `/ingress-profile-drivers` / `/ingress-profiles`，follower 内部协议不再提供 `/ingress-profiles`，统一使用 `/storage-target-drivers` / `/storage-targets` 和 `/targets`
+
+### Changed
+
+- `server.follower.managed_ingress_local_root` 配置别名继续保留兼容；新配置仍应使用 `server.follower.remote_storage_target_local_root`
+
 ## [v0.3.2] - 2026-07-08
 
 ### Release Highlights

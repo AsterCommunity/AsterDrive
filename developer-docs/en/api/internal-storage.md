@@ -66,7 +66,7 @@ Control-plane endpoints require signed headers. Object GET / PUT can support pre
 | `HEAD` | `/objects/{tail}` | Probe object existence and headers |
 | `DELETE` | `/objects/{tail}` | Delete object |
 
-`/ingress-profiles` and `/ingress-profiles/{target_key}` remain deprecated internal protocol compatibility aliases since 0.4.0. New code should prefer `/targets`, while cross-version primary / follower pairs may continue using the old paths.
+Version `0.4.0` removed the legacy `/ingress-profiles` and `/ingress-profiles/{target_key}` compatibility paths. Primaries and followers must use `/targets`.
 
 ## `GET /capabilities`
 

@@ -340,7 +340,7 @@ POST /api/v1/admin/policies/action
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 更新 follower 侧远程存储目标 |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | 删除 follower 侧远程存储目标 |
 
-`/ingress-profile-drivers` 和 `/ingress-profiles` 自 0.4.0 起作为 deprecated 兼容 alias 保留；新代码应优先使用 `/storage-target-drivers` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
+`0.4.0` 已移除旧 `/ingress-profile-drivers` 和 `/ingress-profiles` 兼容路径；客户端必须使用 `/storage-target-drivers` 和 `/storage-targets`。DTO 字段名使用 `target_key`。
 
 创建远端节点示例：
 

@@ -166,7 +166,7 @@ pub async fn redeem_enrollment_token<S: SharedRuntimeState>(
             access_key: remote_node.access_key,
             secret_key: remote_node.secret_key,
             is_enabled: remote_node.is_enabled,
-            ack_token: format!("enr_ack_{}", &enrollment.ack_token_hash),
+            ack_token: format!("enr_ack_{}", enrollment.ack_token_hash),
         })
     })
     .await

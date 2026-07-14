@@ -21,7 +21,7 @@ Remote Storage Policy
 
 ## 当前实现边界
 
-当前代码使用 `remote_storage_target` 作为 API、DTO、repository、service 和 UI 命名。旧 `/ingress-profiles` route 仍作为兼容 alias 保留，不是新产品概念。
+当前代码使用 `remote_storage_target` 作为 API、DTO、repository、service 和 UI 命名。旧 `/ingress-profiles` route 已在 `0.4.0` 移除，不再是可用的产品入口。
 
 现有职责大致是：
 
@@ -80,7 +80,7 @@ Policy service 应该拥有“这条 remote policy 最终写到哪个 node / tar
 
 - 用户可见 UI 使用 “remote storage target / 远端存储目标”。
 - API、DB、DTO、service、repository 和前端组件命名使用 `remote_storage_target`。
-- 旧 `/ingress-profiles` route 保留为 0.4.0 deprecated 兼容层。
+- `0.4.0` 已移除旧 `/ingress-profiles` route，API 只保留 target 命名。
 
 ### 第二阶段：服务边界（已完成）
 
@@ -103,7 +103,7 @@ Policy service 应该拥有“这条 remote policy 最终写到哪个 node / tar
 
 ### 第五阶段：API alias 与命名清理（已完成）
 
-对外新增 target-named API，并保留旧 route 至少一个兼容窗口：
+对外统一使用 target-named API：
 
 ```text
 GET  /api/v1/admin/remote-nodes/{id}/storage-targets
@@ -113,7 +113,7 @@ DELETE /api/v1/admin/remote-nodes/{id}/storage-targets/{target_key}
 GET  /api/v1/admin/remote-nodes/{id}/storage-target-drivers
 ```
 
-内部 follower 协议同理增加 `/targets` alias，旧 `/ingress-profiles` route 作为 deprecated 兼容入口保留。
+内部 follower 协议统一使用 `/targets`；旧 `/ingress-profiles` route 已在 `0.4.0` 移除。
 
 数据库表和 entity 已通过新增迁移从旧表名改到 `remote_storage_targets`，不要修改既有 baseline migration。
 
@@ -126,5 +126,5 @@ GET  /api/v1/admin/remote-nodes/{id}/storage-target-drivers
 - direct、reverse tunnel、auto transport 下 target 列表、创建、更新、能力过滤行为一致。
 - v4 legacy fallback 和 unknown future driver id 仍然按 resolver 规则处理。
 - 前端没有重新引入按 `driver_type` 推断能力的本地矩阵。
-- 旧 `/ingress-profiles` route 在兼容窗口内继续可用，新增 alias 有测试覆盖。
+- 旧 `/ingress-profiles` route 返回 `404`，target-named API 有测试覆盖。
 - 文档、OpenAPI 和生成前端类型只在 API shape 真正变化时同步更新。

@@ -321,7 +321,7 @@ Remote nodes are follower storage nodes managed by the primary, mainly for `driv
 | `PATCH` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Update follower remote storage target |
 | `DELETE` | `/admin/remote-nodes/{id}/storage-targets/{target_key}` | Delete follower remote storage target |
 
-`/ingress-profile-drivers` and `/ingress-profiles` remain deprecated compatibility aliases since 0.4.0. New code should prefer `/storage-target-drivers` and `/storage-targets`; DTO field names use `target_key`.
+Version `0.4.0` removed the legacy `/ingress-profile-drivers` and `/ingress-profiles` compatibility paths. Clients must use `/storage-target-drivers` and `/storage-targets`; DTO field names use `target_key`.
 
 Create example:
 

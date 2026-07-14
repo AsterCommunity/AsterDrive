@@ -63,14 +63,12 @@ pub use policies::{
     promote_s3_compatible_policy_driver, start_storage_authorization, test_policy_connection,
     test_policy_params, update_policy, update_policy_group, validate_storage_policy_credential,
 };
-#[allow(deprecated)]
 pub use remote_nodes::{
-    create_remote_node, create_remote_node_enrollment_token, create_remote_node_ingress_profile,
-    create_remote_node_storage_target, delete_remote_node, delete_remote_node_ingress_profile,
-    delete_remote_node_storage_target, get_remote_node, list_remote_node_ingress_profile_drivers,
-    list_remote_node_ingress_profiles, list_remote_node_storage_target_drivers,
-    list_remote_node_storage_targets, list_remote_nodes, test_remote_node, test_remote_node_params,
-    update_remote_node, update_remote_node_ingress_profile, update_remote_node_storage_target,
+    create_remote_node, create_remote_node_enrollment_token, create_remote_node_storage_target,
+    delete_remote_node, delete_remote_node_storage_target, get_remote_node,
+    list_remote_node_storage_target_drivers, list_remote_node_storage_targets, list_remote_nodes,
+    test_remote_node, test_remote_node_params, update_remote_node,
+    update_remote_node_storage_target,
 };
 pub use shares::{admin_delete_share, list_all_shares};
 pub use storage_migrations::{
@@ -89,7 +87,6 @@ pub use users::{
     revoke_user_sessions, update_user,
 };
 
-#[allow(deprecated)]
 pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
@@ -185,29 +182,6 @@ pub fn routes(
                     .route(
                         "/remote-nodes/{id}/storage-targets/{target_key}",
                         web::delete().to(delete_remote_node_storage_target),
-                    )
-                    // TODO(remote-storage-target): deprecated since 0.4.0. Keep
-                    // the ingress-profile routes as compatibility aliases until
-                    // the removal window for legacy admin clients closes.
-                    .route(
-                        "/remote-nodes/{id}/ingress-profiles",
-                        web::get().to(list_remote_node_ingress_profiles),
-                    )
-                    .route(
-                        "/remote-nodes/{id}/ingress-profile-drivers",
-                        web::get().to(list_remote_node_ingress_profile_drivers),
-                    )
-                    .route(
-                        "/remote-nodes/{id}/ingress-profiles",
-                        web::post().to(create_remote_node_ingress_profile),
-                    )
-                    .route(
-                        "/remote-nodes/{id}/ingress-profiles/{target_key}",
-                        web::patch().to(update_remote_node_ingress_profile),
-                    )
-                    .route(
-                        "/remote-nodes/{id}/ingress-profiles/{target_key}",
-                        web::delete().to(delete_remote_node_ingress_profile),
                     )
                     .route(
                         "/remote-nodes/test",

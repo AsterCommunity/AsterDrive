@@ -10,6 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::time::Duration;
 
 use actix_web::dev::Service;
+use actix_web::http::Method;
 use actix_web::{App, HttpServer, test, web};
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::{
@@ -1093,7 +1094,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
 }
 
 #[actix_web::test]
-async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabilities() {
+async fn test_remote_storage_target_driver_descriptors_follow_remote_capabilities() {
     let consumer_state = common::setup().await;
     let consumer_node = remote_node::create(
         &consumer_state,
@@ -1117,38 +1118,111 @@ async fn test_remote_ingress_profile_driver_descriptors_follow_remote_capabiliti
 
     let app = create_test_app!(consumer_state.clone());
     let (token, _) = register_and_login!(app);
-    for path in [
-        format!(
-            "/api/v1/admin/remote-nodes/{}/storage-target-drivers",
-            consumer_node.id
+    let path = format!(
+        "/api/v1/admin/remote-nodes/{}/storage-target-drivers",
+        consumer_node.id
+    );
+    let req = test::TestRequest::get()
+        .uri(&path)
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let body: serde_json::Value = test::read_body_json(resp).await;
+    let descriptors = body["data"]
+        .as_array()
+        .expect("driver descriptors response should contain data array");
+    assert_eq!(descriptors.len(), 1);
+    assert_eq!(descriptors[0]["driver_type"], "local");
+    assert_eq!(
+        descriptors[0]["fields"]
+            .as_array()
+            .expect("local descriptor fields should be an array")
+            .iter()
+            .map(|field| field["name"].as_str().unwrap_or_default())
+            .collect::<Vec<_>>(),
+        vec!["base_path", "is_default"]
+    );
+
+    for (method, path) in [
+        (
+            Method::GET,
+            format!(
+                "/api/v1/admin/remote-nodes/{}/ingress-profile-drivers",
+                consumer_node.id
+            ),
         ),
-        format!(
-            "/api/v1/admin/remote-nodes/{}/ingress-profile-drivers",
-            consumer_node.id
+        (
+            Method::GET,
+            format!(
+                "/api/v1/admin/remote-nodes/{}/ingress-profiles",
+                consumer_node.id
+            ),
+        ),
+        (
+            Method::POST,
+            format!(
+                "/api/v1/admin/remote-nodes/{}/ingress-profiles",
+                consumer_node.id
+            ),
+        ),
+        (
+            Method::PATCH,
+            format!(
+                "/api/v1/admin/remote-nodes/{}/ingress-profiles/legacy",
+                consumer_node.id
+            ),
+        ),
+        (
+            Method::DELETE,
+            format!(
+                "/api/v1/admin/remote-nodes/{}/ingress-profiles/legacy",
+                consumer_node.id
+            ),
         ),
     ] {
-        let req = test::TestRequest::get()
+        let req = test::TestRequest::default()
+            .method(method)
             .uri(&path)
             .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
             .to_request();
         let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
+    }
+}
 
-        assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
-        let body: serde_json::Value = test::read_body_json(resp).await;
-        let descriptors = body["data"]
-            .as_array()
-            .expect("driver descriptors response should contain data array");
-        assert_eq!(descriptors.len(), 1);
-        assert_eq!(descriptors[0]["driver_type"], "local");
-        assert_eq!(
-            descriptors[0]["fields"]
-                .as_array()
-                .expect("local descriptor fields should be an array")
-                .iter()
-                .map(|field| field["name"].as_str().unwrap_or_default())
-                .collect::<Vec<_>>(),
-            vec!["base_path", "is_default"]
-        );
+#[actix_web::test]
+async fn test_removed_internal_ingress_profile_routes_return_not_found() {
+    let provider_state = common::setup().await;
+    let app = test::init_service(
+        App::new()
+            .app_data(web::Data::new(provider_state.follower_view()))
+            .service(
+                web::scope("/api/v1").service(aster_drive::api::routes::internal_storage::routes()),
+            ),
+    )
+    .await;
+
+    for (method, path) in [
+        (Method::GET, "/api/v1/internal/storage/ingress-profiles"),
+        (Method::POST, "/api/v1/internal/storage/ingress-profiles"),
+        (
+            Method::PATCH,
+            "/api/v1/internal/storage/ingress-profiles/legacy",
+        ),
+        (
+            Method::DELETE,
+            "/api/v1/internal/storage/ingress-profiles/legacy",
+        ),
+    ] {
+        let req = test::TestRequest::default()
+            .method(method)
+            .uri(path)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
     }
 }
 

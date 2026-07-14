@@ -66,7 +66,7 @@ primary 侧 reverse tunnel 当前入口：
 | `HEAD` | `/objects/{tail}` | 探测对象是否存在并返回头信息 |
 | `DELETE` | `/objects/{tail}` | 删除对象 |
 
-`/ingress-profiles` 和 `/ingress-profiles/{target_key}` 自 0.4.0 起作为 deprecated 内部协议兼容 alias 保留。新代码应优先使用 `/targets`，但跨版本 primary / follower 仍可以继续调用旧路径。
+`0.4.0` 已移除旧 `/ingress-profiles` 和 `/ingress-profiles/{target_key}` 兼容路径；primary 与 follower 必须统一使用 `/targets`。
 
 ## `GET /capabilities`
 

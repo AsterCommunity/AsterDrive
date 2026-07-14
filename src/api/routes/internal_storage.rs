@@ -40,20 +40,6 @@ pub fn routes() -> impl HttpServiceFactory {
             "/targets/{target_key}",
             web::delete().to(delete_storage_target),
         )
-        // TODO(remote-storage-target): deprecated since 0.4.0. Keep the
-        // ingress-profile routes as internal protocol compatibility aliases
-        // until primary/follower version negotiation can advertise the
-        // target-named routes.
-        .route("/ingress-profiles", web::get().to(list_ingress_profiles))
-        .route("/ingress-profiles", web::post().to(create_ingress_profile))
-        .route(
-            "/ingress-profiles/{target_key}",
-            web::patch().to(update_ingress_profile),
-        )
-        .route(
-            "/ingress-profiles/{target_key}",
-            web::delete().to(delete_ingress_profile),
-        )
         .route("/compose", web::post().to(compose_objects))
         .route("/objects", web::get().to(list_objects))
         .route(
@@ -863,13 +849,6 @@ async fn delete_object(
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 
-async fn list_ingress_profiles(
-    state: web::Data<FollowerAppState>,
-    req: HttpRequest,
-) -> Result<HttpResponse> {
-    list_storage_targets(state, req).await
-}
-
 async fn list_storage_targets(
     state: web::Data<FollowerAppState>,
     req: HttpRequest,
@@ -882,14 +861,6 @@ async fn list_storage_targets(
         "follower remote storage targets listed"
     );
     Ok(HttpResponse::Ok().json(ApiResponse::ok(targets)))
-}
-
-async fn create_ingress_profile(
-    state: web::Data<FollowerAppState>,
-    req: HttpRequest,
-    body: web::Json<RemoteCreateStorageTargetRequest>,
-) -> Result<HttpResponse> {
-    create_storage_target(state, req, body).await
 }
 
 async fn create_storage_target(
@@ -924,15 +895,6 @@ async fn create_storage_target(
     )
     .await;
     Ok(HttpResponse::Created().json(ApiResponse::ok(target)))
-}
-
-async fn update_ingress_profile(
-    state: web::Data<FollowerAppState>,
-    req: HttpRequest,
-    path: web::Path<String>,
-    body: web::Json<RemoteUpdateStorageTargetRequest>,
-) -> Result<HttpResponse> {
-    update_storage_target(state, req, path, body).await
 }
 
 async fn update_storage_target(
@@ -970,14 +932,6 @@ async fn update_storage_target(
     )
     .await;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(target)))
-}
-
-async fn delete_ingress_profile(
-    state: web::Data<FollowerAppState>,
-    req: HttpRequest,
-    path: web::Path<String>,
-) -> Result<HttpResponse> {
-    delete_storage_target(state, req, path).await
 }
 
 async fn delete_storage_target(
