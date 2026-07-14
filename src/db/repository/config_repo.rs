@@ -226,6 +226,12 @@ where
         })
         .await?;
     }
+    normalize_existing_product_config(
+        db,
+        crate::config::cors::CORS_ALLOWED_ORIGINS_KEY,
+        normalize_existing_cors_allowed_origins_config_value,
+    )
+    .await?;
     normalize_existing_product_config(db, apps::PREVIEW_APPS_CONFIG_KEY, |active| {
         normalize_existing_preview_apps_config_value(active)
     })
@@ -246,6 +252,26 @@ where
     normalize(&mut active);
     active.update(db).await.map_err(AsterError::from)?;
     Ok(())
+}
+
+fn normalize_existing_cors_allowed_origins_config_value(active: &mut system_config::ActiveModel) {
+    let existing = match &active.value {
+        sea_orm::ActiveValue::Set(value) | sea_orm::ActiveValue::Unchanged(value) => value.clone(),
+        sea_orm::ActiveValue::NotSet => return,
+    };
+
+    match crate::config::cors::normalize_existing_allowed_origins_config_value(&existing) {
+        Ok(normalized) if normalized != existing => active.value = Set(normalized),
+        Ok(_) => {}
+        Err(error) => {
+            tracing::warn!(
+                error = %error,
+                key = crate::config::cors::CORS_ALLOWED_ORIGINS_KEY,
+                "failed to migrate legacy CORS origins; clearing invalid whitelist"
+            );
+            active.value = Set("[]".to_string());
+        }
+    }
 }
 
 fn normalize_existing_media_processing_registry_config_value(
@@ -507,6 +533,61 @@ mod tests {
             Some(media_processing::DEFAULT_FFMPEG_COMMAND)
         );
         assert!(images.enabled);
+    }
+
+    #[tokio::test]
+    async fn ensure_defaults_migrates_legacy_cors_origin_values_to_string_arrays() {
+        let db = setup_db().await;
+        ensure_system_value_if_missing(
+            &db,
+            crate::config::cors::CORS_ALLOWED_ORIGINS_KEY,
+            "https://b.example.com,chrome-extension://iikmkjmpaadaobahmlepeloendndfphd,https://b.example.com",
+        )
+        .await
+        .expect("legacy CORS config insert should succeed");
+
+        ensure_defaults_with_env(&db, &|_| None)
+            .await
+            .expect("ensure_defaults should migrate legacy CORS origins");
+
+        let stored = find_by_key(&db, crate::config::cors::CORS_ALLOWED_ORIGINS_KEY)
+            .await
+            .expect("CORS config lookup should succeed")
+            .expect("CORS config should exist");
+        assert_eq!(
+            stored.value_type,
+            aster_forge_config::ConfigValueType::StringArray
+        );
+        assert_eq!(
+            stored.value,
+            r#"["chrome-extension://iikmkjmpaadaobahmlepeloendndfphd","https://b.example.com"]"#
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_defaults_clears_invalid_legacy_cors_origin_values() {
+        let db = setup_db().await;
+        ensure_system_value_if_missing(
+            &db,
+            crate::config::cors::CORS_ALLOWED_ORIGINS_KEY,
+            "ftp://backup.example.com",
+        )
+        .await
+        .expect("invalid legacy CORS config insert should succeed");
+
+        ensure_defaults_with_env(&db, &|_| None)
+            .await
+            .expect("ensure_defaults should safely migrate invalid CORS origins");
+
+        let stored = find_by_key(&db, crate::config::cors::CORS_ALLOWED_ORIGINS_KEY)
+            .await
+            .expect("CORS config lookup should succeed")
+            .expect("CORS config should exist");
+        assert_eq!(
+            stored.value_type,
+            aster_forge_config::ConfigValueType::StringArray
+        );
+        assert_eq!(stored.value, "[]");
     }
 
     #[tokio::test]

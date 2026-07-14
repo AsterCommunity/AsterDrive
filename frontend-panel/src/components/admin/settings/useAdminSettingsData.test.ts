@@ -298,13 +298,14 @@ function createBaseConfigs() {
 
 function createCorsConfigs(overrides?: {
 	allowCredentials?: string;
-	allowedOrigins?: string;
+	allowedOrigins?: string[];
 }): SystemConfig[] {
 	return [
 		createConfig({
 			category: "network",
 			key: "cors_allowed_origins",
-			value: overrides?.allowedOrigins ?? "*",
+			value: overrides?.allowedOrigins ?? ["*"],
+			value_type: "string_array",
 		}),
 		createConfig({
 			category: "network",
@@ -639,7 +640,7 @@ describe("useAdminSettingsData", () => {
 		mockState.listConfigs.mockResolvedValueOnce({
 			items: createCorsConfigs({
 				allowCredentials: "true",
-				allowedOrigins: "https://panel.example.com",
+				allowedOrigins: ["https://panel.example.com"],
 			}),
 		});
 
@@ -648,7 +649,7 @@ describe("useAdminSettingsData", () => {
 		await waitFor(() => expect(result.current.loading).toBe(false));
 
 		act(() => {
-			result.current.updateDraftValue("cors_allowed_origins", "*");
+			result.current.updateDraftValue("cors_allowed_origins", ["*"]);
 		});
 
 		expect(result.current.hasValidationError).toBe(true);
@@ -682,10 +683,9 @@ describe("useAdminSettingsData", () => {
 		expect(result.current.hasValidationError).toBe(true);
 
 		act(() => {
-			result.current.updateDraftValue(
-				"cors_allowed_origins",
+			result.current.updateDraftValue("cors_allowed_origins", [
 				"https://panel.example.com",
-			);
+			]);
 		});
 
 		expect(result.current.hasValidationError).toBe(false);
@@ -695,10 +695,9 @@ describe("useAdminSettingsData", () => {
 			await result.current.handleSaveAll();
 		});
 
-		expect(mockState.setConfig).toHaveBeenCalledWith(
-			"cors_allowed_origins",
+		expect(mockState.setConfig).toHaveBeenCalledWith("cors_allowed_origins", [
 			"https://panel.example.com",
-		);
+		]);
 		expect(mockState.setConfig).toHaveBeenCalledWith(
 			"cors_allow_credentials",
 			"true",

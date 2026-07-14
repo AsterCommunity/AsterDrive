@@ -300,7 +300,7 @@ mod tests {
         let lookup = HashMap::from([("cors_allow_credentials".to_string(), "true".to_string())]);
 
         let err = CONFIG_REGISTRY
-            .normalize_value(&lookup, "cors_allowed_origins", "*")
+            .normalize_value(&lookup, "cors_allowed_origins", r#"["*"]"#)
             .unwrap_err();
         assert!(
             err.to_string()

@@ -2,7 +2,7 @@
 	"settings_item_cors_enabled_label": "启用 CORS 处理",
 	"settings_item_cors_enabled_desc": "控制 AsterDrive 是否主动处理浏览器跨域请求。关闭后服务端不会返回任何 CORS 响应头，也不会执行 CORS 拦截。",
 	"settings_item_cors_allowed_origins_label": "允许的跨域来源",
-	"settings_item_cors_allowed_origins_desc": "填写允许浏览器跨域访问的来源列表，使用英文逗号分隔。留空表示服务端不返回 CORS 响应头，由浏览器自然阻止跨域访问；\"*\" 表示允许任意来源。",
+	"settings_item_cors_allowed_origins_desc": "填写允许浏览器跨域访问的完整来源，每个来源单独一项。支持 HTTP(S) 站点以及 chrome-extension、moz-extension、safari-web-extension 浏览器扩展来源。留空表示服务端不返回 CORS 响应头且不执行 CORS 拦截；单独填写 \"*\" 表示允许任意来源。",
 	"settings_item_cors_allow_credentials_label": "允许跨域携带凭据",
 	"settings_item_cors_allow_credentials_desc": "控制 CORS 响应是否返回 Access-Control-Allow-Credentials。开启时不要把允许来源配置成 \"*\"。",
 	"settings_item_cors_max_age_secs_label": "预检缓存时间",

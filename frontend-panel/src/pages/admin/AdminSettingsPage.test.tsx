@@ -648,6 +648,7 @@ function createTemplateVariableGroup(
 }
 
 function getMockConfigCategory(key: string) {
+	if (key.startsWith("cors_")) return "network";
 	if (key.startsWith("auth")) return "auth";
 	if (key.startsWith("custom")) return "custom";
 	if (key.startsWith("mail_template_")) return "mail.template";
@@ -663,6 +664,9 @@ function getMockConfigSource(key: string): ConfigSource {
 }
 
 function getMockConfigValueType(key: string): ConfigValueType {
+	if (key === "cors_allowed_origins") {
+		return "string_array";
+	}
 	if (key === "audit_log_recorded_actions") {
 		return "string_enum_set";
 	}
@@ -1114,8 +1118,8 @@ describe("AdminSettingsPage", () => {
 				createConfig({
 					category: "network",
 					key: "cors_allowed_origins",
-					value: "*",
-					value_type: "string",
+					value: ["*"],
+					value_type: "string_array",
 				}),
 				createConfig({
 					category: "network",
@@ -1129,7 +1133,7 @@ describe("AdminSettingsPage", () => {
 			createSchemaItem({
 				category: "network",
 				key: "cors_allowed_origins",
-				value_type: "string",
+				value_type: "string_array",
 			}),
 			createSchemaItem({
 				category: "network",
@@ -1158,8 +1162,8 @@ describe("AdminSettingsPage", () => {
 				createConfig({
 					category: "network",
 					key: "cors_allowed_origins",
-					value: "*",
-					value_type: "string",
+					value: ["*"],
+					value_type: "string_array",
 				}),
 				createConfig({
 					category: "network",
@@ -1173,7 +1177,7 @@ describe("AdminSettingsPage", () => {
 			createSchemaItem({
 				category: "network",
 				key: "cors_allowed_origins",
-				value_type: "string",
+				value_type: "string_array",
 			}),
 			createSchemaItem({
 				category: "network",
@@ -1212,10 +1216,9 @@ describe("AdminSettingsPage", () => {
 				"true",
 			);
 		});
-		expect(mockState.setConfig).toHaveBeenCalledWith(
-			"cors_allowed_origins",
+		expect(mockState.setConfig).toHaveBeenCalledWith("cors_allowed_origins", [
 			"https://panel.example.com",
-		);
+		]);
 	});
 
 	it("keeps email-code MFA disabled until mail delivery settings are complete", async () => {

@@ -620,9 +620,9 @@ export function useAdminSettingsData({
 
 	const configValidationErrors = useMemo(() => {
 		const errors = new Map<string, string>();
-		const allowedOrigins = configValueToString(
+		const allowedOrigins = configValueToStringArray(
 			getDraftValueForKey(CORS_ALLOWED_ORIGINS_KEY),
-		).trim();
+		).map((origin) => origin.trim());
 		const allowCredentials =
 			configValueToString(
 				getDraftValueForKey(CORS_ALLOW_CREDENTIALS_KEY),
@@ -632,7 +632,7 @@ export function useAdminSettingsData({
 				getDraftValueForKey(AUTH_EMAIL_CODE_LOGIN_ENABLED_KEY),
 			).trim() === "true";
 
-		if (allowCredentials && allowedOrigins === "*") {
+		if (allowCredentials && allowedOrigins.includes("*")) {
 			const message = t("cors_wildcard_credentials_validation_error");
 			errors.set(CORS_ALLOWED_ORIGINS_KEY, message);
 			errors.set(CORS_ALLOW_CREDENTIALS_KEY, message);

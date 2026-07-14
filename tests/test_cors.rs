@@ -84,6 +84,101 @@ async fn test_runtime_cors_defaults_passthrough_cross_origin_actual_request() {
 }
 
 #[actix_web::test]
+async fn test_runtime_cors_defaults_passthrough_browser_extension_webdav_request() {
+    let state = common::setup().await;
+    let app = create_test_app_with_cors!(state);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/")
+        .insert_header((
+            header::ORIGIN,
+            "chrome-extension://iikmkjmpaadaobahmlepeloendndfphd",
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 401);
+    assert!(
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .is_none()
+    );
+}
+
+#[actix_web::test]
+async fn test_runtime_cors_allows_configured_browser_extension_origin() {
+    const EXTENSION_ORIGIN: &str = "chrome-extension://iikmkjmpaadaobahmlepeloendndfphd";
+
+    let state = common::setup().await;
+    let app = create_test_app_with_cors!(state);
+    let (token, _) = register_and_login!(app);
+    enable_cors!(app, token);
+    let resp = set_config!(
+        app,
+        token,
+        "cors_allowed_origins",
+        serde_json::json!([EXTENSION_ORIGIN])
+    );
+    assert_eq!(resp.status(), 200);
+    let resp = set_config!(app, token, "cors_allow_credentials", "true");
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::OPTIONS)
+        .uri("/webdav/")
+        .insert_header((header::ORIGIN, EXTENSION_ORIGIN))
+        .insert_header((header::ACCESS_CONTROL_REQUEST_METHOD, "PROPFIND"))
+        .insert_header((
+            header::ACCESS_CONTROL_REQUEST_HEADERS,
+            "authorization, depth",
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 204);
+    assert_eq!(
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_ORIGIN)
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        EXTENSION_ORIGIN
+    );
+    assert_eq!(
+        resp.headers()
+            .get(header::ACCESS_CONTROL_ALLOW_CREDENTIALS)
+            .unwrap(),
+        "true"
+    );
+
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::OPTIONS)
+        .uri("/webdav/")
+        .insert_header((
+            header::ORIGIN,
+            "chrome-extension://aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ))
+        .insert_header((header::ACCESS_CONTROL_REQUEST_METHOD, "PROPFIND"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+}
+
+#[actix_web::test]
+async fn test_runtime_cors_admin_rejects_legacy_string_origin_value() {
+    let state = common::setup().await;
+    let app = create_test_app_with_cors!(state);
+    let (token, _) = register_and_login!(app);
+
+    let resp = set_config!(
+        app,
+        token,
+        "cors_allowed_origins",
+        "https://app.example.com"
+    );
+    assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
 async fn test_runtime_cors_same_origin_origin_header_is_not_blocked() {
     let state = common::setup().await;
     let app = create_test_app_with_cors!(state);
@@ -114,12 +209,15 @@ async fn test_runtime_cors_hot_reload_updates_whitelist_and_max_age() {
         .uri("/api/v1/admin/config/cors_allowed_origins")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "value": "https://app.example.com/" }))
+        .set_json(serde_json::json!({ "value": ["https://app.example.com/"] }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["value"], "https://app.example.com");
+    assert_eq!(
+        body["data"]["value"],
+        serde_json::json!(["https://app.example.com"])
+    );
 
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
@@ -151,7 +249,7 @@ async fn test_runtime_cors_hot_reload_updates_whitelist_and_max_age() {
         .uri("/api/v1/admin/config/cors_allowed_origins")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "value": "https://dashboard.example.com" }))
+        .set_json(serde_json::json!({ "value": ["https://dashboard.example.com"] }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
@@ -210,7 +308,7 @@ async fn test_runtime_cors_credentials_require_explicit_origin_list() {
         .uri("/api/v1/admin/config/cors_allowed_origins")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "value": "*" }))
+        .set_json(serde_json::json!({ "value": ["*"] }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
@@ -243,7 +341,7 @@ async fn test_runtime_cors_adds_credentials_header_for_allowed_origin() {
         .uri("/api/v1/admin/config/cors_allowed_origins")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "value": "https://panel.example.com" }))
+        .set_json(serde_json::json!({ "value": ["https://panel.example.com"] }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
@@ -291,13 +389,18 @@ async fn test_runtime_cors_admin_normalizes_and_deduplicates_origin_list() {
         app,
         token,
         "cors_allowed_origins",
-        " https://b.example.com/, , https://a.example.com, https://b.example.com "
+        serde_json::json!([
+            "https://b.example.com/",
+            "",
+            "https://a.example.com",
+            "https://b.example.com"
+        ])
     );
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(
         body["data"]["value"],
-        "https://a.example.com,https://b.example.com"
+        serde_json::json!(["https://a.example.com", "https://b.example.com"])
     );
 }
 
@@ -311,7 +414,7 @@ async fn test_runtime_cors_admin_rejects_origin_with_path() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com/path"
+        serde_json::json!(["https://app.example.com/path"])
     );
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
@@ -333,7 +436,7 @@ async fn test_runtime_cors_admin_rejects_mixed_wildcard_and_explicit_origins() {
         app,
         token,
         "cors_allowed_origins",
-        "*,https://app.example.com"
+        serde_json::json!(["*", "https://app.example.com"])
     );
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
@@ -347,7 +450,7 @@ async fn test_runtime_cors_wildcard_preflight_returns_star_and_vary_headers() {
     let (token, _) = register_and_login!(app);
     enable_cors!(app, token);
 
-    let resp = set_config!(app, token, "cors_allowed_origins", "*");
+    let resp = set_config!(app, token, "cors_allowed_origins", serde_json::json!(["*"]));
     assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::default()
@@ -399,7 +502,7 @@ async fn test_runtime_cors_disallowed_actual_request_returns_403_with_vary() {
         app,
         token,
         "cors_allowed_origins",
-        "https://allowed.example.com"
+        serde_json::json!(["https://allowed.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -423,7 +526,7 @@ async fn test_runtime_cors_preflight_rejects_unknown_method() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -448,7 +551,7 @@ async fn test_runtime_cors_preflight_rejects_unknown_header() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -474,7 +577,7 @@ async fn test_runtime_cors_preflight_invalid_request_headers_returns_400() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -509,7 +612,7 @@ async fn test_runtime_cors_allowed_actual_request_sets_expose_and_vary_headers()
         app,
         token,
         "cors_allowed_origins",
-        "https://panel.example.com"
+        serde_json::json!(["https://panel.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -540,7 +643,7 @@ async fn test_runtime_cors_invalid_origin_header_returns_400() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -563,7 +666,7 @@ async fn test_runtime_cors_wildcard_actual_request_returns_star_and_expose_heade
     let (token, _) = register_and_login!(app);
     enable_cors!(app, token);
 
-    let resp = set_config!(app, token, "cors_allowed_origins", "*");
+    let resp = set_config!(app, token, "cors_allowed_origins", serde_json::json!(["*"]));
     assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::get()
@@ -606,7 +709,7 @@ async fn test_runtime_cors_preflight_max_age_zero_is_reflected() {
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
     let resp = set_config!(app, token, "cors_max_age_secs", "0");
@@ -669,13 +772,13 @@ async fn test_runtime_cors_rejects_setting_wildcard_after_credentials_enabled() 
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
     let resp = set_config!(app, token, "cors_allow_credentials", "true");
     assert_eq!(resp.status(), 200);
 
-    let resp = set_config!(app, token, "cors_allowed_origins", "*");
+    let resp = set_config!(app, token, "cors_allowed_origins", serde_json::json!(["*"]));
     assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
     assert!(
@@ -715,6 +818,7 @@ async fn test_runtime_cors_schema_contains_network_defaults() {
         .find(|item| item["key"] == "cors_allowed_origins")
         .unwrap();
     assert_eq!(allowed_origins["category"], "network");
+    assert_eq!(allowed_origins["value_type"], "string_array");
     assert!(allowed_origins.get("default_value").is_none());
     assert_eq!(allowed_origins["requires_restart"], false);
 
@@ -742,7 +846,7 @@ async fn test_runtime_cors_clearing_whitelist_disables_cross_origin_immediately(
         app,
         token,
         "cors_allowed_origins",
-        "https://app.example.com"
+        serde_json::json!(["https://app.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
@@ -757,7 +861,7 @@ async fn test_runtime_cors_clearing_whitelist_disables_cross_origin_immediately(
             .contains_key(header::ACCESS_CONTROL_ALLOW_ORIGIN)
     );
 
-    let resp = set_config!(app, token, "cors_allowed_origins", "");
+    let resp = set_config!(app, token, "cors_allowed_origins", serde_json::json!([]));
     assert_eq!(resp.status(), 200);
 
     let req = test::TestRequest::get()
@@ -784,7 +888,7 @@ async fn test_runtime_cors_disabling_credentials_removes_header_immediately() {
         app,
         token,
         "cors_allowed_origins",
-        "https://panel.example.com"
+        serde_json::json!(["https://panel.example.com"])
     );
     assert_eq!(resp.status(), 200);
     let resp = set_config!(app, token, "cors_allow_credentials", "true");
@@ -850,11 +954,14 @@ async fn test_runtime_cors_allows_request_headers_case_insensitively() {
         app,
         token,
         "cors_allowed_origins",
-        "HTTPS://APP.EXAMPLE.COM/"
+        serde_json::json!(["HTTPS://APP.EXAMPLE.COM/"])
     );
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["value"], "https://app.example.com");
+    assert_eq!(
+        body["data"]["value"],
+        serde_json::json!(["https://app.example.com"])
+    );
 
     let req = test::TestRequest::default()
         .method(actix_web::http::Method::OPTIONS)
@@ -944,7 +1051,7 @@ async fn test_runtime_cors_public_site_url_still_requires_whitelist_match() {
         app,
         token,
         "cors_allowed_origins",
-        "https://api.example.com"
+        serde_json::json!(["https://api.example.com"])
     );
     assert_eq!(resp.status(), 200);
 
