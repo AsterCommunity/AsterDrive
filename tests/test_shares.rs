@@ -2417,7 +2417,20 @@ async fn test_share_folder_deep_scope_and_outside_access() {
         .uri("/api/v1/folders")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
-        .set_json(serde_json::json!({ "name": "Root" }))
+        .set_json(serde_json::json!({ "name": "Private Parent" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let private_parent_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Root",
+            "parent_id": private_parent_id
+        }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
@@ -2449,6 +2462,24 @@ async fn test_share_folder_deep_scope_and_outside_access() {
     let outside_folder_id = body["data"]["id"].as_i64().unwrap();
     let outside_file_id = upload_test_file_to_folder!(app, token, outside_folder_id);
 
+    admin_create_user!(
+        app,
+        token,
+        "other-share-user",
+        "other-share-user@example.com",
+        "other-password123"
+    );
+    let (other_token, _) = login_user!(app, "other-share-user", "other-password123");
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&other_token)))
+        .insert_header(common::csrf_header_for(&other_token))
+        .set_json(serde_json::json!({ "name": "Other User Folder" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let other_user_folder_id = body["data"]["id"].as_i64().unwrap();
+
     let req = test::TestRequest::post()
         .uri("/api/v1/shares")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -2469,6 +2500,26 @@ async fn test_share_folder_deep_scope_and_outside_access() {
 
     let req = test::TestRequest::get()
         .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{deep_folder_id}/ancestors"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let ancestor_names = body["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|item| item["name"].as_str().unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(ancestor_names, vec!["A", "B", "C"]);
+    assert!(
+        !ancestor_names.contains(&"Private Parent") && !ancestor_names.contains(&"Root"),
+        "share ancestors must not expose the share root or any private parent above it"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
             "/api/v1/s/{share_token}/files/{deep_file_id}/download"
         ))
         .to_request();
@@ -2485,11 +2536,65 @@ async fn test_share_folder_deep_scope_and_outside_access() {
 
     let req = test::TestRequest::get()
         .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{other_user_folder_id}/ancestors"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
             "/api/v1/s/{share_token}/folders/{outside_folder_id}/content"
         ))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 403);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{outside_folder_id}/ancestors"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{}/ancestors",
+            i64::MAX
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Deleted Child",
+            "parent_id": root_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    let deleted_folder_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{deleted_folder_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{deleted_folder_id}/ancestors"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
 }
 
 #[actix_web::test]

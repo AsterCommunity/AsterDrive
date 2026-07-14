@@ -11,22 +11,37 @@ import {
 } from "@/lib/musicPlayer";
 import { ApiError } from "@/services/http";
 import { shareService } from "@/services/shareService";
+import type { SortBy, SortOrder } from "@/stores/fileStore/types";
 import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import type {
 	FileInfo,
 	FileListItem,
+	FolderAncestorItem,
 	FolderContents,
+	FolderListParams,
 	SharePublicInfo,
 } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 import type { ShareBreadcrumbItem } from "./types";
 
 const SHARE_PAGE_SIZE = 100;
-const sharePageParams = {
-	folder_limit: FOLDER_LIMIT,
-	file_limit: SHARE_PAGE_SIZE,
-};
+const DEFAULT_SORT_BY: SortBy = "name";
+const DEFAULT_SORT_ORDER: SortOrder = "asc";
+
+function shareFolderListParams(
+	sortBy: SortBy,
+	sortOrder: SortOrder,
+	overrides: FolderListParams = {},
+): FolderListParams {
+	return {
+		folder_limit: FOLDER_LIMIT,
+		file_limit: SHARE_PAGE_SIZE,
+		...(sortBy === DEFAULT_SORT_BY ? {} : { sort_by: sortBy }),
+		...(sortOrder === DEFAULT_SORT_ORDER ? {} : { sort_order: sortOrder }),
+		...overrides,
+	};
+}
 
 type FileCursor = NonNullable<FolderContents["next_file_cursor"]>;
 
@@ -50,6 +65,8 @@ interface ShareViewState {
 	password: string;
 	passwordVerified: boolean;
 	previewFile: FileInfo | FileListItem | null;
+	sortBy: SortBy;
+	sortOrder: SortOrder;
 	viewMode: "grid" | "list";
 }
 
@@ -59,21 +76,32 @@ type ShareViewAction =
 			type: "loadSuccess";
 			info: SharePublicInfo;
 			folderContents: FolderContents | null;
+			breadcrumb: ShareBreadcrumbItem[];
+			passwordVerified: boolean;
 	  }
 	| { type: "loadError"; error: string }
 	| { type: "setPassword"; password: string }
-	| { type: "passwordVerified"; folderContents: FolderContents | null }
+	| {
+			type: "passwordVerified";
+			folderContents: FolderContents | null;
+			breadcrumb: ShareBreadcrumbItem[];
+	  }
 	| { type: "navigateStart" }
 	| {
 			type: "navigateSuccess";
 			folderContents: FolderContents;
-			folderId: number | null;
-			folderName?: string;
+			breadcrumb: ShareBreadcrumbItem[];
 	  }
 	| { type: "navigateEnd" }
 	| { type: "loadMoreStart" }
 	| { type: "loadMoreSuccess"; folderContents: FolderContents }
 	| { type: "loadMoreEnd" }
+	| {
+			type: "sortSuccess";
+			folderContents: FolderContents;
+			sortBy: SortBy;
+			sortOrder: SortOrder;
+	  }
 	| { type: "setPreviewFile"; file: FileInfo | FileListItem | null }
 	| { type: "setViewMode"; viewMode: "grid" | "list" };
 
@@ -89,6 +117,8 @@ const initialShareViewState: ShareViewState = {
 	password: "",
 	passwordVerified: false,
 	previewFile: null,
+	sortBy: DEFAULT_SORT_BY,
+	sortOrder: DEFAULT_SORT_ORDER,
 	viewMode: "grid",
 };
 
@@ -106,18 +136,15 @@ function shareViewReducer(
 		case "loadSuccess":
 			return {
 				...state,
-				breadcrumb:
-					action.info.share_type === "folder" && !action.info.has_password
-						? [{ id: null, name: action.info.name }]
-						: state.breadcrumb,
+				breadcrumb: action.breadcrumb,
 				error: null,
 				folderContents: action.folderContents,
 				info: action.info,
 				loading: false,
 				loadingMore: false,
-				needsPassword: action.info.has_password,
+				needsPassword: action.info.has_password && !action.passwordVerified,
 				password: "",
-				passwordVerified: false,
+				passwordVerified: action.passwordVerified,
 			};
 		case "loadError":
 			return {
@@ -133,10 +160,7 @@ function shareViewReducer(
 		case "passwordVerified":
 			return {
 				...state,
-				breadcrumb:
-					state.info?.share_type === "folder"
-						? [{ id: null, name: state.info.name }]
-						: state.breadcrumb,
+				breadcrumb: action.breadcrumb,
 				folderContents: action.folderContents ?? state.folderContents,
 				needsPassword: false,
 				passwordVerified: true,
@@ -147,17 +171,9 @@ function shareViewReducer(
 				navigating: true,
 			};
 		case "navigateSuccess": {
-			const breadcrumb =
-				action.folderId === null
-					? state.breadcrumb.slice(0, 1)
-					: updateBreadcrumb(
-							state.breadcrumb,
-							action.folderId,
-							action.folderName,
-						);
 			return {
 				...state,
-				breadcrumb,
+				breadcrumb: action.breadcrumb,
 				folderContents: action.folderContents,
 				navigating: false,
 			};
@@ -192,6 +208,14 @@ function shareViewReducer(
 				...state,
 				loadingMore: false,
 			};
+		case "sortSuccess":
+			return {
+				...state,
+				folderContents: action.folderContents,
+				navigating: false,
+				sortBy: action.sortBy,
+				sortOrder: action.sortOrder,
+			};
 		case "setPreviewFile":
 			return {
 				...state,
@@ -205,16 +229,54 @@ function shareViewReducer(
 	}
 }
 
-function updateBreadcrumb(
-	breadcrumb: ShareBreadcrumbItem[],
+interface SharedFolderLocation {
+	breadcrumb: ShareBreadcrumbItem[];
+	folderContents: FolderContents;
+}
+
+function breadcrumbForSharedFolder(
+	rootName: string,
 	folderId: number,
-	folderName?: string,
-) {
-	const existingIndex = breadcrumb.findIndex((item) => item.id === folderId);
-	if (existingIndex >= 0) {
-		return breadcrumb.slice(0, existingIndex + 1);
+	ancestors: FolderAncestorItem[],
+): ShareBreadcrumbItem[] {
+	if (ancestors.at(-1)?.id !== folderId) {
+		throw new Error("shared folder ancestor chain does not match the route");
 	}
-	return [...breadcrumb, { id: folderId, name: folderName ?? "" }];
+	return [
+		{ id: null, name: rootName },
+		...ancestors.map((ancestor) => ({
+			id: ancestor.id,
+			name: ancestor.name,
+		})),
+	];
+}
+
+async function loadSharedFolderLocation({
+	token,
+	rootName,
+	folderId,
+	params,
+}: {
+	token: string;
+	rootName: string;
+	folderId: number | null;
+	params: FolderListParams;
+}): Promise<SharedFolderLocation> {
+	if (folderId === null) {
+		return {
+			breadcrumb: [{ id: null, name: rootName }],
+			folderContents: await shareService.listContent(token, params),
+		};
+	}
+
+	const [folderContents, ancestors] = await Promise.all([
+		shareService.listSubfolderContent(token, folderId, params),
+		shareService.getSubfolderAncestors(token, folderId),
+	]);
+	return {
+		breadcrumb: breadcrumbForSharedFolder(rootName, folderId, ancestors),
+		folderContents,
+	};
 }
 
 function errorMessageForShareLoad(error: unknown, t: (key: string) => string) {
@@ -233,11 +295,22 @@ function errorMessageForShareLoad(error: unknown, t: (key: string) => string) {
 	return t("share:failed_to_load_share");
 }
 
+function isSharePasswordRequired(error: unknown) {
+	return (
+		error instanceof ApiError &&
+		error.code === ApiErrorCode.SharePasswordRequired
+	);
+}
+
 export function useShareViewPageController({
 	token,
+	requestedFolderId = null,
+	enabled = true,
 	t,
 }: {
 	token?: string;
+	requestedFolderId?: number | null;
+	enabled?: boolean;
 	t: (key: string) => string;
 }) {
 	const previewAppsLoaded = usePreviewAppStore((state) => state.isLoaded);
@@ -246,8 +319,10 @@ export function useShareViewPageController({
 	const [state, dispatch] = useReducer(shareViewReducer, initialShareViewState);
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const loadingMoreCursorKeyRef = useRef<string | null>(null);
-	const currentFolderId =
-		state.breadcrumb[state.breadcrumb.length - 1]?.id ?? null;
+	const locationRequestIdRef = useRef(0);
+	const sortRef = useRef({ sortBy: state.sortBy, sortOrder: state.sortOrder });
+	sortRef.current = { sortBy: state.sortBy, sortOrder: state.sortOrder };
+	const currentFolderId = requestedFolderId;
 	const nextFileCursor = state.folderContents?.next_file_cursor ?? null;
 	const nextFileCursorKey =
 		token && nextFileCursor
@@ -265,26 +340,54 @@ export function useShareViewPageController({
 	}, [nextFileCursorKey]);
 
 	const loadInfo = useCallback(async () => {
-		if (!token) return;
+		if (!enabled || !token) return;
+		const requestId = ++locationRequestIdRef.current;
+		loadingMoreCursorKeyRef.current = null;
 		dispatch({ type: "loadStart" });
 		try {
 			const data = await shareService.getInfo(token);
-			const folderContents =
-				data.share_type === "folder" && !data.has_password
-					? await shareService.listContent(token, sharePageParams)
-					: null;
+			if (data.share_type !== "folder" && requestedFolderId !== null) {
+				if (requestId === locationRequestIdRef.current) {
+					dispatch({ type: "loadError", error: t("errors:folder_not_found") });
+				}
+				return;
+			}
+			let location: SharedFolderLocation | null = null;
+			let passwordVerified = !data.has_password;
+			if (data.share_type === "folder") {
+				try {
+					location = await loadSharedFolderLocation({
+						token,
+						rootName: data.name,
+						folderId: requestedFolderId,
+						params: shareFolderListParams(
+							sortRef.current.sortBy,
+							sortRef.current.sortOrder,
+						),
+					});
+					passwordVerified = true;
+				} catch (error) {
+					if (!data.has_password || !isSharePasswordRequired(error)) {
+						throw error;
+					}
+				}
+			}
+			if (requestId !== locationRequestIdRef.current) return;
 			dispatch({
 				type: "loadSuccess",
 				info: data,
-				folderContents,
+				folderContents: location?.folderContents ?? null,
+				breadcrumb: location?.breadcrumb ?? [],
+				passwordVerified,
 			});
 		} catch (error) {
+			if (requestId !== locationRequestIdRef.current) return;
 			dispatch({
 				type: "loadError",
 				error: errorMessageForShareLoad(error, t),
 			});
 		}
-	}, [token, t]);
+	}, [enabled, requestedFolderId, token, t]);
 
 	useEffect(() => {
 		void loadInfo().catch(() => {});
@@ -295,31 +398,65 @@ export function useShareViewPageController({
 		void loadPreviewApps();
 	}, [loadPreviewApps, previewAppsLoaded]);
 
-	const navigateToFolder = useCallback(
-		async (folderId: number | null, folderName?: string) => {
-			if (!token) return;
+	const refreshFolder = useCallback(async () => {
+		if (!token || !state.info || state.info.share_type !== "folder") return;
+		const requestId = ++locationRequestIdRef.current;
+		dispatch({ type: "navigateStart" });
+		try {
+			const location = await loadSharedFolderLocation({
+				token,
+				rootName: state.info.name,
+				folderId: currentFolderId,
+				params: shareFolderListParams(state.sortBy, state.sortOrder),
+			});
+			if (requestId !== locationRequestIdRef.current) return;
+			dispatch({
+				type: "navigateSuccess",
+				folderContents: location.folderContents,
+				breadcrumb: location.breadcrumb,
+			});
+		} catch (error) {
+			if (requestId !== locationRequestIdRef.current) return;
+			handleApiError(error);
+			dispatch({ type: "navigateEnd" });
+		}
+	}, [currentFolderId, state.info, state.sortBy, state.sortOrder, token]);
+
+	const updateSort = useCallback(
+		async (sortBy: SortBy, sortOrder: SortOrder) => {
+			if (
+				!token ||
+				(sortBy === state.sortBy && sortOrder === state.sortOrder)
+			) {
+				return;
+			}
+
+			const requestId = ++locationRequestIdRef.current;
 			dispatch({ type: "navigateStart" });
 			try {
+				const params = shareFolderListParams(sortBy, sortOrder);
 				const contents =
-					folderId === null
-						? await shareService.listContent(token, sharePageParams)
+					currentFolderId === null
+						? await shareService.listContent(token, params)
 						: await shareService.listSubfolderContent(
 								token,
-								folderId,
-								sharePageParams,
+								currentFolderId,
+								params,
 							);
+				if (requestId !== locationRequestIdRef.current) return;
 				dispatch({
-					type: "navigateSuccess",
+					type: "sortSuccess",
 					folderContents: contents,
-					folderId,
-					folderName,
+					sortBy,
+					sortOrder,
 				});
 			} catch (error) {
+				if (requestId !== locationRequestIdRef.current) return;
 				handleApiError(error);
 				dispatch({ type: "navigateEnd" });
 			}
 		},
-		[token],
+		[currentFolderId, state.sortBy, state.sortOrder, token],
 	);
 
 	const loadMoreShareFiles = useCallback(async () => {
@@ -332,18 +469,23 @@ export function useShareViewPageController({
 		try {
 			const contents =
 				currentFolderId === null
-					? await shareService.listContent(token, {
-							folder_limit: 0,
-							file_limit: SHARE_PAGE_SIZE,
-							file_after_value: nextFileCursor.value,
-							file_after_id: nextFileCursor.id,
-						})
+					? await shareService.listContent(
+							token,
+							shareFolderListParams(state.sortBy, state.sortOrder, {
+								folder_limit: 0,
+								file_limit: SHARE_PAGE_SIZE,
+								file_after_value: nextFileCursor.value,
+								file_after_id: nextFileCursor.id,
+							}),
+						)
 					: await shareService.listSubfolderContent(token, currentFolderId, {
+							...shareFolderListParams(state.sortBy, state.sortOrder),
 							folder_limit: 0,
 							file_limit: SHARE_PAGE_SIZE,
 							file_after_value: nextFileCursor.value,
 							file_after_id: nextFileCursor.id,
 						});
+			if (loadingMoreCursorKeyRef.current !== nextFileCursorKey) return;
 			dispatch({ type: "loadMoreSuccess", folderContents: contents });
 		} catch (error) {
 			if (loadingMoreCursorKeyRef.current === nextFileCursorKey) {
@@ -357,6 +499,8 @@ export function useShareViewPageController({
 		nextFileCursor,
 		nextFileCursorKey,
 		state.loadingMore,
+		state.sortBy,
+		state.sortOrder,
 		token,
 	]);
 
@@ -383,19 +527,49 @@ export function useShareViewPageController({
 		async (event: FormEvent) => {
 			event.preventDefault();
 			if (!token) return;
+			const requestId = ++locationRequestIdRef.current;
 			try {
 				await shareService.verifyPassword(token, { password: state.password });
-				toast.success(t("share:password_verified"));
-				const folderContents =
-					state.info?.share_type === "folder"
-						? await shareService.listContent(token, sharePageParams)
-						: null;
-				dispatch({ type: "passwordVerified", folderContents });
 			} catch (error) {
+				if (requestId !== locationRequestIdRef.current) return;
 				handleApiError(error);
+				return;
+			}
+
+			toast.success(t("share:password_verified"));
+			try {
+				const location =
+					state.info?.share_type === "folder"
+						? await loadSharedFolderLocation({
+								token,
+								rootName: state.info.name,
+								folderId: currentFolderId,
+								params: shareFolderListParams(state.sortBy, state.sortOrder),
+							})
+						: null;
+				if (requestId !== locationRequestIdRef.current) return;
+				dispatch({
+					type: "passwordVerified",
+					folderContents: location?.folderContents ?? null,
+					breadcrumb: location?.breadcrumb ?? [],
+				});
+			} catch (error) {
+				if (requestId !== locationRequestIdRef.current) return;
+				dispatch({
+					type: "loadError",
+					error: errorMessageForShareLoad(error, t),
+				});
 			}
 		},
-		[state.info, state.password, token, t],
+		[
+			currentFolderId,
+			state.info,
+			state.password,
+			state.sortBy,
+			state.sortOrder,
+			token,
+			t,
+		],
 	);
 
 	const handleDownload = useCallback(() => {
@@ -462,7 +636,13 @@ export function useShareViewPageController({
 		handleFolderFileDownload,
 		handlePreviewFile,
 		handleVerifyPassword,
-		navigateToFolder,
+		refreshFolder,
+		setSortBy: (sortBy: SortBy) => {
+			void updateSort(sortBy, state.sortOrder);
+		},
+		setSortOrder: (sortOrder: SortOrder) => {
+			void updateSort(state.sortBy, sortOrder);
+		},
 		setPassword: (password: string) =>
 			dispatch({ type: "setPassword", password }),
 		setPreviewFile: (file: FileInfo | FileListItem | null) =>

@@ -165,7 +165,7 @@ describe("fileBrowserItemActionResolver", () => {
 		expect(handlers.onInfo).toHaveBeenCalledWith("folder", 3);
 	});
 
-	it("limits read-only folder actions to folder open", () => {
+	it("limits read-only folder actions to open and archive download", () => {
 		const handlers = createHandlers();
 		const props = resolveFileBrowserItemMenuProps({
 			handlers,
@@ -176,10 +176,12 @@ describe("fileBrowserItemActionResolver", () => {
 		});
 
 		props.onOpen?.();
+		props.onArchiveDownload?.();
 
 		expect(props.isLocked).toBe(false);
 		expect(props.onDelete).toBeUndefined();
 		expect(handlers.onFolderOpen).toHaveBeenCalledWith(3, "Docs");
+		expect(handlers.onArchiveDownload).toHaveBeenCalledWith(3);
 		expect(handlers.onDelete).not.toHaveBeenCalled();
 	});
 

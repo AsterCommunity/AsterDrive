@@ -129,7 +129,7 @@ const FolderGridCard = memo(function FolderGridCard({
 		/>
 	);
 
-	if (readOnly) return card;
+	if (readOnly && !selectionEnabled) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={folder} isFolder>
@@ -200,7 +200,7 @@ const FileGridCard = memo(function FileGridCard({
 		/>
 	);
 
-	if (readOnly) return card;
+	if (readOnly && !selectionEnabled) return card;
 
 	return (
 		<FileBrowserItemContextMenu item={file} isFolder={false}>

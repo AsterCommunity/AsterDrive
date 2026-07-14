@@ -2697,6 +2697,22 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/s/{token}/folders/{folder_id}/ancestors": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get: operations["get_shared_subfolder_ancestors"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/s/{token}/folders/{folder_id}/content": {
         parameters: {
             query?: never;
@@ -20196,6 +20212,54 @@ export interface operations {
             };
             /** @description Unexpected thumbnail generation failure */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    get_shared_subfolder_ancestors: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Share token */
+                token: string;
+                /** @description Subfolder ID inside shared folder */
+                folder_id: number;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Folder ancestors relative to the shared root */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        code: components["schemas"]["ApiErrorCode"];
+                        data?: {
+                            /** Format: int64 */
+                            id: number;
+                            name: string;
+                        }[];
+                        error?: null | components["schemas"]["ApiErrorInfo"];
+                        msg: string;
+                    };
+                };
+            };
+            /** @description Password required or folder outside shared scope */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Share or folder not found */
+            404: {
                 headers: {
                     [name: string]: unknown;
                 };

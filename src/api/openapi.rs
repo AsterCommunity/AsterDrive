@@ -395,6 +395,7 @@ use utoipa::{Modify, OpenApi};
         crate::api::routes::share_public::create_folder_file_stream_session,
         crate::api::routes::share_public::list_shared_content,
         crate::api::routes::share_public::list_shared_subfolder_content,
+        crate::api::routes::share_public::get_shared_subfolder_ancestors,
         crate::api::routes::share_public::shared_avatar,
         crate::api::routes::share_public::shared_thumbnail,
         crate::api::routes::share_public::shared_image_preview,

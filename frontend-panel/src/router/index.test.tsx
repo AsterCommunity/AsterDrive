@@ -259,6 +259,16 @@ describe("router", () => {
 		).toBe(true);
 	});
 
+	it("registers root and canonical subfolder routes for public folder shares", async () => {
+		const routes = (await loadRoutes()) as TestRoute[];
+		const allRoutes = flattenRoutes(routes);
+
+		expect(allRoutes.some((route) => route.path === "/s/:token")).toBe(true);
+		expect(
+			allRoutes.some((route) => route.path === "/s/:token/folder/:folderId"),
+		).toBe(true);
+	});
+
 	it("loads deferred i18n namespaces before localized lazy route pages", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const allRoutes = flattenRoutes(routes);
@@ -277,6 +287,10 @@ describe("router", () => {
 			},
 			{
 				path: "/s/:token",
+				namespaces: ["core", "share", "files", "tasks", "errors"],
+			},
+			{
+				path: "/s/:token/folder/:folderId",
 				namespaces: ["core", "share", "files", "tasks", "errors"],
 			},
 			{

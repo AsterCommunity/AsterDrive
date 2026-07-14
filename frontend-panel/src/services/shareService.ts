@@ -8,6 +8,7 @@ import type {
 	BatchDeleteSharesRequest,
 	BatchResult,
 	CreateShareRequest,
+	FolderAncestorItem,
 	FolderContents,
 	FolderListParams,
 	MediaMetadataInfo,
@@ -75,6 +76,9 @@ export function createShareService(workspace: Workspace) {
 			api.post<void>(`/s/${token}/verify`, data),
 
 		pagePath: (token: string) => `/s/${token}`,
+
+		folderPagePath: (token: string, folderId: number) =>
+			`/s/${token}/folder/${folderId}`,
 
 		pageUrl: (token: string) => absoluteAppUrl(`/s/${token}`),
 
@@ -171,6 +175,11 @@ export function createShareService(workspace: Workspace) {
 			api.get<FolderContents>(`/s/${token}/folders/${folderId}/content`, {
 				params,
 			}),
+
+		getSubfolderAncestors: (token: string, folderId: number) =>
+			api.get<FolderAncestorItem[]>(
+				`/s/${token}/folders/${folderId}/ancestors`,
+			),
 	};
 }
 

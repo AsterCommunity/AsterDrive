@@ -116,6 +116,12 @@ const errorElement = (
 	</Suspense>
 );
 
+const shareViewElement = (
+	<Suspense fallback={<Loading />}>
+		<ShareViewPage />
+	</Suspense>
+);
+
 export const router = createBrowserRouter([
 	{
 		element: <LoginGuard />,
@@ -201,11 +207,12 @@ export const router = createBrowserRouter([
 		// Public share page — no auth required
 		path: "/s/:token",
 		errorElement,
-		element: (
-			<Suspense fallback={<Loading />}>
-				<ShareViewPage />
-			</Suspense>
-		),
+		element: shareViewElement,
+	},
+	{
+		path: "/s/:token/folder/:folderId",
+		errorElement,
+		element: shareViewElement,
 	},
 	{
 		element: <AdminRoute />,

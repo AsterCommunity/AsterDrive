@@ -213,6 +213,10 @@ pub fn routes(
             "/{token}/folders/{folder_id}/content",
             web::get().to(list_shared_subfolder_content),
         )
+        .route(
+            "/{token}/folders/{folder_id}/ancestors",
+            web::get().to(get_shared_subfolder_ancestors),
+        )
         .route("/{token}/thumbnail", web::get().to(shared_thumbnail))
         .route(
             "/{token}/media-metadata",
@@ -851,6 +855,34 @@ pub async fn list_shared_subfolder_content(
     let contents =
         share::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/s/{token}/folders/{folder_id}/ancestors",
+    tag = "shares",
+    operation_id = "get_shared_subfolder_ancestors",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("folder_id" = i64, Path, description = "Subfolder ID inside shared folder"),
+    ),
+    responses(
+        (status = 200, description = "Folder ancestors relative to the shared root", body = inline(ApiResponse<Vec<crate::services::files::folder::FolderAncestorItem>>)),
+        (status = 403, description = "Password required or folder outside shared scope"),
+        (status = 404, description = "Share or folder not found"),
+    ),
+)]
+pub async fn get_shared_subfolder_ancestors(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, i64)>,
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse> {
+    let (token, folder_id) = path.into_inner();
+    check_share_cookie(state.get_ref(), &req, &token).await?;
+
+    let ancestors =
+        share::get_shared_subfolder_ancestors(state.get_ref(), &token, folder_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(ancestors)))
 }
 
 #[aster_forge_api_docs_macros::path(

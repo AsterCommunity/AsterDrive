@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
 	getImagePreviewNavigation,
 	type ImagePreviewNavigation,
@@ -213,8 +213,19 @@ export function SharePreviewElement({
 
 export default function ShareViewPage() {
 	const { t } = useTranslation(["core", "share", "files", "errors"]);
-	const { token } = useParams<{ token: string }>();
-	const controller = useShareViewPageController({ token, t });
+	const { token, folderId: folderIdParam } = useParams<{
+		token: string;
+		folderId?: string;
+	}>();
+	const navigate = useNavigate();
+	const requestedFolderId = parseShareFolderRoute(folderIdParam);
+	const invalidFolderRoute = requestedFolderId === undefined;
+	const controller = useShareViewPageController({
+		token,
+		requestedFolderId: requestedFolderId ?? null,
+		enabled: !invalidFolderRoute,
+		t,
+	});
 	const thumbnailSupport = useThumbnailSupportStore((state) => state.config);
 	const thumbnailSupportLoaded = useThumbnailSupportStore(
 		(state) => state.isLoaded,
@@ -224,6 +235,17 @@ export default function ShareViewPage() {
 	const closePreview = useCallback(() => {
 		controller.setPreviewFile(null);
 	}, [controller]);
+	const navigateToFolder = useCallback(
+		(folderId: number | null) => {
+			if (!token) return;
+			navigate(
+				folderId === null
+					? shareService.pagePath(token)
+					: shareService.folderPagePath(token, folderId),
+			);
+		},
+		[navigate, token],
+	);
 
 	useEffect(() => {
 		if (thumbnailSupportLoaded) return;
@@ -245,6 +267,16 @@ export default function ShareViewPage() {
 			thumbnailSupport,
 		],
 	);
+
+	if (invalidFolderRoute) {
+		return (
+			<ShareCenteredPanel
+				icon="Warning"
+				title={t("unavailable")}
+				description={t("errors:folder_not_found")}
+			/>
+		);
+	}
 
 	if (controller.loading) {
 		return <ShareLoadingSkeleton />;
@@ -345,13 +377,28 @@ export default function ShareViewPage() {
 			navigating={controller.navigating}
 			previewElement={previewElement}
 			sentinelRef={controller.sentinelRef}
+			selectionShortcutsEnabled={controller.previewFile === null}
 			shareOwnerText={shareOwnerText}
+			sortBy={controller.sortBy}
+			sortOrder={controller.sortOrder}
 			token={token}
 			viewMode={controller.viewMode}
 			onFileDownload={controller.handleFolderFileDownload}
 			onFilePreview={controller.handlePreviewFile}
-			onNavigateToFolder={controller.navigateToFolder}
+			onNavigateToFolder={navigateToFolder}
+			onRefresh={controller.refreshFolder}
+			onSortByChange={controller.setSortBy}
+			onSortOrderChange={controller.setSortOrder}
 			onViewModeChange={controller.setViewMode}
 		/>
 	);
+}
+
+export function parseShareFolderRoute(
+	folderId?: string,
+): number | null | undefined {
+	if (folderId === undefined) return null;
+	if (!/^[1-9]\d*$/.test(folderId)) return undefined;
+	const value = Number(folderId);
+	return Number.isSafeInteger(value) ? value : undefined;
 }

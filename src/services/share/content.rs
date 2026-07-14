@@ -1,8 +1,9 @@
 //! 分享服务子模块：`content`。
 
-use crate::db::repository::{file_repo, share_repo};
+use crate::api::api_error_code::ApiErrorCode;
+use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::entities::{file, share};
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
 use crate::services::files::file::ResolvedDownloadRange;
@@ -584,6 +585,46 @@ pub async fn list_shared_subfolder(
         "listed shared subfolder"
     );
     Ok(contents)
+}
+
+/// 返回目标目录相对于分享根目录的路径链。
+///
+/// 公开分享不能直接复用登录态 ancestors 响应：目标目录在所属 workspace 中
+/// 可能还有分享根以上的私人父目录。这里先通过 `load_shared_subfolder_target`
+/// 验证目标位于分享子树内，再把分享根及其上方全部裁掉，只返回分享根下面的
+/// 子目录链（包含目标目录本身）。
+pub async fn get_shared_subfolder_ancestors(
+    state: &impl SharedRuntimeState,
+    token: &str,
+    folder_id: i64,
+) -> Result<Vec<folder::FolderAncestorItem>> {
+    let (share, target) = load_shared_subfolder_target(state, token, folder_id).await?;
+    let root_folder_id = share
+        .folder_id
+        .ok_or_else(|| AsterError::share_not_found("folder share root is missing"))?;
+    let ancestors = if let Some(team_id) = share.team_id {
+        folder_repo::find_team_ancestor_models(state.reader_db(), team_id, target.id).await?
+    } else {
+        folder_repo::find_ancestor_models(state.reader_db(), share.user_id, target.id).await?
+    };
+    let root_index = ancestors
+        .iter()
+        .position(|ancestor| ancestor.id == root_folder_id)
+        .ok_or_else(|| {
+            auth_forbidden_with_code(
+                ApiErrorCode::ShareScopeDenied,
+                "folder ancestor chain is outside shared folder scope",
+            )
+        })?;
+
+    Ok(ancestors
+        .into_iter()
+        .skip(root_index.saturating_add(1))
+        .map(|ancestor| folder::FolderAncestorItem {
+            id: ancestor.id,
+            name: ancestor.name,
+        })
+        .collect())
 }
 
 async fn download_share_resource_with_disposition(
