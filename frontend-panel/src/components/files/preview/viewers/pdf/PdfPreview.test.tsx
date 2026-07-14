@@ -11,6 +11,7 @@ const mockState = vi.hoisted(() => ({
 	useBlobUrl: vi.fn(),
 	virtualCount: 0,
 	virtualOverscan: 0,
+	estimatedSizes: [] as number[],
 	virtualItems: [] as {
 		key: number;
 		index: number;
@@ -19,8 +20,10 @@ const mockState = vi.hoisted(() => ({
 		size: number;
 	}[],
 	measureElement: vi.fn(),
+	measure: vi.fn(),
 	scrollToIndex: vi.fn(),
 	getTotalSize: vi.fn(() => 0),
+	virtualizerInstance: null as Record<string, unknown> | null,
 }));
 
 vi.mock("react-i18next", () => ({
@@ -36,33 +39,41 @@ vi.mock("@tanstack/react-virtual", () => ({
 	useVirtualizer: (options: {
 		count: number;
 		overscan?: number;
-		estimateSize: () => number;
+		estimateSize: (index: number) => number;
 	}) => {
 		mockState.virtualCount = options.count;
 		mockState.virtualOverscan = options.overscan ?? 0;
+		mockState.estimatedSizes = Array.from(
+			{ length: options.count },
+			(_, index) => options.estimateSize(index),
+		);
+		let nextStart = 0;
 		mockState.virtualItems = Array.from(
 			{ length: Math.min(options.count, 7) },
 			(_, index) => {
-				const size = options.estimateSize();
+				const size = mockState.estimatedSizes[index];
+				const start = nextStart;
+				nextStart += size;
 				return {
 					key: index + 1,
 					index,
-					start: index * size,
-					end: (index + 1) * size,
+					start,
+					end: nextStart,
 					size,
 				};
 			},
 		);
-		mockState.getTotalSize.mockImplementation(
-			() => options.count * options.estimateSize(),
+		mockState.getTotalSize.mockImplementation(() =>
+			mockState.estimatedSizes.reduce((total, size) => total + size, 0),
 		);
-		return {
+		mockState.virtualizerInstance ??= {
 			getVirtualItems: () => mockState.virtualItems,
 			getTotalSize: mockState.getTotalSize,
-			measure: vi.fn(),
+			measure: mockState.measure,
 			measureElement: mockState.measureElement,
 			scrollToIndex: mockState.scrollToIndex,
 		};
+		return mockState.virtualizerInstance;
 	},
 }));
 
@@ -141,6 +152,32 @@ const workspaceResource = derivedFileResource("/files/1/download", {
 	scope: "personal",
 });
 
+interface MockPdfPageSize {
+	width: number;
+	height: number;
+}
+
+function createLoadedDocument(pageSizes: MockPdfPageSize[]) {
+	return {
+		numPages: pageSizes.length,
+		getPage: vi.fn(async (pageNumber: number) => ({
+			getViewport: vi.fn(() => pageSizes[pageNumber - 1]),
+		})),
+	};
+}
+
+async function loadDocument(pageSizes: MockPdfPageSize[]) {
+	const onDocumentLoadSuccess = mockState.documentProps?.onLoadSuccess;
+	if (typeof onDocumentLoadSuccess !== "function") {
+		throw new Error("document load handler was not registered");
+	}
+	const loadedDocument = createLoadedDocument(pageSizes);
+	await act(async () => {
+		await onDocumentLoadSuccess(loadedDocument);
+	});
+	return loadedDocument;
+}
+
 describe("PdfPreview", () => {
 	beforeEach(() => {
 		mockState.documentProps = null;
@@ -157,11 +194,14 @@ describe("PdfPreview", () => {
 		});
 		mockState.virtualCount = 0;
 		mockState.virtualOverscan = 0;
+		mockState.estimatedSizes = [];
 		mockState.virtualItems = [];
 		mockState.measureElement.mockClear();
+		mockState.measure.mockClear();
 		mockState.scrollToIndex.mockClear();
 		mockState.getTotalSize.mockClear();
 		mockState.getTotalSize.mockReturnValue(0);
+		mockState.virtualizerInstance = null;
 		vi.spyOn(window, "open").mockImplementation(() => null);
 	});
 
@@ -193,22 +233,19 @@ describe("PdfPreview", () => {
 		expect(mockState.documentProps?.file).toBe(mockState.documentBlob);
 	});
 
-	it("renders only the virtualized page window for long documents", () => {
+	it("renders only the virtualized page window for long documents", async () => {
 		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
 
-		const onDocumentLoadSuccess = mockState.documentProps?.onLoadSuccess;
-		if (typeof onDocumentLoadSuccess !== "function") {
-			throw new Error("document load handler was not registered");
-		}
-		act(() => {
-			onDocumentLoadSuccess({ numPages: 100 });
-		});
+		const loadedDocument = await loadDocument(
+			Array.from({ length: 100 }, () => ({ width: 600, height: 800 })),
+		);
 
 		expect(screen.getByTestId("pdf-page-1")).toBeInTheDocument();
 		expect(screen.getByTestId("pdf-page-7")).toBeInTheDocument();
 		expect(screen.queryByTestId("pdf-page-8")).not.toBeInTheDocument();
 		expect(mockState.virtualCount).toBe(100);
 		expect(mockState.virtualOverscan).toBe(3);
+		expect(loadedDocument.getPage).toHaveBeenCalledTimes(100);
 		expect(mockState.pageProps).toHaveLength(7);
 		expect(mockState.pageProps[0]).toMatchObject({
 			pageNumber: 1,
@@ -219,6 +256,50 @@ describe("PdfPreview", () => {
 		).toHaveStyle({
 			minWidth: "800px",
 		});
+	});
+
+	it("uses every page size before exposing the virtual scrollbar", async () => {
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
+
+		await loadDocument([
+			{ width: 600, height: 800 },
+			{ width: 1200, height: 800 },
+			{ width: 600, height: 800 },
+		]);
+
+		expect(mockState.estimatedSizes).toEqual([1079, 546, 1079]);
+		expect(mockState.getTotalSize()).toBe(2704);
+		expect(
+			screen.getByTestId("pdf-page-2").parentElement?.parentElement,
+		).toHaveStyle({ height: "546px" });
+		expect(mockState.measureElement).not.toHaveBeenCalled();
+	});
+
+	it("keeps measured page sizes while the current page changes", async () => {
+		render(<PdfPreview resource={apiResource} fileName="manual.pdf" />);
+
+		await loadDocument(
+			Array.from({ length: 11 }, (_, index) =>
+				index === 0 || index === 10
+					? { width: 600, height: 800 }
+					: { width: 1200, height: 800 },
+			),
+		);
+		const measureCallsAfterLoad = mockState.measure.mock.calls.length;
+
+		fireEvent.click(screen.getByLabelText("pdf_next_page"));
+
+		expect(mockState.scrollToIndex).toHaveBeenLastCalledWith(1, {
+			align: "start",
+			behavior: "smooth",
+		});
+		expect(mockState.measure).toHaveBeenCalledTimes(measureCallsAfterLoad);
+
+		fireEvent.click(screen.getByLabelText("pdf_rotate_right"));
+
+		expect(mockState.measure.mock.calls.length).toBeGreaterThan(
+			measureCallsAfterLoad,
+		);
 	});
 
 	it("opens and downloads the loaded blob URL", () => {

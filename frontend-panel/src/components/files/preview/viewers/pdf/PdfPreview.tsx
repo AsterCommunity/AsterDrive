@@ -54,6 +54,7 @@ const DEFAULT_PAGE_WIDTH = 800;
 const DEFAULT_PAGE_HEIGHT = 1100;
 const PAGE_GAP = 12;
 const VIRTUAL_PAGE_OVERSCAN = 3;
+const PAGE_SIZE_LOAD_CONCURRENCY = 8;
 
 type LoadedDocument = Parameters<
 	NonNullable<ComponentProps<typeof Document>["onLoadSuccess"]>
@@ -61,6 +62,46 @@ type LoadedDocument = Parameters<
 type LoadedPage = Parameters<
 	NonNullable<ComponentProps<typeof Page>["onLoadSuccess"]>
 >[0];
+
+interface PdfPageSize {
+	width: number;
+	height: number;
+}
+
+async function loadPdfPageSizes(
+	pdf: LoadedDocument,
+	shouldCancel: () => boolean,
+) {
+	const pageSizes: Array<PdfPageSize | null> = Array.from(
+		{ length: pdf.numPages },
+		() => null,
+	);
+	let nextPageIndex = 0;
+	const workerCount = Math.min(PAGE_SIZE_LOAD_CONCURRENCY, pdf.numPages);
+
+	await Promise.all(
+		Array.from({ length: workerCount }, async () => {
+			while (!shouldCancel() && nextPageIndex < pdf.numPages) {
+				const pageIndex = nextPageIndex;
+				nextPageIndex += 1;
+				try {
+					const page = await pdf.getPage(pageIndex + 1);
+					const viewport = page.getViewport({ scale: 1, rotation: 0 });
+					if (viewport.width > 0 && viewport.height > 0) {
+						pageSizes[pageIndex] = {
+							width: viewport.width,
+							height: viewport.height,
+						};
+					}
+				} catch {
+					// Keep the fallback estimate for malformed page metadata.
+				}
+			}
+		}),
+	);
+
+	return pageSizes;
+}
 
 interface PdfPreviewProps {
 	resource: ResourcePath;
@@ -89,13 +130,14 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	const [zoomPercent, setZoomPercent] = useState(100);
 	const [fitWidth, setFitWidth] = useState(true);
 	const [rotation, setRotation] = useState(0);
-	const [pageSize, setPageSize] = useState<{
-		width: number;
-		height: number;
-	} | null>(null);
+	const [pageSize, setPageSize] = useState<PdfPageSize | null>(null);
+	const [pageSizes, setPageSizes] = useState<Array<PdfPageSize | null> | null>(
+		null,
+	);
 	const [viewerWidth, setViewerWidth] = useState(0);
 	const pageInputComposingRef = useRef(false);
 	const pageInputCompositionEndAtRef = useRef(0);
+	const pageSizeLoadVersionRef = useRef(0);
 	const scrollContainerRef = useRef<HTMLDivElement | null>(null);
 	const scrollFrameRef = useRef<number | null>(null);
 
@@ -114,10 +156,6 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 	const basePageWidth = useMemo(() => {
 		if (!pageSize) return null;
 		return rotation % 180 === 0 ? pageSize.width : pageSize.height;
-	}, [pageSize, rotation]);
-	const basePageHeight = useMemo(() => {
-		if (!pageSize) return null;
-		return rotation % 180 === 0 ? pageSize.height : pageSize.width;
 	}, [pageSize, rotation]);
 
 	const renderedPageWidth = useMemo(() => {
@@ -141,24 +179,36 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		if (!basePageWidth) return clampZoom(zoomPercent);
 		return clampZoom(Math.round((renderedPageWidth / basePageWidth) * 100));
 	}, [basePageWidth, clampZoom, renderedPageWidth, zoomPercent]);
-	const viewerLayoutVersion = `${renderedPageWidth}:${rotation}`;
-	const estimatedPageHeight = useMemo(() => {
-		const pageWidth = basePageWidth ?? DEFAULT_PAGE_WIDTH;
-		const pageHeight = basePageHeight ?? DEFAULT_PAGE_HEIGHT;
-		return Math.ceil((pageHeight * renderedPageWidth) / pageWidth) + PAGE_GAP;
-	}, [basePageHeight, basePageWidth, renderedPageWidth]);
+	const estimatePageHeight = useCallback(
+		(index: number) => {
+			const indexedPageSize = pageSizes?.[index] ?? pageSize;
+			const pageWidth = indexedPageSize?.width ?? DEFAULT_PAGE_WIDTH;
+			const pageHeight = indexedPageSize?.height ?? DEFAULT_PAGE_HEIGHT;
+			const rotatedPageWidth = rotation % 180 === 0 ? pageWidth : pageHeight;
+			const rotatedPageHeight = rotation % 180 === 0 ? pageHeight : pageWidth;
+			return (
+				Math.ceil((rotatedPageHeight * renderedPageWidth) / rotatedPageWidth) +
+				PAGE_GAP
+			);
+		},
+		[pageSize, pageSizes, renderedPageWidth, rotation],
+	);
 
 	const virtualizer = useVirtualizer({
 		count: numPages ?? 0,
 		getScrollElement: () => scrollContainerRef.current,
-		estimateSize: () => estimatedPageHeight,
+		estimateSize: estimatePageHeight,
 		getItemKey: (index) => index + 1,
 		overscan: VIRTUAL_PAGE_OVERSCAN,
 	});
 
 	const onDocumentLoadSuccess = useCallback(
-		({ numPages: n }: LoadedDocument) => {
+		async (pdf: LoadedDocument) => {
+			const loadVersion = pageSizeLoadVersionRef.current + 1;
+			pageSizeLoadVersionRef.current = loadVersion;
+			const n = pdf.numPages;
 			setNumPages(n);
+			setPageSizes(null);
 			setPdfError(false);
 			setCurrentPage(1);
 			setPageInputValue("1");
@@ -166,12 +216,29 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 				scrollContainerRef.current.scrollTop = 0;
 			}
 			virtualizer.scrollToIndex(0, { align: "start" });
+
+			const loadedPageSizes = await loadPdfPageSizes(
+				pdf,
+				() => pageSizeLoadVersionRef.current !== loadVersion,
+			);
+			if (pageSizeLoadVersionRef.current !== loadVersion) return;
+			setPageSizes(loadedPageSizes);
+			setPageSize(
+				loadedPageSizes[0] ??
+					loadedPageSizes.find(
+						(loadedPageSize): loadedPageSize is PdfPageSize =>
+							loadedPageSize !== null,
+					) ??
+					null,
+			);
 		},
 		[virtualizer],
 	);
 
 	const onDocumentLoadError = useCallback(() => {
+		pageSizeLoadVersionRef.current += 1;
 		setNumPages(null);
+		setPageSizes(null);
 		setPdfError(true);
 	}, []);
 
@@ -197,10 +264,11 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		if (!container || !numPages) return;
 
 		const virtualPages = virtualizer.getVirtualItems();
-		if (virtualPages.length === 0) return;
+		const firstVirtualPage = virtualPages[0];
+		if (!firstVirtualPage) return;
 
 		const viewportMidpoint = container.scrollTop + container.clientHeight / 2;
-		let closestPage = currentPage;
+		let closestPage = firstVirtualPage.index + 1;
 		let closestDistance = Number.POSITIVE_INFINITY;
 
 		for (const virtualPage of virtualPages) {
@@ -215,7 +283,7 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		setCurrentPage((previousPage) =>
 			previousPage === closestPage ? previousPage : closestPage,
 		);
-	}, [currentPage, numPages, virtualizer]);
+	}, [numPages, virtualizer]);
 
 	const schedulePageSync = useCallback(() => {
 		if (scrollFrameRef.current !== null) return;
@@ -323,7 +391,9 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 		setFitWidth(true);
 		setRotation(0);
 		setPageSize(null);
+		setPageSizes(null);
 		setReloadKey(0);
+		pageSizeLoadVersionRef.current += 1;
 		if (scrollContainerRef.current) {
 			setViewerWidth(scrollContainerRef.current.clientWidth);
 			scrollContainerRef.current.scrollTop = 0;
@@ -358,15 +428,20 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 
 	useEffect(() => {
 		if (!numPages) return;
+		void estimatePageHeight;
 		virtualizer.measure();
+	}, [estimatePageHeight, numPages, virtualizer]);
+
+	useEffect(() => {
+		if (!numPages) return;
+		void estimatePageHeight;
 		const frame = window.requestAnimationFrame(() => {
-			void viewerLayoutVersion;
 			syncCurrentPageFromScroll();
 		});
 		return () => {
 			window.cancelAnimationFrame(frame);
 		};
-	}, [numPages, syncCurrentPageFromScroll, viewerLayoutVersion, virtualizer]);
+	}, [estimatePageHeight, numPages, syncCurrentPageFromScroll]);
 
 	useEffect(() => {
 		const scrollFrame = scrollFrameRef;
@@ -605,24 +680,29 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 								</div>
 							}
 						>
-							{numPages !== null && (
+							{numPages !== null && pageSizes === null ? (
+								<PreviewLoadingState
+									text={t("loading_preview")}
+									className="h-full"
+								/>
+							) : numPages !== null ? (
 								<div className="w-full" style={{ minWidth: renderedPageWidth }}>
 									{paddingTop > 0 && (
 										<div aria-hidden style={{ height: paddingTop }} />
 									)}
 									{virtualPages.map((virtualPage) => {
 										const pageNumber = virtualPage.index + 1;
+										const pageSlotHeight = estimatePageHeight(
+											virtualPage.index,
+										);
 										return (
 											<div
 												key={virtualPage.key}
-												ref={(node) => {
-													if (node) {
-														virtualizer.measureElement(node);
-													}
+												className="box-border flex justify-center pb-3"
+												style={{
+													height: pageSlotHeight,
+													minWidth: renderedPageWidth,
 												}}
-												data-index={virtualPage.index}
-												className="flex justify-center pb-3"
-												style={{ minWidth: renderedPageWidth }}
 											>
 												<div className="overflow-hidden rounded-lg bg-white ring-1 ring-black/5">
 													<Page
@@ -646,7 +726,7 @@ export function PdfPreview({ resource, fileName }: PdfPreviewProps) {
 										<div aria-hidden style={{ height: paddingBottom }} />
 									)}
 								</div>
-							)}
+							) : null}
 						</Document>
 					)}
 				</div>
