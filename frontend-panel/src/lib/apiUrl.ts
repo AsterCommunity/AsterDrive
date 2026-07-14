@@ -52,6 +52,7 @@ export function shouldSendResourceCredentials(path: string) {
 
 export function isBrowserAddressableResourcePath(path: string) {
 	return (
+		/^https?:\/\//i.test(path) ||
 		isExternalResourceUrl(path) ||
 		path.startsWith("/api/") ||
 		path.startsWith("/d/") ||

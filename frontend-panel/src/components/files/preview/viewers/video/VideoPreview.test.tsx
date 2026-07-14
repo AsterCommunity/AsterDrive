@@ -119,9 +119,10 @@ describe("VideoPreview", () => {
 	});
 
 	it("creates a stream session before initializing Artplayer when provided", async () => {
+		const streamUrl = `${window.location.origin}/api/v1/s/share-token/stream/session-token/clip.mp4`;
 		const createMediaStreamSession = vi.fn(async () => ({
 			expires_at: "2026-01-01T00:00:00Z",
-			path: "/api/v1/s/share-token/stream/session-token/clip.mp4",
+			path: streamUrl,
 		}));
 
 		render(
@@ -137,9 +138,7 @@ describe("VideoPreview", () => {
 			expect(mockState.artplayerInstances).toHaveLength(1);
 		});
 		expect(createMediaStreamSession).toHaveBeenCalledTimes(1);
-		expect(mockState.artplayerInstances[0].options.url).toBe(
-			"/api/v1/s/share-token/stream/session-token/clip.mp4",
-		);
+		expect(mockState.artplayerInstances[0].options.url).toBe(streamUrl);
 	});
 
 	it("creates one stream session per resource change", async () => {

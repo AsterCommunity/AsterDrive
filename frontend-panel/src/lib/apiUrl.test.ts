@@ -28,6 +28,7 @@ describe("resolveApiResourceUrl", () => {
 		for (const url of [
 			"https://cdn.example.com/file.pdf",
 			"http://cdn.example.com/file.pdf",
+			`${window.location.origin}/api/v1/s/share-token/stream/session-token/clip.mp4`,
 			"blob:pdf-preview",
 			"/api/v1/files/7/download",
 			"/d/token/file.pdf",
@@ -148,6 +149,11 @@ describe("resolveApiResourceUrl", () => {
 		expect(isBrowserAddressableResourcePath("/api/v1/files/7/download")).toBe(
 			true,
 		);
+		expect(
+			isBrowserAddressableResourcePath(
+				`${window.location.origin}/api/v1/s/token/stream/session/clip.mp4`,
+			),
+		).toBe(true);
 		expect(isBrowserAddressableResourcePath("/files/7/download")).toBe(false);
 	});
 });
