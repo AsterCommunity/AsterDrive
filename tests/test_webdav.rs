@@ -5,7 +5,7 @@ mod common;
 
 use actix_web::test;
 use actix_web::{App, HttpServer, web};
-use aster_drive::config::{RateLimitConfig, WebDavConfig};
+use aster_drive::config::{RateLimitConfig, RateLimitTier, WebDavConfig};
 use aster_drive::db::repository::{file_repo, property_repo};
 use aster_drive::entities::{audit_log, folder, team, team_member, user, webdav_account};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -16,6 +16,7 @@ use base64::Engine;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::io::Cursor;
+use std::num::{NonZeroU32, NonZeroU64};
 use tokio::task::JoinHandle;
 use xmltree::Element;
 
@@ -348,6 +349,142 @@ async fn setup_with_custom_webdav_config(
             }),
     )
     .await
+}
+
+async fn setup_with_webdav_rate_limit(
+    rate_limit: RateLimitConfig,
+    network_trust: aster_drive::config::NetworkTrustConfig,
+) -> (
+    impl actix_web::dev::Service<
+        actix_http::Request,
+        Response = actix_web::dev::ServiceResponse,
+        Error = actix_web::Error,
+    >,
+    PrimaryAppState,
+) {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let webdav_config = WebDavConfig::default();
+    let app = test::init_service(
+        App::new()
+            .app_data(web::PayloadConfig::new(1024 * 1024))
+            .app_data(web::Data::new(state.clone()))
+            .configure(move |cfg| {
+                aster_drive::webdav::configure_with_rate_limit(
+                    cfg,
+                    &webdav_config,
+                    &db,
+                    &rate_limit,
+                    &network_trust,
+                );
+            }),
+    )
+    .await;
+    (app, state)
+}
+
+fn strict_webdav_auth_rate_limit(burst_size: u32) -> RateLimitConfig {
+    RateLimitConfig {
+        enabled: true,
+        auth: RateLimitTier {
+            seconds_per_request: NonZeroU64::new(60).unwrap(),
+            burst_size: NonZeroU32::new(burst_size).unwrap(),
+        },
+        ..RateLimitConfig::default()
+    }
+}
+
+#[actix_web::test]
+async fn test_webdav_protocol_ip_rate_limit_returns_compatible_401() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        strict_webdav_auth_rate_limit(1),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, _) = seed_real_webdav_account(&state).await;
+
+    for expected_retry_after in [false, true] {
+        let req = test::TestRequest::get()
+            .uri("/webdav/")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .insert_header((
+                "Authorization",
+                basic_auth_header(&username, &format!("wrong-{expected_retry_after}")),
+            ))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+        assert_eq!(
+            resp.headers()
+                .get("WWW-Authenticate")
+                .and_then(|value| value.to_str().ok()),
+            Some("Basic realm=\"AsterDrive WebDAV\"")
+        );
+        assert_eq!(
+            resp.headers().contains_key("Retry-After"),
+            expected_retry_after
+        );
+    }
+}
+
+#[actix_web::test]
+async fn test_webdav_protocol_username_backoff_survives_ip_rotation() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        strict_webdav_auth_rate_limit(100),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, _) = seed_real_webdav_account(&state).await;
+
+    for index in 0..3 {
+        let req = test::TestRequest::get()
+            .uri("/webdav/")
+            .peer_addr(format!("198.51.100.{}:12345", index + 10).parse().unwrap())
+            .insert_header((
+                "Authorization",
+                basic_auth_header(&username, &format!("wrong-{index}")),
+            ))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+        assert!(!resp.headers().contains_key("Retry-After"));
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/")
+        .peer_addr("198.51.100.99:12345".parse().unwrap())
+        .insert_header((
+            "Authorization",
+            basic_auth_header(&username, "wrong-after-backoff"),
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 401);
+    assert!(resp.headers().contains_key("Retry-After"));
+}
+
+#[actix_web::test]
+async fn test_webdav_cached_authenticated_propfind_is_not_rate_limited() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        strict_webdav_auth_rate_limit(1),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+
+    for _ in 0..8 {
+        let req = test::TestRequest::default()
+            .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+            .uri("/webdav/")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Depth", "0"))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 207);
+        assert!(!resp.headers().contains_key("Retry-After"));
+    }
 }
 
 async fn setup_webdav_with_runtime_config(

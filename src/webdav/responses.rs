@@ -92,6 +92,14 @@ pub(crate) fn unauthorized() -> HttpResponse {
         .body("Unauthorized")
 }
 
+pub(crate) fn unauthorized_retry_after(retry_after: u64) -> HttpResponse {
+    build(StatusCode::UNAUTHORIZED)
+        .insert_header(("WWW-Authenticate", "Basic realm=\"AsterDrive WebDAV\""))
+        .insert_header(("Retry-After", retry_after.to_string()))
+        .content_type(TEXT_CONTENT_TYPE)
+        .body("Unauthorized")
+}
+
 pub(crate) fn bad_request() -> HttpResponse {
     empty(StatusCode::BAD_REQUEST)
 }
@@ -246,8 +254,8 @@ mod tests {
         lock_token_matches_request_uri_response, lock_token_submitted_response, method_not_allowed,
         no_external_entities, no_store, propfind_finite_depth_response, range_not_satisfiable,
         request_body_read_error, system_file_name_blocked, text, unauthorized,
-        unsupported_root_proppatch, with_no_store, xml_body_too_large, xml_response,
-        xml_response_builder,
+        unauthorized_retry_after, unsupported_root_proppatch, with_no_store, xml_body_too_large,
+        xml_response, xml_response_builder,
     };
     use crate::webdav::dav::{DavPath, FsError};
     use crate::webdav::dav_element;
@@ -379,6 +387,30 @@ mod tests {
             Some(&header::HeaderValue::from_static(
                 "Basic realm=\"AsterDrive WebDAV\""
             ))
+        );
+        assert_eq!(
+            response.headers().get(header::CONTENT_TYPE),
+            Some(&header::HeaderValue::from_static(
+                "text/plain; charset=utf-8"
+            ))
+        );
+    }
+
+    #[test]
+    fn rate_limited_unauthorized_response_preserves_webdav_challenge() {
+        let response = unauthorized_retry_after(7);
+
+        assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+        assert_no_store(&response);
+        assert_eq!(
+            response.headers().get("WWW-Authenticate"),
+            Some(&header::HeaderValue::from_static(
+                "Basic realm=\"AsterDrive WebDAV\""
+            ))
+        );
+        assert_eq!(
+            response.headers().get("Retry-After"),
+            Some(&header::HeaderValue::from_static("7"))
         );
         assert_eq!(
             response.headers().get(header::CONTENT_TYPE),

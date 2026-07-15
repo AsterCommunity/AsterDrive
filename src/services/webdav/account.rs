@@ -421,30 +421,49 @@ pub async fn toggle_team_active(
 /// 测试 WebDAV 凭据是否正确
 pub async fn test_credentials(
     state: &impl SharedRuntimeState,
+    actor_user_id: i64,
     username: &str,
     password: &str,
 ) -> Result<()> {
+    let invalid_credentials = || AsterError::auth_invalid_credentials("invalid WebDAV credentials");
     let account = webdav_account_repo::find_by_username(state.writer_db(), username)
         .await?
-        .ok_or_else(|| AsterError::auth_invalid_credentials("WebDAV account not found"))?;
+        .ok_or_else(invalid_credentials)?;
+
+    let can_manage = match account.team_id {
+        Some(team_id) => crate::services::workspace::storage::load_team_member_role(
+            state,
+            team_id,
+            actor_user_id,
+        )
+        .await
+        .is_ok_and(|role| account.user_id == actor_user_id || role.can_manage_team()),
+        None => account.user_id == actor_user_id,
+    };
+    if !can_manage {
+        return Err(invalid_credentials());
+    }
 
     if !account.is_active {
-        return Err(AsterError::auth_forbidden("WebDAV account is disabled"));
+        return Err(invalid_credentials());
     }
 
     if !hash::verify_password(password, &account.password_hash)? {
-        return Err(AsterError::auth_invalid_credentials("wrong password"));
+        return Err(invalid_credentials());
     }
 
     let user =
         crate::db::repository::user_repo::find_by_id(state.writer_db(), account.user_id).await?;
     if !user.status.is_active() {
-        return Err(AsterError::auth_forbidden("user account is disabled"));
+        return Err(invalid_credentials());
     }
 
-    if let Some(team_id) = account.team_id {
-        crate::services::workspace::storage::require_team_access(state, team_id, account.user_id)
-            .await?;
+    if let Some(team_id) = account.team_id
+        && crate::services::workspace::storage::require_team_access(state, team_id, account.user_id)
+            .await
+            .is_err()
+    {
+        return Err(invalid_credentials());
     }
 
     Ok(())

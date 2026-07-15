@@ -3,7 +3,8 @@
 #[macro_use]
 mod common;
 
-use actix_web::test;
+use actix_web::{App, test, web};
+use aster_drive::config::{RateLimitConfig, RateLimitTier};
 use aster_drive::db::repository::webdav_account_repo;
 use aster_drive::entities::{audit_log, team, team_member, user, webdav_account};
 use aster_drive::runtime::SharedRuntimeState;
@@ -13,6 +14,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter, Set,
 };
 use serde_json::Value;
+use std::num::{NonZeroU32, NonZeroU64};
 
 fn webdav_test_password(label: &str) -> String {
     format!("TEST_PASSWORD_{label}")
@@ -869,6 +871,265 @@ async fn test_webdav_account_test_connection() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert!(resp.status() == 401 || resp.status() == 400);
+}
+
+#[actix_web::test]
+async fn test_webdav_account_test_connection_enforces_account_management_boundary() {
+    let state = common::setup().await;
+    let account_state = state.clone();
+    let app = create_test_app!(state);
+    let (owner_token, _) = register_and_login!(app);
+
+    let owner_req = test::TestRequest::get()
+        .uri("/api/v1/auth/me")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .to_request();
+    let owner_resp = test::call_service(&app, owner_req).await;
+    let owner_body: Value = test::read_body_json(owner_resp).await;
+    let owner_id = owner_body["data"]["id"].as_i64().unwrap();
+
+    let personal_password = webdav_test_password("PERSONAL_BOUNDARY");
+    let create_req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({
+            "username": "personal-boundary",
+            "password": personal_password,
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, create_req).await.status(), 201);
+
+    let foreign =
+        seed_active_user_for_webdav_account_test(&account_state, "webdav-test-foreign").await;
+    let (foreign_token, _) = login_user!(app, "webdav-test-foreign", "password123");
+
+    let mut failure_bodies = Vec::new();
+    for (username, password) in [
+        ("personal-boundary", personal_password.as_str()),
+        ("personal-boundary", "wrong-password"),
+        ("missing-personal-boundary", "wrong-password"),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/webdav-accounts/test")
+            .insert_header(("Cookie", common::access_cookie_header(&foreign_token)))
+            .insert_header(common::csrf_header_for(&foreign_token))
+            .set_json(serde_json::json!({
+                "username": username,
+                "password": password,
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 401);
+        failure_bodies.push(test::read_body_json::<Value, _>(resp).await);
+    }
+    assert!(
+        failure_bodies
+            .windows(2)
+            .all(|pair| pair[0]["code"] == pair[1]["code"] && pair[0]["msg"] == pair[1]["msg"])
+    );
+
+    let personal_account =
+        webdav_account_repo::find_by_username(account_state.writer_db(), "personal-boundary")
+            .await
+            .unwrap()
+            .unwrap();
+    let mut broken_personal = personal_account.into_active_model();
+    broken_personal.password_hash = Set("broken-password-hash".to_string());
+    broken_personal
+        .update(account_state.writer_db())
+        .await
+        .unwrap();
+    let pre_verify_boundary_req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts/test")
+        .insert_header(("Cookie", common::access_cookie_header(&foreign_token)))
+        .insert_header(common::csrf_header_for(&foreign_token))
+        .set_json(serde_json::json!({
+            "username": "personal-boundary",
+            "password": personal_password,
+        }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, pre_verify_boundary_req)
+            .await
+            .status(),
+        401,
+        "ownership must be rejected before password hash verification"
+    );
+
+    let team_id = seed_team_for_webdav_account_test(&account_state, owner_id).await;
+    let admin = seed_active_user_for_webdav_account_test(&account_state, "webdav-test-admin").await;
+    add_team_member_for_webdav_account_test(
+        &account_state,
+        team_id,
+        admin.id,
+        TeamMemberRole::Admin,
+    )
+    .await;
+    add_team_member_for_webdav_account_test(
+        &account_state,
+        team_id,
+        foreign.id,
+        TeamMemberRole::Member,
+    )
+    .await;
+    let (admin_token, _) = login_user!(app, "webdav-test-admin", "password123");
+
+    let team_password = webdav_test_password("TEAM_BOUNDARY");
+    webdav_account::ActiveModel {
+        user_id: Set(owner_id),
+        team_id: Set(Some(team_id)),
+        username: Set("team-boundary".to_string()),
+        password_hash: Set(aster_forge_crypto::hash_password(&team_password)
+            .expect("team boundary password should hash")),
+        root_folder_id: Set(None),
+        is_active: Set(true),
+        created_at: Set(Utc::now()),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    }
+    .insert(account_state.writer_db())
+    .await
+    .expect("team boundary WebDAV account should be inserted");
+
+    for token in [&owner_token, &admin_token] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/webdav-accounts/test")
+            .insert_header(("Cookie", common::access_cookie_header(token)))
+            .insert_header(common::csrf_header_for(token))
+            .set_json(serde_json::json!({
+                "username": "team-boundary",
+                "password": team_password,
+            }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 200);
+    }
+
+    let member_req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts/test")
+        .insert_header(("Cookie", common::access_cookie_header(&foreign_token)))
+        .insert_header(common::csrf_header_for(&foreign_token))
+        .set_json(serde_json::json!({
+            "username": "team-boundary",
+            "password": team_password,
+        }))
+        .to_request();
+    assert_eq!(test::call_service(&app, member_req).await.status(), 401);
+
+    let member_password = webdav_test_password("TEAM_MEMBER_OWNED");
+    webdav_account::ActiveModel {
+        user_id: Set(foreign.id),
+        team_id: Set(Some(team_id)),
+        username: Set("team-member-owned".to_string()),
+        password_hash: Set(aster_forge_crypto::hash_password(&member_password)
+            .expect("member-owned team password should hash")),
+        root_folder_id: Set(None),
+        is_active: Set(true),
+        created_at: Set(Utc::now()),
+        updated_at: Set(Utc::now()),
+        ..Default::default()
+    }
+    .insert(account_state.writer_db())
+    .await
+    .expect("member-owned team WebDAV account should be inserted");
+
+    for token in [&foreign_token, &owner_token, &admin_token] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/webdav-accounts/test")
+            .insert_header(("Cookie", common::access_cookie_header(token)))
+            .insert_header(common::csrf_header_for(token))
+            .set_json(serde_json::json!({
+                "username": "team-member-owned",
+                "password": member_password,
+            }))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 200);
+    }
+
+    aster_drive::services::workspace::team::remove_member(
+        &account_state,
+        team_id,
+        foreign.id,
+        foreign.id,
+    )
+    .await
+    .expect("member should leave the team");
+
+    let removed_member_req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts/test")
+        .insert_header(("Cookie", common::access_cookie_header(&foreign_token)))
+        .insert_header(common::csrf_header_for(&foreign_token))
+        .set_json(serde_json::json!({
+            "username": "team-member-owned",
+            "password": member_password,
+        }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, removed_member_req).await.status(),
+        401,
+        "a removed team member must not test their former team WebDAV account"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_account_test_connection_uses_auth_rate_limit_tier() {
+    let state = common::setup().await;
+    let setup_app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(setup_app);
+    let password = webdav_test_password("AUTH_TIER");
+
+    let create_req = test::TestRequest::post()
+        .uri("/api/v1/webdav-accounts")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "username": "auth-tier-test",
+            "password": password,
+        }))
+        .to_request();
+    assert_eq!(
+        test::call_service(&setup_app, create_req).await.status(),
+        201
+    );
+
+    let rate_limit = RateLimitConfig {
+        enabled: true,
+        auth: RateLimitTier {
+            seconds_per_request: NonZeroU64::new(60).unwrap(),
+            burst_size: NonZeroU32::new(1).unwrap(),
+        },
+        api: RateLimitTier {
+            seconds_per_request: NonZeroU64::new(1).unwrap(),
+            burst_size: NonZeroU32::new(100).unwrap(),
+        },
+        ..RateLimitConfig::default()
+    };
+    let network_trust = state.config.network_trust.clone();
+    let app = test::init_service(App::new().app_data(web::Data::new(state)).service(
+        web::scope("/api/v1").service(aster_drive::api::routes::webdav_accounts::routes(
+            &rate_limit,
+            &network_trust,
+        )),
+    ))
+    .await;
+
+    for expected_status in [200, 429] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/webdav-accounts/test")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "username": "auth-tier-test",
+                "password": password,
+            }))
+            .to_request();
+        assert_eq!(
+            test::call_service(&app, req).await.status(),
+            expected_status
+        );
+    }
 }
 
 #[actix_web::test]

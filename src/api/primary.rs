@@ -38,7 +38,13 @@ pub fn configure_primary(cfg: &mut web::ServiceConfig, db: &sea_orm::DatabaseCon
     configure_openapi(cfg);
 
     if let Some(config) = crate::config::try_get_config() {
-        crate::webdav::configure(cfg, &config.webdav, db);
+        crate::webdav::configure_with_rate_limit(
+            cfg,
+            &config.webdav,
+            db,
+            &config.rate_limit,
+            &config.network_trust,
+        );
     }
 
     cfg.service(routes::frontend::routes());

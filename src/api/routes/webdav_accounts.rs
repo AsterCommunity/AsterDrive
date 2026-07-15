@@ -23,17 +23,37 @@ pub fn routes(
     rl: &RateLimitConfig,
     network_trust: &NetworkTrustConfig,
 ) -> impl actix_web::dev::HttpServiceFactory + use<> {
-    let limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let api_limiter = rate_limit::build_governor(&rl.api, &network_trust.trusted_proxies);
+    let auth_limiter = rate_limit::build_governor(&rl.auth, &network_trust.trusted_proxies);
 
     web::scope("/webdav-accounts")
         .wrap(JwtAuth)
-        .wrap(Condition::new(rl.enabled, Governor::new(&limiter)))
-        .route("", web::get().to(list_accounts))
-        .route("", web::post().to(create_account))
-        .route("/{id}", web::delete().to(delete_account))
-        .route("/{id}/toggle", web::post().to(toggle_account))
-        .route("/settings", web::get().to(get_settings))
-        .route("/test", web::post().to(test_connection))
+        .service(
+            web::resource("")
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::get().to(list_accounts))
+                .route(web::post().to(create_account)),
+        )
+        .service(
+            web::resource("/settings")
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::get().to(get_settings)),
+        )
+        .service(
+            web::resource("/test")
+                .wrap(Condition::new(rl.enabled, Governor::new(&auth_limiter)))
+                .route(web::post().to(test_connection)),
+        )
+        .service(
+            web::resource("/{id}")
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::delete().to(delete_account)),
+        )
+        .service(
+            web::resource("/{id}/toggle")
+                .wrap(Condition::new(rl.enabled, Governor::new(&api_limiter)))
+                .route(web::post().to(toggle_account)),
+        )
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -404,10 +424,17 @@ pub async fn toggle_account(
 )]
 pub async fn test_connection(
     state: web::Data<PrimaryAppState>,
+    claims: web::ReqData<Claims>,
     body: web::Json<TestConnectionReq>,
 ) -> Result<HttpResponse> {
     validate_request(&*body)?;
-    account::test_credentials(state.get_ref(), &body.username, &body.password).await?;
+    account::test_credentials(
+        state.get_ref(),
+        claims.user_id,
+        &body.username,
+        &body.password,
+    )
+    .await?;
     Ok(HttpResponse::Ok().json(ApiResponse::<()>::ok_empty()))
 }
 

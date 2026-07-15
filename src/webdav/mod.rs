@@ -23,7 +23,7 @@ use actix_web::{HttpRequest, HttpResponse, web};
 use futures::StreamExt;
 use xmltree::{Element, XMLNode};
 
-use crate::config::WebDavConfig;
+use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit;
 use crate::webdav::dav::{DavLockSystem, DavPath};
@@ -101,9 +101,12 @@ pub async fn webdav_handler(
         return responses::webdav_disabled();
     }
 
-    let auth_result = match auth::authenticate_webdav(req.headers(), state.get_ref()).await {
+    let auth_result = match auth::authenticate_webdav(&req, state.get_ref()).await {
         Ok(result) => result,
-        Err(_) => return responses::unauthorized(),
+        Err(auth::WebdavAuthError::RateLimited { retry_after }) => {
+            return responses::unauthorized_retry_after(retry_after);
+        }
+        Err(auth::WebdavAuthError::Rejected) => return responses::unauthorized(),
     };
 
     let audit_info = audit::AuditRequestInfo::from_request(&req);
@@ -482,7 +485,26 @@ pub(crate) fn multi_status() -> StatusCode {
 pub fn configure(
     cfg: &mut web::ServiceConfig,
     webdav_config: &WebDavConfig,
+    db: &sea_orm::DatabaseConnection,
+) {
+    let config = crate::config::try_get_config()
+        .map(|config| (*config).clone())
+        .unwrap_or_default();
+    configure_with_rate_limit(
+        cfg,
+        webdav_config,
+        db,
+        &config.rate_limit,
+        &config.network_trust,
+    );
+}
+
+pub fn configure_with_rate_limit(
+    cfg: &mut web::ServiceConfig,
+    webdav_config: &WebDavConfig,
     _db: &sea_orm::DatabaseConnection,
+    rate_limit: &RateLimitConfig,
+    network_trust: &NetworkTrustConfig,
 ) {
     let payload_limit = u64_to_usize(webdav_config.payload_limit, "webdav.payload_limit")
         .unwrap_or_else(|_| {
@@ -509,11 +531,19 @@ pub fn configure(
         }),
     });
 
-    cfg.app_data(webdav_state).service(
-        web::scope(&webdav_config.prefix)
-            .app_data(web::PayloadConfig::new(payload_limit))
-            .default_service(web::to(webdav_handler)),
-    );
+    let auth_protection = web::Data::new(auth::WebdavAuthProtection::new(
+        rate_limit.enabled,
+        &rate_limit.auth,
+        &network_trust.trusted_proxies,
+    ));
+
+    cfg.app_data(webdav_state)
+        .app_data(auth_protection)
+        .service(
+            web::scope(&webdav_config.prefix)
+                .app_data(web::PayloadConfig::new(payload_limit))
+                .default_service(web::to(webdav_handler)),
+        );
 }
 
 #[cfg(test)]
