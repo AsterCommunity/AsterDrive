@@ -1,14 +1,31 @@
 name: Security Audit
 
 on:
+  push:
+    branches:
+      - master
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
+  pull_request:
+    paths:
+      - '**/Cargo.toml'
+      - '**/Cargo.lock'
+      - '.cargo/audit.toml'
+      - '.github/workflows/audit.yml'
   schedule:
     # 每周一 09:17 UTC（北京时间 17:17）
     - cron: '17 9 * * 1'
   workflow_dispatch: # 支持手动触发
 
+concurrency:
+  group: audit-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  issues: write
 
 jobs:
   rust-audit:
@@ -21,7 +38,7 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run cargo audit
-        run: cargo audit
+        run: cargo audit -D warnings
 
   frontend-audit:
     name: Frontend dependency audit

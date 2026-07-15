@@ -6,6 +6,10 @@ on:
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'frontend-panel/package.json'
+      - 'frontend-panel/generated/openapi.json'
+      - 'frontend-panel/src/services/api.generated.ts'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/rust.yml'
     branches: [master]
@@ -14,9 +18,17 @@ on:
       - '**/*.rs'
       - 'Cargo.toml'
       - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - 'frontend-panel/package.json'
+      - 'frontend-panel/generated/openapi.json'
+      - 'frontend-panel/src/services/api.generated.ts'
       - 'scripts/coverage-summary.mjs'
       - '.github/workflows/rust.yml'
     branches: [master, develop]
+
+concurrency:
+  group: rust-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -35,6 +47,7 @@ jobs:
   format-and-clippy:
     name: Format and Clippy
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v6
 
@@ -57,9 +70,53 @@ jobs:
       - name: Clippy
         run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  openapi-sdk-drift:
+    name: OpenAPI and generated SDK drift
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install media processing dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: openapi-v1
+
+      - name: Generate OpenAPI specification
+        run: cargo test --features openapi --test generate_openapi
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+
+      - name: Install frontend dependencies
+        working-directory: frontend-panel
+        run: bun install --frozen-lockfile
+
+      - name: Generate TypeScript SDK
+        working-directory: frontend-panel
+        run: bun run generate-api
+
+      - name: Verify generated files are up to date
+        run: |
+          git diff --exit-code -- \
+            frontend-panel/generated/openapi.json \
+            frontend-panel/src/services/api.generated.ts
+
   coverage:
     name: Tests and coverage
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v6
 
@@ -115,6 +172,7 @@ jobs:
   integration-backends:
     name: Integration tests (${{ matrix.backend }})
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:

@@ -20,6 +20,10 @@ on:
       - 'Cargo.lock'
       - '.github/workflows/frontend-e2e.yml'
 
+concurrency:
+  group: frontend-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
 

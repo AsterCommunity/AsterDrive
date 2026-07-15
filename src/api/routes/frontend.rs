@@ -7,7 +7,7 @@ use rust_embed::Embed;
 use std::path::PathBuf;
 
 #[derive(Embed)]
-#[folder = "frontend-panel/dist/"]
+#[folder = "$ASTER_FRONTEND_DIST_DIR"]
 struct FrontendAssets;
 
 /// 运行时可覆盖的前端目录
@@ -76,11 +76,9 @@ impl FrontendService {
     async fn serve_index(state: &PrimaryAppState) -> HttpResponse {
         let html = match Self::load_file("index.html").await {
             Some(data) => String::from_utf8_lossy(&data).into_owned(),
-            None => include_str!(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/frontend-panel/dist/index.html"
-            ))
-            .to_string(),
+            None => {
+                include_str!(concat!(env!("ASTER_FRONTEND_DIST_DIR"), "/index.html")).to_string()
+            }
         };
 
         let processed = html

@@ -70,9 +70,11 @@ fn provider_create_defaults(
     let has_fixed_connection =
         !descriptor.issuer_url_required && !descriptor.manual_endpoint_configuration_supported;
     ExternalAuthProviderCreateDefaults {
-        display_name: has_fixed_connection
-            .then(|| descriptor.display_name.to_string())
-            .unwrap_or_default(),
+        display_name: if has_fixed_connection {
+            descriptor.display_name.to_string()
+        } else {
+            Default::default()
+        },
         options,
         scopes: descriptor.default_scopes.to_string(),
         enabled: true,

@@ -29,7 +29,8 @@
 }
 ```
 
-`build_time` 来自编译期写入的 `ASTER_BUILD_TIME`。
+`build_time` 来自编译期传入的 `ASTER_BUILD_TIME` 环境变量。构建时未设置该变量，则由
+构建脚本回退为当前 UTC 时间。
 
 `HEAD /health` 语义相同，只是不返回响应体。
 

@@ -9,13 +9,14 @@ Please read and follow the [Code of Conduct](CODE_OF_CONDUCT.md) before particip
 1. Fork the repository
 2. Clone your fork:
    ```bash
-   git clone https://github.com/AsterCommunity/AsterDrive.git
+   git clone https://github.com/<your-github-username>/AsterDrive.git
    cd AsterDrive
+   git remote add upstream https://github.com/AsterCommunity/AsterDrive.git
    ```
 3. Build and run:
    ```bash
    # Frontend
-   cd frontend-panel && bun install && bun run build && cd ..
+   cd frontend-panel && bun install --frozen-lockfile && bun run build && cd ..
 
    # Backend
    cargo run
@@ -45,9 +46,10 @@ docs: update API endpoint documentation
 
 ```bash
 # Backend checks
+cargo fmt --all -- --check
 cargo check
-cargo test --test api_integration
-cargo clippy -- -D warnings
+cargo test --test test_auth
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Frontend checks
 cd frontend-panel
@@ -55,12 +57,23 @@ bun run check
 bun run build
 ```
 
+Replace `test_auth` with the integration test that covers your change. Prefer a targeted
+`cargo test --lib <filter>` or `cargo test --test <name> <filter>` while iterating; run a
+broader suite when the change crosses service, database, storage, or protocol boundaries.
+If an OpenAPI schema changes, also run:
+
+```bash
+cargo test --features openapi --test generate_openapi
+cd frontend-panel
+bun run generate-api
+```
+
 ## Project Conventions
 
 ### Error System (Two Layers)
 
-- **Internal**: `AsterError` with string codes (E001-E040) for logging/debugging
-- **API**: `ErrorCode` with numeric codes grouped by domain (0=success, 1000=general, 2000=auth, 3000=file, 4000=policy, 5000=folder)
+- **Internal**: `AsterError` variants expose `E001`-style internal codes for logs and debugging
+- **API**: `ApiErrorCode` exposes stable string wire codes such as `success`, `auth.credentials_failed`, and `storage.driver_error`
 
 ### Type Safety
 
@@ -77,8 +90,8 @@ bun run build
 ### API Response Format
 
 ```json
-{ "code": 0, "msg": "", "data": { ... } }
-{ "code": 2000, "msg": "Invalid Credentials" }
+{ "code": "success", "msg": "", "data": { ... } }
+{ "code": "auth.credentials_failed", "msg": "Invalid Credentials" }
 ```
 
 ### Frontend Conventions
@@ -91,7 +104,8 @@ bun run build
 
 ## Architecture
 
-See [docs/architecture.md](docs/architecture.md) for detailed architecture documentation.
+See the [developer documentation](developer-docs/README.md) and
+[architecture overview](developer-docs/en/architecture.md) for the current module and runtime boundaries.
 
 ## License
 

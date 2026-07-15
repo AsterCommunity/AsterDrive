@@ -31,7 +31,7 @@ AsterDrive is an MIT-licensed self-hosted file service for people who want contr
 
 It is not trying to become a full private-cloud suite. AsterDrive focuses on file infrastructure: storage policies, large-file upload paths, team and personal workspaces, sharing, version history, WebDAV, WOPI, auditability, and deployment/operations tooling.
 
-The current `v0.3.x` line is an active development line focused on organization and extensibility. In the `0.x` series, minor versions carry major compatibility or product-scope changes, while patch versions carry smaller feature and maintenance updates.
+The current `v0.4.x` line is the active development line. In the `0.x` series, minor versions carry major compatibility or product-scope changes, while patch versions carry smaller feature and maintenance updates.
 
 ## Where it fits
 
@@ -179,19 +179,6 @@ On first startup, AsterDrive will automatically:
 - periodic cleanup for uploads, trash, locks, audit logs, teams, WOPI sessions, and orphaned blobs
 - Swagger UI in debug builds with the `openapi` feature, plus static OpenAPI export
 
-## Roadmap
-
-### v0.3.x: organization and extensibility
-
-The `v0.3.x` line focuses on richer workspace organization and the foundation for controlled integrations.
-
-- tags for files and folders
-- tag-based filtering in file lists and search
-- WASM/Extism plugin design and spike
-- capability-based plugin permissions
-- event subscriptions and webhook-style automation
-- file actions and plugin-provided admin settings
-
 ## Documentation
 
 - [Getting started](docs/guide/getting-started.md)
@@ -213,7 +200,7 @@ The `v0.3.x` line focuses on richer workspace organization and the foundation fo
 
 ### Requirements
 
-- Rust `1.94.0+`
+- Rust `1.95.0+`
 - Bun
 - Node.js `24+` for the current Docker frontend build stage
 

@@ -1,47 +1,134 @@
-//! 构建脚本：注入构建时间并兜底生成前端占位产物。
+//! 构建脚本：注入显式构建时间，并为开发/测试构建兜底生成前端占位产物。
 
 use std::env;
 use std::fs;
 use std::io;
 use std::path::Path;
 
+const BUILD_TIME_ENV: &str = "ASTER_BUILD_TIME";
+const FRONTEND_DIST_ENV: &str = "ASTER_FRONTEND_DIST_DIR";
+const FALLBACK_MARKER_FILE: &str = ".asterdrive-frontend-fallback";
+const FALLBACK_MARKER_CONTENT: &str = "asterdrive-frontend-fallback-v1\n";
+const LEGACY_FALLBACK_TEXT: &str = "Frontend Not Built";
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=frontend-panel/dist");
+    println!("cargo:rerun-if-env-changed={BUILD_TIME_ENV}");
 
-    // 构建时间
-    let now = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ");
-    println!("cargo:rustc-env=ASTER_BUILD_TIME={now}");
+    configure_build_time()?;
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")
         .map_err(|error| io::Error::other(format!("missing CARGO_MANIFEST_DIR: {error}")))?;
     let dist_path = Path::new(&manifest_dir).join("frontend-panel/dist");
+    let out_dir = env::var("OUT_DIR")
+        .map_err(|error| io::Error::other(format!("missing OUT_DIR: {error}")))?;
+    let fallback_dist_path = Path::new(&out_dir).join("frontend-dist-fallback");
+    let profile = env::var("PROFILE")
+        .map_err(|error| io::Error::other(format!("missing PROFILE: {error}")))?;
 
-    if !dist_path.exists() {
-        eprintln!("Warning: frontend-panel/dist directory not found!");
-        eprintln!("Please build the frontend first:");
-        eprintln!("  cd frontend-panel && bun install && bun run build");
+    let selected_dist_path = match frontend_dist_state(&dist_path)? {
+        FrontendDistState::Real => dist_path,
+        FrontendDistState::Missing if fallback_allowed(&profile) => {
+            eprintln!(
+                "Warning: frontend-panel/dist is missing; generating isolated development fallback assets"
+            );
+            create_fallback_files(&fallback_dist_path)?;
+            fallback_dist_path
+        }
+        FrontendDistState::Fallback if fallback_allowed(&profile) => {
+            eprintln!(
+                "Warning: frontend-panel/dist contains fallback assets; generating a clean isolated fallback"
+            );
+            create_fallback_files(&fallback_dist_path)?;
+            fallback_dist_path
+        }
+        FrontendDistState::Missing | FrontendDistState::Fallback => {
+            return Err(io::Error::other(format!(
+                "frontend-panel/dist does not contain a production frontend for the {profile} profile; run `cd frontend-panel && bun install --frozen-lockfile && bun run build` before building"
+            ))
+            .into());
+        }
+    };
 
-        create_fallback_files(&dist_path)?;
-    } else if is_fallback_dist(&dist_path)? {
-        eprintln!("Warning: frontend-panel/dist contains fallback assets; refreshing them");
-        create_fallback_files(&dist_path)?;
-    }
+    let selected_dist_path = selected_dist_path.to_str().ok_or_else(|| {
+        io::Error::other("selected frontend dist path must contain valid Unicode")
+    })?;
+    println!("cargo:rustc-env={FRONTEND_DIST_ENV}={selected_dist_path}");
 
     Ok(())
 }
 
-fn is_fallback_dist(dist_path: &Path) -> io::Result<bool> {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FrontendDistState {
+    Missing,
+    Fallback,
+    Real,
+}
+
+fn configure_build_time() -> io::Result<()> {
+    let value = match env::var(BUILD_TIME_ENV) {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) => {
+            chrono::Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string()
+        }
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err(io::Error::other(format!(
+                "{BUILD_TIME_ENV} must contain valid Unicode"
+            )));
+        }
+    };
+
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(io::Error::other(format!(
+            "{BUILD_TIME_ENV} must not be empty when set"
+        )));
+    }
+    if value.contains('\r') || value.contains('\n') {
+        return Err(io::Error::other(format!(
+            "{BUILD_TIME_ENV} must be a single-line value"
+        )));
+    }
+    println!("cargo:rustc-env={BUILD_TIME_ENV}={value}");
+
+    Ok(())
+}
+
+fn fallback_allowed(profile: &str) -> bool {
+    matches!(profile, "debug" | "test")
+}
+
+fn frontend_dist_state(dist_path: &Path) -> io::Result<FrontendDistState> {
+    if !dist_path.exists() {
+        return Ok(FrontendDistState::Missing);
+    }
+
+    if dist_path.join(FALLBACK_MARKER_FILE).exists() {
+        return Ok(FrontendDistState::Fallback);
+    }
+
     let index_path = dist_path.join("index.html");
     if !index_path.exists() {
-        return Ok(true);
+        return Ok(FrontendDistState::Missing);
     }
 
     let index_html = fs::read_to_string(index_path)?;
-    Ok(index_html.contains("Frontend Not Built"))
+    if index_html.contains(LEGACY_FALLBACK_TEXT) {
+        return Ok(FrontendDistState::Fallback);
+    }
+
+    Ok(FrontendDistState::Real)
 }
 
 fn create_fallback_files(dist_path: &Path) -> io::Result<()> {
+    if dist_path.exists() {
+        fs::remove_dir_all(dist_path)?;
+    }
     fs::create_dir_all(dist_path)?;
+    fs::write(
+        dist_path.join(FALLBACK_MARKER_FILE),
+        FALLBACK_MARKER_CONTENT,
+    )?;
 
     let fallback_html = r#"<!DOCTYPE html>
 <html lang="en">
@@ -86,7 +173,7 @@ fn create_fallback_files(dist_path: &Path) -> io::Result<()> {
         <h2>Frontend Not Built</h2>
         <p>The admin panel needs to be built before it can be served.</p>
         <p>Run:</p>
-        <p><code>cd frontend-panel && bun install && bun run build</code></p>
+        <p><code>cd frontend-panel && bun install --frozen-lockfile && bun run build</code></p>
     </div>
     <p>API is still available at <code>/api/v1/</code></p>
 </body>

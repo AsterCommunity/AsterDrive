@@ -29,7 +29,8 @@ Typical response:
 }
 ```
 
-`build_time` comes from the compile-time `ASTER_BUILD_TIME` value.
+`build_time` comes from the compile-time `ASTER_BUILD_TIME` environment variable. When the
+variable is unset, the build script falls back to the current UTC time.
 
 `HEAD /health` has the same semantics, but returns no body.
 
