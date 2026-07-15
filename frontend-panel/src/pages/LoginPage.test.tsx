@@ -2124,37 +2124,37 @@ describe("LoginPage", () => {
 		expect(screen.getByLabelText("email")).toHaveValue("direct@example.com");
 	});
 
-	it.each([
-		["auth.credentials_failed"],
-		["auth.account_disabled"],
-	])("keeps %s login failures on the generic login flow", async (errorCode) => {
-		mockState.login.mockRejectedValueOnce(
-			new MockApiError(errorCode, "login unavailable"),
-		);
-
-		render(<LoginPage />);
-
-		fireEvent.change(screen.getByLabelText("email_or_username"), {
-			target: { value: "user@example.com" },
-		});
-		fireEvent.change(screen.getByLabelText("password"), {
-			target: { value: "secret123" },
-		});
-
-		await screen.findByRole("button", { name: "sign_in" });
-		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
-
-		await waitFor(() => {
-			expect(mockState.toastError).toHaveBeenCalledWith(
-				"login_failed_unavailable",
+	it.each([["auth.credentials_failed"], ["auth.account_disabled"]])(
+		"keeps %s login failures on the generic login flow",
+		async (errorCode) => {
+			mockState.login.mockRejectedValueOnce(
+				new MockApiError(errorCode, "login unavailable"),
 			);
-		});
-		expect(
-			screen.queryByText("activation_pending_notice"),
-		).not.toBeInTheDocument();
-		expect(mockState.handleApiError).not.toHaveBeenCalled();
-		expect(mockState.resendRegisterActivation).not.toHaveBeenCalled();
-	});
+
+			render(<LoginPage />);
+
+			fireEvent.change(screen.getByLabelText("email_or_username"), {
+				target: { value: "user@example.com" },
+			});
+			fireEvent.change(screen.getByLabelText("password"), {
+				target: { value: "secret123" },
+			});
+
+			await screen.findByRole("button", { name: "sign_in" });
+			fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+			await waitFor(() => {
+				expect(mockState.toastError).toHaveBeenCalledWith(
+					"login_failed_unavailable",
+				);
+			});
+			expect(
+				screen.queryByText("activation_pending_notice"),
+			).not.toBeInTheDocument();
+			expect(mockState.handleApiError).not.toHaveBeenCalled();
+			expect(mockState.resendRegisterActivation).not.toHaveBeenCalled();
+		},
+	);
 
 	it("resends activation from an independent non-enumerating login entry", async () => {
 		render(<LoginPage />);

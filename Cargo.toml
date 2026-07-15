@@ -13,14 +13,21 @@ license = "MIT"
 edition = "2024"
 rust-version = "1.95.0"
 
-# 优化配置
+# 开发构建优先缩短「改代码 -> 编译/测试」的反馈时间。
+# 工作区代码保持 O0 以避免每次修改后重做优化；第三方依赖单独使用 O1，
+# 避免 crypto/image/compression 等依赖在 debug/test 运行时过慢。
 [profile.dev]
-opt-level = 1
+opt-level = 0
 lto = false
-codegen-units = 16
+codegen-units = 256
+debug = 1
 panic = "unwind"
 strip = false
 incremental = true
+
+[profile.dev.package."*"]
+opt-level = 1
+debug = false
 
 [profile.release]
 opt-level = 2
@@ -75,6 +82,7 @@ openapi = [
     "aster_forge_tasks/openapi",
 ]
 full = ["server", "cli", "metrics", "openapi"]
+benchmarks = ["dep:criterion"]
 jemalloc = ["dep:tikv-jemallocator", "aster_forge_alloc/jemalloc"]
 jemalloc-stats = [
     "jemalloc",
@@ -123,6 +131,7 @@ chrono = { version = "0.4.45", default-features = false, features = ["clock", "s
 chrono-tz = "0.10"
 clap = { version = "4", features = ["derive", "env"], optional = true }
 config = { version = "0.15", default-features = false, features = ["toml"] }
+criterion = { version = "0.8", optional = true }
 dashmap = "6"
 data-encoding = "2.11"
 dotenvy = "0.15"
@@ -183,7 +192,6 @@ lofty = "0.24.0"
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.2.0", features = ["test-util"] }
 aws-smithy-types = "1.6.1"
-criterion = "0.8"
 rsa = "0.10.0-rc.18"
 testcontainers = { version = "0.27", features = ["reusable-containers"] }
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
@@ -199,3 +207,4 @@ doctest = false
 [[bench]]
 name = "path_hotspots"
 harness = false
+required-features = ["benchmarks"]

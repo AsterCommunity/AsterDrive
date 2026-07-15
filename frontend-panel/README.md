@@ -23,10 +23,11 @@ bun run dev
 ## 构建
 
 ```bash
+bun run typecheck
 bun run build
 ```
 
-构建命令会先执行 `tsgo -b`，再执行 `vite build`。
+构建命令会先执行 TypeScript 7 原生 `tsc` 增量类型检查，再执行 `vite build`。
 
 ## 代码生成
 

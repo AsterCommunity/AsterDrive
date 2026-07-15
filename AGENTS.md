@@ -44,7 +44,7 @@ tests/                       集成测试、迁移测试、OpenAPI 导出测试
 - 缓存: memory/Redis 后端；不再支持 noop cache，也不要新增 `cache.enabled` 这类禁用缓存分支
 - 存储: local filesystem、S3-compatible object storage、Azure Blob、OneDrive、remote AsterDrive follower node
 - 协议: REST API、WebDAV/DeltaV、WOPI、remote internal storage protocol
-- 前端: React 19, Vite, TypeScript native-preview/tsgo, Tailwind CSS 4, shadcn/ui(Base UI), Biome, Vitest, Playwright
+- 前端: React 19, Vite, TypeScript 7 native compiler, Tailwind CSS 4, shadcn/ui(Base UI), Biome, Vitest, Playwright
 - OpenAPI: `utoipa` + `api-docs-macros` + `openapi-typescript`
 - 嵌入: `rust-embed` 将 `frontend-panel/dist/` 编译进二进制
 
@@ -211,7 +211,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 `frontend-panel/` 是 AsterDrive 的产品前端，具体规则以 `frontend-panel/AGENTS.md` 为准。根目录只列必须遵守的总约束：
 
-- 使用 Vite + React + TypeScript native-preview/tsgo + Tailwind CSS 4 + shadcn/ui(Base UI) + Biome。
+- 使用 Vite + React + TypeScript 7 native compiler + Tailwind CSS 4 + shadcn/ui(Base UI) + Biome。
 - `erasableSyntaxOnly` 思路：禁止 TS enum，用 `as const` 对象；类型导入使用 `import type`。
 - 后端 schema 类型从生成 SDK 和 `@/types/api.ts` 导入，禁止手写重复接口类型。
 - `src/services/api.generated.ts` 是生成文件，不要手动修改。

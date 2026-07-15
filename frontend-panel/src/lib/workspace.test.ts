@@ -17,19 +17,23 @@ describe("workspaceSwitchPath", () => {
 		["/teams/3/trash", "/teams/9/trash"],
 		["/teams/3/search/", "/teams/9/search"],
 		["/teams/3/trash/", "/teams/9/trash"],
-	])("preserves the workspace-agnostic team surface %s", (pathname, expected) => {
-		expect(workspaceSwitchPath(TEAM_3, TEAM_9, { pathname })).toBe(expected);
-	});
+	])(
+		"preserves the workspace-agnostic team surface %s",
+		(pathname, expected) => {
+			expect(workspaceSwitchPath(TEAM_3, TEAM_9, { pathname })).toBe(expected);
+		},
+	);
 
-	it.each(
-		Object.values(CATEGORY_ROUTE_SEGMENTS),
-	)("preserves the registered category surface %s", (category) => {
-		expect(
-			workspaceSwitchPath(TEAM_3, TEAM_9, {
-				pathname: `/teams/3/category/${category}/`,
-			}),
-		).toBe(`/teams/9/category/${category}`);
-	});
+	it.each(Object.values(CATEGORY_ROUTE_SEGMENTS))(
+		"preserves the registered category surface %s",
+		(category) => {
+			expect(
+				workspaceSwitchPath(TEAM_3, TEAM_9, {
+					pathname: `/teams/3/category/${category}/`,
+				}),
+			).toBe(`/teams/9/category/${category}`);
+		},
+	);
 
 	it("preserves query parameters and hashes on retained team surfaces", () => {
 		expect(

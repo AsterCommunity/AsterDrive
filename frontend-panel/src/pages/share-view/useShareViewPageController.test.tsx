@@ -289,56 +289,58 @@ describe("useShareViewPageController", () => {
 		expect(result.current.hasMoreFiles).toBe(false);
 	});
 
-	it.each([
-		"refresh",
-		"sort",
-	] as const)("discards a pending load-more response after %s replaces the folder contents", async (operation) => {
-		const firstFile = fileItem(1, "first.txt");
-		const staleFile = fileItem(2, "stale.txt");
-		const replacementFile = fileItem(3, "replacement.txt");
-		const pendingLoadMore = createDeferred<FolderContents>();
-		mockState.getInfo.mockResolvedValueOnce(shareInfo());
-		mockState.listContent
-			.mockResolvedValueOnce(
-				folderContents({
-					files: [firstFile],
-					next_file_cursor: { id: 1, value: "first.txt" },
-				}),
-			)
-			.mockImplementationOnce(() => pendingLoadMore.promise)
-			.mockResolvedValueOnce(folderContents({ files: [replacementFile] }));
-		const { result } = renderController({ withSentinel: true });
-		await waitFor(() => expect(result.current.loading).toBe(false));
-		await waitFor(() =>
-			expect(mockState.intersectionCallbacks).toHaveLength(1),
-		);
-
-		act(() => {
-			mockState.intersectionCallbacks[0](
-				[{ isIntersecting: true } as IntersectionObserverEntry],
-				{} as IntersectionObserver,
-			);
-		});
-		await waitFor(() => expect(result.current.loadingMore).toBe(true));
-
-		if (operation === "refresh") {
-			await act(async () => result.current.refreshFolder());
-		} else {
-			act(() => result.current.setSortBy("updated_at"));
+	it.each(["refresh", "sort"] as const)(
+		"discards a pending load-more response after %s replaces the folder contents",
+		async (operation) => {
+			const firstFile = fileItem(1, "first.txt");
+			const staleFile = fileItem(2, "stale.txt");
+			const replacementFile = fileItem(3, "replacement.txt");
+			const pendingLoadMore = createDeferred<FolderContents>();
+			mockState.getInfo.mockResolvedValueOnce(shareInfo());
+			mockState.listContent
+				.mockResolvedValueOnce(
+					folderContents({
+						files: [firstFile],
+						next_file_cursor: { id: 1, value: "first.txt" },
+					}),
+				)
+				.mockImplementationOnce(() => pendingLoadMore.promise)
+				.mockResolvedValueOnce(folderContents({ files: [replacementFile] }));
+			const { result } = renderController({ withSentinel: true });
+			await waitFor(() => expect(result.current.loading).toBe(false));
 			await waitFor(() =>
-				expect(result.current.folderContents?.files).toEqual([replacementFile]),
+				expect(mockState.intersectionCallbacks).toHaveLength(1),
 			);
-		}
-		expect(result.current.loadingMore).toBe(false);
 
-		await act(async () => {
-			pendingLoadMore.resolve(folderContents({ files: [staleFile] }));
-			await pendingLoadMore.promise;
-		});
+			act(() => {
+				mockState.intersectionCallbacks[0](
+					[{ isIntersecting: true } as IntersectionObserverEntry],
+					{} as IntersectionObserver,
+				);
+			});
+			await waitFor(() => expect(result.current.loadingMore).toBe(true));
 
-		expect(result.current.folderContents?.files).toEqual([replacementFile]);
-		expect(result.current.loadingMore).toBe(false);
-	});
+			if (operation === "refresh") {
+				await act(async () => result.current.refreshFolder());
+			} else {
+				act(() => result.current.setSortBy("updated_at"));
+				await waitFor(() =>
+					expect(result.current.folderContents?.files).toEqual([
+						replacementFile,
+					]),
+				);
+			}
+			expect(result.current.loadingMore).toBe(false);
+
+			await act(async () => {
+				pendingLoadMore.resolve(folderContents({ files: [staleFile] }));
+				await pendingLoadMore.promise;
+			});
+
+			expect(result.current.folderContents?.files).toEqual([replacementFile]);
+			expect(result.current.loadingMore).toBe(false);
+		},
+	);
 
 	it("restores route-driven breadcrumbs across root, subfolder, and back navigation", async () => {
 		const rootContents = folderContents({
@@ -530,19 +532,22 @@ describe("useShareViewPageController", () => {
 	it.each([
 		[ApiErrorCode.ShareScopeDenied, "outside scope"],
 		[ApiErrorCode.FolderNotFound, "missing folder"],
-	])("fails ancestor lookup %s without falling back to root", async (code, message) => {
-		const error = new ApiError(code, message);
-		mockState.getInfo.mockResolvedValueOnce(shareInfo());
-		mockState.listSubfolderContent.mockResolvedValueOnce(folderContents());
-		mockState.getSubfolderAncestors.mockRejectedValueOnce(error);
+	])(
+		"fails ancestor lookup %s without falling back to root",
+		async (code, message) => {
+			const error = new ApiError(code, message);
+			mockState.getInfo.mockResolvedValueOnce(shareInfo());
+			mockState.listSubfolderContent.mockResolvedValueOnce(folderContents());
+			mockState.getSubfolderAncestors.mockRejectedValueOnce(error);
 
-		const { result } = renderController({ requestedFolderId: 99 });
+			const { result } = renderController({ requestedFolderId: 99 });
 
-		await waitFor(() => expect(result.current.loading).toBe(false));
-		expect(result.current.error).toBe(message);
-		expect(mockState.listContent).not.toHaveBeenCalled();
-		expect(result.current.folderContents).toBeNull();
-	});
+			await waitFor(() => expect(result.current.loading).toBe(false));
+			expect(result.current.error).toBe(message);
+			expect(mockState.listContent).not.toHaveBeenCalled();
+			expect(result.current.folderContents).toBeNull();
+		},
+	);
 
 	it("uses a valid password cookie to restore a protected subfolder", async () => {
 		const contents = folderContents({ files: [fileItem(8, "secret.txt")] });

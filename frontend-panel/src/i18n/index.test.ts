@@ -126,88 +126,88 @@ describe("i18n", () => {
 		expect(i18n.t("webdav:webdav_endpoint")).toBe("WebDAV Endpoint");
 	});
 
-	it.each([
-		"en",
-		"zh",
-	] as const)("includes translated error messages for auth API codes in %s", async (language) => {
-		localStorage.setItem("aster-language", language);
-		const module = await loadI18nModule();
-		const i18n = module.default;
+	it.each(["en", "zh"] as const)(
+		"includes translated error messages for auth API codes in %s",
+		async (language) => {
+			localStorage.setItem("aster-language", language);
+			const module = await loadI18nModule();
+			const i18n = module.default;
 
-		for (const code of Object.values(ApiErrorCode)) {
-			if (!code.startsWith("auth.")) continue;
+			for (const code of Object.values(ApiErrorCode)) {
+				if (!code.startsWith("auth.")) continue;
 
-			const key = `errors:${code.replaceAll(".", "_")}`;
-			expect(i18n.exists(key), key).toBe(true);
-		}
-	});
+				const key = `errors:${code.replaceAll(".", "_")}`;
+				expect(i18n.exists(key), key).toBe(true);
+			}
+		},
+	);
 
-	it.each([
-		"en",
-		"zh",
-	] as const)("includes translated error messages for granular backend API codes in %s", async (language) => {
-		localStorage.setItem("aster-language", language);
-		const module = await loadI18nModule();
-		const i18n = module.default;
+	it.each(["en", "zh"] as const)(
+		"includes translated error messages for granular backend API codes in %s",
+		async (language) => {
+			localStorage.setItem("aster-language", language);
+			const module = await loadI18nModule();
+			const i18n = module.default;
 
-		await module.ensureI18nNamespaces(["errors"], language);
+			await module.ensureI18nNamespaces(["errors"], language);
 
-		const granularCodes = [
-			ApiErrorCode.ConfigPublicSiteUrlRequired,
-			ApiErrorCode.ConfigPublicSiteUrlInvalid,
-			ApiErrorCode.ExternalAuthCallbackRedirectUriRequired,
-			ApiErrorCode.PolicyStorageAccessKeyRequired,
-			ApiErrorCode.PolicyStorageSecretKeyRequired,
-			ApiErrorCode.PolicyStorageBucketRequired,
-			ApiErrorCode.PolicyStorageEndpointInvalid,
-			ApiErrorCode.PolicyRemoteNodeRequired,
-			ApiErrorCode.PolicyRemoteNodeUnexpected,
-			ApiErrorCode.PolicyRemoteStorageTargetRequired,
-			ApiErrorCode.RemoteStorageTargetNotFound,
-			ApiErrorCode.PolicyRemoteNodeDisabled,
-			ApiErrorCode.PolicyRemoteNodeBaseUrlRequired,
-			ApiErrorCode.PolicyRemoteNodeTransferStrategyUnsupported,
-			ApiErrorCode.PolicyOneDriveOptionsUnsupported,
-			ApiErrorCode.PolicySftpOptionsUnsupported,
-			ApiErrorCode.PolicyOneDriveAccountModeRequired,
-			ApiErrorCode.PolicyOneDrivePersonalChinaCloudUnsupported,
-			ApiErrorCode.PolicyOneDriveSharepointSiteRequired,
-			ApiErrorCode.PolicyOneDriveGroupRequired,
-			ApiErrorCode.PolicyNativeThumbnailUnsupported,
-			ApiErrorCode.PolicyNativeMediaMetadataUnsupported,
-			ApiErrorCode.PolicyPromotionSourceUnsupported,
-			ApiErrorCode.PolicyPromotionTargetUnsupported,
-			ApiErrorCode.PolicyPromotionBucketChangeDenied,
-			ApiErrorCode.ArchiveDownloadUserDisabled,
-			ApiErrorCode.ArchiveDownloadShareDisabled,
-			ApiErrorCode.TaskRetryStatusConflict,
-			ApiErrorCode.TaskRetryNotAllowed,
-			ApiErrorCode.SearchQueryEmpty,
-			ApiErrorCode.SearchTypeInvalid,
-			ApiErrorCode.SearchTagMatchInvalid,
-			ApiErrorCode.SearchSizeRangeInvalid,
-			ApiErrorCode.SearchFileFilterTypeConflict,
-			ApiErrorCode.SearchMimeTypeEmpty,
-			ApiErrorCode.SearchCategoryInvalid,
-			ApiErrorCode.SearchExtensionsInvalid,
-			ApiErrorCode.SearchTagIdsInvalid,
-			ApiErrorCode.SearchDateInvalid,
-			ApiErrorCode.SearchDateRangeInvalid,
-			ApiErrorCode.InternalStorageRangeLengthInvalid,
-			ApiErrorCode.InternalStorageRangeEmptyObject,
-			ApiErrorCode.InternalStorageRangeOffsetOutOfBounds,
-			ApiErrorCode.InternalStorageRangeHeaderInvalid,
-			ApiErrorCode.InternalStorageRangeMultipleUnsupported,
-			ApiErrorCode.InternalStorageRangeBoundsInvalid,
-			ApiErrorCode.InternalStorageContentLengthRequired,
-			ApiErrorCode.InternalStorageContentLengthInvalid,
-			ApiErrorCode.InternalStorageComposePartsRequired,
-			ApiErrorCode.InternalStorageComposeExpectedSizeInvalid,
-		] satisfies readonly string[];
+			const granularCodes = [
+				ApiErrorCode.ConfigPublicSiteUrlRequired,
+				ApiErrorCode.ConfigPublicSiteUrlInvalid,
+				ApiErrorCode.ExternalAuthCallbackRedirectUriRequired,
+				ApiErrorCode.PolicyStorageAccessKeyRequired,
+				ApiErrorCode.PolicyStorageSecretKeyRequired,
+				ApiErrorCode.PolicyStorageBucketRequired,
+				ApiErrorCode.PolicyStorageEndpointInvalid,
+				ApiErrorCode.PolicyRemoteNodeRequired,
+				ApiErrorCode.PolicyRemoteNodeUnexpected,
+				ApiErrorCode.PolicyRemoteStorageTargetRequired,
+				ApiErrorCode.RemoteStorageTargetNotFound,
+				ApiErrorCode.PolicyRemoteNodeDisabled,
+				ApiErrorCode.PolicyRemoteNodeBaseUrlRequired,
+				ApiErrorCode.PolicyRemoteNodeTransferStrategyUnsupported,
+				ApiErrorCode.PolicyOneDriveOptionsUnsupported,
+				ApiErrorCode.PolicySftpOptionsUnsupported,
+				ApiErrorCode.PolicyOneDriveAccountModeRequired,
+				ApiErrorCode.PolicyOneDrivePersonalChinaCloudUnsupported,
+				ApiErrorCode.PolicyOneDriveSharepointSiteRequired,
+				ApiErrorCode.PolicyOneDriveGroupRequired,
+				ApiErrorCode.PolicyNativeThumbnailUnsupported,
+				ApiErrorCode.PolicyNativeMediaMetadataUnsupported,
+				ApiErrorCode.PolicyPromotionSourceUnsupported,
+				ApiErrorCode.PolicyPromotionTargetUnsupported,
+				ApiErrorCode.PolicyPromotionBucketChangeDenied,
+				ApiErrorCode.ArchiveDownloadUserDisabled,
+				ApiErrorCode.ArchiveDownloadShareDisabled,
+				ApiErrorCode.TaskRetryStatusConflict,
+				ApiErrorCode.TaskRetryNotAllowed,
+				ApiErrorCode.SearchQueryEmpty,
+				ApiErrorCode.SearchTypeInvalid,
+				ApiErrorCode.SearchTagMatchInvalid,
+				ApiErrorCode.SearchSizeRangeInvalid,
+				ApiErrorCode.SearchFileFilterTypeConflict,
+				ApiErrorCode.SearchMimeTypeEmpty,
+				ApiErrorCode.SearchCategoryInvalid,
+				ApiErrorCode.SearchExtensionsInvalid,
+				ApiErrorCode.SearchTagIdsInvalid,
+				ApiErrorCode.SearchDateInvalid,
+				ApiErrorCode.SearchDateRangeInvalid,
+				ApiErrorCode.InternalStorageRangeLengthInvalid,
+				ApiErrorCode.InternalStorageRangeEmptyObject,
+				ApiErrorCode.InternalStorageRangeOffsetOutOfBounds,
+				ApiErrorCode.InternalStorageRangeHeaderInvalid,
+				ApiErrorCode.InternalStorageRangeMultipleUnsupported,
+				ApiErrorCode.InternalStorageRangeBoundsInvalid,
+				ApiErrorCode.InternalStorageContentLengthRequired,
+				ApiErrorCode.InternalStorageContentLengthInvalid,
+				ApiErrorCode.InternalStorageComposePartsRequired,
+				ApiErrorCode.InternalStorageComposeExpectedSizeInvalid,
+			] satisfies readonly string[];
 
-		for (const code of granularCodes) {
-			const key = `errors:${code.replaceAll(".", "_")}`;
-			expect(i18n.exists(key), key).toBe(true);
-		}
-	});
+			for (const code of granularCodes) {
+				const key = `errors:${code.replaceAll(".", "_")}`;
+				expect(i18n.exists(key), key).toBe(true);
+			}
+		},
+	);
 });

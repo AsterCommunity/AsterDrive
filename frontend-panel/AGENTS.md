@@ -4,7 +4,7 @@ React 前端管理面板，嵌入 Rust 二进制分发。
 
 ## 技术栈
 
-- React 19 + TypeScript (tsgo native-preview)
+- React 19 + TypeScript 7 native compiler
 - Vite 8 + Tailwind CSS 4
 - shadcn/ui (Base UI) + Radix 风格组件
 - zustand 5 (状态管理)
@@ -17,7 +17,8 @@ React 前端管理面板，嵌入 Rust 二进制分发。
 ```bash
 bun install              # 安装依赖
 bun run dev              # 开发服务器 (proxy 到 :3000)
-bun run build            # 构建 (tsgo + vite → dist/)
+bun run typecheck        # TypeScript 7 增量类型检查
+bun run build            # 构建 (tsc + vite → dist/)
 bun run check            # biome lint
 bun run check:fix        # biome 自动修复
 bun run generate-api     # 从 OpenAPI spec 生成 TypeScript SDK
@@ -28,7 +29,7 @@ bun run generate-api     # 从 OpenAPI spec 生成 TypeScript SDK
 ### TypeScript 规则
 - `erasableSyntaxOnly: true` — **禁止 TS enum**，用 `as const` 对象
 - `verbatimModuleSyntax: true` — 类型导入必须用 `import type`
-- tsgo (非 tsc) 做类型检查，biome (非 eslint) 做 lint
+- TypeScript 7 原生 `tsc` 做增量类型检查，biome (非 eslint) 做 lint
 - biome 用 tab 缩进，double quote
 
 ### API SDK 自动生成

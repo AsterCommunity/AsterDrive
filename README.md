@@ -236,7 +236,7 @@ bun run check
 
 ### Notes
 
-- Type checking uses `tsgo`, not `tsc`
+- Type checking uses the TypeScript 7 native `tsc` compiler
 - Linting uses `biome`, not ESLint
 - TypeScript `enum` is not allowed; use `as const` objects
 - Type-only imports must use `import type`

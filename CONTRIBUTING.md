@@ -83,7 +83,7 @@ bun run build
 
 ### Frontend Conventions
 
-- Type checking: `tsgo` (native-preview), not `tsc`
+- Type checking: TypeScript 7 native `tsc` with incremental project caches
 - Linting: `biome`, not ESLint
 - No TS enums (`erasableSyntaxOnly`), use `as const` objects
 - Type imports must use `import type` (`verbatimModuleSyntax`)

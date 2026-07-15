@@ -174,23 +174,23 @@ describe("WorkspaceRoute", () => {
 		expect(mockState.resetWorkspaceState).toHaveBeenCalledTimes(1);
 	});
 
-	it.each([
-		1,
-		Number.MAX_SAFE_INTEGER,
-	])("accepts the valid team id boundary %s", async (teamId) => {
-		const router = createWorkspaceRouter(`/teams/${teamId}`);
+	it.each([1, Number.MAX_SAFE_INTEGER])(
+		"accepts the valid team id boundary %s",
+		async (teamId) => {
+			const router = createWorkspaceRouter(`/teams/${teamId}`);
 
-		render(<RouterProvider router={router} />);
+			render(<RouterProvider router={router} />);
 
-		expect(await screen.findByTestId("workspace-marker")).toHaveTextContent(
-			`team:${teamId}`,
-		);
-		expect(mockState.setWorkspace).toHaveBeenCalledWith({
-			kind: "team",
-			teamId,
-		});
-		expect(mockState.resetWorkspaceState).toHaveBeenCalledTimes(1);
-	});
+			expect(await screen.findByTestId("workspace-marker")).toHaveTextContent(
+				`team:${teamId}`,
+			);
+			expect(mockState.setWorkspace).toHaveBeenCalledWith({
+				kind: "team",
+				teamId,
+			});
+			expect(mockState.resetWorkspaceState).toHaveBeenCalledTimes(1);
+		},
+	);
 
 	it.each([
 		"0",
@@ -202,18 +202,21 @@ describe("WorkspaceRoute", () => {
 		"0x10",
 		"not-a-number",
 		String(Number.MAX_SAFE_INTEGER + 1),
-	])("redirects the invalid team id %s without resetting workspace state", async (teamId) => {
-		const router = createWorkspaceRouter(`/teams/${teamId}`);
+	])(
+		"redirects the invalid team id %s without resetting workspace state",
+		async (teamId) => {
+			const router = createWorkspaceRouter(`/teams/${teamId}`);
 
-		render(<RouterProvider router={router} />);
+			render(<RouterProvider router={router} />);
 
-		await waitFor(() => {
-			expect(router.state.location.pathname).toBe("/");
-		});
-		expect(await screen.findByTestId("workspace-marker")).toHaveTextContent(
-			"personal",
-		);
-		expect(mockState.setWorkspace).not.toHaveBeenCalled();
-		expect(mockState.resetWorkspaceState).not.toHaveBeenCalled();
-	});
+			await waitFor(() => {
+				expect(router.state.location.pathname).toBe("/");
+			});
+			expect(await screen.findByTestId("workspace-marker")).toHaveTextContent(
+				"personal",
+			);
+			expect(mockState.setWorkspace).not.toHaveBeenCalled();
+			expect(mockState.resetWorkspaceState).not.toHaveBeenCalled();
+		},
+	);
 });

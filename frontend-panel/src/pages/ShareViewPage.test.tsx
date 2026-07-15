@@ -870,25 +870,21 @@ describe("ShareViewPage", () => {
 		expect(screen.getByText("unavailable")).toBeInTheDocument();
 	});
 
-	it.each([
-		"0",
-		"-1",
-		"abc",
-		"1.5",
-		"01",
-		"9007199254740992",
-	])("rejects invalid share folder route %s without issuing API requests", async (folderId) => {
-		mockState.params = { folderId, token: "share-token" };
+	it.each(["0", "-1", "abc", "1.5", "01", "9007199254740992"])(
+		"rejects invalid share folder route %s without issuing API requests",
+		async (folderId) => {
+			mockState.params = { folderId, token: "share-token" };
 
-		render(<ShareViewPage />);
+			render(<ShareViewPage />);
 
-		expect(
-			await screen.findByText("errors:folder_not_found"),
-		).toBeInTheDocument();
-		expect(mockState.getInfo).not.toHaveBeenCalled();
-		expect(mockState.listContent).not.toHaveBeenCalled();
-		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
-	});
+			expect(
+				await screen.findByText("errors:folder_not_found"),
+			).toBeInTheDocument();
+			expect(mockState.getInfo).not.toHaveBeenCalled();
+			expect(mockState.listContent).not.toHaveBeenCalled();
+			expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+		},
+	);
 
 	it("parses only canonical positive safe folder ids", () => {
 		expect(parseShareFolderRoute(undefined)).toBeNull();

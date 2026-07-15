@@ -126,23 +126,26 @@ describe("FilePreviewBody", () => {
 		["table", "csv"],
 		["formatted", "json"],
 		["code", "text"],
-	] as const)("shows loading for %s previews while the content preview path is resolving", (mode, category) => {
-		renderBody({
-			activeOption: option(mode),
-			contentResource: null,
-			formattedCategory: category === "json" ? "json" : "xml",
-			profile: {
-				category,
-				defaultMode: `builtin.${mode}`,
-				isBlobPreview: true,
-				isEditableText: mode === "code",
-				isTextBased: true,
-				options: [option(mode)],
-			},
-		});
+	] as const)(
+		"shows loading for %s previews while the content preview path is resolving",
+		(mode, category) => {
+			renderBody({
+				activeOption: option(mode),
+				contentResource: null,
+				formattedCategory: category === "json" ? "json" : "xml",
+				profile: {
+					category,
+					defaultMode: `builtin.${mode}`,
+					isBlobPreview: true,
+					isEditableText: mode === "code",
+					isTextBased: true,
+					options: [option(mode)],
+				},
+			});
 
-		expect(screen.getByText("files:loading_preview")).toBeInTheDocument();
-	});
+			expect(screen.getByText("files:loading_preview")).toBeInTheDocument();
+		},
+	);
 
 	it("passes a nullable content path through image previews", () => {
 		renderBody({

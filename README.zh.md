@@ -235,7 +235,7 @@ bun run check
 
 ### 说明
 
-- 类型检查使用 `tsgo`，不是 `tsc`
+- 类型检查使用 TypeScript 7 原生 `tsc` 编译器
 - Lint 使用 `biome`，不是 ESLint
 - 禁止 TypeScript `enum`，请使用 `as const` 对象
 - 类型导入必须使用 `import type`

@@ -521,19 +521,22 @@ describe("ArchivePreview", () => {
 			"source archive size mismatch",
 			"archive_preview_rejected",
 		],
-	])("shows a friendly state without retry for %s", async (code, message, messageKey) => {
-		const loadManifest = vi.fn(async () => {
-			throw new ApiError(code, message);
-		});
-		render(<ArchivePreview loadManifest={loadManifest} />);
+	])(
+		"shows a friendly state without retry for %s",
+		async (code, message, messageKey) => {
+			const loadManifest = vi.fn(async () => {
+				throw new ApiError(code, message);
+			});
+			render(<ArchivePreview loadManifest={loadManifest} />);
 
-		await waitFor(() => {
-			expect(screen.getByText(messageKey)).toBeInTheDocument();
-		});
-		expect(
-			screen.queryByRole("button", { name: "preview_retry" }),
-		).not.toBeInTheDocument();
-	});
+			await waitFor(() => {
+				expect(screen.getByText(messageKey)).toBeInTheDocument();
+			});
+			expect(
+				screen.queryByRole("button", { name: "preview_retry" }),
+			).not.toBeInTheDocument();
+		},
+	);
 
 	it("explains filename encoding failures without a retry button", async () => {
 		const loadManifest = vi.fn(async () => {
