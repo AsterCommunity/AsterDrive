@@ -15,13 +15,15 @@ pub async fn create(
     model.insert(db).await.map_err(AsterError::from)
 }
 
-pub async fn consume_by_state_hash(
+pub async fn consume_by_state_and_browser_binding_hash(
     db: &DatabaseConnection,
     state_hash: &str,
+    browser_binding_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<Option<external_auth_login_flow::Model>> {
     let existing = ExternalAuthLoginFlow::find()
         .filter(external_auth_login_flow::Column::StateHash.eq(state_hash))
+        .filter(external_auth_login_flow::Column::BrowserBindingHash.eq(browser_binding_hash))
         .filter(external_auth_login_flow::Column::ConsumedAt.is_null())
         .filter(external_auth_login_flow::Column::ExpiresAt.gt(now))
         .one(db)
@@ -38,6 +40,7 @@ pub async fn consume_by_state_hash(
             Expr::value(Some(now)),
         )
         .filter(external_auth_login_flow::Column::Id.eq(flow.id))
+        .filter(external_auth_login_flow::Column::BrowserBindingHash.eq(browser_binding_hash))
         .filter(external_auth_login_flow::Column::ConsumedAt.is_null())
         .filter(external_auth_login_flow::Column::ExpiresAt.gt(now))
         .exec(db)

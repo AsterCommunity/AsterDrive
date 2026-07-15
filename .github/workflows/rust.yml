@@ -20,12 +20,45 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # CI runners perform one clean build per job. Incremental artifacts consume
+  # substantial disk without providing the local edit-compile feedback benefit.
+  CARGO_INCREMENTAL: "0"
+  # The local dev profile favors maximum parallel code generation. CI runners
+  # have fewer cores, so keep test artifacts smaller and cheaper to link.
+  CARGO_PROFILE_TEST_CODEGEN_UNITS: "16"
+  CARGO_PROFILE_TEST_DEBUG: "0"
 
 permissions:
   contents: read
 
 jobs:
-  build:
+  format-and-clippy:
+    name: Format and Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Format check
+        run: cargo fmt -- --check
+
+      - name: Install media processing dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: clippy-v1
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+
+  coverage:
+    name: Tests and coverage
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -42,15 +75,6 @@ jobs:
         uses: taiki-e/install-action@v2
         with:
           tool: cargo-llvm-cov
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-
-      - name: Build
-        run: cargo build --verbose
-
-      - name: Format check
-        run: cargo fmt -- --check
 
       - name: Prepare coverage output directory
         run: mkdir -p coverage/rust
@@ -88,9 +112,6 @@ jobs:
           if-no-files-found: ignore
           path: coverage/rust
 
-      - name: Clippy
-        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-
   integration-backends:
     name: Integration tests (${{ matrix.backend }})
     runs-on: ubuntu-latest
@@ -114,12 +135,12 @@ jobs:
       - name: Cache Rust build artifacts
         uses: Swatinem/rust-cache@v2
         with:
-          shared-key: integration
+          shared-key: integration-v2
 
       # testcontainers 使用的 Docker 在 ubuntu-latest 上预装
       - name: Verify Docker availability
         run: docker version
 
-      # 只跑集成测试（tests/ 下的），单元测试已在 build job 中覆盖
+      # 只跑集成测试（tests/ 下的），单元测试已在 coverage job 中覆盖
       - name: Run integration tests against ${{ matrix.backend }}
         run: cargo test --tests --no-fail-fast --verbose

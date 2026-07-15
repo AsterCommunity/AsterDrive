@@ -25,6 +25,8 @@ const ALIGN_FORGE_SYSTEM_CONFIG_CONTRACT_MIGRATION: &str =
 const ALIGN_FORGE_MAIL_OUTBOX_CONTRACT_MIGRATION: &str =
     "m20260712_000004_align_forge_mail_outbox_contract";
 const RUNTIME_LEASES_MIGRATION: &str = "m20260713_000001_runtime_leases";
+const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
+    "m20260716_000001_bind_external_auth_login_flows";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -34,6 +36,32 @@ async fn setup_current_schema() -> sea_orm::DatabaseConnection {
         .await
         .expect("current migrations should apply");
     db
+}
+
+#[tokio::test]
+async fn external_auth_login_flow_browser_binding_migration_is_registered_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION),
+        "external auth browser binding migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
+    assert!(has_column(&current_columns, "browser_binding_hash"));
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("external auth browser binding migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
+    assert!(!has_column(&rolled_back_columns, "browser_binding_hash"));
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("external auth browser binding migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
+    assert!(has_column(&reapplied_columns, "browser_binding_hash"));
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

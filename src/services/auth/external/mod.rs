@@ -32,6 +32,7 @@ pub use providers::{
 pub use verification::{confirm_email_verification, start_email_verification};
 
 const FLOW_TTL_SECS: u64 = 300;
+const BROWSER_BINDING_SECRET_BYTES: usize = 32;
 const EMAIL_VERIFICATION_FLOW_TTL_SECS: u64 = 1_800;
 const REDACTED_SECRET: &str = "***REDACTED***";
 const EXTERNAL_AUTH_USER_PASSWORD_BYTES: usize = 48;
@@ -77,6 +78,17 @@ pub struct ExternalAuthStartLoginRequest {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
 pub struct ExternalAuthStartLoginResponse {
     pub authorization_url: String,
+}
+
+pub struct ExternalAuthBrowserBinding {
+    pub state: String,
+    pub secret: String,
+    pub max_age_secs: i64,
+}
+
+pub struct ExternalAuthStartLoginResult {
+    pub response: ExternalAuthStartLoginResponse,
+    pub browser_binding: ExternalAuthBrowserBinding,
 }
 
 #[derive(Debug, Deserialize)]

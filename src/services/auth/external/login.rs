@@ -1,3 +1,4 @@
+use base64::Engine as _;
 use chrono::{Duration, Utc};
 use sea_orm::ActiveValue::Set;
 
@@ -5,6 +6,7 @@ use crate::db::repository::{external_auth_login_flow_repo, external_auth_provide
 use crate::entities::external_auth_login_flow;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use aster_forge_crypto as hash;
 use aster_forge_external_auth::{
     ExternalAuthCallback, ExternalAuthProviderKind, default_registry,
     normalize as external_auth_normalize,
@@ -19,9 +21,17 @@ use super::resolution::{
 };
 use super::verification::create_pending_email_verification_flow;
 use super::{
-    ExternalAuthCallbackOutcome, ExternalAuthCallbackQuery, ExternalAuthCallbackResult,
-    ExternalAuthPrimaryLogin, ExternalAuthStartLoginResponse, FLOW_TTL_SECS,
+    BROWSER_BINDING_SECRET_BYTES, ExternalAuthBrowserBinding, ExternalAuthCallbackOutcome,
+    ExternalAuthCallbackQuery, ExternalAuthCallbackResult, ExternalAuthPrimaryLogin,
+    ExternalAuthStartLoginResponse, ExternalAuthStartLoginResult, FLOW_TTL_SECS,
 };
+
+fn browser_binding_secret() -> String {
+    let mut bytes = [0_u8; BROWSER_BINDING_SECRET_BYTES];
+    let mut rng = rand::rng();
+    rand::RngExt::fill(&mut rng, &mut bytes);
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
+}
 
 pub async fn start_login(
     state: &impl SharedRuntimeState,
@@ -29,7 +39,7 @@ pub async fn start_login(
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
     return_path: Option<&str>,
-) -> Result<ExternalAuthStartLoginResponse> {
+) -> Result<ExternalAuthStartLoginResult> {
     let provider_key = external_auth_normalize::normalize_provider_key(provider_key)?;
     let provider = external_auth_provider_repo::find_by_kind_key(
         state.writer_db(),
@@ -61,9 +71,11 @@ pub async fn start_login(
         .await?;
     let now = Utc::now();
     let ttl = u64_to_i64(FLOW_TTL_SECS, "external auth login flow ttl")?;
+    let browser_binding_secret = browser_binding_secret();
     let flow = external_auth_login_flow::ActiveModel {
         provider_id: Set(provider.id),
         state_hash: Set(external_auth_normalize::state_hash(&auth_start.state)),
+        browser_binding_hash: Set(Some(hash::sha256_hex(browser_binding_secret.as_bytes()))),
         nonce: Set(auth_start.nonce),
         pkce_verifier: Set(auth_start.pkce_verifier),
         redirect_uri: Set(redirect_uri),
@@ -75,8 +87,15 @@ pub async fn start_login(
     };
     external_auth_login_flow_repo::create(state.writer_db(), flow).await?;
 
-    Ok(ExternalAuthStartLoginResponse {
-        authorization_url: auth_start.authorization_url,
+    Ok(ExternalAuthStartLoginResult {
+        response: ExternalAuthStartLoginResponse {
+            authorization_url: auth_start.authorization_url,
+        },
+        browser_binding: ExternalAuthBrowserBinding {
+            state: auth_start.state,
+            secret: browser_binding_secret,
+            max_age_secs: ttl,
+        },
     })
 }
 
@@ -85,9 +104,27 @@ pub async fn finish_callback(
     provider_kind: ExternalAuthProviderKind,
     provider_key: &str,
     query: &ExternalAuthCallbackQuery,
+    browser_binding_secret: Option<&str>,
     _ip_address: Option<&str>,
     _user_agent: Option<&str>,
 ) -> Result<ExternalAuthCallbackOutcome> {
+    let state_value = query.state.as_deref().ok_or_else(|| {
+        AsterError::auth_invalid_credentials("external auth callback missing state")
+    })?;
+    let browser_binding_secret = browser_binding_secret.ok_or_else(|| {
+        AsterError::auth_invalid_credentials("external auth login flow is invalid or expired")
+    })?;
+
+    let flow = external_auth_login_flow_repo::consume_by_state_and_browser_binding_hash(
+        state.writer_db(),
+        &external_auth_normalize::state_hash(state_value),
+        &hash::sha256_hex(browser_binding_secret.as_bytes()),
+        Utc::now(),
+    )
+    .await?
+    .ok_or_else(|| {
+        AsterError::auth_invalid_credentials("external auth login flow is invalid or expired")
+    })?;
     if let Some(error) = query.error.as_deref() {
         let description = query
             .error_description
@@ -100,19 +137,6 @@ pub async fn finish_callback(
     }
     let code = query.code.as_deref().ok_or_else(|| {
         AsterError::auth_invalid_credentials("external auth callback missing code")
-    })?;
-    let state_value = query.state.as_deref().ok_or_else(|| {
-        AsterError::auth_invalid_credentials("external auth callback missing state")
-    })?;
-
-    let flow = external_auth_login_flow_repo::consume_by_state_hash(
-        state.writer_db(),
-        &external_auth_normalize::state_hash(state_value),
-        Utc::now(),
-    )
-    .await?
-    .ok_or_else(|| {
-        AsterError::auth_invalid_credentials("external auth state is invalid or expired")
     })?;
     let provider =
         external_auth_provider_repo::find_by_id(state.writer_db(), flow.provider_id).await?;

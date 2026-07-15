@@ -956,6 +956,57 @@ async fn finish_callback_rejects_state_replay() {
 
     let resp = finish_oauth2_callback(&app, &provider_key, &state_value).await;
     assert_oauth2_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn parallel_login_flows_keep_independent_browser_bindings() {
+    let (mock_provider, server) = start_mock_oauth2_provider().await;
+    let state = common::setup().await;
+    configure_oauth2_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let created = create_oauth2_provider_with(
+        &app,
+        &admin_token,
+        TestOAuth2ProviderOptions {
+            auto_provision_enabled: true,
+            ..TestOAuth2ProviderOptions::mock(&mock_provider.base_url)
+        },
+    )
+    .await;
+    let provider_key = created_provider_key(&created);
+
+    let first_state = start_oauth2_login(&app, &mock_provider, &provider_key, "/files").await;
+    let second_state =
+        start_oauth2_login(&app, &mock_provider, &provider_key, "/settings/security").await;
+    let first_cookie = external_auth::external_auth_binding_cookie_header(&first_state);
+    let second_cookie = external_auth::external_auth_binding_cookie_header(&second_state);
+    assert_ne!(
+        external_auth::external_auth_binding_cookie_name(&first_cookie),
+        external_auth::external_auth_binding_cookie_name(&second_cookie)
+    );
+
+    let first_resp = finish_oauth2_callback(&app, &provider_key, &first_state).await;
+    assert_eq!(first_resp.status(), 302);
+    assert_eq!(
+        first_resp
+            .headers()
+            .get("Location")
+            .and_then(|value| value.to_str().ok()),
+        Some("http://localhost:8080/files")
+    );
+    let second_resp = finish_oauth2_callback(&app, &provider_key, &second_state).await;
+    assert_eq!(second_resp.status(), 302);
+    assert_eq!(
+        second_resp
+            .headers()
+            .get("Location")
+            .and_then(|value| value.to_str().ok()),
+        Some("http://localhost:8080/settings/security")
+    );
 
     server.stop(true).await;
 }

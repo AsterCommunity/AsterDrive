@@ -1,6 +1,9 @@
 //! 认证 API 路由：`external-auth`。
 
-use super::cookies::{build_access_cookie, build_csrf_cookie, build_refresh_cookie};
+use super::cookies::{
+    build_access_cookie, build_csrf_cookie, build_external_auth_binding_cookie,
+    build_refresh_cookie, clear_external_auth_binding_cookie, external_auth_binding_cookie_name,
+};
 use crate::api::response::ApiResponse;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::site_url;
@@ -69,7 +72,7 @@ pub async fn start_login(
     )?;
     let (kind, provider) = path.into_inner();
     let provider_kind = parse_provider_kind(&kind)?;
-    let response = external::start_login(
+    let result = external::start_login(
         state.get_ref(),
         &req,
         provider_kind,
@@ -77,7 +80,15 @@ pub async fn start_login(
         body.return_path.as_deref(),
     )
     .await?;
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(response)))
+    let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
+    Ok(HttpResponse::Ok()
+        .cookie(build_external_auth_binding_cookie(
+            &result.browser_binding.state,
+            &result.browser_binding.secret,
+            result.browser_binding.max_age_secs,
+            auth_policy.cookie_secure,
+        ))
+        .json(ApiResponse::ok(result.response)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -101,6 +112,45 @@ pub async fn finish_login(
     path: web::Path<(String, String)>,
     query: web::Query<ExternalAuthCallbackQuery>,
 ) -> Result<HttpResponse> {
+    let browser_binding_cookie_name = query
+        .state
+        .as_deref()
+        .map(external_auth_binding_cookie_name);
+    let browser_binding_secret = browser_binding_cookie_name
+        .as_deref()
+        .and_then(|name| req.cookie(name))
+        .map(|cookie| cookie.value().to_string());
+    let response = finish_login_inner(
+        state.clone(),
+        req,
+        path,
+        query,
+        browser_binding_secret.as_deref(),
+    )
+    .await?;
+
+    let Some(cookie_name) = browser_binding_cookie_name else {
+        return Ok(response);
+    };
+    let secure = RuntimeAuthPolicy::from_runtime_config(state.runtime_config()).cookie_secure;
+    let mut response = response;
+    response
+        .add_cookie(&clear_external_auth_binding_cookie(&cookie_name, secure))
+        .map_err(|error| {
+            AsterError::internal_error(format!(
+                "failed to clear external auth browser binding cookie: {error}"
+            ))
+        })?;
+    Ok(response)
+}
+
+async fn finish_login_inner(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    path: web::Path<(String, String)>,
+    query: web::Query<ExternalAuthCallbackQuery>,
+    browser_binding_secret: Option<&str>,
+) -> Result<HttpResponse> {
     let audit_info = AuditRequestInfo::from_request_with_trusted_proxies(
         &req,
         &state.get_ref().config().network_trust.trusted_proxies,
@@ -120,6 +170,7 @@ pub async fn finish_login(
         provider_kind,
         &provider,
         &query,
+        browser_binding_secret,
         audit_info.ip_address.as_deref(),
         audit_info.user_agent.as_deref(),
     )

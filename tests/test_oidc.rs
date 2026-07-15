@@ -15,7 +15,7 @@ use aster_drive::entities::{
     external_auth_login_flow, external_auth_provider, user,
 };
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::services::auth::external;
+use aster_drive::services::auth::{external, mfa::totp};
 use aster_drive::types::AuditAction;
 use chrono::{Duration, Utc};
 use external_auth::oidc::*;
@@ -865,7 +865,28 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_set_cookie = external_auth::external_auth_binding_set_cookie(&resp);
+    assert_eq!(
+        binding_set_cookie.path(),
+        Some("/api/v1/auth/external-auth")
+    );
+    assert!(binding_set_cookie.http_only().unwrap_or(false));
+    assert_eq!(
+        binding_set_cookie.same_site(),
+        Some(actix_web::cookie::SameSite::Lax)
+    );
+    assert_eq!(
+        binding_set_cookie.max_age().map(|age| age.whole_seconds()),
+        Some(300)
+    );
+    let binding_cookie = format!(
+        "{}={}",
+        binding_set_cookie.name(),
+        binding_set_cookie.value()
+    );
     let body: Value = test::read_body_json(resp).await;
+    assert_eq!(binding_set_cookie.value().len(), 43);
+    assert!(!body.to_string().contains(binding_set_cookie.value()));
     let auth_url = body["data"]["authorization_url"]
         .as_str()
         .expect("authorization url should be returned");
@@ -873,6 +894,13 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
 
     request_mock_authorize(auth_url).await;
     let authorize_request = mock_provider.last_authorize_request();
+    assert_eq!(
+        binding_set_cookie.name(),
+        format!(
+            "aster_external_auth_{}",
+            aster_forge_crypto::sha256_hex(authorize_request.state.as_bytes())
+        )
+    );
     assert_eq!(authorize_request.response_type, "code");
     assert_eq!(authorize_request.client_id, TEST_CLIENT_ID);
     assert_eq!(
@@ -898,18 +926,32 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
     assert_eq!(flows.len(), 1);
     assert_eq!(flows[0].return_path.as_deref(), Some("/files?view=grid"));
     assert_ne!(flows[0].state_hash, authorize_request.state);
+    let browser_binding_hash = flows[0]
+        .browser_binding_hash
+        .as_deref()
+        .expect("browser binding hash should be persisted");
+    let binding_secret = binding_cookie
+        .split_once('=')
+        .map(|(_, value)| value)
+        .expect("browser binding cookie should contain a value");
+    assert_eq!(
+        browser_binding_hash,
+        aster_forge_crypto::sha256_hex(binding_secret.as_bytes())
+    );
 
-    let consumed = external_auth_login_flow_repo::consume_by_state_hash(
+    let consumed = external_auth_login_flow_repo::consume_by_state_and_browser_binding_hash(
         state.writer_db(),
         &aster_forge_crypto::sha256_hex(authorize_request.state.as_bytes()),
+        browser_binding_hash,
         Utc::now(),
     )
     .await
     .expect("flow consume should succeed");
     assert!(consumed.is_some());
-    let replay = external_auth_login_flow_repo::consume_by_state_hash(
+    let replay = external_auth_login_flow_repo::consume_by_state_and_browser_binding_hash(
         state.writer_db(),
         &aster_forge_crypto::sha256_hex(authorize_request.state.as_bytes()),
+        browser_binding_hash,
         Utc::now(),
     )
     .await
@@ -917,6 +959,53 @@ async fn start_login_persists_pkce_flow_and_rejects_replayed_state() {
     assert!(replay.is_none());
 
     server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn legacy_unbound_login_flow_cannot_be_consumed() {
+    let state = common::setup().await;
+    let provider = external_auth_provider_repo::create(
+        state.writer_db(),
+        external_auth_provider_model("legacy-unbound", "http://legacy.example.test", true),
+    )
+    .await
+    .expect("provider should create");
+    let now = Utc::now();
+    external_auth_login_flow_repo::create(
+        state.writer_db(),
+        external_auth_login_flow::ActiveModel {
+            provider_id: Set(provider.id),
+            state_hash: Set(aster_forge_crypto::sha256_hex(b"legacy-state")),
+            browser_binding_hash: Set(None),
+            nonce: Set(Some("legacy-nonce".to_string())),
+            pkce_verifier: Set(Some("legacy-verifier".to_string())),
+            redirect_uri: Set("http://localhost/callback".to_string()),
+            return_path: Set(Some("/".to_string())),
+            created_at: Set(now),
+            expires_at: Set(now + Duration::minutes(5)),
+            consumed_at: Set(None),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("legacy flow should create");
+
+    let consumed = external_auth_login_flow_repo::consume_by_state_and_browser_binding_hash(
+        state.writer_db(),
+        &aster_forge_crypto::sha256_hex(b"legacy-state"),
+        &aster_forge_crypto::sha256_hex(b"browser-secret"),
+        Utc::now(),
+    )
+    .await
+    .expect("legacy flow consume should query");
+    assert!(consumed.is_none());
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should exist");
+    assert!(flow.consumed_at.is_none());
 }
 
 #[actix_web::test]
@@ -943,6 +1032,7 @@ async fn finish_callback_verifies_jwks_and_issues_asterdrive_cookies() {
     assert!(common::extract_cookie(&resp, "aster_access").is_some());
     assert!(common::extract_cookie(&resp, "aster_refresh").is_some());
     assert!(common::extract_cookie(&resp, "aster_csrf").is_some());
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
 
     let identities = external_auth_identity::Entity::find()
         .all(state.writer_db())
@@ -951,6 +1041,392 @@ async fn finish_callback_verifies_jwks_and_issues_asterdrive_cookies() {
     assert_eq!(identities.len(), 1);
     assert_eq!(identities[0].identity_namespace, mock_provider.issuer);
     assert_eq!(identities[0].subject, "oidc-subject-1");
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn mfa_required_callback_clears_binding_without_issuing_session_cookies() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+
+    let first_state = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let first_resp = finish_oidc_callback(&app, &provider_key, &first_state).await;
+    let access = common::extract_cookie(&first_resp, "aster_access")
+        .expect("first external login should issue an access cookie");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/totp/setup/start")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    let flow_token = body["data"]["flow_token"]
+        .as_str()
+        .expect("TOTP setup should return a flow token");
+    let secret = body["data"]["secret"]
+        .as_str()
+        .expect("TOTP setup should return a secret");
+    let secret_bytes = totp::decode_secret(secret).expect("TOTP secret should decode");
+    let code = totp::code_for_time(&secret_bytes, Utc::now()).expect("TOTP code should generate");
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/mfa/totp/setup/finish")
+        .insert_header(("Cookie", common::access_cookie_header(&access)))
+        .insert_header(common::csrf_header_for(&access))
+        .set_json(serde_json::json!({
+            "flow_token": flow_token,
+            "code": code,
+            "name": "External auth test"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let second_state = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let resp = finish_oidc_callback(&app, &provider_key, &second_state).await;
+    assert_eq!(resp.status(), 302);
+    let location = resp
+        .headers()
+        .get("Location")
+        .and_then(|value| value.to_str().ok())
+        .expect("MFA redirect location should exist");
+    assert!(location.starts_with("http://localhost:8080/login?mfa=required"));
+    assert!(location.contains("return_path=%2Ffiles"));
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    assert!(common::extract_cookie(&resp, "aster_refresh").is_none());
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn finish_callback_requires_the_starting_browser_binding_cookie() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={state_value}"
+    );
+    let req = test::TestRequest::get().uri(&callback).to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+    assert!(common::extract_cookie(&resp, "aster_refresh").is_none());
+
+    let flows = external_auth_login_flow::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("flows should query");
+    assert_eq!(flows.len(), 1);
+    assert!(flows[0].consumed_at.is_none());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn invalid_browser_binding_does_not_consume_the_login_flow() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let binding_cookie = external_auth::external_auth_binding_cookie_header(&state_value);
+    let cookie_name = external_auth::external_auth_binding_cookie_name(&binding_cookie);
+
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={state_value}"
+    );
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", format!("{cookie_name}=wrong-browser-secret")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
+    assert_eq!(resp.status(), 302);
+    assert!(common::extract_cookie(&resp, "aster_access").is_some());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn another_login_flows_binding_cookie_is_rejected_without_consuming_either_flow() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let first_state = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let second_state = start_oidc_login(&app, &mock_provider, &provider_key, "/").await;
+    let first_cookie = external_auth::external_auth_binding_cookie_header(&first_state);
+    let second_cookie = external_auth::external_auth_binding_cookie_header(&second_state);
+
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={first_state}"
+    );
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", second_cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    let cleared_cookie = external_auth::external_auth_binding_set_cookie(&resp);
+    assert_eq!(
+        cleared_cookie.name(),
+        external_auth::external_auth_binding_cookie_name(&first_cookie)
+    );
+    assert_eq!(cleared_cookie.value(), "");
+    assert_eq!(
+        cleared_cookie.max_age().map(|age| age.whole_seconds()),
+        Some(0)
+    );
+
+    let flows = external_auth_login_flow::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("flows should query");
+    assert_eq!(flows.len(), 2);
+    assert!(flows.iter().all(|flow| flow.consumed_at.is_none()));
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn tampered_state_is_rejected_without_consuming_the_original_flow() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let binding_cookie = external_auth::external_auth_binding_cookie_header(&state_value);
+    let binding_secret = binding_cookie
+        .split_once('=')
+        .map(|(_, value)| value)
+        .expect("binding cookie should contain a value");
+    let tampered_state = format!("{state_value}x");
+    let tampered_cookie_name = format!(
+        "aster_external_auth_{}",
+        aster_forge_crypto::sha256_hex(tampered_state.as_bytes())
+    );
+
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={tampered_state}"
+    );
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", format!("{tampered_cookie_name}={binding_secret}")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+
+    let flows = external_auth_login_flow::Entity::find()
+        .all(state.writer_db())
+        .await
+        .expect("flows should query");
+    assert_eq!(flows.len(), 1);
+    assert!(flows[0].consumed_at.is_none());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn expired_browser_bound_flow_is_rejected_and_cookie_is_cleared() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should exist");
+    let mut flow = flow.into_active_model();
+    flow.expires_at = Set(Utc::now() - Duration::seconds(1));
+    flow.update(state.writer_db())
+        .await
+        .expect("flow should expire");
+
+    let resp = finish_oidc_callback(&app, &provider_key, &state_value).await;
+    assert_oidc_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+    assert!(common::extract_cookie(&resp, "aster_access").is_none());
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should remain for cleanup");
+    assert!(flow.consumed_at.is_none());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn provider_error_callback_consumes_flow_and_clears_binding() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let binding_cookie = external_auth::external_auth_binding_cookie_header(&state_value);
+
+    let callback = format!(
+        "/api/v1/auth/external-auth/oidc/{provider_key}/callback?error=access_denied&error_description=user_cancelled&state={state_value}"
+    );
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", binding_cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should exist");
+    assert!(flow.consumed_at.is_some());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn callback_missing_code_consumes_flow_and_clears_binding() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let binding_cookie = external_auth::external_auth_binding_cookie_header(&state_value);
+
+    let callback =
+        format!("/api/v1/auth/external-auth/oidc/{provider_key}/callback?state={state_value}");
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", binding_cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should exist");
+    assert!(flow.consumed_at.is_some());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn callback_missing_state_does_not_clear_unrelated_binding_cookie() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    let app = create_test_app!(state.clone());
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+    let state_value = start_oidc_login(&app, &mock_provider, &provider_key, "/files").await;
+    let binding_cookie = external_auth::external_auth_binding_cookie_header(&state_value);
+
+    let callback =
+        format!("/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code");
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", binding_cookie))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_oidc_error_redirect(&resp);
+    assert!(
+        resp.response()
+            .cookies()
+            .all(|cookie| !cookie.name().starts_with("aster_external_auth_"))
+    );
+
+    let flow = external_auth_login_flow::Entity::find()
+        .one(state.writer_db())
+        .await
+        .expect("flow should query")
+        .expect("flow should exist");
+    assert!(flow.consumed_at.is_none());
+
+    server.stop(true).await;
+}
+
+#[actix_web::test]
+async fn browser_binding_cookie_respects_secure_runtime_policy() {
+    let (mock_provider, server) = start_mock_external_auth_provider().await;
+    let state = common::setup().await;
+    configure_oidc_public_site_url(&state);
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_COOKIE_SECURE_KEY,
+        "true",
+    ));
+    let app = create_test_app!(state);
+    let (admin_token, _) = register_and_login!(app);
+    let provider_key =
+        create_external_auth_provider_key(&app, &admin_token, &mock_provider.issuer, true, true)
+            .await;
+
+    let req = test::TestRequest::post()
+        .uri(&format!(
+            "/api/v1/auth/external-auth/oidc/{provider_key}/start"
+        ))
+        .insert_header(("Origin", TEST_BROWSER_ORIGIN))
+        .set_json(serde_json::json!({ "return_path": "/files" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let cookie = external_auth::external_auth_binding_set_cookie(&resp);
+    assert!(cookie.secure().unwrap_or(false));
 
     server.stop(true).await;
 }
@@ -1108,6 +1584,7 @@ async fn microsoft_callback_missing_email_uses_local_email_verification_flow() {
     assert!(scope.split_whitespace().any(|item| item == "email"));
 
     let resp = finish_microsoft_callback(&app, &provider.key, &state_value).await;
+    external_auth::assert_external_auth_binding_cookie_cleared(&resp);
     let flow_token = oidc_email_required_flow(&resp);
     assert!(!flow_token.is_empty());
 
@@ -2302,6 +2779,7 @@ async fn finish_callback_rejects_issuer_mismatch_after_id_token_verification() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_cookie = external_auth::external_auth_binding_cookie_from_response(&resp);
     let body: Value = test::read_body_json(resp).await;
     request_mock_authorize(body["data"]["authorization_url"].as_str().unwrap()).await;
     let state_value = mock_provider.last_authorize_request().state;
@@ -2309,7 +2787,10 @@ async fn finish_callback_rejects_issuer_mismatch_after_id_token_verification() {
     let callback = format!(
         "/api/v1/auth/external-auth/oidc/{provider_key}/callback?code=mock-code&state={state_value}"
     );
-    let req = test::TestRequest::get().uri(&callback).to_request();
+    let req = test::TestRequest::get()
+        .uri(&callback)
+        .insert_header(("Cookie", binding_cookie))
+        .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 302);
     let location = resp
@@ -2527,6 +3008,7 @@ async fn dex_container_authorization_code_login_e2e() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_cookie = external_auth::external_auth_binding_cookie_from_response(&resp);
     let body: Value = test::read_body_json(resp).await;
     let authorization_url = body["data"]["authorization_url"]
         .as_str()
@@ -2538,6 +3020,7 @@ async fn dex_container_authorization_code_login_e2e() {
     let callback_path_and_query = parsed_callback[url::Position::BeforePath..].to_string();
     let req = test::TestRequest::get()
         .uri(&callback_path_and_query)
+        .insert_header(("Cookie", binding_cookie))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .to_request();
     let resp = test::call_service(&app, req).await;

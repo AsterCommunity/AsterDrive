@@ -16,6 +16,10 @@ use serde_json::Value;
 use std::time::Duration as StdDuration;
 
 use crate::common;
+use crate::external_auth::{
+    external_auth_binding_cookie_from_response, external_auth_binding_cookie_header,
+    remember_external_auth_binding,
+};
 
 pub const TEST_BROWSER_ORIGIN: &str = "http://localhost:8080";
 pub const TEST_CLIENT_ID: &str = "aster-test-client";
@@ -289,12 +293,15 @@ where
         .to_request();
     let resp = test::call_service(app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_cookie = external_auth_binding_cookie_from_response(&resp);
     let body: Value = test::read_body_json(resp).await;
     let auth_url = body["data"]["authorization_url"]
         .as_str()
         .expect("authorization url should be returned");
     request_mock_authorize(auth_url).await;
-    mock_provider.last_authorize_request().state
+    let state = mock_provider.last_authorize_request().state;
+    remember_external_auth_binding(&state, binding_cookie);
+    state
 }
 
 pub async fn start_google_login<S, B, E>(
@@ -321,12 +328,15 @@ where
         .to_request();
     let resp = test::call_service(app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_cookie = external_auth_binding_cookie_from_response(&resp);
     let body: Value = test::read_body_json(resp).await;
     let auth_url = body["data"]["authorization_url"]
         .as_str()
         .expect("authorization url should be returned");
     request_mock_authorize(auth_url).await;
-    mock_provider.last_authorize_request().state
+    let state = mock_provider.last_authorize_request().state;
+    remember_external_auth_binding(&state, binding_cookie);
+    state
 }
 
 pub async fn start_microsoft_login<S, B, E>(
@@ -353,12 +363,15 @@ where
         .to_request();
     let resp = test::call_service(app, req).await;
     assert_eq!(resp.status(), 200);
+    let binding_cookie = external_auth_binding_cookie_from_response(&resp);
     let body: Value = test::read_body_json(resp).await;
     let auth_url = body["data"]["authorization_url"]
         .as_str()
         .expect("authorization url should be returned");
     request_mock_authorize(auth_url).await;
-    mock_provider.last_authorize_request().state
+    let state = mock_provider.last_authorize_request().state;
+    remember_external_auth_binding(&state, binding_cookie);
+    state
 }
 
 pub async fn finish_oidc_callback<S, B, E>(
@@ -380,6 +393,7 @@ where
     );
     let req = test::TestRequest::get()
         .uri(&callback)
+        .insert_header(("Cookie", external_auth_binding_cookie_header(state_value)))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .to_request();
     test::call_service(app, req).await
@@ -404,6 +418,7 @@ where
     );
     let req = test::TestRequest::get()
         .uri(&callback)
+        .insert_header(("Cookie", external_auth_binding_cookie_header(state_value)))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .to_request();
     test::call_service(app, req).await
@@ -428,6 +443,7 @@ where
     );
     let req = test::TestRequest::get()
         .uri(&callback)
+        .insert_header(("Cookie", external_auth_binding_cookie_header(state_value)))
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .to_request();
     test::call_service(app, req).await

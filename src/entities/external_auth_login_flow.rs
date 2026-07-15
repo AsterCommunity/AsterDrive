@@ -13,6 +13,7 @@ pub struct Model {
     pub id: i64,
     pub provider_id: i64,
     pub state_hash: String,
+    pub browser_binding_hash: Option<String>,
     pub nonce: Option<String>,
     pub pkce_verifier: Option<String>,
     pub redirect_uri: String,
