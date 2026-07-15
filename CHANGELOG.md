@@ -7,6 +7,102 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0-beta.2] - 2026-07-16
+
+### Release Highlights
+
+**AsterDrive `v0.4.0-beta.2` 是 `0.4.0` 系列的第二个 beta，主线是认证与访问链路的安全加固，以及公开分享导航体验的完善。** 外部认证（OAuth2 / OIDC）登录流程绑定浏览器 session（HttpOnly cookie + SHA-256 绑定哈希），从协议层阻断 CSRF 与 session fixation；远程节点注册 token 收紧为一次性原子兑换，重放不再泄露 bootstrap 凭据；WebDAV Basic 认证加入分层限流（per-IP + 用户名退避）与统一错误边界，不再暴露凭据、归属、禁用、团队访问等失败细节；首次启动在完成系统初始化前禁止普通注册，并通过数据库 initialization lock 保证只有一个初始管理员。与此同时，公开分享落地路由化的子文件夹导航、侧边栏目录树与已登录会话探测；workspace 路由合并为单一组件，切换工作区时保留当前视图。
+
+- **外部认证 browser binding** — OAuth2 / OIDC 登录流程绑定 HttpOnly cookie，SHA-256 校验，拒绝未绑定的 legacy flow
+- **注册 token 一次性兑换** — 远程节点注册 token 原子 claim，重放被拒，bootstrap 凭据不泄露
+- **WebDAV 认证限流与凭据边界** — Basic auth 分层限流（per-IP + 用户名退避）+ 统一 401，隐藏失败细节
+- **强制 setup 才能注册** — 系统初始化前禁止普通注册，数据库锁保证唯一初始管理员
+- **公开分享导航** — 路由化子文件夹导航、侧边栏目录树、公开页已登录会话探测
+- **workspace 路由统一** — 合并 personal / team 路由，切换工作区保留当前视图
+
+### Added
+
+- **外部认证 browser binding（安全）**
+  - `external_auth_login_flows` 新增 `browser_binding_hash` 列（32 字节随机 secret 的 SHA-256）
+  - OAuth / OIDC 流程发起时生成 secret，哈希入库，原文以 HttpOnly cookie 下发
+  - 签发 session token 前校验绑定 cookie 与 flow 匹配；成功或失败均清除 cookie
+  - 拒绝 `browser_binding_hash` 为 NULL 的 legacy 未绑定 flow
+  - 覆盖绑定校验、篡改检测与并行流程测试
+
+- **WebDAV 认证限流与凭据边界**
+  - Basic 认证应用 auth-tier 限流，新增 per-IP 限流（信任代理 client IP 解析）与跨轮换 IP 的用户名失败退避
+  - 限流时返回带 `Retry-After` 的 WebDAV 兼容 401
+  - WebDAV 账号连接测试受 actor ownership 检查保护，复用 auth 限流 tier
+  - 凭据 / 归属 / 禁用 / 团队访问失败统一收敛为 auth 错误，不暴露差异
+
+- **首次启动 setup 强制**
+  - 完成系统初始化前禁止普通注册，新增 `validation.system_not_initialized` 错误码与前端文案
+  - 数据库 initialization lock 保证并发 setup 只创建一个初始管理员，setup 重试干净回滚
+
+- **远程节点注册 token 一次性兑换**
+  - 按 token hash 原子 claim 可兑换 token，重放被拒且不暴露 bootstrap 凭据
+  - 保留 replaced / completed / expired / redeemed 终态错误；已 redeemed token 在节点 bootstrap 时视为已配置
+
+- **外部认证 provider 创建默认值后端化**
+  - provider kind schema 新增 `create_defaults`（display_name / options / scopes / enabled / auto_provision / auto_link_verified_email / require_email_verified）与 Microsoft tenant 默认值
+  - 新增 `issuer_url_supported` 布尔位，替代前端多 flag 推断 issuer 字段可见性的逻辑
+  - 前端切换 provider 时按后端默认值重建表单，移除 isGitHub / Google / Microsoft / Qq 等前端 provider 专属分支
+
+- **公开分享路由化导航**
+  - 新增规范的公开分享子文件夹路由与路由校验，按路由加载子文件夹内容、面包屑、排序与刷新；新增 scoped 祖先查询端点
+  - 公开文件夹分享新增侧边栏目录树（懒加载、面包屑水合、请求去重、token 变更取消 stale 响应、分支级重试）
+  - 公开页对已登录用户做 optional session probe（`/auth/me`），不强制跳转登录
+  - `ShareAccess` extractor（const generic flags）替代手动 cookie 检查，收敛下载次数与归档下载 feature gating
+
+- **workspace 路由统一**
+  - `PersonalWorkspaceRoute` 与 `TeamWorkspaceRoute` 合并为单一 `WorkspaceRoute`，共享同一 route element，工作区切换不再 unmount 页面
+  - 新增 `workspaceSwitchPath`，跨工作区切换时保留 workspace 无关视图（搜索 / 分享 / 任务 / 回收站 / 分类）的 query 与 hash；team id 校验收紧为严格整数正则
+
+- **PDF 虚拟滚动精度**
+  - 并发预加载所有 PDF 页面尺寸（最多 8 worker）后再暴露虚拟滚动条，消除等高估算导致的布局抖动
+  - 每页初始尺寸使用真实宽高比；测量高度跨页导航保留，仅旋转时刷新
+
+### Changed
+
+- **admin 日报统计 SystemSetup** — `SystemSetup` 审计 action 计入 admin 日报 new_users 指标
+- **测试账号创建 helper 抽取** — `setup_test_account_via_api` / `create_test_account_via_api` / `create_test_account_at_api_endpoint` 复用，替换各测试文件重复注册样板
+- **内部：前端工具链迁移 TypeScript 7** — tsgo / native-preview 脚本改为增量 TypeScript 7 tsc 检查，新增 tsconfig incremental build info，刷新前端依赖与 Biome schema（纯工具链，无行为变化）
+- **内部：CI / 构建维护** — SeaORM migration 与锁定依赖升级、Rust toolchain 组件、CI 拆分 format / clippy job、新增 OpenAPI 与生成 SDK drift check、收紧 cargo audit 触发并视 warning 为失败、支持显式 `ASTER_BUILD_TIME` 与隔离的 frontend fallback embed（纯维护）
+
+### Fixed
+
+- **音乐播放源刷新丢播放位置** — 重放同一 prepared source 不重载音频；记录已加载 source key 避免冗余加载；刷新后按 metadata 恢复当前播放时间
+- **视频预览无法填充全屏** — 全屏展开状态传入视频预览，新增可复用 video frame，移除 aspect-ratio 约束，保留 native fallback 尺寸
+- **绝对 HTTP 资源 URL 被误判** — 绝对 HTTP(S) URL 视为浏览器可寻址资源，视频预览初始化保留绝对 stream session URL
+- **公开分享导航状态抖动** — 保留 compact dropdown 拖拽目标的面包屑 source index；目录树展开状态移到 toggle 按钮；刷新 / 排序时取消 stale load-more；忽略 stale 导航与文件分享响应；离线时公共 auth probe 保持登出
+
+### Security
+
+- **外部认证 CSRF / session fixation 防护** — OAuth2 / OIDC 登录流程绑定浏览器 session（HttpOnly cookie + SHA-256 哈希），拒绝未绑定的 legacy flow
+- **远程节点注册 token 重放** — 原子 claim 强制一次性兑换，重放不泄露 bootstrap 凭据
+- **WebDAV 认证探测面收敛** — 分层限流 + 统一 auth 错误边界，隐藏凭据 / 归属 / 禁用 / 团队访问失败差异
+- **未授权首注册** — 系统初始化完成前禁止普通注册，数据库锁保证唯一初始管理员
+
+### Database Migrations
+
+- `m20260716_000001_bind_external_auth_login_flows`
+  - 为 `external_auth_login_flows` 新增 `browser_binding_hash` 列，支撑外部认证 browser binding
+  - 现有未绑定 flow（NULL 哈希）在登录时被拒绝，需重新发起
+
+### Statistics
+
+- 179 files changed, 10296 insertions(+), 2947 deletions(-)
+- 14 commits
+- 1 个数据库 migration
+
+### Notes
+
+- 本版本是 `0.4.0` 系列第二个 beta，建议先在测试环境验证外部认证登录（OAuth2 / OIDC）、WebDAV Basic 认证限流、远程节点注册与首次 setup 流程
+- 1 个数据库 migration 会在启动时自动执行；进行中的 legacy 未绑定 flow 会被拒绝并需要重新发起登录
+- 升级后客户端（浏览器）需支持 cookie，外部认证登录依赖 browser binding cookie 完成校验
+- WebDAV 客户端在多次失败后会收到带 `Retry-After` 的 401，应遵守退避而非立即重试
+- 多实例部署下，一次性注册 token 兑换依赖同一份权威数据库
+
 ## [v0.4.0-beta.1] - 2026-07-14
 
 ### Release Highlights
@@ -5528,6 +5624,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rust Edition 2024, MSRV 1.91.1
 
 [Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...HEAD
+[v0.4.0-beta.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [v0.4.0-beta.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.2...v0.4.0-beta.1
 [v0.3.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.1...v0.3.2
 [v0.3.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.0...v0.3.1

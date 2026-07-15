@@ -140,7 +140,7 @@ jobs:
         uses: oven-sh/setup-bun@v2
 
       - name: Run tests with coverage
-        run: cargo llvm-cov --workspace --no-fail-fast --verbose --lcov --output-path coverage/rust/lcov.info
+        run: cargo llvm-cov --workspace --no-fail-fast --lcov --output-path coverage/rust/lcov.info
 
       - name: Generate HTML coverage report
         if: success()
@@ -201,4 +201,4 @@ jobs:
 
       # 只跑集成测试（tests/ 下的），单元测试已在 coverage job 中覆盖
       - name: Run integration tests against ${{ matrix.backend }}
-        run: cargo test --tests --no-fail-fast --verbose
+        run: cargo test --tests --no-fail-fast
