@@ -208,11 +208,7 @@ export const router = createBrowserRouter([
 		path: "/s/:token",
 		errorElement,
 		element: shareViewElement,
-	},
-	{
-		path: "/s/:token/folder/:folderId",
-		errorElement,
-		element: shareViewElement,
+		children: [{ index: true }, { path: "folder/:folderId" }],
 	},
 	{
 		element: <AdminRoute />,

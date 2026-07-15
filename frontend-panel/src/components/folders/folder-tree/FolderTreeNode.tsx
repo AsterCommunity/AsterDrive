@@ -1,6 +1,6 @@
 import type React from "react";
 import { useRef, useState } from "react";
-import { Icon } from "@/components/ui/icon";
+import { useTranslation } from "react-i18next";
 import {
 	DRAG_SOURCE_MIME,
 	FOLDER_TREE_INDENT_PX,
@@ -15,6 +15,7 @@ import {
 } from "@/lib/dragDrop";
 import { folderTreeRowClass } from "@/lib/utils";
 import { AnimatedTreeGroup } from "./AnimatedTreeGroup";
+import { FolderTreeItemContent } from "./FolderTreeItemContent";
 import type { TreeNodeProps } from "./types";
 
 export function FolderTreeNodeRow({
@@ -32,6 +33,7 @@ export function FolderTreeNodeRow({
 	onToggle,
 	children,
 }: TreeNodeProps) {
+	const { t } = useTranslation("files");
 	const node = nodeMap.get(nodeId);
 	const [dragOver, setDragOver] = useState(false);
 	const rowRef = useRef<HTMLDivElement | null>(null);
@@ -114,53 +116,15 @@ export function FolderTreeNodeRow({
 				onDragLeave={handleDragLeave}
 				onDrop={handleDrop}
 			>
-				{showToggle ? (
-					<button
-						type="button"
-						onDragEnter={(e) => e.preventDefault()}
-						className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
-						onClick={(e) => {
-							e.stopPropagation();
-							onToggle(node.folder.id);
-						}}
-						disabled={isLoading}
-					>
-						{isLoading ? (
-							<div className="size-3 animate-spin rounded-full border-2 border-t-muted-foreground border-muted-foreground/30" />
-						) : (
-							<Icon
-								name="CaretRight"
-								className={`size-3 text-muted-foreground transition-transform duration-200 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none ${
-									isExpanded ? "rotate-90" : "rotate-0"
-								}`}
-							/>
-						)}
-					</button>
-				) : (
-					<span className="size-4 shrink-0" aria-hidden="true" />
-				)}
-				<button
-					type="button"
-					aria-label={node.folder.name}
-					aria-expanded={showToggle ? isExpanded : undefined}
-					className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
-					onClick={() => onNavigate(node.folder.id, node.folder.name)}
-				>
-					{isExpanded ? (
-						<Icon
-							name="FolderOpen"
-							aria-hidden="true"
-							className="size-4 shrink-0 text-muted-foreground"
-						/>
-					) : (
-						<Icon
-							name="Folder"
-							aria-hidden="true"
-							className="size-4 shrink-0 text-muted-foreground"
-						/>
-					)}
-					<span className="truncate">{node.folder.name}</span>
-				</button>
+				<FolderTreeItemContent
+					expanded={isExpanded}
+					label={node.folder.name}
+					loading={isLoading}
+					showToggle={showToggle}
+					toggleLabel={t(isExpanded ? "collapse_tree" : "expand_tree")}
+					onNavigate={() => onNavigate(node.folder.id, node.folder.name)}
+					onToggle={() => onToggle(node.folder.id)}
+				/>
 			</div>
 			<AnimatedTreeGroup open={isExpanded && node.childIds.length > 0}>
 				{children}

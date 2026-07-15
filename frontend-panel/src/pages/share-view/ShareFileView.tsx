@@ -7,7 +7,8 @@ import { Icon } from "@/components/ui/icon";
 import { formatBytes } from "@/lib/format";
 import { shareService } from "@/services/shareService";
 import type { FileInfo, SharePublicInfo } from "@/types/api";
-import { ShareMetaLine, SharePageShell } from "./ShareViewShell";
+import { ShareMetaLine } from "./ShareMetaLine";
+import { SharePageShell } from "./ShareViewShell";
 import {
 	getAccessSummary,
 	getDownloadSummary,

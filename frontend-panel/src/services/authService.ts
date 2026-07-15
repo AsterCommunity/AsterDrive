@@ -339,6 +339,8 @@ function me(fields?: MeField[]) {
 
 export const authService = {
 	check: () => api.post<CheckResp>("/auth/check"),
+	probeCurrentSession: () =>
+		api.get<MeResponse>("/auth/me", { optionalAuth: true }),
 
 	login: async (identifier: string, password: string): Promise<LoginResult> => {
 		invalidateAuthIdentityCaches();

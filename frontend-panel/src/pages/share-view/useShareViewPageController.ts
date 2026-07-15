@@ -80,6 +80,7 @@ type ShareViewAction =
 			passwordVerified: boolean;
 	  }
 	| { type: "loadError"; error: string }
+	| { type: "clearError" }
 	| { type: "setPassword"; password: string }
 	| {
 			type: "passwordVerified";
@@ -151,6 +152,12 @@ function shareViewReducer(
 				...state,
 				error: action.error,
 				loading: false,
+				navigating: false,
+			};
+		case "clearError":
+			return {
+				...state,
+				error: null,
 			};
 		case "setPassword":
 			return {
@@ -168,12 +175,14 @@ function shareViewReducer(
 		case "navigateStart":
 			return {
 				...state,
+				error: null,
 				navigating: true,
 			};
 		case "navigateSuccess": {
 			return {
 				...state,
 				breadcrumb: action.breadcrumb,
+				error: null,
 				folderContents: action.folderContents,
 				navigating: false,
 			};
@@ -320,6 +329,10 @@ export function useShareViewPageController({
 	const sentinelRef = useRef<HTMLDivElement | null>(null);
 	const loadingMoreCursorKeyRef = useRef<string | null>(null);
 	const locationRequestIdRef = useRef(0);
+	const loadedTokenRef = useRef<string | null>(null);
+	const requestedFolderIdRef = useRef(requestedFolderId);
+	const routeLocationKeyRef = useRef<string | null>(null);
+	requestedFolderIdRef.current = requestedFolderId;
 	const sortRef = useRef({ sortBy: state.sortBy, sortOrder: state.sortOrder });
 	sortRef.current = { sortBy: state.sortBy, sortOrder: state.sortOrder };
 	const currentFolderId = requestedFolderId;
@@ -342,14 +355,24 @@ export function useShareViewPageController({
 	const loadInfo = useCallback(async () => {
 		if (!enabled || !token) return;
 		const requestId = ++locationRequestIdRef.current;
+		loadedTokenRef.current = null;
 		loadingMoreCursorKeyRef.current = null;
+		routeLocationKeyRef.current = null;
 		dispatch({ type: "loadStart" });
 		try {
 			const data = await shareService.getInfo(token);
-			if (data.share_type !== "folder" && requestedFolderId !== null) {
-				if (requestId === locationRequestIdRef.current) {
-					dispatch({ type: "loadError", error: t("errors:folder_not_found") });
-				}
+			const folderId = requestedFolderIdRef.current;
+			if (data.share_type !== "folder" && folderId !== null) {
+				if (requestId !== locationRequestIdRef.current) return;
+				loadedTokenRef.current = token;
+				dispatch({
+					type: "loadSuccess",
+					info: data,
+					folderContents: null,
+					breadcrumb: [],
+					passwordVerified: !data.has_password,
+				});
+				dispatch({ type: "loadError", error: t("errors:folder_not_found") });
 				return;
 			}
 			let location: SharedFolderLocation | null = null;
@@ -359,7 +382,7 @@ export function useShareViewPageController({
 					location = await loadSharedFolderLocation({
 						token,
 						rootName: data.name,
-						folderId: requestedFolderId,
+						folderId,
 						params: shareFolderListParams(
 							sortRef.current.sortBy,
 							sortRef.current.sortOrder,
@@ -373,6 +396,7 @@ export function useShareViewPageController({
 				}
 			}
 			if (requestId !== locationRequestIdRef.current) return;
+			loadedTokenRef.current = token;
 			dispatch({
 				type: "loadSuccess",
 				info: data,
@@ -387,11 +411,87 @@ export function useShareViewPageController({
 				error: errorMessageForShareLoad(error, t),
 			});
 		}
-	}, [enabled, requestedFolderId, token, t]);
+	}, [enabled, token, t]);
 
 	useEffect(() => {
 		void loadInfo().catch(() => {});
 	}, [loadInfo]);
+
+	useEffect(() => {
+		if (
+			!enabled ||
+			!token ||
+			state.loading ||
+			!state.info ||
+			loadedTokenRef.current !== token
+		) {
+			return;
+		}
+
+		if (state.info.share_type !== "folder") {
+			const folderRouteError = t("errors:folder_not_found");
+			if (requestedFolderId !== null && state.error !== folderRouteError) {
+				dispatch({ type: "loadError", error: folderRouteError });
+			} else if (
+				requestedFolderId === null &&
+				state.error === folderRouteError
+			) {
+				dispatch({ type: "clearError" });
+			}
+			return;
+		}
+		if (!state.passwordVerified) return;
+
+		const displayedFolderId = state.breadcrumb.at(-1)?.id ?? null;
+		if (displayedFolderId === requestedFolderId) {
+			routeLocationKeyRef.current = null;
+			if (state.error !== null) {
+				dispatch({ type: "clearError" });
+			}
+			return;
+		}
+
+		const routeLocationKey = `${token}:${requestedFolderId ?? "root"}`;
+		if (routeLocationKeyRef.current === routeLocationKey) return;
+		routeLocationKeyRef.current = routeLocationKey;
+		const requestId = ++locationRequestIdRef.current;
+		loadingMoreCursorKeyRef.current = null;
+		dispatch({ type: "navigateStart" });
+
+		void loadSharedFolderLocation({
+			token,
+			rootName: state.info.name,
+			folderId: requestedFolderId,
+			params: shareFolderListParams(state.sortBy, state.sortOrder),
+		})
+			.then((location) => {
+				if (requestId !== locationRequestIdRef.current) return;
+				dispatch({
+					type: "navigateSuccess",
+					folderContents: location.folderContents,
+					breadcrumb: location.breadcrumb,
+				});
+			})
+			.catch((error) => {
+				if (requestId !== locationRequestIdRef.current) return;
+				dispatch({
+					type: "loadError",
+					error: errorMessageForShareLoad(error, t),
+				});
+			});
+	}, [
+		enabled,
+		requestedFolderId,
+		state.breadcrumb,
+		state.error,
+		state.info,
+		state.loading,
+		state.passwordVerified,
+		state.sortBy,
+		state.sortOrder,
+		token,
+		t,
+	]);
 
 	useEffect(() => {
 		if (previewAppsLoaded) return;
@@ -543,7 +643,7 @@ export function useShareViewPageController({
 						? await loadSharedFolderLocation({
 								token,
 								rootName: state.info.name,
-								folderId: currentFolderId,
+								folderId: requestedFolderIdRef.current,
 								params: shareFolderListParams(state.sortBy, state.sortOrder),
 							})
 						: null;
@@ -561,15 +661,7 @@ export function useShareViewPageController({
 				});
 			}
 		},
-		[
-			currentFolderId,
-			state.info,
-			state.password,
-			state.sortBy,
-			state.sortOrder,
-			token,
-			t,
-		],
+		[state.info, state.password, state.sortBy, state.sortOrder, token, t],
 	);
 
 	const handleDownload = useCallback(() => {

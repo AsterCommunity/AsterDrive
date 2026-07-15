@@ -194,6 +194,14 @@ vi.mock("@/services/shareService", () => ({
 	},
 }));
 
+vi.mock("@/components/layout/ShareTopBar", () => ({
+	ShareTopBar: () => <div data-testid="share-topbar" />,
+}));
+
+vi.mock("@/pages/share-view/ShareFolderSidebar", () => ({
+	ShareFolderSidebar: () => <aside data-testid="share-folder-sidebar" />,
+}));
+
 function createFile(id: number, name = `file-${id}.txt`): FileListItem {
 	return {
 		created_at: "2026-01-01T00:00:00Z",

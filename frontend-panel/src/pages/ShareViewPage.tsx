@@ -1,6 +1,6 @@
 import { lazy, Suspense, useCallback, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useNavigate, useParams } from "react-router-dom";
+import { useMatch, useNavigate, useParams } from "react-router-dom";
 import {
 	getImagePreviewNavigation,
 	type ImagePreviewNavigation,
@@ -213,10 +213,9 @@ export function SharePreviewElement({
 
 export default function ShareViewPage() {
 	const { t } = useTranslation(["core", "share", "files", "errors"]);
-	const { token, folderId: folderIdParam } = useParams<{
-		token: string;
-		folderId?: string;
-	}>();
+	const { token } = useParams<{ token: string }>();
+	const folderRouteMatch = useMatch("/s/:token/folder/:folderId");
+	const folderIdParam = folderRouteMatch?.params.folderId;
 	const navigate = useNavigate();
 	const requestedFolderId = parseShareFolderRoute(folderIdParam);
 	const invalidFolderRoute = requestedFolderId === undefined;

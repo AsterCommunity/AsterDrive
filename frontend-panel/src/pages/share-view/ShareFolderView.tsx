@@ -9,7 +9,6 @@ import { useTranslation } from "react-i18next";
 import { EmptyState } from "@/components/common/EmptyState";
 import { SortMenu } from "@/components/common/SortMenu";
 import { ToolbarBar } from "@/components/common/ToolbarBar";
-import { UserAvatarImage } from "@/components/common/UserAvatarImage";
 import { ViewToggle } from "@/components/common/ViewToggle";
 import {
 	type FileBrowserContextValue,
@@ -36,12 +35,7 @@ import type {
 	SharePublicInfo,
 } from "@/types/api";
 import { ShareFolderContentSkeleton } from "./ShareFolderSkeleton";
-import { ShareMetaLine, SharePageShell } from "./ShareViewShell";
-import {
-	getAccessSummary,
-	getDownloadSummary,
-	getExpirySummary,
-} from "./shareViewSummaries";
+import { ShareFolderPageShell } from "./ShareViewShell";
 import type { ShareBreadcrumbItem } from "./types";
 
 const noopShare = () => {};
@@ -191,7 +185,14 @@ export function ShareFolderView({
 		]);
 
 	return (
-		<SharePageShell>
+		<ShareFolderPageShell
+			breadcrumb={breadcrumb}
+			folderContents={folderContents}
+			info={info}
+			shareOwnerText={shareOwnerText}
+			token={token}
+			onNavigate={onNavigateToFolder}
+		>
 			{batchActionDialogs}
 			<main className="flex min-h-0 flex-1 flex-col overflow-hidden">
 				<FileSelectionToolbarTransition
@@ -238,23 +239,6 @@ export function ShareFolderView({
 					}
 					selectionToolbar={selectionToolbar}
 				/>
-				<div className="flex min-w-0 items-center gap-2 border-b border-border/55 bg-card/45 px-4 py-2 sm:px-5">
-					<UserAvatarImage
-						avatar={info.shared_by.avatar}
-						name={info.shared_by.name}
-						size="sm"
-						className="size-5 rounded-md text-[10px]"
-					/>
-					<ShareMetaLine
-						items={[
-							shareOwnerText,
-							getDownloadSummary(info, t),
-							getExpirySummary(info, t),
-							getAccessSummary(info, t),
-						]}
-						className="min-w-0 text-xs"
-					/>
-				</div>
 				<section
 					className={cn(
 						"min-h-0 flex-1 overflow-auto",
@@ -293,6 +277,6 @@ export function ShareFolderView({
 				</section>
 			</main>
 			{previewElement}
-		</SharePageShell>
+		</ShareFolderPageShell>
 	);
 }

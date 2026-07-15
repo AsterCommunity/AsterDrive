@@ -263,6 +263,15 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("react-router-dom", () => ({
+	useMatch: () =>
+		mockState.params.folderId === undefined
+			? null
+			: {
+					params: {
+						folderId: mockState.params.folderId,
+						token: mockState.params.token,
+					},
+				},
 	useNavigate: () => mockState.navigate,
 	useParams: () => mockState.params,
 }));
@@ -597,6 +606,28 @@ vi.mock("@/components/files/FileTable", () => ({
 
 vi.mock("@/components/layout/ShareTopBar", () => ({
 	ShareTopBar: () => <div>share-top-bar</div>,
+}));
+
+vi.mock("@/pages/share-view/ShareFolderSidebar", () => ({
+	ShareFolderSidebar: ({
+		info,
+		shareOwnerText,
+	}: {
+		info: {
+			shared_by: {
+				avatar: { url_512?: string | null } | null;
+				name: string;
+			};
+		};
+		shareOwnerText: string;
+	}) => (
+		<aside data-testid="share-folder-sidebar">
+			<span>{shareOwnerText}</span>
+			<span>
+				avatar:{info.shared_by.name}:{info.shared_by.avatar?.url_512 ?? "none"}
+			</span>
+		</aside>
+	),
 }));
 
 vi.mock("@/components/ui/breadcrumb", () => ({

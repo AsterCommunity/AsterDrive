@@ -10,5 +10,6 @@
 	"password_required": "Password required",
 	"public_access": "Public access",
 	"shared_by": "Shared by {{name}}",
+	"share_owner": "Shared by",
 	"empty_folder_desc": "This shared folder does not contain any items yet."
 }

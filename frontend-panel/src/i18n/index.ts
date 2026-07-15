@@ -40,6 +40,7 @@ type LocaleLoadRequest =
 
 const INITIAL_LOCALE_REQUESTS: readonly LocaleLoadRequest[] = [
 	{ namespace: "core", parts: ["common"] },
+	{ namespace: "auth", parts: ["navigation"] },
 	"login",
 	"validation",
 	{ namespace: "errors", parts: ["generic", "auth"] },

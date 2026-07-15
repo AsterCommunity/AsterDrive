@@ -194,6 +194,7 @@ interface AuthState {
 	login: (identifier: string, password: string) => Promise<void>;
 	logout: () => Promise<void>;
 	checkAuth: () => Promise<void>;
+	probePublicSession: () => Promise<void>;
 	ensureFreshSession: () => Promise<void>;
 	refreshToken: () => Promise<void>;
 	refreshUser: (options?: RefreshUserOptions) => Promise<void>;
@@ -241,6 +242,86 @@ function applyLoggedOutState(
 	setStoredExpiresAt(null);
 	setCachedUser(null);
 	setAuthState(LOGGED_OUT_STATE);
+}
+
+function commitAuthenticatedUser(
+	user: MeResponse,
+	getState: () => AuthState,
+	setAuthState: (state: Partial<AuthState>) => void,
+) {
+	const expiresAt =
+		getExpiresAtFromUser(user) ?? getState().expiresAt ?? getStoredExpiresAt();
+	setCachedUser(user);
+	if (expiresAt !== null) setStoredExpiresAt(expiresAt);
+	setAuthState({
+		isAuthenticated: true,
+		isChecking: false,
+		isAuthStale: false,
+		bootOffline: false,
+		user,
+		expiresAt,
+	});
+	return expiresAt;
+}
+
+async function bootstrapCurrentSession(
+	getState: () => AuthState,
+	setAuthState: (state: Partial<AuthState>) => void,
+	publicProbe: boolean,
+) {
+	setAuthState({ isChecking: true, bootOffline: false });
+	try {
+		const user = publicProbe
+			? await authService.probeCurrentSession()
+			: await authService.me();
+		const expiresAt = commitAuthenticatedUser(user, getState, setAuthState);
+
+		if (publicProbe) return;
+		if (!expiresAt || expiresAt - Date.now() <= REFRESH_BUFFER_MS) {
+			try {
+				await getState().refreshToken();
+			} catch (error) {
+				logger.warn("checkAuth bootstrap refresh failed", error);
+			}
+		} else {
+			getState().startAutoRefresh();
+		}
+	} catch (error) {
+		if (isSessionAuthFailure(error)) {
+			applyLoggedOutState(setAuthState);
+			return;
+		}
+
+		// A public share remains usable while auth probing is offline. Cached
+		// identity is marked stale instead of turning the page into offline boot.
+		const cached = getCachedUser();
+		const offlineUser = cachedUserToOfflineUser(cached);
+		const expiresAt =
+			getExpiresAtFromUser(cached) ??
+			getState().expiresAt ??
+			getStoredExpiresAt();
+		if (offlineUser) {
+			setAuthState({
+				isAuthenticated: true,
+				isChecking: false,
+				isAuthStale: true,
+				bootOffline: false,
+				user: offlineUser,
+				expiresAt,
+			});
+			if (!publicProbe && expiresAt) getState().startAutoRefresh();
+			return;
+		}
+
+		setAuthState(
+			publicProbe
+				? LOGGED_OUT_STATE
+				: {
+						...LOGGED_OUT_STATE,
+						bootOffline: true,
+					},
+		);
+	}
 }
 
 function mergeUserPreferences(
@@ -385,64 +466,11 @@ export const useAuthStore = create<AuthState>((set, get) => ({
 	},
 
 	checkAuth: async () => {
-		set({ isChecking: true, bootOffline: false });
-		try {
-			const user = await authService.me();
-			const expiresAt =
-				getExpiresAtFromUser(user) ?? get().expiresAt ?? getStoredExpiresAt();
-			setCachedUser(user);
-			if (expiresAt !== null) setStoredExpiresAt(expiresAt);
-			set({
-				isAuthenticated: true,
-				isChecking: false,
-				isAuthStale: false,
-				bootOffline: false,
-				user,
-				expiresAt,
-			});
+		await bootstrapCurrentSession(get, set, false);
+	},
 
-			if (!expiresAt || expiresAt - Date.now() <= REFRESH_BUFFER_MS) {
-				try {
-					await get().refreshToken();
-				} catch (error) {
-					logger.warn("checkAuth bootstrap refresh failed", error);
-				}
-			} else {
-				get().startAutoRefresh();
-			}
-		} catch (error) {
-			// 网络错误（离线）时用缓存的用户信息保持登录态
-			if (!isSessionAuthFailure(error)) {
-				const cached = getCachedUser();
-				const offlineUser = cachedUserToOfflineUser(cached);
-				const expiresAt =
-					getExpiresAtFromUser(cached) ??
-					get().expiresAt ??
-					getStoredExpiresAt();
-				if (offlineUser) {
-					set({
-						isAuthenticated: true,
-						isChecking: false,
-						isAuthStale: true,
-						bootOffline: false,
-						user: offlineUser,
-						expiresAt,
-					});
-					if (expiresAt) get().startAutoRefresh();
-				} else {
-					set({
-						isAuthenticated: false,
-						isChecking: false,
-						isAuthStale: false,
-						bootOffline: true,
-						user: null,
-						expiresAt: null,
-					});
-				}
-				return;
-			}
-			applyLoggedOutState(set);
-		}
+	probePublicSession: async () => {
+		await bootstrapCurrentSession(get, set, true);
 	},
 
 	ensureFreshSession: async () => {

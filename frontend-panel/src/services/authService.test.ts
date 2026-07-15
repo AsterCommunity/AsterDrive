@@ -99,6 +99,14 @@ describe("authService", () => {
 		};
 	}
 
+	it("marks public-page session probes as optional auth requests", () => {
+		authService.probeCurrentSession();
+
+		expect(mockState.get).toHaveBeenCalledWith("/auth/me", {
+			optionalAuth: true,
+		});
+	});
+
 	it("uses the expected auth endpoints and payloads", async () => {
 		const prefs = {
 			language: "zh",
