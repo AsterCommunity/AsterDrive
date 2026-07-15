@@ -23,8 +23,8 @@ import { MENU_SECTION_PADDING_CLASS } from "@/lib/constants";
 import { queuePreferenceSync } from "@/lib/preferenceSync";
 import { getNormalizedDisplayName, getUserDisplayName } from "@/lib/user";
 import { useAuthStore } from "@/stores/authStore";
-import { useMusicPlayerStore } from "@/stores/musicPlayerStore";
 import { useThemeStore } from "@/stores/themeStore";
+import { MusicPlayerHeaderButton } from "./MusicPlayerHeaderButton";
 
 interface HeaderControlsProps {
 	mobileSearchAction?: ReactNode;
@@ -44,9 +44,6 @@ export function HeaderControls({
 	const user = useAuthStore((s) => s.user);
 	const isAuthStale = useAuthStore((s) => s.isAuthStale);
 	const logout = useAuthStore((s) => s.logout);
-	const musicQueue = useMusicPlayerStore((s) => s.queue);
-	const musicIsPlaying = useMusicPlayerStore((s) => s.isPlaying);
-	const toggleMusicPanel = useMusicPlayerStore((s) => s.togglePanel);
 	const mode = useThemeStore((s) => s.mode);
 	const setMode = useThemeStore((s) => s.setMode);
 	const [loggingOut, setLoggingOut] = useState(false);
@@ -128,29 +125,7 @@ export function HeaderControls({
 					{homeLabel ?? t("back")}
 				</Button>
 			) : null}
-			{musicQueue.length > 0 ? (
-				<Tooltip>
-					<TooltipTrigger
-						render={
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								className="rounded-full"
-								onClick={toggleMusicPanel}
-								aria-label={t("files:music_player_open")}
-								data-music-player-trigger
-							/>
-						}
-					>
-						<Icon
-							name={musicIsPlaying ? "MusicNotes" : "VinylRecord"}
-							className={musicIsPlaying ? "size-4 text-primary" : "size-4"}
-						/>
-					</TooltipTrigger>
-					<TooltipContent>{t("files:music_player_open")}</TooltipContent>
-				</Tooltip>
-			) : null}
+			<MusicPlayerHeaderButton />
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={

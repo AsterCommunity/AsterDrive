@@ -13,7 +13,7 @@ use crate::api::routes::files;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::errors::{Result, auth_forbidden_with_code};
+use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::ops::audit::AuditRequestInfo;
@@ -28,9 +28,12 @@ use crate::services::{
     user::profile,
 };
 use actix_governor::Governor;
+use actix_web::FromRequest;
+use actix_web::dev::Payload;
 use actix_web::http::header;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use futures::future::LocalBoxFuture;
 
 const SHARE_COOKIE_PREFIX: &str = "aster_share_";
 
@@ -97,30 +100,73 @@ fn share_cookie_binding(
     )
 }
 
-async fn check_share_cookie(
-    state: &PrimaryAppState,
-    req: &actix_web::HttpRequest,
-    token: &str,
-) -> Result<()> {
-    let cookie_value = share_cookie_value(req, token);
-    let binding = share_cookie_binding(req, state);
-    share::check_share_password_cookie(state, token, cookie_value.as_deref(), &binding).await
-}
+/// 公开分享端点的 Cookie 访问证明。
+///
+/// `IGNORE_DOWNLOAD_LIMIT = false` 用于常规分享访问；`true` 仅用于已经
+/// 通过独立会话或预览令牌控制下载计数的端点。
+/// `REQUIRE_ARCHIVE_DOWNLOAD_ENABLED = true` 保留归档端点先检查功能开关、
+/// 再检查 Cookie 的既有错误优先级。目标资源的分享范围校验仍由对应 share
+/// service 负责。
+pub struct ShareAccess<
+    const IGNORE_DOWNLOAD_LIMIT: bool,
+    const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: bool,
+>;
 
-async fn check_share_cookie_ignoring_download_limit(
-    state: &PrimaryAppState,
-    req: &actix_web::HttpRequest,
-    token: &str,
-) -> Result<()> {
-    let cookie_value = share_cookie_value(req, token);
-    let binding = share_cookie_binding(req, state);
-    share::check_share_password_cookie_ignoring_download_limit(
-        state,
-        token,
-        cookie_value.as_deref(),
-        &binding,
-    )
-    .await
+pub type VerifiedShareAccess = ShareAccess<false, false>;
+pub type VerifiedShareAccessIgnoringDownloadLimit = ShareAccess<true, false>;
+pub type VerifiedShareArchiveDownloadAccess = ShareAccess<false, true>;
+
+impl<const IGNORE_DOWNLOAD_LIMIT: bool, const REQUIRE_ARCHIVE_DOWNLOAD_ENABLED: bool> FromRequest
+    for ShareAccess<IGNORE_DOWNLOAD_LIMIT, REQUIRE_ARCHIVE_DOWNLOAD_ENABLED>
+{
+    type Error = AsterError;
+    type Future = LocalBoxFuture<'static, std::result::Result<Self, Self::Error>>;
+
+    fn from_request(req: &HttpRequest, _payload: &mut Payload) -> Self::Future {
+        let state = req.app_data::<web::Data<PrimaryAppState>>().cloned();
+        let token = req.match_info().get("token").map(str::to_owned);
+        let cookie_value = token
+            .as_deref()
+            .and_then(|token| share_cookie_value(req, token));
+        let binding = state
+            .as_ref()
+            .map(|state| share_cookie_binding(req, state.get_ref()));
+
+        Box::pin(async move {
+            let state =
+                state.ok_or_else(|| AsterError::internal_error("PrimaryAppState not found"))?;
+            let token = token.ok_or_else(|| {
+                AsterError::internal_error("share token path parameter is missing")
+            })?;
+            let binding = binding.ok_or_else(|| {
+                AsterError::internal_error("share cookie binding context is missing")
+            })?;
+
+            if REQUIRE_ARCHIVE_DOWNLOAD_ENABLED {
+                ensure_share_archive_download_enabled(state.get_ref())?;
+            }
+
+            if IGNORE_DOWNLOAD_LIMIT {
+                share::check_share_password_cookie_ignoring_download_limit(
+                    state.get_ref(),
+                    &token,
+                    cookie_value.as_deref(),
+                    &binding,
+                )
+                .await?;
+            } else {
+                share::check_share_password_cookie(
+                    state.get_ref(),
+                    &token,
+                    cookie_value.as_deref(),
+                    &binding,
+                )
+                .await?;
+            }
+
+            Ok(Self)
+        })
+    }
 }
 
 async fn shared_file_range(
@@ -212,6 +258,10 @@ pub fn routes(
         .route(
             "/{token}/folders/{folder_id}/content",
             web::get().to(list_shared_subfolder_content),
+        )
+        .route(
+            "/{token}/folders/{folder_id}/ancestors",
+            web::get().to(get_shared_subfolder_ancestors),
         )
         .route("/{token}/thumbnail", web::get().to(shared_thumbnail))
         .route(
@@ -322,9 +372,9 @@ pub async fn create_preview_link(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let link = preview_link::create_token_for_shared_file_for_origin(
@@ -359,9 +409,9 @@ pub async fn archive_preview(
     path: web::Path<String>,
     req: actix_web::HttpRequest,
     query: web::Query<ArchivePreviewQuery>,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     match preview::preview_shared_file(state.get_ref(), &token, query.filename_encoding).await? {
         preview::ArchivePreviewManifestLookup::Ready(manifest) => {
@@ -396,12 +446,10 @@ pub async fn archive_preview(
 pub async fn archive_download(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
-    req: actix_web::HttpRequest,
     body: web::Json<ArchiveDownloadReq>,
+    _access: VerifiedShareArchiveDownloadAccess,
 ) -> Result<HttpResponse> {
-    ensure_share_archive_download_enabled(state.get_ref())?;
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let body = body.into_inner();
     validate_request(&body)?;
@@ -437,11 +485,9 @@ pub async fn archive_download(
 pub async fn archive_download_stream(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, String)>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareArchiveDownloadAccess,
 ) -> Result<HttpResponse> {
-    ensure_share_archive_download_enabled(state.get_ref())?;
     let (token, ticket) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
     let params =
         ticket::resolve_shared_archive_download_ticket(state.get_ref(), &token, &ticket).await?;
     task::archive::stream_shared_archive_download(state.get_ref(), &token, params).await
@@ -463,9 +509,9 @@ pub async fn create_stream_session(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let session = stream::create_session_for_shared_file_for_origin(
@@ -508,8 +554,8 @@ pub async fn download_shared(
     path: web::Path<String>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
-    check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
     let range = shared_file_range(state.get_ref(), path.as_str(), &req).await?;
     let has_range = range.is_some();
 
@@ -608,9 +654,9 @@ pub async fn stream_shared_video(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, String, String)>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let (token, session_token, filename) = path.into_inner();
-    check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
     let file =
         stream::resolve_file_for_stream(state.get_ref(), &token, &session_token, &filename).await?;
     let range = file::parse_range_header(req.headers().get(header::RANGE), file.size)?;
@@ -647,9 +693,9 @@ pub async fn download_shared_folder_file_handler(
     path: web::Path<(String, i64)>,
     query: web::Query<DownloadQuery>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
     let range = shared_folder_file_range(state.get_ref(), &token, file_id, &req).await?;
     let has_range = range.is_some();
 
@@ -691,9 +737,9 @@ pub async fn create_folder_file_preview_link(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccessIgnoringDownloadLimit,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie_ignoring_download_limit(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let link = preview_link::create_token_for_shared_folder_file_for_origin(
@@ -733,9 +779,9 @@ pub async fn folder_file_archive_preview(
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,
     query: web::Query<ArchivePreviewQuery>,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     match preview::preview_shared_folder_file(
         state.get_ref(),
@@ -779,9 +825,9 @@ pub async fn create_folder_file_stream_session(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let (scheme, host) = request_origin_parts(&req);
     let session = stream::create_session_for_shared_folder_file_for_origin(
@@ -813,10 +859,8 @@ pub async fn list_shared_content(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
     query: web::Query<FolderListQuery>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
-    check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
-
     let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents = share::list_shared_folder(state.get_ref(), &path, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
@@ -842,15 +886,41 @@ pub async fn list_shared_subfolder_content(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     query: web::Query<FolderListQuery>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, folder_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let params = crate::services::files::folder::FolderListParams::from(&query.0);
     let contents =
         share::list_shared_subfolder(state.get_ref(), &token, folder_id, &params).await?;
     Ok(HttpResponse::Ok().json(ApiResponse::ok(contents)))
+}
+
+#[aster_forge_api_docs_macros::path(
+    get,
+    path = "/api/v1/s/{token}/folders/{folder_id}/ancestors",
+    tag = "shares",
+    operation_id = "get_shared_subfolder_ancestors",
+    params(
+        ("token" = String, Path, description = "Share token"),
+        ("folder_id" = i64, Path, description = "Subfolder ID inside shared folder"),
+    ),
+    responses(
+        (status = 200, description = "Folder ancestors relative to the shared root", body = inline(ApiResponse<Vec<crate::services::files::folder::FolderAncestorItem>>)),
+        (status = 403, description = "Password required or folder outside shared scope"),
+        (status = 404, description = "Share or folder not found"),
+    ),
+)]
+pub async fn get_shared_subfolder_ancestors(
+    state: web::Data<PrimaryAppState>,
+    path: web::Path<(String, i64)>,
+    _access: VerifiedShareAccess,
+) -> Result<HttpResponse> {
+    let (token, folder_id) = path.into_inner();
+
+    let ancestors =
+        share::get_shared_subfolder_ancestors(state.get_ref(), &token, folder_id).await?;
+    Ok(HttpResponse::Ok().json(ApiResponse::ok(ancestors)))
 }
 
 #[aster_forge_api_docs_macros::path(
@@ -871,10 +941,9 @@ pub async fn list_shared_subfolder_content(
 pub async fn shared_avatar(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, u32)>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, size) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let bytes = share::get_share_avatar_bytes(state.get_ref(), &token, size).await?;
     Ok(profile::avatar_image_response(bytes))
@@ -901,9 +970,8 @@ pub async fn shared_thumbnail(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
-    check_share_cookie(state.get_ref(), &req, path.as_str()).await?;
-
     let result = share::get_shared_thumbnail(state.get_ref(), &path).await?;
     let if_none_match = req
         .headers()
@@ -941,9 +1009,9 @@ pub async fn shared_image_preview(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let result = share::get_shared_image_preview(state.get_ref(), &token).await?;
     let if_none_match = req
@@ -977,10 +1045,9 @@ pub async fn shared_image_preview(
 pub async fn shared_media_metadata(
     state: web::Data<PrimaryAppState>,
     path: web::Path<String>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let token = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let lookup = share::get_shared_media_metadata(state.get_ref(), &token).await?;
     Ok(media_metadata_response(lookup))
@@ -1010,9 +1077,9 @@ pub async fn shared_folder_file_thumbnail(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let result = share::get_shared_folder_file_thumbnail(state.get_ref(), &token, file_id).await?;
     let if_none_match = req
@@ -1049,10 +1116,9 @@ pub async fn shared_folder_file_thumbnail(
 pub async fn shared_folder_file_media_metadata(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
-    req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let lookup =
         share::get_shared_folder_file_media_metadata(state.get_ref(), &token, file_id).await?;
@@ -1083,9 +1149,9 @@ pub async fn shared_folder_file_image_preview(
     state: web::Data<PrimaryAppState>,
     path: web::Path<(String, i64)>,
     req: actix_web::HttpRequest,
+    _access: VerifiedShareAccess,
 ) -> Result<HttpResponse> {
     let (token, file_id) = path.into_inner();
-    check_share_cookie(state.get_ref(), &req, &token).await?;
 
     let result =
         share::get_shared_folder_file_image_preview(state.get_ref(), &token, file_id).await?;

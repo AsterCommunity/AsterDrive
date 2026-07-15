@@ -58,6 +58,10 @@ function shouldSkipInitialAuthCheck(pathname: string) {
 	);
 }
 
+function isPublicSharePath(pathname: string) {
+	return pathname.startsWith("/s/");
+}
+
 function loadPublicConfig() {
 	void import("@/stores/frontendConfigStore").then(
 		({ initFrontendConfigRuntime, useFrontendConfigStore }) => {
@@ -115,6 +119,7 @@ function App() {
 	const [authenticatedLocaleReady, setAuthenticatedLocaleReady] =
 		useState(false);
 	const checkAuth = useAuthStore((s) => s.checkAuth);
+	const probePublicSession = useAuthStore((s) => s.probePublicSession);
 	const isChecking = useAuthStore((s) => s.isChecking);
 	const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 	const bootOffline = useAuthStore((s) => s.bootOffline);
@@ -131,17 +136,18 @@ function App() {
 		isAuthenticated && (isChecking || !authenticatedLocaleReady);
 
 	useEffect(() => {
-		const skipInitialAuthCheck = shouldSkipInitialAuthCheck(
-			window.location.pathname,
-		);
+		const pathname = window.location.pathname;
+		const skipInitialAuthCheck = shouldSkipInitialAuthCheck(pathname);
 		loadPublicConfig();
-		if (!skipInitialAuthCheck) {
+		if (isPublicSharePath(pathname)) {
+			void probePublicSession();
+		} else if (!skipInitialAuthCheck) {
 			checkAuth();
 		} else {
 			useAuthStore.setState({ isChecking: false });
 		}
 		useThemeStore.getState().init();
-	}, [checkAuth]);
+	}, [checkAuth, probePublicSession]);
 
 	useEffect(() => {
 		if (isChecking || !isAuthenticated) return;

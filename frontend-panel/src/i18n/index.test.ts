@@ -32,6 +32,7 @@ describe("i18n", () => {
 			"使用 Passkey 登录",
 		);
 		expect(i18n.getResource("zh", "login", "back_to_sign_in")).toBe("返回登录");
+		expect(i18n.t("auth:go_to_login")).toBe("去登录");
 		expect(i18n.getResource("zh", "auth", "login_success")).toBeUndefined();
 		expect(
 			i18n.getResource("zh", "admin", "overview_total_users"),

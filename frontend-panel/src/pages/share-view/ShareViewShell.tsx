@@ -1,14 +1,64 @@
-import { Fragment, type ReactNode } from "react";
+import { type ReactNode, useCallback, useState } from "react";
 import { UserAvatarImage } from "@/components/common/UserAvatarImage";
 import { ShareTopBar } from "@/components/layout/ShareTopBar";
 import { Icon } from "@/components/ui/icon";
-import type { SharePublicInfo } from "@/types/api";
+import type { FolderContents, SharePublicInfo } from "@/types/api";
+import { ShareFolderSidebar } from "./ShareFolderSidebar";
+import type { ShareBreadcrumbItem } from "./types";
 
 export function SharePageShell({ children }: { children: ReactNode }) {
 	return (
-		<div className="flex h-screen flex-col bg-background text-foreground">
+		<div className="flex h-dvh flex-col bg-background text-foreground">
 			<ShareTopBar />
 			{children}
+		</div>
+	);
+}
+
+export function ShareFolderPageShell({
+	breadcrumb,
+	children,
+	folderContents,
+	info,
+	shareOwnerText,
+	token,
+	onNavigate,
+}: {
+	breadcrumb: ShareBreadcrumbItem[];
+	children: ReactNode;
+	folderContents: FolderContents | null;
+	info: SharePublicInfo;
+	shareOwnerText: string;
+	token: string;
+	onNavigate: (folderId: number | null, folderName?: string) => void;
+}) {
+	const [mobileOpen, setMobileOpen] = useState(false);
+	const handleMobileToggle = useCallback(() => {
+		setMobileOpen((current) => !current);
+	}, []);
+	const handleMobileClose = useCallback(() => setMobileOpen(false), []);
+
+	return (
+		<div className="flex h-dvh flex-col bg-background text-foreground">
+			<ShareTopBar
+				mobileOpen={mobileOpen}
+				onSidebarToggle={handleMobileToggle}
+			/>
+			<div className="flex min-h-0 flex-1 overflow-hidden">
+				<ShareFolderSidebar
+					breadcrumb={breadcrumb}
+					folderContents={folderContents}
+					info={info}
+					mobileOpen={mobileOpen}
+					shareOwnerText={shareOwnerText}
+					token={token}
+					onMobileClose={handleMobileClose}
+					onNavigate={onNavigate}
+				/>
+				<div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+					{children}
+				</div>
+			</div>
 		</div>
 	);
 }
@@ -33,30 +83,6 @@ export function ShareOwnerBanner({
 					{text}
 				</div>
 			</div>
-		</div>
-	);
-}
-
-export function ShareMetaLine({
-	className = "",
-	items,
-}: {
-	className?: string;
-	items: Array<string | null | undefined | false>;
-}) {
-	const visibleItems = items.filter(Boolean);
-	return (
-		<div
-			className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground ${className}`}
-		>
-			{visibleItems.map((item, index) => (
-				<Fragment key={String(item)}>
-					{index > 0 ? (
-						<span className="text-muted-foreground/45">·</span>
-					) : null}
-					<span className="min-w-0">{item}</span>
-				</Fragment>
-			))}
 		</div>
 	);
 }

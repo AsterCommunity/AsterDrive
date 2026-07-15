@@ -2,7 +2,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 type MockAxiosError = {
-	config?: { _retry?: boolean; responseType?: string; url?: string };
+	config?: {
+		_retry?: boolean;
+		responseType?: string;
+		optionalAuth?: boolean;
+		url?: string;
+	};
 	isAxiosError?: boolean;
 	response?: { data?: unknown; status: number };
 };
@@ -688,6 +693,45 @@ describe("http api helpers", () => {
 		await expect(errorHandler(originalError)).rejects.toBe(originalError);
 		expect(mockState.axiosModule.post).not.toHaveBeenCalled();
 		expect(mockState.client).not.toHaveBeenCalled();
+	});
+
+	it("refreshes and retries an optional auth probe from a public page", async () => {
+		mockState.client.mockResolvedValue({
+			data: {
+				code: ApiErrorCode.Success,
+				msg: "ok",
+				data: { retried: true },
+			},
+		});
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalError = {
+			config: {
+				optionalAuth: true,
+				url: "/auth/me",
+			},
+			response: {
+				status: 401,
+				data: {
+					code: ApiErrorCode.TokenMissing,
+					msg: "missing token",
+				},
+			},
+		} satisfies MockAxiosError;
+
+		await expect(errorHandler(originalError)).resolves.toEqual(
+			expect.objectContaining({
+				data: expect.objectContaining({ data: { retried: true } }),
+			}),
+		);
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.client).toHaveBeenCalledWith(
+			expect.objectContaining({
+				_retry: true,
+				optionalAuth: true,
+				url: "/auth/me",
+			}),
+		);
 	});
 
 	it("does not attempt refresh for public branding endpoints", async () => {

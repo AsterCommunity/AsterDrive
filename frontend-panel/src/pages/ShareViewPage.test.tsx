@@ -7,7 +7,10 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FOLDER_LIMIT } from "@/lib/constants";
-import ShareViewPage, { SharePreviewElement } from "@/pages/ShareViewPage";
+import ShareViewPage, {
+	parseShareFolderRoute,
+	SharePreviewElement,
+} from "@/pages/ShareViewPage";
 import { ApiError } from "@/services/http";
 import { useFileStore } from "@/stores/fileStore";
 import type { FileResourceHandleRequest } from "@/types/api";
@@ -123,6 +126,10 @@ const mockState = vi.hoisted(() => ({
 	),
 	thumbnailPath: vi.fn((token: string) => `/s/${token}/thumbnail`),
 	downloadUrl: vi.fn((token: string) => `https://download/${token}`),
+	folderPagePath: vi.fn(
+		(token: string, folderId: number) => `/s/${token}/folder/${folderId}`,
+	),
+	getSubfolderAncestors: vi.fn(),
 	getInfo: vi.fn(),
 	handleApiError: vi.fn(),
 	listContent: vi.fn(),
@@ -147,7 +154,12 @@ const mockState = vi.hoisted(() => ({
 		load: vi.fn(async () => {}),
 	},
 	openWindow: vi.fn(),
-	params: { token: "share-token" as string | undefined },
+	navigate: vi.fn(),
+	pagePath: vi.fn((token: string) => `/s/${token}`),
+	params: {
+		folderId: undefined as string | undefined,
+		token: "share-token" as string | undefined,
+	},
 	previewAppStore: {
 		isLoaded: false,
 		load: vi.fn(async () => {}),
@@ -251,6 +263,16 @@ vi.mock("react-i18next", () => ({
 }));
 
 vi.mock("react-router-dom", () => ({
+	useMatch: () =>
+		mockState.params.folderId === undefined
+			? null
+			: {
+					params: {
+						folderId: mockState.params.folderId,
+						token: mockState.params.token,
+					},
+				},
+	useNavigate: () => mockState.navigate,
 	useParams: () => mockState.params,
 }));
 
@@ -322,6 +344,30 @@ vi.mock("@/components/common/ToolbarBar", () => ({
 		<div>
 			<div>{left}</div>
 			<div>{right}</div>
+		</div>
+	),
+}));
+
+vi.mock("@/components/common/SortMenu", () => ({
+	SortMenu: ({
+		sortBy,
+		sortOrder,
+		onSortBy,
+		onSortOrder,
+	}: {
+		sortBy: string;
+		sortOrder: string;
+		onSortBy: (value: "updated_at") => void;
+		onSortOrder: (value: "desc") => void;
+	}) => (
+		<div>
+			<span>{`sort:${sortBy}:${sortOrder}`}</span>
+			<button type="button" onClick={() => onSortBy("updated_at")}>
+				sort-updated
+			</button>
+			<button type="button" onClick={() => onSortOrder("desc")}>
+				sort-desc
+			</button>
 		</div>
 	),
 }));
@@ -562,6 +608,28 @@ vi.mock("@/components/layout/ShareTopBar", () => ({
 	ShareTopBar: () => <div>share-top-bar</div>,
 }));
 
+vi.mock("@/pages/share-view/ShareFolderSidebar", () => ({
+	ShareFolderSidebar: ({
+		info,
+		shareOwnerText,
+	}: {
+		info: {
+			shared_by: {
+				avatar: { url_512?: string | null } | null;
+				name: string;
+			};
+		};
+		shareOwnerText: string;
+	}) => (
+		<aside data-testid="share-folder-sidebar">
+			<span>{shareOwnerText}</span>
+			<span>
+				avatar:{info.shared_by.name}:{info.shared_by.avatar?.url_512 ?? "none"}
+			</span>
+		</aside>
+	),
+}));
+
 vi.mock("@/components/ui/breadcrumb", () => ({
 	Breadcrumb: ({ children }: { children: React.ReactNode }) => (
 		<nav>{children}</nav>
@@ -703,10 +771,14 @@ vi.mock("@/services/shareService", () => ({
 		folderFileImagePreviewPath: (...args: unknown[]) =>
 			mockState.folderFileImagePreviewPath(...args),
 		downloadUrl: (...args: unknown[]) => mockState.downloadUrl(...args),
+		folderPagePath: (...args: unknown[]) => mockState.folderPagePath(...args),
+		getSubfolderAncestors: (...args: unknown[]) =>
+			mockState.getSubfolderAncestors(...args),
 		getInfo: (...args: unknown[]) => mockState.getInfo(...args),
 		listContent: (...args: unknown[]) => mockState.listContent(...args),
 		listSubfolderContent: (...args: unknown[]) =>
 			mockState.listSubfolderContent(...args),
+		pagePath: (...args: unknown[]) => mockState.pagePath(...args),
 		verifyPassword: (...args: unknown[]) => mockState.verifyPassword(...args),
 	},
 }));
@@ -732,6 +804,8 @@ describe("ShareViewPage", () => {
 		mockState.imagePreviewPath.mockClear();
 		mockState.folderFileImagePreviewPath.mockClear();
 		mockState.downloadUrl.mockClear();
+		mockState.folderPagePath.mockClear();
+		mockState.getSubfolderAncestors.mockReset();
 		mockState.getInfo.mockReset();
 		mockState.handleApiError.mockReset();
 		MockIntersectionObserver.reset();
@@ -741,7 +815,9 @@ describe("ShareViewPage", () => {
 		mockState.mediaDataSupportStore.load.mockReset();
 		mockState.mediaDataSupportStore.load.mockResolvedValue(undefined);
 		mockState.openWindow.mockReset();
-		mockState.params = { token: "share-token" };
+		mockState.navigate.mockReset();
+		mockState.pagePath.mockClear();
+		mockState.params = { folderId: undefined, token: "share-token" };
 		mockState.previewAppStore.load.mockReset();
 		mockState.previewAppStore.isLoaded = false;
 		mockState.previewAppStore.load.mockResolvedValue(undefined);
@@ -792,6 +868,35 @@ describe("ShareViewPage", () => {
 
 		expect(await screen.findByText("errors:share_expired")).toBeInTheDocument();
 		expect(screen.getByText("unavailable")).toBeInTheDocument();
+	});
+
+	it.each([
+		"0",
+		"-1",
+		"abc",
+		"1.5",
+		"01",
+		"9007199254740992",
+	])("rejects invalid share folder route %s without issuing API requests", async (folderId) => {
+		mockState.params = { folderId, token: "share-token" };
+
+		render(<ShareViewPage />);
+
+		expect(
+			await screen.findByText("errors:folder_not_found"),
+		).toBeInTheDocument();
+		expect(mockState.getInfo).not.toHaveBeenCalled();
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+	});
+
+	it("parses only canonical positive safe folder ids", () => {
+		expect(parseShareFolderRoute(undefined)).toBeNull();
+		expect(parseShareFolderRoute("42")).toBe(42);
+		expect(parseShareFolderRoute(String(Number.MAX_SAFE_INTEGER))).toBe(
+			Number.MAX_SAFE_INTEGER,
+		);
+		expect(parseShareFolderRoute("9007199254740992")).toBeUndefined();
 	});
 
 	it("does not render retained preview resources while share info is unavailable", () => {
@@ -875,11 +980,15 @@ describe("ShareViewPage", () => {
 			},
 			share_type: "folder",
 		} as never);
-		mockState.listContent.mockResolvedValueOnce({
-			files: [],
-			folders: [{ id: 1, name: "Docs" }],
-			next_file_cursor: null,
-		} as never);
+		mockState.listContent
+			.mockRejectedValueOnce(
+				new ApiError(ApiErrorCode.SharePasswordRequired, "password required"),
+			)
+			.mockResolvedValueOnce({
+				files: [],
+				folders: [{ id: 1, name: "Docs" }],
+				next_file_cursor: null,
+			} as never);
 
 		render(<ShareViewPage />);
 
@@ -927,6 +1036,9 @@ describe("ShareViewPage", () => {
 			"wrong password",
 		);
 		mockState.verifyPassword.mockRejectedValueOnce(error);
+		mockState.listContent.mockRejectedValueOnce(
+			new ApiError(ApiErrorCode.SharePasswordRequired, "password required"),
+		);
 
 		render(<ShareViewPage />);
 
@@ -940,7 +1052,7 @@ describe("ShareViewPage", () => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
 		});
 		expect(screen.getByLabelText("password")).toHaveValue("wrong");
-		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(mockState.listContent).toHaveBeenCalledTimes(1);
 		expect(screen.queryByText("share-content")).not.toBeInTheDocument();
 	});
 
@@ -964,11 +1076,18 @@ describe("ShareViewPage", () => {
 				},
 				share_type: "folder",
 			} as never);
-		mockState.listContent.mockResolvedValueOnce({
-			files: [],
-			folders: [{ id: 1, name: "Docs" }],
-			next_file_cursor: null,
-		} as never);
+		mockState.listContent
+			.mockRejectedValueOnce(
+				new ApiError(ApiErrorCode.SharePasswordRequired, "password required"),
+			)
+			.mockResolvedValueOnce({
+				files: [],
+				folders: [{ id: 1, name: "Docs" }],
+				next_file_cursor: null,
+			} as never)
+			.mockRejectedValueOnce(
+				new ApiError(ApiErrorCode.SharePasswordRequired, "password required"),
+			);
 
 		const { rerender } = render(<ShareViewPage />);
 
@@ -987,7 +1106,7 @@ describe("ShareViewPage", () => {
 			await screen.findByRole("button", { name: "folder:Docs" }),
 		).toBeInTheDocument();
 
-		mockState.params = { token: "second-token" };
+		mockState.params = { folderId: undefined, token: "second-token" };
 		rerender(<ShareViewPage />);
 
 		await waitFor(() => {
@@ -1253,7 +1372,7 @@ describe("ShareViewPage", () => {
 	});
 
 	it("navigates folder shares and uses the folder-specific preview and download paths", async () => {
-		mockState.getInfo.mockResolvedValueOnce({
+		mockState.getInfo.mockResolvedValue({
 			has_password: false,
 			name: "Shared Root",
 			shared_by: {
@@ -1277,8 +1396,11 @@ describe("ShareViewPage", () => {
 			folders: [],
 			next_file_cursor: null,
 		} as never);
+		mockState.getSubfolderAncestors.mockResolvedValueOnce([
+			{ id: 1, name: "Docs" },
+		]);
 
-		render(<ShareViewPage />);
+		const { rerender } = render(<ShareViewPage />);
 
 		expect(await screen.findByText("Shared Root")).toBeInTheDocument();
 		expect(screen.getByText("shared-by:Alice Example")).toBeInTheDocument();
@@ -1318,6 +1440,11 @@ describe("ShareViewPage", () => {
 		).toBeUndefined();
 		useFileStore.getState().clearSelection();
 		fireEvent.click(await screen.findByRole("button", { name: "folder:Docs" }));
+		expect(mockState.navigate).toHaveBeenCalledWith("/s/share-token/folder/1");
+		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+
+		mockState.params = { folderId: "1", token: "share-token" };
+		rerender(<ShareViewPage />);
 
 		await waitFor(() => {
 			expect(mockState.listSubfolderContent).toHaveBeenCalledWith(
@@ -1331,7 +1458,7 @@ describe("ShareViewPage", () => {
 		});
 		expect(await screen.findByText("nested.txt")).toBeInTheDocument();
 		expect(
-			screen.getByRole("button", { name: "Shared Root" }),
+			await screen.findByRole("button", { name: "Shared Root" }),
 		).toBeInTheDocument();
 		expect(screen.getByText("Docs")).toBeInTheDocument();
 
@@ -1583,7 +1710,8 @@ describe("ShareViewPage", () => {
 		expect(screen.getByRole("button", { name: "next-image" })).toBeDisabled();
 	});
 
-	it("keeps current folder contents visible when folder navigation fails", async () => {
+	it("shows a route error when subfolder loading fails without falling back to root", async () => {
+		mockState.params = { folderId: "1", token: "share-token" };
 		mockState.getInfo.mockResolvedValueOnce({
 			has_password: false,
 			name: "Shared Root",
@@ -1593,23 +1721,17 @@ describe("ShareViewPage", () => {
 			},
 			share_type: "folder",
 		} as never);
-		mockState.listContent.mockResolvedValueOnce({
-			files: [{ id: 2, mime_type: "text/plain", name: "root.txt", size: 2 }],
-			folders: [{ id: 1, name: "Docs" }],
-			next_file_cursor: null,
-		} as never);
 		const error = new ApiError(ApiErrorCode.FolderNotFound, "missing folder");
 		mockState.listSubfolderContent.mockRejectedValueOnce(error);
+		mockState.getSubfolderAncestors.mockResolvedValueOnce([
+			{ id: 1, name: "Docs" },
+		]);
 
 		render(<ShareViewPage />);
 
-		expect(await screen.findByText("root.txt")).toBeInTheDocument();
-		fireEvent.click(screen.getByRole("button", { name: "folder:Docs" }));
-
-		await waitFor(() => {
-			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
-		});
-		expect(screen.getByText("root.txt")).toBeInTheDocument();
+		expect(await screen.findByText("missing folder")).toBeInTheDocument();
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(screen.queryByText("root.txt")).not.toBeInTheDocument();
 	});
 
 	it("toggles folder view mode from grid to list", async () => {
@@ -1736,6 +1858,7 @@ describe("ShareViewPage", () => {
 		});
 
 		try {
+			mockState.params = { folderId: "9", token: "share-token" };
 			mockState.getInfo.mockResolvedValueOnce({
 				has_password: false,
 				name: "Shared Root",
@@ -1745,11 +1868,9 @@ describe("ShareViewPage", () => {
 				},
 				share_type: "folder",
 			} as never);
-			mockState.listContent.mockResolvedValueOnce({
-				files: [],
-				folders: [{ id: 9, name: "Nested" }],
-				next_file_cursor: null,
-			} as never);
+			mockState.getSubfolderAncestors.mockResolvedValueOnce([
+				{ id: 9, name: "Nested" },
+			]);
 			mockState.listSubfolderContent
 				.mockResolvedValueOnce({
 					files: [
@@ -1771,9 +1892,6 @@ describe("ShareViewPage", () => {
 
 			render(<ShareViewPage />);
 
-			fireEvent.click(
-				await screen.findByRole("button", { name: "folder:Nested" }),
-			);
 			expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
 			await waitFor(() => {
 				expect(MockIntersectionObserver.instances).toHaveLength(1);

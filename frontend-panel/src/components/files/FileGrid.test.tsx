@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { FileGrid } from "@/components/files/FileGrid";
 
 const mockState = vi.hoisted(() => ({
+	contextMenuItems: [] as string[],
 	browserContext: {
 		breadcrumbPathIds: [] as number[],
 		browserOpenMode: "single_click" as "single_click" | "double_click",
@@ -56,9 +57,16 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 		item: { name: string };
 		isFolder: boolean;
 	}) => <button type="button">actions:{item.name}</button>,
-	FileBrowserItemContextMenu: ({ children }: { children: React.ReactNode }) => (
-		<div>{children}</div>
-	),
+	FileBrowserItemContextMenu: ({
+		children,
+		item,
+	}: {
+		children: React.ReactNode;
+		item: { name: string };
+	}) => {
+		mockState.contextMenuItems.push(item.name);
+		return <div>{children}</div>;
+	},
 }));
 
 vi.mock("@/components/files/FileCard", () => ({
@@ -128,6 +136,7 @@ vi.mock("@/components/files/FileCard", () => ({
 
 describe("FileGrid", () => {
 	beforeEach(() => {
+		mockState.contextMenuItems = [];
 		mockState.browserContext.breadcrumbPathIds = [];
 		mockState.browserContext.browserOpenMode = "single_click";
 		mockState.browserContext.fadingFileIds = undefined;
@@ -261,6 +270,7 @@ describe("FileGrid", () => {
 		expect(
 			screen.getByRole("button", { name: "actions:report.pdf" }),
 		).toBeInTheDocument();
+		expect(mockState.contextMenuItems).toEqual([]);
 
 		fireEvent.click(screen.getByRole("button", { name: "open:Docs" }));
 		fireEvent.click(screen.getByRole("button", { name: "open:report.pdf" }));
@@ -341,6 +351,7 @@ describe("FileGrid", () => {
 			"data-always-show-action-menu",
 			"true",
 		);
+		expect(mockState.contextMenuItems).toEqual(["Docs", "report.pdf"]);
 	});
 
 	it("selects folders and files on single click and opens them on double click in double-click mode", () => {

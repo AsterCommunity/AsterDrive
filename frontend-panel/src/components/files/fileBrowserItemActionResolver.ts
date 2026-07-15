@@ -108,6 +108,9 @@ function resolveReadOnlyFolderMenuProps({
 		isFolder: true,
 		isLocked: false,
 		onOpen: () => handlers.onFolderOpen(item.id, item.name),
+		onArchiveDownload: handlers.onArchiveDownload
+			? () => handlers.onArchiveDownload?.(item.id)
+			: undefined,
 	};
 }
 

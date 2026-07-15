@@ -210,7 +210,7 @@ const FolderTableDataRow = memo(function FolderTableDataRow({
 		</TableRow>
 	);
 
-	if (readOnly) return row;
+	if (readOnly && !selectionEnabled) return row;
 
 	return (
 		<FileBrowserItemContextMenu renderTrigger item={folder} isFolder>
@@ -297,7 +297,7 @@ const FileTableDataRow = memo(function FileTableDataRow({
 		</TableRow>
 	);
 
-	if (readOnly) return row;
+	if (readOnly && !selectionEnabled) return row;
 
 	return (
 		<FileBrowserItemContextMenu renderTrigger item={file} isFolder={false}>

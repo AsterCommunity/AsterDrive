@@ -20,6 +20,7 @@ const mockState = vi.hoisted(() => ({
 			`https://download.example/s/${token}/files/${fileId}`,
 	),
 	downloadUrl: vi.fn((token: string) => `https://download.example/s/${token}`),
+	getSubfolderAncestors: vi.fn(),
 	getInfo: vi.fn(),
 	handleApiError: vi.fn(),
 	hydrateMusicQueueForPlayback: vi.fn(async (queue: unknown[]) => queue),
@@ -65,6 +66,8 @@ vi.mock("@/services/shareService", () => ({
 		downloadFolderFileUrl: (...args: unknown[]) =>
 			mockState.downloadFolderFileUrl(...args),
 		downloadUrl: (...args: unknown[]) => mockState.downloadUrl(...args),
+		getSubfolderAncestors: (...args: unknown[]) =>
+			mockState.getSubfolderAncestors(...args),
 		getInfo: (...args: unknown[]) => mockState.getInfo(...args),
 		listContent: (...args: unknown[]) => mockState.listContent(...args),
 		listSubfolderContent: (...args: unknown[]) =>
@@ -144,23 +147,44 @@ function folderContents(
 	} as FolderContents;
 }
 
+function createDeferred<T>() {
+	let resolve!: (value: T) => void;
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((resolvePromise, rejectPromise) => {
+		resolve = resolvePromise;
+		reject = rejectPromise;
+	});
+	return { promise, reject, resolve };
+}
+
 function renderController({
+	requestedFolderId = null,
 	token = "share-token",
 	withSentinel = false,
 }: {
+	requestedFolderId?: number | null;
 	token?: string;
 	withSentinel?: boolean;
 } = {}) {
 	const sentinel = document.createElement("div");
-	return renderHook(() => {
-		const controller = useShareViewPageController({ token, t });
-		useLayoutEffect(() => {
-			if (withSentinel) {
-				controller.sentinelRef.current = sentinel;
-			}
-		});
-		return controller;
-	});
+	return renderHook(
+		({ folderId, shareToken }) => {
+			const controller = useShareViewPageController({
+				token: shareToken,
+				requestedFolderId: folderId,
+				t,
+			});
+			useLayoutEffect(() => {
+				if (withSentinel) {
+					controller.sentinelRef.current = sentinel;
+				}
+			});
+			return controller;
+		},
+		{
+			initialProps: { folderId: requestedFolderId, shareToken: token },
+		},
+	);
 }
 
 function installIntersectionObserverMock() {
@@ -187,6 +211,7 @@ describe("useShareViewPageController", () => {
 		mockState.buildSingleShareMusicTrack.mockReset();
 		mockState.downloadFolderFileUrl.mockClear();
 		mockState.downloadUrl.mockClear();
+		mockState.getSubfolderAncestors.mockReset();
 		mockState.getInfo.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.hydrateMusicQueueForPlayback.mockReset();
@@ -264,7 +289,58 @@ describe("useShareViewPageController", () => {
 		expect(result.current.hasMoreFiles).toBe(false);
 	});
 
-	it("navigates folder breadcrumbs and reports navigation failures", async () => {
+	it.each([
+		"refresh",
+		"sort",
+	] as const)("discards a pending load-more response after %s replaces the folder contents", async (operation) => {
+		const firstFile = fileItem(1, "first.txt");
+		const staleFile = fileItem(2, "stale.txt");
+		const replacementFile = fileItem(3, "replacement.txt");
+		const pendingLoadMore = createDeferred<FolderContents>();
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent
+			.mockResolvedValueOnce(
+				folderContents({
+					files: [firstFile],
+					next_file_cursor: { id: 1, value: "first.txt" },
+				}),
+			)
+			.mockImplementationOnce(() => pendingLoadMore.promise)
+			.mockResolvedValueOnce(folderContents({ files: [replacementFile] }));
+		const { result } = renderController({ withSentinel: true });
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		await waitFor(() =>
+			expect(mockState.intersectionCallbacks).toHaveLength(1),
+		);
+
+		act(() => {
+			mockState.intersectionCallbacks[0](
+				[{ isIntersecting: true } as IntersectionObserverEntry],
+				{} as IntersectionObserver,
+			);
+		});
+		await waitFor(() => expect(result.current.loadingMore).toBe(true));
+
+		if (operation === "refresh") {
+			await act(async () => result.current.refreshFolder());
+		} else {
+			act(() => result.current.setSortBy("updated_at"));
+			await waitFor(() =>
+				expect(result.current.folderContents?.files).toEqual([replacementFile]),
+			);
+		}
+		expect(result.current.loadingMore).toBe(false);
+
+		await act(async () => {
+			pendingLoadMore.resolve(folderContents({ files: [staleFile] }));
+			await pendingLoadMore.promise;
+		});
+
+		expect(result.current.folderContents?.files).toEqual([replacementFile]);
+		expect(result.current.loadingMore).toBe(false);
+	});
+
+	it("restores route-driven breadcrumbs across root, subfolder, and back navigation", async () => {
 		const rootContents = folderContents({
 			folders: [{ id: 10, name: "Docs" } as never],
 		});
@@ -272,17 +348,435 @@ describe("useShareViewPageController", () => {
 			folders: [{ id: 11, name: "Deep" } as never],
 		});
 		const deepContents = folderContents();
-		const error = new Error("network down");
+		const docsRequest = createDeferred<FolderContents>();
+		mockState.getInfo.mockResolvedValue(shareInfo());
+		mockState.listContent.mockResolvedValue(rootContents);
+		mockState.listSubfolderContent
+			.mockImplementationOnce(() => docsRequest.promise)
+			.mockResolvedValueOnce(deepContents);
+		mockState.getSubfolderAncestors
+			.mockResolvedValueOnce([{ id: 10, name: "Docs" }])
+			.mockResolvedValueOnce([
+				{ id: 10, name: "Docs" },
+				{ id: 11, name: "Deep" },
+			]);
 
+		const { result, rerender } = renderController();
+
+		await waitFor(() => {
+			expect(result.current.loading).toBe(false);
+		});
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+
+		rerender({ folderId: 10, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.navigating).toBe(true));
+		expect(result.current.loading).toBe(false);
+		expect(result.current.info?.name).toBe("Shared Root");
+		expect(result.current.folderContents).toBe(rootContents);
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			docsRequest.resolve(docsContents);
+			await docsRequest.promise;
+		});
+		await waitFor(() => expect(result.current.navigating).toBe(false));
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Shared Root" },
+			{ id: 10, name: "Docs" },
+		]);
+
+		rerender({ folderId: 11, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.breadcrumb.at(-1)?.id).toBe(11));
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Shared Root" },
+			{ id: 10, name: "Docs" },
+			{ id: 11, name: "Deep" },
+		]);
+
+		rerender({ folderId: null, shareToken: "share-token" });
+		await waitFor(() =>
+			expect(result.current.breadcrumb.at(-1)?.id).toBeNull(),
+		);
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Shared Root" },
+		]);
+		expect(mockState.listContent).toHaveBeenCalledTimes(2);
+		expect(mockState.listSubfolderContent).toHaveBeenNthCalledWith(
+			1,
+			"share-token",
+			10,
+			expect.objectContaining({ file_limit: 100 }),
+		);
+		expect(mockState.listContent).not.toHaveBeenCalledWith(
+			"share-token",
+			expect.objectContaining({ folder_id: 10 }),
+		);
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+	});
+
+	it("discards stale shared-folder responses during rapid route navigation", async () => {
+		const rootContents = folderContents();
+		const firstRequest = createDeferred<FolderContents>();
+		const secondRequest = createDeferred<FolderContents>();
+		const firstContents = folderContents({
+			files: [fileItem(10, "first.txt")],
+		});
+		const secondContents = folderContents({
+			files: [fileItem(11, "second.txt")],
+		});
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent.mockResolvedValueOnce(rootContents);
+		mockState.listSubfolderContent
+			.mockImplementationOnce(() => firstRequest.promise)
+			.mockImplementationOnce(() => secondRequest.promise);
+		mockState.getSubfolderAncestors
+			.mockResolvedValueOnce([{ id: 10, name: "First" }])
+			.mockResolvedValueOnce([{ id: 11, name: "Second" }]);
+
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 10, shareToken: "share-token" });
+		await waitFor(() =>
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(1),
+		);
+		rerender({ folderId: 11, shareToken: "share-token" });
+		await waitFor(() =>
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(2),
+		);
+
+		await act(async () => {
+			secondRequest.resolve(secondContents);
+			await secondRequest.promise;
+		});
+		await waitFor(() => {
+			expect(result.current.breadcrumb.at(-1)).toEqual({
+				id: 11,
+				name: "Second",
+			});
+		});
+
+		await act(async () => {
+			firstRequest.resolve(firstContents);
+			await firstRequest.promise;
+		});
+		expect(result.current.folderContents).toBe(secondContents);
+		expect(result.current.breadcrumb.at(-1)).toEqual({
+			id: 11,
+			name: "Second",
+		});
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+	});
+
+	it("discards a stale shared-folder failure during rapid route navigation", async () => {
+		const staleRequest = createDeferred<FolderContents>();
+		const currentContents = folderContents({
+			files: [fileItem(11, "current.txt")],
+		});
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent.mockResolvedValueOnce(folderContents());
+		mockState.listSubfolderContent
+			.mockImplementationOnce(() => staleRequest.promise)
+			.mockResolvedValueOnce(currentContents);
+		mockState.getSubfolderAncestors
+			.mockResolvedValueOnce([{ id: 10, name: "Stale" }])
+			.mockResolvedValueOnce([{ id: 11, name: "Current" }]);
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 10, shareToken: "share-token" });
+		await waitFor(() =>
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(1),
+		);
+		rerender({ folderId: 11, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.breadcrumb.at(-1)?.id).toBe(11));
+
+		await act(async () => {
+			staleRequest.reject(new Error("stale navigation failure"));
+			await staleRequest.promise.catch(() => undefined);
+		});
+
+		expect(result.current.error).toBeNull();
+		expect(result.current.folderContents).toBe(currentContents);
+	});
+
+	it("recovers the retained root view after a scoped route navigation fails", async () => {
+		const rootContents = folderContents({ files: [fileItem(1, "root.txt")] });
+		const scopeDenied = new ApiError(
+			ApiErrorCode.ShareScopeDenied,
+			"outside scope",
+		);
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent.mockResolvedValueOnce(rootContents);
+		mockState.listSubfolderContent.mockResolvedValueOnce(folderContents());
+		mockState.getSubfolderAncestors.mockRejectedValueOnce(scopeDenied);
+
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 99, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.error).toBe("outside scope"));
+		expect(mockState.listContent).toHaveBeenCalledTimes(1);
+
+		rerender({ folderId: null, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.error).toBeNull());
+		expect(result.current.folderContents).toBe(rootContents);
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Shared Root" },
+		]);
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+		expect(mockState.listContent).toHaveBeenCalledTimes(1);
+	});
+
+	it.each([
+		[ApiErrorCode.ShareScopeDenied, "outside scope"],
+		[ApiErrorCode.FolderNotFound, "missing folder"],
+	])("fails ancestor lookup %s without falling back to root", async (code, message) => {
+		const error = new ApiError(code, message);
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listSubfolderContent.mockResolvedValueOnce(folderContents());
+		mockState.getSubfolderAncestors.mockRejectedValueOnce(error);
+
+		const { result } = renderController({ requestedFolderId: 99 });
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.error).toBe(message);
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(result.current.folderContents).toBeNull();
+	});
+
+	it("uses a valid password cookie to restore a protected subfolder", async () => {
+		const contents = folderContents({ files: [fileItem(8, "secret.txt")] });
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ has_password: true, name: "Secret Root" }),
+		);
+		mockState.listSubfolderContent.mockResolvedValueOnce(contents);
+		mockState.getSubfolderAncestors.mockResolvedValueOnce([
+			{ id: 7, name: "Private Docs" },
+		]);
+
+		const { result } = renderController({ requestedFolderId: 7 });
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.passwordVerified).toBe(true);
+		expect(result.current.needsPassword).toBe(false);
+		expect(result.current.folderContents).toBe(contents);
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Secret Root" },
+			{ id: 7, name: "Private Docs" },
+		]);
+	});
+
+	it("loads the requested subfolder after password verification instead of root", async () => {
+		const passwordRequired = new ApiError(
+			ApiErrorCode.SharePasswordRequired,
+			"password required",
+		);
+		const contents = folderContents({ files: [fileItem(9, "verified.txt")] });
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ has_password: true, name: "Secret Root" }),
+		);
+		mockState.listSubfolderContent
+			.mockRejectedValueOnce(passwordRequired)
+			.mockResolvedValueOnce(contents);
+		mockState.getSubfolderAncestors
+			.mockRejectedValueOnce(passwordRequired)
+			.mockResolvedValueOnce([{ id: 12, name: "Deep Secret" }]);
+
+		const { result } = renderController({ requestedFolderId: 12 });
+		await waitFor(() => expect(result.current.needsPassword).toBe(true));
+
+		act(() => result.current.setPassword(TEST_SHARE_PASSWORD));
+		await act(async () => {
+			await result.current.handleVerifyPassword({
+				preventDefault: vi.fn(),
+			} as never);
+		});
+
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(mockState.listSubfolderContent).toHaveBeenLastCalledWith(
+			"share-token",
+			12,
+			expect.objectContaining({ file_limit: 100 }),
+		);
+		expect(result.current.folderContents).toBe(contents);
+		expect(result.current.breadcrumb).toEqual([
+			{ id: null, name: "Secret Root" },
+			{ id: 12, name: "Deep Secret" },
+		]);
+	});
+
+	it("surfaces a scoped folder error after correct password without loading root", async () => {
+		const passwordRequired = new ApiError(
+			ApiErrorCode.SharePasswordRequired,
+			"password required",
+		);
+		const scopeDenied = new ApiError(
+			ApiErrorCode.ShareScopeDenied,
+			"outside scope",
+		);
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ has_password: true, name: "Secret Root" }),
+		);
+		mockState.listSubfolderContent
+			.mockRejectedValueOnce(passwordRequired)
+			.mockRejectedValueOnce(scopeDenied);
+		mockState.getSubfolderAncestors
+			.mockRejectedValueOnce(passwordRequired)
+			.mockRejectedValueOnce(scopeDenied);
+
+		const { result } = renderController({ requestedFolderId: 13 });
+		await waitFor(() => expect(result.current.needsPassword).toBe(true));
+
+		await act(async () => {
+			await result.current.handleVerifyPassword({
+				preventDefault: vi.fn(),
+			} as never);
+		});
+
+		expect(result.current.error).toBe("outside scope");
+		expect(result.current.loading).toBe(false);
+		expect(mockState.listContent).not.toHaveBeenCalled();
+	});
+
+	it("keeps sorting and refresh requests scoped to the route subfolder", async () => {
+		const initial = folderContents({ files: [fileItem(1, "alpha.txt")] });
+		const sorted = folderContents({ files: [fileItem(2, "latest.txt")] });
+		const refreshed = folderContents({ files: [fileItem(3, "refreshed.txt")] });
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listSubfolderContent
+			.mockResolvedValueOnce(initial)
+			.mockResolvedValueOnce(sorted)
+			.mockResolvedValueOnce(refreshed);
+		mockState.getSubfolderAncestors.mockResolvedValue([
+			{ id: 21, name: "Current" },
+		]);
+
+		const { result } = renderController({ requestedFolderId: 21 });
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		act(() => result.current.setSortBy("updated_at"));
+		await waitFor(() => expect(result.current.folderContents).toBe(sorted));
+		expect(mockState.listSubfolderContent).toHaveBeenNthCalledWith(
+			2,
+			"share-token",
+			21,
+			expect.objectContaining({ sort_by: "updated_at" }),
+		);
+
+		await act(async () => result.current.refreshFolder());
+		expect(mockState.listSubfolderContent).toHaveBeenNthCalledWith(
+			3,
+			"share-token",
+			21,
+			expect.objectContaining({ sort_by: "updated_at" }),
+		);
+		expect(mockState.getSubfolderAncestors).toHaveBeenCalledTimes(2);
+		expect(result.current.folderContents).toBe(refreshed);
+	});
+
+	it("rejects a folder route for a file share without loading folder content", async () => {
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ share_type: "file", name: "Manual.pdf" }),
+		);
+
+		const { result, rerender } = renderController({ requestedFolderId: 44 });
+
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		expect(result.current.error).toBe("t:errors:folder_not_found");
+		expect(mockState.listContent).not.toHaveBeenCalled();
+		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+		expect(mockState.getSubfolderAncestors).not.toHaveBeenCalled();
+
+		rerender({ folderId: null, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.error).toBeNull());
+		expect(result.current.info?.name).toBe("Manual.pdf");
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects a folder route entered after a file share is already loaded", async () => {
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ share_type: "file", name: "Manual.pdf" }),
+		);
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 44, shareToken: "share-token" });
+
+		await waitFor(() =>
+			expect(result.current.error).toBe("t:errors:folder_not_found"),
+		);
+		expect(result.current.info?.name).toBe("Manual.pdf");
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+	});
+
+	it("ignores a stale file-share folder-route failure after the token changes", async () => {
+		const firstInfo = createDeferred<SharePublicInfo>();
+		mockState.getInfo
+			.mockImplementationOnce(() => firstInfo.promise)
+			.mockResolvedValueOnce(
+				shareInfo({
+					name: "Current.pdf",
+					share_type: "file",
+				}),
+			);
+
+		const { result, rerender } = renderController({
+			requestedFolderId: 44,
+			token: "stale-token",
+		});
+		rerender({ folderId: null, shareToken: "current-token" });
+		await waitFor(() => expect(result.current.info?.name).toBe("Current.pdf"));
+
+		await act(async () => {
+			firstInfo.resolve(shareInfo({ name: "Stale.pdf", share_type: "file" }));
+			await firstInfo.promise;
+		});
+
+		expect(result.current.info?.name).toBe("Current.pdf");
+		expect(result.current.error).toBeNull();
+	});
+
+	it("ignores a stale invalid file-share route after another token takes over", async () => {
+		const firstInfo = createDeferred<SharePublicInfo>();
+		mockState.getInfo
+			.mockImplementationOnce(() => firstInfo.promise)
+			.mockResolvedValueOnce(
+				shareInfo({ name: "Current.pdf", share_type: "file" }),
+			);
+		const { result, rerender } = renderController({
+			requestedFolderId: 44,
+			token: "stale-token",
+		});
+
+		rerender({ folderId: 45, shareToken: "current-token" });
+		await waitFor(() =>
+			expect(result.current.error).toBe("t:errors:folder_not_found"),
+		);
+		await act(async () => {
+			firstInfo.resolve(shareInfo({ name: "Stale.pdf", share_type: "file" }));
+			await firstInfo.promise;
+		});
+
+		expect(result.current.info?.name).toBe("Current.pdf");
+		expect(result.current.error).toBe("t:errors:folder_not_found");
+	});
+
+	it("reloads the current shared folder when sort preferences change", async () => {
+		const initialContents = folderContents({
+			files: [fileItem(1, "alpha.txt")],
+		});
+		const updatedContents = folderContents({
+			files: [fileItem(2, "newest.txt")],
+		});
+		const descendingContents = folderContents({
+			files: [fileItem(3, "descending.txt")],
+		});
 		mockState.getInfo.mockResolvedValueOnce(shareInfo());
 		mockState.listContent
-			.mockResolvedValueOnce(rootContents)
-			.mockResolvedValueOnce(rootContents);
-		mockState.listSubfolderContent
-			.mockResolvedValueOnce(docsContents)
-			.mockResolvedValueOnce(deepContents)
-			.mockResolvedValueOnce(docsContents)
-			.mockRejectedValueOnce(error);
+			.mockResolvedValueOnce(initialContents)
+			.mockResolvedValueOnce(updatedContents)
+			.mockResolvedValueOnce(descendingContents);
 
 		const { result } = renderController();
 
@@ -290,43 +784,34 @@ describe("useShareViewPageController", () => {
 			expect(result.current.loading).toBe(false);
 		});
 
-		await act(async () => {
-			await result.current.navigateToFolder(10, "Docs");
+		act(() => {
+			result.current.setSortBy("updated_at");
 		});
-		expect(result.current.breadcrumb).toEqual([
-			{ id: null, name: "Shared Root" },
-			{ id: 10, name: "Docs" },
-		]);
+		await waitFor(() => {
+			expect(result.current.sortBy).toBe("updated_at");
+		});
+		expect(mockState.listContent).toHaveBeenLastCalledWith(
+			"share-token",
+			expect.objectContaining({
+				sort_by: "updated_at",
+			}),
+		);
+		expect(result.current.folderContents).toBe(updatedContents);
 
-		await act(async () => {
-			await result.current.navigateToFolder(11, "Deep");
+		act(() => {
+			result.current.setSortOrder("desc");
 		});
-		expect(result.current.breadcrumb).toEqual([
-			{ id: null, name: "Shared Root" },
-			{ id: 10, name: "Docs" },
-			{ id: 11, name: "Deep" },
-		]);
-
-		await act(async () => {
-			await result.current.navigateToFolder(10, "Docs");
+		await waitFor(() => {
+			expect(result.current.sortOrder).toBe("desc");
 		});
-		expect(result.current.breadcrumb).toEqual([
-			{ id: null, name: "Shared Root" },
-			{ id: 10, name: "Docs" },
-		]);
-
-		await act(async () => {
-			await result.current.navigateToFolder(null);
-		});
-		expect(result.current.breadcrumb).toEqual([
-			{ id: null, name: "Shared Root" },
-		]);
-
-		await act(async () => {
-			await result.current.navigateToFolder(12, "Broken");
-		});
-		expect(mockState.handleApiError).toHaveBeenCalledWith(error);
-		expect(result.current.navigating).toBe(false);
+		expect(mockState.listContent).toHaveBeenLastCalledWith(
+			"share-token",
+			expect.objectContaining({
+				sort_by: "updated_at",
+				sort_order: "desc",
+			}),
+		);
+		expect(result.current.folderContents).toBe(descendingContents);
 	});
 
 	it.each([
@@ -399,6 +884,9 @@ describe("useShareViewPageController", () => {
 			shareInfo({ has_password: true, name: "Secret" }),
 		);
 		mockState.verifyPassword.mockRejectedValueOnce(error);
+		mockState.listContent.mockRejectedValueOnce(
+			new ApiError(ApiErrorCode.SharePasswordRequired, "password required"),
+		);
 
 		const { result } = renderController();
 

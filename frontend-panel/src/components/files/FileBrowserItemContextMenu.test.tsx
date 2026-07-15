@@ -559,7 +559,7 @@ describe("FileBrowserItemContextMenu", () => {
 		expect(batchActions.onCopy).not.toHaveBeenCalled();
 	});
 
-	it("limits read-only folder menus to opening the folder", () => {
+	it("limits read-only folder menus to opening and archive download", () => {
 		mockState.browserContext.readOnly = true;
 
 		render(
@@ -572,12 +572,13 @@ describe("FileBrowserItemContextMenu", () => {
 		);
 
 		fireEvent.click(screen.getByRole("button", { name: "open" }));
+		fireEvent.click(screen.getByRole("button", { name: "archive" }));
 
 		expect(mockState.browserContext.onFolderOpen).toHaveBeenCalledWith(
 			1,
 			"Docs",
 		);
-		expect(screen.queryByRole("button", { name: "archive" })).toBeNull();
+		expect(mockState.browserContext.onArchiveDownload).toHaveBeenCalledWith(1);
 		expect(screen.queryByRole("button", { name: "share-page" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "copy" })).toBeNull();
 		expect(screen.queryByRole("button", { name: "move" })).toBeNull();

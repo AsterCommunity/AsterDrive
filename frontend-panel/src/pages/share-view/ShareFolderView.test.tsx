@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type {
 	FileBrowserBatchSelectionActions,
@@ -34,7 +34,45 @@ vi.mock("@/components/common/UserAvatarImage", () => ({
 }));
 
 vi.mock("@/components/common/ViewToggle", () => ({
-	ViewToggle: () => <div>view-toggle</div>,
+	ViewToggle: ({ onChange }: { onChange: (value: "list") => void }) => (
+		<button type="button" onClick={() => onChange("list")}>
+			view-toggle
+		</button>
+	),
+}));
+
+vi.mock("@/components/common/SortMenu", () => ({
+	SortMenu: ({
+		onSortBy,
+		onSortOrder,
+	}: {
+		onSortBy: (value: "updated_at") => void;
+		onSortOrder: (value: "desc") => void;
+	}) => (
+		<div>
+			<button type="button" onClick={() => onSortBy("updated_at")}>
+				sort-menu
+			</button>
+			<button type="button" onClick={() => onSortOrder("desc")}>
+				sort-desc
+			</button>
+		</div>
+	),
+}));
+
+vi.mock("@/components/common/ToolbarBar", () => ({
+	ToolbarBar: ({
+		left,
+		right,
+	}: {
+		left: React.ReactNode;
+		right?: React.ReactNode;
+	}) => (
+		<div>
+			<div>{left}</div>
+			<div>{right}</div>
+		</div>
+	),
 }));
 
 vi.mock("@/components/files/FileBrowserContext", async (importOriginal) => {
@@ -156,6 +194,14 @@ vi.mock("@/services/shareService", () => ({
 	},
 }));
 
+vi.mock("@/components/layout/ShareTopBar", () => ({
+	ShareTopBar: () => <div data-testid="share-topbar" />,
+}));
+
+vi.mock("@/pages/share-view/ShareFolderSidebar", () => ({
+	ShareFolderSidebar: () => <aside data-testid="share-folder-sidebar" />,
+}));
+
 function createFile(id: number, name = `file-${id}.txt`): FileListItem {
 	return {
 		created_at: "2026-01-01T00:00:00Z",
@@ -215,10 +261,15 @@ function renderFolderView({
 			onFileDownload={vi.fn()}
 			onFilePreview={vi.fn()}
 			onNavigateToFolder={vi.fn()}
+			onRefresh={vi.fn()}
+			onSortByChange={vi.fn()}
+			onSortOrderChange={vi.fn()}
 			onViewModeChange={vi.fn()}
 			previewElement={null}
 			sentinelRef={{ current: null }}
 			shareOwnerText="shared-by:Alice"
+			sortBy="name"
+			sortOrder="asc"
 			token="share-token"
 			viewMode="grid"
 		/>,
@@ -242,10 +293,15 @@ function createStableProps({
 		onFileDownload: vi.fn(),
 		onFilePreview: vi.fn(),
 		onNavigateToFolder: vi.fn(),
+		onRefresh: vi.fn(),
+		onSortByChange: vi.fn(),
+		onSortOrderChange: vi.fn(),
 		onViewModeChange: vi.fn(),
 		previewElement: null,
 		sentinelRef: { current: null },
 		shareOwnerText: "shared-by:Alice",
+		sortBy: "name" as const,
+		sortOrder: "asc" as const,
 		token: "share-token",
 		viewMode: "grid" as const,
 	};
@@ -280,6 +336,46 @@ describe("ShareFolderView", () => {
 		).not.toBeInTheDocument();
 	});
 
+	it("uses the shared navigation toolbar for refresh, sorting, and view changes", () => {
+		const props = createStableProps({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+		});
+		render(<ShareFolderView {...props} />);
+
+		fireEvent.click(screen.getByRole("button", { name: "refresh" }));
+		fireEvent.click(screen.getByRole("button", { name: "sort-menu" }));
+		fireEvent.click(screen.getByRole("button", { name: "sort-desc" }));
+		fireEvent.click(screen.getByRole("button", { name: "view-toggle" }));
+
+		expect(screen.getByText("Shared Root")).toBeInTheDocument();
+		expect(props.onRefresh).toHaveBeenCalledTimes(1);
+		expect(props.onSortByChange).toHaveBeenCalledWith("updated_at");
+		expect(props.onSortOrderChange).toHaveBeenCalledWith("desc");
+		expect(props.onViewModeChange).toHaveBeenCalledWith("list");
+	});
+
+	it("selects all displayed share items with Command/Ctrl+A and clears with Escape", async () => {
+		renderFolderView({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+			folderContents: createContents([
+				createFile(1, "alpha.txt"),
+				createFile(2, "beta.txt"),
+			]),
+		});
+
+		fireEvent.keyDown(document, { key: "a", metaKey: true });
+
+		await waitFor(() => {
+			expect(useFileStore.getState().selectedFileIds).toEqual(new Set([1, 2]));
+		});
+
+		fireEvent.keyDown(document, { key: "Escape" });
+
+		await waitFor(() => {
+			expect(useFileStore.getState().selectedFileIds.size).toBe(0);
+		});
+	});
+
 	it("keeps selection across renders when breadcrumb ids are unchanged", async () => {
 		const rootBreadcrumb = [{ id: null, name: "Shared Root" }];
 		const contents = createContents([createFile(1, "alpha.txt")]);
@@ -290,7 +386,14 @@ describe("ShareFolderView", () => {
 
 		await screen.findByTestId("file-grid");
 		useFileStore.getState().selectItems([1], []);
-		await screen.findByText("selected:1");
+		expect(await screen.findAllByText("selected:1")).toHaveLength(2);
+		expect(screen.getByTestId("file-browser-default-toolbar")).toHaveAttribute(
+			"aria-hidden",
+			"true",
+		);
+		expect(
+			screen.getByTestId("file-browser-mobile-selection-toolbar"),
+		).toBeInTheDocument();
 
 		rerender(
 			<ShareFolderView
@@ -303,16 +406,21 @@ describe("ShareFolderView", () => {
 				onFileDownload={vi.fn()}
 				onFilePreview={vi.fn()}
 				onNavigateToFolder={vi.fn()}
+				onRefresh={vi.fn()}
+				onSortByChange={vi.fn()}
+				onSortOrderChange={vi.fn()}
 				onViewModeChange={vi.fn()}
 				previewElement={null}
 				sentinelRef={{ current: null }}
 				shareOwnerText="shared-by:Alice"
+				sortBy="name"
+				sortOrder="asc"
 				token="share-token"
 				viewMode="grid"
 			/>,
 		);
 
-		expect(await screen.findByText("selected:1")).toBeInTheDocument();
+		expect(await screen.findAllByText("selected:1")).toHaveLength(2);
 		expect(useFileStore.getState().selectedFileIds).toEqual(new Set([1]));
 	});
 
@@ -325,7 +433,7 @@ describe("ShareFolderView", () => {
 
 		await screen.findByTestId("file-grid");
 		useFileStore.getState().selectItems([1], []);
-		await screen.findByText("selected:1");
+		expect(await screen.findAllByText("selected:1")).toHaveLength(2);
 
 		rerender(
 			<ShareFolderView
@@ -341,10 +449,15 @@ describe("ShareFolderView", () => {
 				onFileDownload={vi.fn()}
 				onFilePreview={vi.fn()}
 				onNavigateToFolder={vi.fn()}
+				onRefresh={vi.fn()}
+				onSortByChange={vi.fn()}
+				onSortOrderChange={vi.fn()}
 				onViewModeChange={vi.fn()}
 				previewElement={null}
 				sentinelRef={{ current: null }}
 				shareOwnerText="shared-by:Alice"
+				sortBy="name"
+				sortOrder="asc"
 				token="share-token"
 				viewMode="grid"
 			/>,
@@ -353,7 +466,9 @@ describe("ShareFolderView", () => {
 		await waitFor(() => {
 			expect(useFileStore.getState().selectedFileIds.size).toBe(0);
 		});
-		expect(screen.queryByText("selected:1")).not.toBeInTheDocument();
+		await waitFor(() => {
+			expect(screen.queryByText("selected:1")).not.toBeInTheDocument();
+		});
 	});
 
 	it("memoizes the file browser context while visible content is unchanged", async () => {

@@ -10,6 +10,7 @@ const mockState = vi.hoisted(() => ({
 	login: vi.fn(),
 	logout: vi.fn(),
 	me: vi.fn(),
+	probeCurrentSession: vi.fn(),
 	refreshToken: vi.fn(),
 	warn: vi.fn(),
 }));
@@ -41,6 +42,7 @@ vi.mock("@/services/authService", () => ({
 		login: mockState.login,
 		logout: mockState.logout,
 		me: mockState.me,
+		probeCurrentSession: mockState.probeCurrentSession,
 		refreshToken: mockState.refreshToken,
 	},
 }));
@@ -117,6 +119,7 @@ describe("useAuthStore edge cases", () => {
 		mockState.login.mockReset();
 		mockState.logout.mockReset();
 		mockState.me.mockReset();
+		mockState.probeCurrentSession.mockReset();
 		mockState.refreshToken.mockReset();
 		mockState.warn.mockReset();
 	});
@@ -223,6 +226,82 @@ describe("useAuthStore edge cases", () => {
 		expect(stored.id).toBeUndefined();
 		expect(stored.email).toBeUndefined();
 		useAuthStore.getState().stopAutoRefresh();
+	});
+
+	it("does not expose cached identity when a public-page probe is offline", async () => {
+		const cachedUser = createCachedUser();
+		localStorage.setItem("aster-cached-user", JSON.stringify(cachedUser));
+		mockState.probeCurrentSession.mockRejectedValue(new Error("offline"));
+		mockState.isAxiosError.mockReturnValue(false);
+		const { useAuthStore } = await loadStore();
+		const startAutoRefresh = vi.spyOn(
+			useAuthStore.getState(),
+			"startAutoRefresh",
+		);
+
+		await useAuthStore.getState().probePublicSession();
+
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			isChecking: false,
+			isAuthStale: false,
+			bootOffline: false,
+			user: null,
+			expiresAt: null,
+		});
+		expect(startAutoRefresh).not.toHaveBeenCalled();
+	});
+
+	it("keeps a bootstrapped user when the near-expiry refresh fails", async () => {
+		const user = createCachedUser();
+		user.access_token_expires_at = Math.floor(Date.now() / 1000) + 10;
+		const failure = new Error("refresh unavailable");
+		mockState.me.mockResolvedValue(user);
+		mockState.refreshToken.mockRejectedValue(failure);
+		const { useAuthStore } = await loadStore();
+
+		await useAuthStore.getState().checkAuth();
+
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.warn).toHaveBeenCalledWith(
+			"checkAuth bootstrap refresh failed",
+			failure,
+		);
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: true,
+			isChecking: false,
+			user,
+		});
+	});
+
+	it("reuses the current session expiry when the user payload omits it", async () => {
+		const user = createCachedUser();
+		delete user.access_token_expires_at;
+		mockState.me.mockResolvedValue(user);
+		const { useAuthStore } = await loadStore();
+		const expiresAt = Date.now() + 900_000;
+		useAuthStore.setState({ expiresAt });
+
+		await useAuthStore.getState().checkAuth();
+
+		expect(useAuthStore.getState().expiresAt).toBe(expiresAt);
+		expect(sessionStorage.getItem("aster-auth-expires-at")).toBe(
+			String(expiresAt),
+		);
+		useAuthStore.getState().stopAutoRefresh();
+	});
+
+	it("keeps expiry empty when no user, state, or stored expiry exists", async () => {
+		const user = createCachedUser();
+		delete user.access_token_expires_at;
+		mockState.me.mockResolvedValue(user);
+		const { useAuthStore } = await loadStore();
+		useAuthStore.setState({ expiresAt: null });
+
+		await useAuthStore.getState().checkAuth();
+
+		expect(useAuthStore.getState().expiresAt).toBeNull();
+		expect(sessionStorage.getItem("aster-auth-expires-at")).toBeNull();
 	});
 
 	it("migrates older cached users by removing sensitive persisted fields", async () => {

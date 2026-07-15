@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ApiErrorCode } from "@/types/api-helpers";
 
 type MockAxiosError = {
-	config?: { _retry?: boolean; url?: string };
+	config?: { _retry?: boolean; optionalAuth?: boolean; url?: string };
 	isAxiosError?: boolean;
 	response?: { data?: unknown; status: number };
 };
@@ -205,6 +205,25 @@ describe("http refresh edge cases", () => {
 		await expect(errorHandler(originalError)).rejects.toBe(originalError);
 		expect(mockState.forceLogout).toHaveBeenCalledTimes(1);
 		expect(window.location.href).toBe("/login");
+	});
+
+	it("keeps a public page in guest mode when optional auth refresh fails", async () => {
+		mockState.axiosModule.isAxiosError.mockReturnValue(true);
+		mockState.refreshToken.mockRejectedValue({
+			isAxiosError: true,
+			response: { status: 401 },
+		});
+		await loadHttpModule();
+		const errorHandler = mockState.getErrorHandler();
+		const originalError = {
+			config: { optionalAuth: true, url: "/auth/me", _retry: false },
+			response: tokenErrorResponse(ApiErrorCode.TokenMissing),
+		} satisfies MockAxiosError;
+
+		await expect(errorHandler(originalError)).rejects.toBe(originalError);
+		expect(mockState.refreshToken).toHaveBeenCalledTimes(1);
+		expect(mockState.forceLogout).not.toHaveBeenCalled();
+		expect(window.location.href).toBe("http://localhost/");
 	});
 
 	it("does not force logout when refresh fails with a transient gateway response", async () => {

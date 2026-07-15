@@ -6,6 +6,7 @@ const mockState = vi.hoisted(() => ({
 	authStore: {
 		bootOffline: false,
 		checkAuth: vi.fn(),
+		probePublicSession: vi.fn(),
 		isAuthenticated: false,
 		isChecking: false,
 		user: null as {
@@ -163,6 +164,7 @@ describe("App", () => {
 	beforeEach(() => {
 		mockState.authStore.bootOffline = false;
 		mockState.authStore.checkAuth.mockReset();
+		mockState.authStore.probePublicSession.mockReset();
 		mockState.authStore.isAuthenticated = false;
 		mockState.authStore.isChecking = false;
 		mockState.authStore.user = null;
@@ -210,13 +212,14 @@ describe("App", () => {
 		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
 	});
 
-	it("skips the bootstrap auth check on public share routes", () => {
+	it("uses an optional session probe on public share routes", () => {
 		window.history.replaceState({}, "", "/s/share-token");
 
 		render(<App />);
 
 		expect(mockState.authStore.checkAuth).not.toHaveBeenCalled();
-		expect(mockState.setAuthState).toHaveBeenCalledWith({ isChecking: false });
+		expect(mockState.authStore.probePublicSession).toHaveBeenCalledTimes(1);
+		expect(mockState.setAuthState).not.toHaveBeenCalled();
 	});
 
 	it("skips the bootstrap auth check on invitation routes", () => {

@@ -10,5 +10,6 @@
 	"password_required": "需要密码",
 	"public_access": "公开访问",
 	"shared_by": "分享者：{{name}}",
+	"share_owner": "分享者",
 	"empty_folder_desc": "这个分享文件夹里暂时没有内容。"
 }

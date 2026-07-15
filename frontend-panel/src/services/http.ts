@@ -113,7 +113,10 @@ let refreshPromise: Promise<void> | null = null;
 export type ApiRequestConfig = Pick<
 	AxiosRequestConfig,
 	"data" | "headers" | "params" | "signal"
->;
+> & {
+	/** Optional auth may refresh a session, but must never redirect a public page. */
+	optionalAuth?: boolean;
+};
 
 type ApiErrorDetails = {
 	diagnostic?: ApiErrorInfoPayload["diagnostic"];
@@ -154,7 +157,12 @@ client.interceptors.response.use(
 			return Promise.reject(error);
 		}
 
-		const original = error.config;
+		const original = error.config as
+			| (InternalAxiosRequestConfig & {
+					_retry?: boolean;
+					optionalAuth?: boolean;
+			  })
+			| undefined;
 		const url = original?.url || "";
 		let apiError = extractApiError(error);
 
@@ -186,6 +194,9 @@ client.interceptors.response.use(
 				await refreshPromise;
 				return client(original);
 			} catch (refreshError) {
+				if (original.optionalAuth) {
+					return Promise.reject(error);
+				}
 				// 网络错误（离线）时不强制登出
 				if (
 					!isCrossTabRefreshAuthFailure(refreshError) &&

@@ -1665,6 +1665,14 @@ async fn test_team_shares_support_public_folder_access_and_team_management() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 403);
 
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{nested_id}/ancestors"
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 403);
+
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/s/{share_token}/verify"))
         .set_json(serde_json::json!({ "password": "secret123" }))
@@ -1703,6 +1711,22 @@ async fn test_team_shares_support_public_folder_access_and_team_management() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["files"].as_array().unwrap().len(), 1);
     assert_eq!(body["data"]["files"][0]["name"], "nested-share.txt");
+
+    let req = test::TestRequest::get()
+        .uri(&format!(
+            "/api/v1/s/{share_token}/folders/{nested_id}/ancestors"
+        ))
+        .insert_header((
+            "Cookie",
+            format!("aster_share_{share_token}={share_cookie}"),
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"][0]["id"], nested_id);
+    assert_eq!(body["data"][0]["name"], "Nested");
 
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/teams/{team_id}/shares/{share_id}"))

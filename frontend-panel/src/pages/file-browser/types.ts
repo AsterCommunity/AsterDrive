@@ -1,4 +1,5 @@
-import type { FileBrowserSelectionDownloadAction } from "@/components/files/FileBrowserContext";
+export type { FileSelectionToolbarState as FileBrowserSelectionToolbarState } from "@/components/files/FileSelectionToolbar";
+
 import type {
 	FileInfo,
 	FileListItem,
@@ -57,18 +58,4 @@ export interface FileBrowserRenameTarget {
 export interface FileBrowserInfoTarget {
 	file?: FileInfo | FileListItem;
 	folder?: FolderInfo | FolderListItem;
-}
-
-export interface FileBrowserSelectionToolbarState {
-	count: number;
-	allDisplayedSelected: boolean;
-	downloadAction?: FileBrowserSelectionDownloadAction;
-	hasDisplayedItems: boolean;
-	onArchiveCompress?: () => void;
-	onClearSelection: () => void;
-	onCopy?: () => void;
-	onDelete?: () => void;
-	onManageTags?: () => void;
-	onMove?: () => void;
-	onToggleDisplayedSelection: () => void;
 }

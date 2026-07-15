@@ -29,8 +29,9 @@ pub use content::{
     download_shared_file_with_range, download_shared_folder_file_with_range,
     get_shared_folder_file_image_preview, get_shared_folder_file_media_metadata,
     get_shared_folder_file_thumbnail, get_shared_image_preview, get_shared_media_metadata,
-    get_shared_thumbnail, list_shared_folder, list_shared_subfolder,
-    share_download_rollback_worker_task, spawn_detached_share_download_rollback_queue,
+    get_shared_subfolder_ancestors, get_shared_thumbnail, list_shared_folder,
+    list_shared_subfolder, share_download_rollback_worker_task,
+    spawn_detached_share_download_rollback_queue,
 };
 pub use management::{
     admin_delete_share, batch_delete_shares, batch_delete_team_shares, create_share, delete_share,

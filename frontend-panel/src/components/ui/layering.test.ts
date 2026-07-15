@@ -66,7 +66,7 @@ describe("overlay layering", () => {
 	it("keeps fixed chrome below dialog overlays", () => {
 		for (const path of [
 			"src/components/common/BatchActionBar.tsx",
-			"src/pages/file-browser/FileBrowserToolbar.tsx",
+			"src/components/files/FileSelectionToolbar.tsx",
 			"src/components/trash/TrashBatchActionBar.tsx",
 			"src/pages/my-shares/MySharesSelectionBar.tsx",
 			"src/components/layout/AdminLayout.tsx",

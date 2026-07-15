@@ -118,6 +118,7 @@ type TestRoute = {
 	children?: TestRoute[];
 	element?: unknown;
 	errorElement?: unknown;
+	index?: boolean;
 	path?: string;
 };
 
@@ -257,6 +258,20 @@ describe("router", () => {
 				(route) => route.path === "/settings/teams/:teamId/:section",
 			),
 		).toBe(true);
+	});
+
+	it("registers root and canonical subfolder routes for public folder shares", async () => {
+		const routes = (await loadRoutes()) as TestRoute[];
+		const shareRoute = routes.find((route) => route.path === "/s/:token");
+
+		expect(shareRoute).toBeDefined();
+		expect(shareRoute?.children).toEqual([
+			expect.objectContaining({ index: true }),
+			expect.objectContaining({ path: "folder/:folderId" }),
+		]);
+		expect(
+			routes.some((route) => route.path === "/s/:token/folder/:folderId"),
+		).toBe(false);
 	});
 
 	it("loads deferred i18n namespaces before localized lazy route pages", async () => {

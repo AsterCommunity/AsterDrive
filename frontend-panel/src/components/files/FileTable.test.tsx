@@ -4,6 +4,7 @@ import { FileTable } from "@/components/files/FileTable";
 import { DRAG_SOURCE_MIME } from "@/lib/constants";
 
 const mockState = vi.hoisted(() => ({
+	contextMenuItems: [] as string[],
 	browserContext: {
 		breadcrumbPathIds: [] as number[],
 		browserOpenMode: "single_click" as "single_click" | "double_click",
@@ -68,8 +69,16 @@ vi.mock("@/components/files/FileBrowserItemContextMenu", () => ({
 		item: { name: string };
 		isFolder: boolean;
 	}) => <button type="button">actions:{item.name}</button>,
-	FileBrowserItemContextMenu: ({ children }: { children: React.ReactNode }) =>
+	FileBrowserItemContextMenu: ({
 		children,
+		item,
+	}: {
+		children: React.ReactNode;
+		item: { name: string };
+	}) => {
+		mockState.contextMenuItems.push(item.name);
+		return children;
+	},
 }));
 
 vi.mock("@/components/files/FileTableCells", () => ({
@@ -225,6 +234,7 @@ const file = {
 
 describe("FileTable", () => {
 	beforeEach(() => {
+		mockState.contextMenuItems = [];
 		mockState.browserContext.breadcrumbPathIds = [];
 		mockState.browserContext.browserOpenMode = "single_click";
 		mockState.browserContext.fadingFileIds = undefined;
@@ -393,6 +403,7 @@ describe("FileTable", () => {
 		expect(
 			screen.getByRole("button", { name: "actions:report.pdf" }),
 		).toBeInTheDocument();
+		expect(mockState.contextMenuItems).toEqual([]);
 	});
 
 	it("allows selection in read-only tables when explicitly enabled", () => {
@@ -416,6 +427,7 @@ describe("FileTable", () => {
 		fireEvent.click(screen.getByText("translated:core:name"));
 		expect(mockState.store.setSortOrder).not.toHaveBeenCalled();
 		expect(mockState.store.setSortBy).not.toHaveBeenCalled();
+		expect(mockState.contextMenuItems).toEqual(["Docs", "report.pdf"]);
 	});
 
 	it("accepts valid folder drops and ignores invalid ones", () => {

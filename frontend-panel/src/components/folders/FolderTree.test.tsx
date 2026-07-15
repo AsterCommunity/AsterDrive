@@ -283,16 +283,16 @@ describe("FolderTree", () => {
 
 		expect(await screen.findByText("Alpha")).toBeInTheDocument();
 		const rootRow = screen.getByRole("button", { name: /root/i });
-		expect(rootRow).toHaveAttribute("aria-expanded", "true");
 
 		const collapseButton = screen.getByRole("button", {
 			name: "collapse_tree",
 		});
+		expect(collapseButton).toHaveAttribute("aria-expanded", "true");
 
 		fireEvent.keyDown(collapseButton, { key: "Enter" });
 
 		expect(mockState.navigate).not.toHaveBeenCalled();
-		expect(rootRow).toHaveAttribute("aria-expanded", "true");
+		expect(collapseButton).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByText("Alpha").closest("[aria-hidden]")).toHaveAttribute(
 			"aria-hidden",
 			"false",
@@ -301,7 +301,6 @@ describe("FolderTree", () => {
 		fireEvent.click(collapseButton);
 
 		expect(mockState.navigate).not.toHaveBeenCalled();
-		expect(rootRow).toHaveAttribute("aria-expanded", "false");
 		expect(screen.getByText("Alpha")).toBeInTheDocument();
 		expect(screen.getByText("Alpha").closest("[aria-hidden]")).toHaveAttribute(
 			"aria-hidden",
@@ -309,11 +308,12 @@ describe("FolderTree", () => {
 		);
 
 		const expandButton = screen.getByRole("button", { name: "expand_tree" });
+		expect(expandButton).toHaveAttribute("aria-expanded", "false");
 
 		fireEvent.keyDown(expandButton, { key: " " });
 
 		expect(mockState.navigate).not.toHaveBeenCalled();
-		expect(rootRow).toHaveAttribute("aria-expanded", "false");
+		expect(expandButton).toHaveAttribute("aria-expanded", "false");
 		expect(screen.getByText("Alpha").closest("[aria-hidden]")).toHaveAttribute(
 			"aria-hidden",
 			"true",
@@ -321,7 +321,9 @@ describe("FolderTree", () => {
 
 		fireEvent.click(expandButton);
 
-		expect(rootRow).toHaveAttribute("aria-expanded", "true");
+		expect(
+			screen.getByRole("button", { name: "collapse_tree" }),
+		).toHaveAttribute("aria-expanded", "true");
 		expect(screen.getByText("Alpha")).toBeInTheDocument();
 		expect(screen.getByText("Beta")).toBeInTheDocument();
 		expect(mockState.navigate).not.toHaveBeenCalled();

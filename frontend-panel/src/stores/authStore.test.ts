@@ -199,6 +199,65 @@ describe("useAuthStore", () => {
 		);
 	});
 
+	it("probes a public-page session without refreshing a near-expiry token", async () => {
+		let refreshCount = 0;
+		const user = createMeResponse({
+			access_token_expires_at: Math.floor(Date.now() / 1000) + 10,
+		});
+		server.use(
+			http.get("*/api/v1/auth/me", () => HttpResponse.json(apiResponse(user))),
+			http.post("*/api/v1/auth/refresh", () => {
+				refreshCount += 1;
+				return HttpResponse.json(apiResponse({ expires_in: 900 }));
+			}),
+		);
+
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().probePublicSession();
+
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: true,
+			isChecking: false,
+			isAuthStale: false,
+			bootOffline: false,
+			user,
+		});
+		expect(refreshCount).toBe(0);
+		useAuthStore.getState().stopAutoRefresh();
+	});
+
+	it("tries refresh once before treating a missing public-page session as logged out", async () => {
+		let refreshCount = 0;
+		server.use(
+			http.get("*/api/v1/auth/me", () =>
+				HttpResponse.json(
+					{
+						code: ApiErrorCode.TokenMissing,
+						msg: "missing token",
+						data: null,
+					},
+					{ status: 401 },
+				),
+			),
+			http.post("*/api/v1/auth/refresh", () => {
+				refreshCount += 1;
+				return HttpResponse.json(apiResponse({ expires_in: 900 }));
+			}),
+		);
+
+		const { useAuthStore } = await loadStores();
+		await useAuthStore.getState().probePublicSession();
+
+		expect(useAuthStore.getState()).toMatchObject({
+			isAuthenticated: false,
+			isChecking: false,
+			isAuthStale: false,
+			bootOffline: false,
+			user: null,
+		});
+		expect(refreshCount).toBe(1);
+	});
+
 	it("refreshes access token before expiry", async () => {
 		vi.useFakeTimers();
 

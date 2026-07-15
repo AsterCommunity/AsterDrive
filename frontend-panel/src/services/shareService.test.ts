@@ -109,6 +109,7 @@ describe("shareService", () => {
 		shareService.createFolderFileStreamSession("token-1", 42);
 		shareService.listContent("token-1", params);
 		shareService.listSubfolderContent("token-1", 42, params);
+		shareService.getSubfolderAncestors("token-1", 42);
 
 		expect(apiGet).toHaveBeenNthCalledWith(1, "/s/token-1");
 		expect(apiGet).toHaveBeenNthCalledWith(
@@ -144,7 +145,14 @@ describe("shareService", () => {
 		expect(apiGet).toHaveBeenNthCalledWith(7, "/s/token-1/folders/42/content", {
 			params,
 		});
+		expect(apiGet).toHaveBeenNthCalledWith(
+			8,
+			"/s/token-1/folders/42/ancestors",
+		);
 		expect(shareService.pagePath("token-1")).toBe("/s/token-1");
+		expect(shareService.folderPagePath("token-1", 42)).toBe(
+			"/s/token-1/folder/42",
+		);
 		expect(shareService.pageUrl("token-1")).toBe(
 			new URL("/s/token-1", window.location.origin).toString(),
 		);
