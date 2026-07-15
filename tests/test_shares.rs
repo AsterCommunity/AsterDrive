@@ -1066,6 +1066,7 @@ async fn test_folder_share_archive_download_ticket_and_boundaries() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
+    let share_id = body["data"]["id"].as_i64().unwrap();
     let share_token = body["data"]["token"].as_str().unwrap().to_string();
 
     let req = test::TestRequest::post()
@@ -1096,6 +1097,19 @@ async fn test_folder_share_archive_download_ticket_and_boundaries() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 403);
+
+    let req = test::TestRequest::patch()
+        .uri(&format!("/api/v1/shares/{share_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "password": "archive-secret",
+            "expires_at": null,
+            "max_downloads": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
 
     state.runtime_config.apply(common::system_config_model(
         ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
