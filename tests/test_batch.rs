@@ -13,21 +13,15 @@ use serde_json::Value;
 
 macro_rules! register_user {
     ($app:expr, $db:expr, $mail_sender:expr, $username:expr, $email:expr) => {{
-        let req = test::TestRequest::post()
-            .uri("/api/v1/auth/register")
-            .peer_addr("127.0.0.1:12345".parse().unwrap())
-            .set_json(serde_json::json!({
-                "username": $username,
-                "email": $email,
-                "password": "password123"
-            }))
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201);
-        let body: Value = test::read_body_json(resp).await;
-        let user_id = body["data"]["id"].as_i64().unwrap();
-        let _ = confirm_latest_contact_verification!($app, $db, $mail_sender);
-        user_id
+        common::create_test_account_via_api(
+            &$app,
+            &$db,
+            &$mail_sender,
+            $username,
+            $email,
+            "password123",
+        )
+        .await
     }};
 }
 

@@ -921,6 +921,121 @@ pub async fn create_test_account(
     }
 }
 
+async fn create_test_account_at_api_endpoint<S, B, E>(
+    app: &S,
+    endpoint: &str,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    let mut request = actix_web::test::TestRequest::post()
+        .uri(endpoint)
+        .peer_addr("127.0.0.1:12345".parse().unwrap());
+    if endpoint == "/api/v1/auth/setup" {
+        // Generic fixtures must not derive public_site_url from a synthetic request host.
+        request = request.insert_header(("Host", "@"));
+    }
+    let request = request
+        .set_json(serde_json::json!({
+            "username": username,
+            "email": email,
+            "password": password,
+        }))
+        .to_request();
+    let response = actix_web::test::call_service(app, request).await;
+    assert_eq!(response.status(), 201, "account creation should return 201");
+    let body: serde_json::Value = actix_web::test::read_body_json(response).await;
+    body["data"]["id"]
+        .as_i64()
+        .expect("account creation response should contain user id")
+}
+
+/// Creates the initial administrator through the public setup endpoint.
+#[allow(dead_code)]
+pub async fn setup_test_account_via_api<S, B, E>(
+    app: &S,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    create_test_account_at_api_endpoint(app, "/api/v1/auth/setup", username, email, password).await
+}
+
+/// Creates an account through the production setup/register lifecycle and confirms registration
+/// email when that policy is enabled.
+#[allow(dead_code)]
+pub async fn create_test_account_via_api<S, B, E>(
+    app: &S,
+    db: &sea_orm::DatabaseConnection,
+    mail_sender: &std::sync::Arc<dyn aster_forge_mail::MailSender>,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> i64
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = E,
+        >,
+    B: actix_web::body::MessageBody,
+    B::Error: std::fmt::Debug,
+    E: std::fmt::Debug,
+{
+    let initialized = aster_drive::db::repository::system_initialization_repo::is_initialized(db)
+        .await
+        .expect("test initialization state should load");
+    if !initialized {
+        return setup_test_account_via_api(app, username, email, password).await;
+    }
+
+    let user_id = create_test_account_at_api_endpoint(
+        app,
+        "/api/v1/auth/register",
+        username,
+        email,
+        password,
+    )
+    .await;
+    if let Some(token) =
+        extract_verification_token_from_mail_sender_or_outbox(db, mail_sender).await
+    {
+        let request = actix_web::test::TestRequest::get()
+            .uri(&format!(
+                "/api/v1/auth/contact-verification/confirm?token={}",
+                urlencoding::encode(&token)
+            ))
+            .to_request();
+        let response = actix_web::test::call_service(app, request).await;
+        assert_eq!(
+            response.status(),
+            302,
+            "contact verification should return 302"
+        );
+    }
+    user_id
+}
+
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
         && configured_test_database_backend() == TestDatabaseBackend::MySql
@@ -1387,21 +1502,13 @@ macro_rules! register_and_login {
     ($app:expr) => {{
         use actix_web::test;
 
-        // 初始化首个管理员
-        let req = test::TestRequest::post()
-            .uri("/api/v1/auth/setup")
-            // Keep this generic account fixture from implicitly configuring public_site_url.
-            // Dedicated setup route tests cover origin bootstrapping with a real Host/Origin.
-            .insert_header(("Host", "@"))
-            .peer_addr("127.0.0.1:12345".parse().unwrap())
-            .set_json(serde_json::json!({
-                "username": "testuser",
-                "email": "test@example.com",
-                "password": "password123"
-            }))
-            .to_request();
-        let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "setup should return 201");
+        common::setup_test_account_via_api(
+            &$app,
+            "testuser",
+            "test@example.com",
+            "password123",
+        )
+        .await;
 
         // 登录
         let req = test::TestRequest::post()

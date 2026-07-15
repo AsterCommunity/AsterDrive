@@ -41,18 +41,10 @@ where
             Error = E,
         >,
     B: MessageBody,
+    B::Error: std::fmt::Debug,
     E: std::fmt::Debug,
 {
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
-        .set_json(serde_json::json!({
-            "username": username,
-            "email": email,
-            "password": password
-        }))
-        .to_request();
-    let resp = test::call_service(app, req).await;
-    assert_eq!(resp.status(), StatusCode::CREATED);
+    common::setup_test_account_via_api(app, username, email, password).await;
 }
 
 async fn login_raw<S, B, E>(

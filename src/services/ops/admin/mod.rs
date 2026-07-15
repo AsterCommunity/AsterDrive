@@ -517,9 +517,9 @@ fn record_audit_action(report: &mut AdminOverviewDailyReport, action: Option<aud
         Some(audit::AuditAction::UserLogin)
         | Some(audit::AuditAction::UserPasskeyLogin)
         | Some(audit::AuditAction::UserExternalAuthLogin) => report.sign_ins += 1,
-        Some(audit::AuditAction::UserRegister) | Some(audit::AuditAction::AdminCreateUser) => {
-            report.new_users += 1
-        }
+        Some(audit::AuditAction::SystemSetup)
+        | Some(audit::AuditAction::UserRegister)
+        | Some(audit::AuditAction::AdminCreateUser) => report.new_users += 1,
         Some(audit::AuditAction::FileUpload) => report.uploads += 1,
         Some(audit::AuditAction::ShareCreate) => report.share_creations += 1,
         Some(audit::AuditAction::BatchDelete)
@@ -573,6 +573,7 @@ mod tests {
 
         for action in [
             Some(audit::AuditAction::UserLogin),
+            Some(audit::AuditAction::SystemSetup),
             Some(audit::AuditAction::UserRegister),
             Some(audit::AuditAction::AdminCreateUser),
             Some(audit::AuditAction::FileUpload),
@@ -589,10 +590,10 @@ mod tests {
         }
 
         assert_eq!(report.sign_ins, 3);
-        assert_eq!(report.new_users, 2);
+        assert_eq!(report.new_users, 3);
         assert_eq!(report.uploads, 1);
         assert_eq!(report.share_creations, 1);
         assert_eq!(report.deletions, 3);
-        assert_eq!(report.total_events, 12);
+        assert_eq!(report.total_events, 13);
     }
 }

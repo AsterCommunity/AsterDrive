@@ -17,17 +17,7 @@ async fn test_login_returns_correct_user_id_and_tokens() {
     let state_http = common::setup().await;
     let app = create_test_app!(state_http);
 
-    // 初始化首个管理员
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .set_json(serde_json::json!({
-            "username": "logintest",
-            "email": "login@test.com",
-            "password": "pass1234"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+    common::setup_test_account_via_api(&app, "logintest", "login@test.com", "pass1234").await;
 
     // HTTP 登录验证 cookies
     let req = test::TestRequest::post()
@@ -67,16 +57,7 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 初始化首个管理员
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .set_json(serde_json::json!({
-            "username": "wrongpw",
-            "email": "wrongpw@test.com",
-            "password": "correctpw"
-        }))
-        .to_request();
-    test::call_service(&app, req).await;
+    common::setup_test_account_via_api(&app, "wrongpw", "wrongpw@test.com", "correctpw").await;
 
     // 错误密码 → 401
     let req = test::TestRequest::post()
@@ -176,16 +157,7 @@ async fn test_config_schema_returns_non_empty_with_required_fields() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 初始化 admin
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .set_json(serde_json::json!({
-            "username": "admintk",
-            "email": "admin@tk.com",
-            "password": "admin1234"
-        }))
-        .to_request();
-    test::call_service(&app, req).await;
+    common::setup_test_account_via_api(&app, "admintk", "admin@tk.com", "admin1234").await;
 
     // 登录获取 cookies
     let req = test::TestRequest::post()
@@ -243,15 +215,7 @@ async fn test_locked_file_blocks_other_users_delete_and_rename() {
     let app = create_test_app!(state);
 
     // 用户 A 初始化 + 上传 + 锁定
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .set_json(serde_json::json!({
-            "username": "locker",
-            "email": "locker@test.com",
-            "password": "pass1234"
-        }))
-        .to_request();
-    test::call_service(&app, req).await;
+    common::setup_test_account_via_api(&app, "locker", "locker@test.com", "pass1234").await;
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
@@ -307,15 +271,8 @@ async fn test_locked_folder_blocks_other_users_delete() {
     let app = create_test_app!(state);
 
     // 用户 A 初始化并锁定文件夹
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .set_json(serde_json::json!({
-            "username": "folderlocker",
-            "email": "folderlocker@test.com",
-            "password": "pass1234"
-        }))
-        .to_request();
-    test::call_service(&app, req).await;
+    common::setup_test_account_via_api(&app, "folderlocker", "folderlocker@test.com", "pass1234")
+        .await;
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/login")
