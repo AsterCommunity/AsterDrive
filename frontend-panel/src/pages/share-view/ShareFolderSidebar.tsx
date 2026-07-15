@@ -2,7 +2,10 @@ import { useTranslation } from "react-i18next";
 import { UserAvatarImage } from "@/components/common/UserAvatarImage";
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { USER_TOPBAR_OFFSET_CLASS } from "@/lib/constants";
+import {
+	SIDEBAR_SECTION_PADDING_CLASS,
+	USER_TOPBAR_OFFSET_CLASS,
+} from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import type { FolderContents, SharePublicInfo } from "@/types/api";
 import { ShareFolderTree } from "./ShareFolderTree";
@@ -66,7 +69,12 @@ export function ShareFolderSidebar({
 						: "pointer-events-none -translate-x-full shadow-none md:pointer-events-auto",
 				)}
 			>
-				<div className="shrink-0 border-b border-sidebar-border bg-sidebar px-3 py-2.5">
+				<div
+					className={cn(
+						"shrink-0 border-b border-sidebar-border bg-sidebar py-2.5",
+						SIDEBAR_SECTION_PADDING_CLASS,
+					)}
+				>
 					<div className="flex min-w-0 items-center gap-2.5">
 						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-accent/55 text-accent-foreground">
 							<Icon name="Link" className="size-4" />
@@ -90,7 +98,12 @@ export function ShareFolderSidebar({
 					/>
 				</ScrollArea>
 
-				<div className="shrink-0 border-t border-sidebar-border px-3 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3">
+				<div
+					className={cn(
+						"shrink-0 border-t border-sidebar-border py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:pb-3",
+						SIDEBAR_SECTION_PADDING_CLASS,
+					)}
+				>
 					<section
 						className="flex min-w-0 items-center gap-2.5"
 						aria-label={shareOwnerText}

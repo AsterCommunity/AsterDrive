@@ -63,6 +63,9 @@ describe("ShareFolderSidebar", () => {
 		expect(screen.getByText("share:n_downloads")).toBeInTheDocument();
 		expect(screen.getByText("share:never_expires")).toBeInTheDocument();
 		expect(screen.getByText("share:public_access")).toBeInTheDocument();
+		const aside = screen.getByTestId("share-folder-sidebar");
+		expect(aside.firstElementChild).toHaveClass("px-2");
+		expect(aside.lastElementChild).toHaveClass("px-2");
 		fireEvent.click(screen.getByRole("button", { name: "close_sidebar" }));
 		expect(onMobileClose).toHaveBeenCalledTimes(1);
 		expect(container.querySelector("aside")).not.toBeNull();

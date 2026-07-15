@@ -176,6 +176,7 @@ function shareViewReducer(
 			return {
 				...state,
 				error: null,
+				loadingMore: false,
 				navigating: true,
 			};
 		case "navigateSuccess": {
@@ -501,6 +502,7 @@ export function useShareViewPageController({
 	const refreshFolder = useCallback(async () => {
 		if (!token || !state.info || state.info.share_type !== "folder") return;
 		const requestId = ++locationRequestIdRef.current;
+		loadingMoreCursorKeyRef.current = null;
 		dispatch({ type: "navigateStart" });
 		try {
 			const location = await loadSharedFolderLocation({
@@ -532,6 +534,7 @@ export function useShareViewPageController({
 			}
 
 			const requestId = ++locationRequestIdRef.current;
+			loadingMoreCursorKeyRef.current = null;
 			dispatch({ type: "navigateStart" });
 			try {
 				const params = shareFolderListParams(sortBy, sortOrder);

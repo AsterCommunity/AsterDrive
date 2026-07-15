@@ -291,9 +291,11 @@ async function bootstrapCurrentSession(
 			applyLoggedOutState(setAuthState);
 			return;
 		}
+		if (publicProbe) {
+			setAuthState(LOGGED_OUT_STATE);
+			return;
+		}
 
-		// A public share remains usable while auth probing is offline. Cached
-		// identity is marked stale instead of turning the page into offline boot.
 		const cached = getCachedUser();
 		const offlineUser = cachedUserToOfflineUser(cached);
 		const expiresAt =
@@ -309,18 +311,14 @@ async function bootstrapCurrentSession(
 				user: offlineUser,
 				expiresAt,
 			});
-			if (!publicProbe && expiresAt) getState().startAutoRefresh();
+			if (expiresAt) getState().startAutoRefresh();
 			return;
 		}
 
-		setAuthState(
-			publicProbe
-				? LOGGED_OUT_STATE
-				: {
-						...LOGGED_OUT_STATE,
-						bootOffline: true,
-					},
-		);
+		setAuthState({
+			...LOGGED_OUT_STATE,
+			bootOffline: true,
+		});
 	}
 }
 

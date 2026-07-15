@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import { ShareFolderPageShell } from "./ShareViewShell";
+import { ShareFolderPageShell, SharePageShell } from "./ShareViewShell";
 
 vi.mock("@/components/layout/ShareTopBar", () => ({
 	ShareTopBar: ({
@@ -41,6 +41,17 @@ vi.mock("@/pages/share-view/ShareFolderSidebar", () => ({
 }));
 
 describe("ShareFolderPageShell", () => {
+	it("uses the dynamic viewport height for non-folder share shells", () => {
+		const { container } = render(
+			<SharePageShell>
+				<div>share contents</div>
+			</SharePageShell>,
+		);
+
+		expect(container.firstChild).toHaveClass("h-dvh");
+		expect(container.firstChild).not.toHaveClass("h-screen");
+	});
+
 	it("keeps the topbar and mobile folder drawer state synchronized", () => {
 		render(
 			<ShareFolderPageShell

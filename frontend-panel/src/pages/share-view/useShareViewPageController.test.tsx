@@ -289,6 +289,57 @@ describe("useShareViewPageController", () => {
 		expect(result.current.hasMoreFiles).toBe(false);
 	});
 
+	it.each([
+		"refresh",
+		"sort",
+	] as const)("discards a pending load-more response after %s replaces the folder contents", async (operation) => {
+		const firstFile = fileItem(1, "first.txt");
+		const staleFile = fileItem(2, "stale.txt");
+		const replacementFile = fileItem(3, "replacement.txt");
+		const pendingLoadMore = createDeferred<FolderContents>();
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent
+			.mockResolvedValueOnce(
+				folderContents({
+					files: [firstFile],
+					next_file_cursor: { id: 1, value: "first.txt" },
+				}),
+			)
+			.mockImplementationOnce(() => pendingLoadMore.promise)
+			.mockResolvedValueOnce(folderContents({ files: [replacementFile] }));
+		const { result } = renderController({ withSentinel: true });
+		await waitFor(() => expect(result.current.loading).toBe(false));
+		await waitFor(() =>
+			expect(mockState.intersectionCallbacks).toHaveLength(1),
+		);
+
+		act(() => {
+			mockState.intersectionCallbacks[0](
+				[{ isIntersecting: true } as IntersectionObserverEntry],
+				{} as IntersectionObserver,
+			);
+		});
+		await waitFor(() => expect(result.current.loadingMore).toBe(true));
+
+		if (operation === "refresh") {
+			await act(async () => result.current.refreshFolder());
+		} else {
+			act(() => result.current.setSortBy("updated_at"));
+			await waitFor(() =>
+				expect(result.current.folderContents?.files).toEqual([replacementFile]),
+			);
+		}
+		expect(result.current.loadingMore).toBe(false);
+
+		await act(async () => {
+			pendingLoadMore.resolve(folderContents({ files: [staleFile] }));
+			await pendingLoadMore.promise;
+		});
+
+		expect(result.current.folderContents?.files).toEqual([replacementFile]);
+		expect(result.current.loadingMore).toBe(false);
+	});
+
 	it("restores route-driven breadcrumbs across root, subfolder, and back navigation", async () => {
 		const rootContents = folderContents({
 			folders: [{ id: 10, name: "Docs" } as never],
@@ -414,6 +465,38 @@ describe("useShareViewPageController", () => {
 			name: "Second",
 		});
 		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+	});
+
+	it("discards a stale shared-folder failure during rapid route navigation", async () => {
+		const staleRequest = createDeferred<FolderContents>();
+		const currentContents = folderContents({
+			files: [fileItem(11, "current.txt")],
+		});
+		mockState.getInfo.mockResolvedValueOnce(shareInfo());
+		mockState.listContent.mockResolvedValueOnce(folderContents());
+		mockState.listSubfolderContent
+			.mockImplementationOnce(() => staleRequest.promise)
+			.mockResolvedValueOnce(currentContents);
+		mockState.getSubfolderAncestors
+			.mockResolvedValueOnce([{ id: 10, name: "Stale" }])
+			.mockResolvedValueOnce([{ id: 11, name: "Current" }]);
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 10, shareToken: "share-token" });
+		await waitFor(() =>
+			expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(1),
+		);
+		rerender({ folderId: 11, shareToken: "share-token" });
+		await waitFor(() => expect(result.current.breadcrumb.at(-1)?.id).toBe(11));
+
+		await act(async () => {
+			staleRequest.reject(new Error("stale navigation failure"));
+			await staleRequest.promise.catch(() => undefined);
+		});
+
+		expect(result.current.error).toBeNull();
+		expect(result.current.folderContents).toBe(currentContents);
 	});
 
 	it("recovers the retained root view after a scoped route navigation fails", async () => {
@@ -608,6 +691,75 @@ describe("useShareViewPageController", () => {
 		await waitFor(() => expect(result.current.error).toBeNull());
 		expect(result.current.info?.name).toBe("Manual.pdf");
 		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+	});
+
+	it("rejects a folder route entered after a file share is already loaded", async () => {
+		mockState.getInfo.mockResolvedValueOnce(
+			shareInfo({ share_type: "file", name: "Manual.pdf" }),
+		);
+		const { result, rerender } = renderController();
+		await waitFor(() => expect(result.current.loading).toBe(false));
+
+		rerender({ folderId: 44, shareToken: "share-token" });
+
+		await waitFor(() =>
+			expect(result.current.error).toBe("t:errors:folder_not_found"),
+		);
+		expect(result.current.info?.name).toBe("Manual.pdf");
+		expect(mockState.getInfo).toHaveBeenCalledTimes(1);
+		expect(mockState.listSubfolderContent).not.toHaveBeenCalled();
+	});
+
+	it("ignores a stale file-share folder-route failure after the token changes", async () => {
+		const firstInfo = createDeferred<SharePublicInfo>();
+		mockState.getInfo
+			.mockImplementationOnce(() => firstInfo.promise)
+			.mockResolvedValueOnce(
+				shareInfo({
+					name: "Current.pdf",
+					share_type: "file",
+				}),
+			);
+
+		const { result, rerender } = renderController({
+			requestedFolderId: 44,
+			token: "stale-token",
+		});
+		rerender({ folderId: null, shareToken: "current-token" });
+		await waitFor(() => expect(result.current.info?.name).toBe("Current.pdf"));
+
+		await act(async () => {
+			firstInfo.resolve(shareInfo({ name: "Stale.pdf", share_type: "file" }));
+			await firstInfo.promise;
+		});
+
+		expect(result.current.info?.name).toBe("Current.pdf");
+		expect(result.current.error).toBeNull();
+	});
+
+	it("ignores a stale invalid file-share route after another token takes over", async () => {
+		const firstInfo = createDeferred<SharePublicInfo>();
+		mockState.getInfo
+			.mockImplementationOnce(() => firstInfo.promise)
+			.mockResolvedValueOnce(
+				shareInfo({ name: "Current.pdf", share_type: "file" }),
+			);
+		const { result, rerender } = renderController({
+			requestedFolderId: 44,
+			token: "stale-token",
+		});
+
+		rerender({ folderId: 45, shareToken: "current-token" });
+		await waitFor(() =>
+			expect(result.current.error).toBe("t:errors:folder_not_found"),
+		);
+		await act(async () => {
+			firstInfo.resolve(shareInfo({ name: "Stale.pdf", share_type: "file" }));
+			await firstInfo.promise;
+		});
+
+		expect(result.current.info?.name).toBe("Current.pdf");
+		expect(result.current.error).toBe("t:errors:folder_not_found");
 	});
 
 	it("reloads the current shared folder when sort preferences change", async () => {

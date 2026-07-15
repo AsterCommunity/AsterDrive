@@ -8,7 +8,7 @@ import type { ShareBreadcrumbItem } from "./types";
 
 export function SharePageShell({ children }: { children: ReactNode }) {
 	return (
-		<div className="flex h-screen flex-col bg-background text-foreground">
+		<div className="flex h-dvh flex-col bg-background text-foreground">
 			<ShareTopBar />
 			{children}
 		</div>

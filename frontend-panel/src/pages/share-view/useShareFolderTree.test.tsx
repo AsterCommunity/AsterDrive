@@ -39,10 +39,12 @@ function contents(folders: FolderListItem[]): FolderContents {
 
 function deferred<T>() {
 	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((next) => {
+	let reject!: (reason?: unknown) => void;
+	const promise = new Promise<T>((next, fail) => {
 		resolve = next;
+		reject = fail;
 	});
-	return { promise, resolve };
+	return { promise, reject, resolve };
 }
 
 describe("useShareFolderTree", () => {
@@ -66,6 +68,81 @@ describe("useShareFolderTree", () => {
 		await waitFor(() => expect(result.current.rootIds).toEqual([1]));
 		expect(result.current.loadedKeys.has("root")).toBe(true);
 		expect(result.current.nodeMap.get(1)?.folder.name).toBe("Docs");
+		expect(mockState.listContent).not.toHaveBeenCalled();
+	});
+
+	it("keeps equivalent breadcrumb and folder content inputs stable across rerenders", async () => {
+		const docs = folder(1, "Docs");
+		const { result, rerender } = renderHook(
+			({ breadcrumb, folderContents }) =>
+				useShareFolderTree({
+					breadcrumb,
+					folderContents,
+					token: "share-a",
+				}),
+			{
+				initialProps: {
+					breadcrumb: [{ id: null, name: "Shared Root" }],
+					folderContents: contents([docs]),
+				},
+			},
+		);
+		await waitFor(() => expect(result.current.rootIds).toEqual([1]));
+
+		rerender({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+			folderContents: contents([folder(1, "Docs")]),
+		});
+
+		expect(result.current.rootIds).toEqual([1]);
+		expect(mockState.listContent).not.toHaveBeenCalled();
+	});
+
+	it("updates cached breadcrumb and folder content values when their data changes", async () => {
+		const docs = folder(1, "Docs");
+		const deep = folder(2, "Deep");
+		const { result, rerender } = renderHook(
+			({ breadcrumb, folderContents }) =>
+				useShareFolderTree({
+					breadcrumb,
+					folderContents,
+					token: "share-a",
+				}),
+			{
+				initialProps: {
+					breadcrumb: [{ id: null, name: "Shared Root" }],
+					folderContents: contents([docs]),
+				},
+			},
+		);
+		await waitFor(() => expect(result.current.rootIds).toEqual([1]));
+
+		rerender({
+			breadcrumb: [
+				{ id: null, name: "Shared Root" },
+				{ id: 1, name: "Docs" },
+			],
+			folderContents: contents([deep]),
+		});
+
+		await waitFor(() => {
+			expect(result.current.currentFolderId).toBe(1);
+			expect(result.current.nodeMap.get(1)?.childIds).toEqual([2]);
+		});
+		expect(result.current.nodeMap.get(2)?.folder.name).toBe("Deep");
+	});
+
+	it("does not initialize or fetch a tree without a share token", async () => {
+		const { result } = renderHook(() =>
+			useShareFolderTree({
+				breadcrumb: [],
+				folderContents: null,
+				token: "",
+			}),
+		);
+
+		expect(result.current.rootIds).toEqual([]);
+		expect(result.current.loadedKeys.size).toBe(0);
 		expect(mockState.listContent).not.toHaveBeenCalled();
 	});
 
@@ -106,6 +183,77 @@ describe("useShareFolderTree", () => {
 			"share-a",
 			1,
 			expect.objectContaining({ file_limit: 0, folder_limit: 1000 }),
+		);
+	});
+
+	it("tolerates sparse breadcrumb entries and reuses an existing ancestor edge", async () => {
+		const docs = folder(1, "Docs");
+		const deep = folder(2, "Deep");
+		const { result, rerender } = renderHook(
+			({ breadcrumb }) =>
+				useShareFolderTree({
+					breadcrumb,
+					folderContents: contents([deep]),
+					token: "share-a",
+				}),
+			{
+				initialProps: {
+					breadcrumb: [
+						{ id: null, name: "Shared Root" },
+						{ id: null, name: "Missing" },
+						{ id: 1, name: "Docs" },
+					] as Array<{ id: number | null; name: string }>,
+				},
+			},
+		);
+		await waitFor(() => expect(result.current.currentFolderId).toBe(1));
+
+		rerender({
+			breadcrumb: [
+				{ id: null, name: "Shared Root" },
+				{ id: 1, name: docs.name },
+				{ id: 2, name: deep.name },
+			],
+		});
+		await waitFor(() =>
+			expect(result.current.nodeMap.get(1)?.childIds).toEqual([2]),
+		);
+
+		rerender({
+			breadcrumb: [
+				{ id: null, name: "Shared Root" },
+				{ id: 1, name: docs.name },
+				{ id: 2, name: deep.name },
+				{ id: 3, name: "Leaf" },
+			],
+		});
+		await waitFor(() => expect(result.current.currentFolderId).toBe(3));
+		expect(result.current.nodeMap.get(1)?.childIds).toEqual([2]);
+	});
+
+	it("loads children for a branch that is not yet represented in the node map", async () => {
+		mockState.listSubfolderContent.mockResolvedValueOnce(
+			contents([folder(3, "Child")]),
+		);
+		const { result } = renderHook(() =>
+			useShareFolderTree({
+				breadcrumb: [{ id: null, name: "Shared Root" }],
+				folderContents: contents([]),
+				token: "share-a",
+			}),
+		);
+		await waitFor(() =>
+			expect(result.current.loadedKeys.has("root")).toBe(true),
+		);
+
+		act(() => result.current.toggle(99));
+
+		await waitFor(() => expect(result.current.loadedKeys.has("99")).toBe(true));
+		expect(result.current.nodeMap.has(99)).toBe(false);
+		expect(mockState.listSubfolderContent).toHaveBeenCalledWith(
+			"share-a",
+			99,
+			expect.objectContaining({ file_limit: 0 }),
 		);
 	});
 
@@ -171,6 +319,34 @@ describe("useShareFolderTree", () => {
 		expect(result.current.nodeMap.has(1)).toBe(false);
 	});
 
+	it("discards a stale tree failure after the share token changes", async () => {
+		const stale = deferred<FolderContents>();
+		mockState.listContent.mockImplementation((token: string) =>
+			token === "share-a"
+				? stale.promise
+				: Promise.resolve(contents([folder(2, "Current")])),
+		);
+		const { result, rerender } = renderHook(
+			({ token }: { token: string }) =>
+				useShareFolderTree({
+					breadcrumb: [{ id: null, name: "Shared Root" }],
+					folderContents: null,
+					token,
+				}),
+			{ initialProps: { token: "share-a" } },
+		);
+
+		rerender({ token: "share-b" });
+		await waitFor(() => expect(result.current.rootIds).toEqual([2]));
+		await act(async () => {
+			stale.reject(new Error("stale failure"));
+			await stale.promise.catch(() => undefined);
+		});
+
+		expect(result.current.failedKeys.size).toBe(0);
+		expect(result.current.rootIds).toEqual([2]);
+	});
+
 	it("keeps a failed branch retryable without falling back to the root", async () => {
 		mockState.listSubfolderContent
 			.mockRejectedValueOnce(new Error("share scope denied"))
@@ -186,6 +362,37 @@ describe("useShareFolderTree", () => {
 
 		act(() => result.current.toggle(1));
 		await waitFor(() => expect(result.current.failedKeys.has("1")).toBe(true));
+		act(() => {
+			result.current.toggle(1);
+			result.current.toggle(1);
+		});
+		await waitFor(() =>
+			expect(result.current.nodeMap.get(1)?.childIds).toEqual([2]),
+		);
+		expect(mockState.listSubfolderContent).toHaveBeenCalledTimes(2);
+	});
+
+	it("clears a rejected in-flight request before retrying the same branch", async () => {
+		const pending = deferred<FolderContents>();
+		mockState.listSubfolderContent
+			.mockReturnValueOnce(pending.promise)
+			.mockResolvedValueOnce(contents([folder(2, "Child")]));
+		const { result } = renderHook(() =>
+			useShareFolderTree({
+				breadcrumb: [{ id: null, name: "Shared Root" }],
+				folderContents: contents([folder(1, "Docs")]),
+				token: "share-a",
+			}),
+		);
+		await waitFor(() => expect(result.current.rootIds).toEqual([1]));
+
+		act(() => result.current.toggle(1));
+		await act(async () => {
+			pending.reject(new Error("temporary failure"));
+			await pending.promise.catch(() => undefined);
+		});
+		await waitFor(() => expect(result.current.failedKeys.has("1")).toBe(true));
+
 		act(() => {
 			result.current.toggle(1);
 			result.current.toggle(1);

@@ -31,7 +31,10 @@ type VisibleBreadcrumbEntry =
 	| {
 			type: "ellipsis";
 			key: string;
-			items: FolderBreadcrumbItem[];
+			items: Array<{
+				item: FolderBreadcrumbItem;
+				sourceIndex: number;
+			}>;
 	  };
 
 interface FolderBreadcrumbProps {
@@ -65,7 +68,10 @@ export function FolderBreadcrumb({
 					{
 						type: "ellipsis",
 						key: "ellipsis",
-						items: items.slice(1, -1),
+						items: items.slice(1, -1).map((item, index) => ({
+							item,
+							sourceIndex: index + 1,
+						})),
 					},
 					{
 						type: "item",
@@ -111,9 +117,22 @@ export function FolderBreadcrumb({
 										align="start"
 										className="w-auto min-w-40"
 									>
-										{entry.items.map((hiddenItem) => (
+										{entry.items.map(({ item: hiddenItem, sourceIndex }) => (
 											<DropdownMenuItem
-												key={hiddenItem.id ?? "root"}
+												key={`${hiddenItem.id ?? "root"}-${sourceIndex}`}
+												onDragOver={
+													onDragOver
+														? (event) => onDragOver(event, sourceIndex)
+														: undefined
+												}
+												onDragLeave={onDragLeave}
+												onDrop={
+													onDrop
+														? (event) => {
+																void onDrop(event, sourceIndex, hiddenItem.id);
+															}
+														: undefined
+												}
 												onClick={() =>
 													onNavigate(hiddenItem.id, hiddenItem.name)
 												}

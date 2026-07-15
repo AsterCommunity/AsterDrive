@@ -25,7 +25,8 @@ export function FolderTreeItemContent({
 				<button
 					type="button"
 					aria-label={toggleLabel}
-					className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
+					aria-expanded={expanded}
+					className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent-foreground/10 hover:text-foreground disabled:cursor-default disabled:hover:bg-transparent"
 					onKeyDown={(event) => {
 						if (event.key === "Enter" || event.key === " ") {
 							event.stopPropagation();
@@ -54,7 +55,6 @@ export function FolderTreeItemContent({
 			<button
 				type="button"
 				aria-label={label}
-				aria-expanded={showToggle ? expanded : undefined}
 				className="flex min-w-0 flex-1 items-center gap-2 rounded-sm px-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
 				onClick={onNavigate}
 			>
