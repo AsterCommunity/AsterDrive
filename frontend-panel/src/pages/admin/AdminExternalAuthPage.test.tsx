@@ -335,11 +335,25 @@ function savedProvider(overrides: Record<string, unknown> = {}) {
 function providerKind(
 	overrides: Partial<AdminExternalAuthProviderKindInfo> = {},
 ): AdminExternalAuthProviderKindInfo {
+	const kind = overrides.kind ?? "oidc";
+	const displayName = overrides.display_name ?? "OpenID Connect";
+	const defaultScopes = overrides.default_scopes ?? "openid email profile";
 	return {
 		authorization_url_required: false,
-		default_scopes: "openid email profile",
+		create_defaults: {
+			auto_link_verified_email_enabled: false,
+			auto_provision_enabled: false,
+			display_name:
+				kind === "oidc" || kind === "generic_oauth2" ? "" : displayName,
+			enabled: true,
+			options: kind === "microsoft" ? { microsoft: { tenant: "common" } } : {},
+			require_email_verified: kind !== "microsoft" && kind !== "qq",
+			scopes: defaultScopes,
+		},
+		default_scopes: defaultScopes,
 		description: "OpenID Connect authorization-code sign-in.",
-		display_name: "OpenID Connect",
+		display_name: displayName,
+		issuer_url_supported: kind === "oidc" || kind === "generic_oauth2",
 		issuer_url_required: true,
 		kind: "oidc",
 		manual_endpoint_configuration_supported: false,
@@ -524,6 +538,161 @@ describe("AdminExternalAuthPage", () => {
 				screen.queryByText("external_auth_provider_created_callback_title"),
 			).not.toBeInTheDocument();
 		});
+	});
+
+	it("rebuilds the entire create draft when switching provider schemas", async () => {
+		mockState.listKinds.mockResolvedValue([
+			providerKind(),
+			providerKind({
+				authorization_url_required: true,
+				description: "Generic OAuth2 authorization-code sign-in.",
+				display_name: "Generic OAuth2",
+				issuer_url_required: false,
+				kind: "generic_oauth2",
+				manual_endpoint_configuration_supported: true,
+				protocol: "oauth2",
+				supports_discovery: false,
+				token_url_required: true,
+				userinfo_url_required: true,
+			}),
+		]);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalled());
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		clickProviderKindCard("Generic OAuth2");
+
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_display_name"),
+			{ target: { value: "Custom OAuth Provider" } },
+		);
+		fireEvent.change(screen.getByLabelText("external_auth_provider_icon_url"), {
+			target: { value: "/static/oauth.svg" },
+		});
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{ target: { value: "oauth-client" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_secret"),
+			{ target: { value: "oauth-secret" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_authorization_url"),
+			{ target: { value: "https://oauth.example.com/authorize" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_token_url"),
+			{ target: { value: "https://oauth.example.com/token" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_userinfo_url"),
+			{ target: { value: "https://oauth.example.com/userinfo" } },
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
+		clickProviderKindCard("OpenID Connect");
+
+		expect(
+			screen.getByLabelText("external_auth_provider_display_name"),
+		).toHaveValue("");
+		expect(
+			screen.getByLabelText("external_auth_provider_icon_url"),
+		).toHaveValue("");
+		expect(
+			screen.getByLabelText("external_auth_provider_client_id"),
+		).toHaveValue("");
+		expect(
+			screen.getByLabelText("external_auth_provider_client_secret"),
+		).toHaveValue("");
+		expect(
+			screen.getByLabelText("external_auth_provider_issuer_url"),
+		).toHaveValue("");
+		expect(
+			screen.queryByLabelText("external_auth_provider_authorization_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_token_url"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByLabelText("external_auth_provider_userinfo_url"),
+		).not.toBeInTheDocument();
+
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_issuer_url"),
+			{ target: { value: "https://oidc.example.com" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{ target: { value: "oidc-client" } },
+		);
+		fireEvent.click(screen.getByRole("button", { name: "test_connection" }));
+
+		await waitFor(() => expect(mockState.testParams).toHaveBeenCalledTimes(1));
+		expect(mockState.testParams).toHaveBeenCalledWith(
+			expect.objectContaining({
+				authorization_url: null,
+				provider_kind: "oidc",
+				token_url: null,
+				userinfo_url: null,
+			}),
+		);
+	});
+
+	it("preserves the create draft when reselecting the same provider schema", async () => {
+		mockState.listKinds.mockResolvedValue([
+			providerKind({
+				authorization_url_required: true,
+				description: "Generic OAuth2 authorization-code sign-in.",
+				display_name: "Generic OAuth2",
+				issuer_url_required: false,
+				kind: "generic_oauth2",
+				manual_endpoint_configuration_supported: true,
+				protocol: "oauth2",
+				supports_discovery: false,
+				token_url_required: true,
+				userinfo_url_required: true,
+			}),
+		]);
+
+		render(
+			<MemoryRouter initialEntries={["/admin/external-auth"]}>
+				<AdminExternalAuthPage />
+			</MemoryRouter>,
+		);
+
+		await waitFor(() => expect(mockState.listKinds).toHaveBeenCalled());
+		const createButtons = screen.getAllByRole("button", {
+			name: /external_auth_provider_create/,
+		});
+		fireEvent.click(createButtons[createButtons.length - 1]);
+		clickProviderKindCard("Generic OAuth2");
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_client_id"),
+			{ target: { value: "preserved-client" } },
+		);
+		fireEvent.change(
+			screen.getByLabelText("external_auth_provider_authorization_url"),
+			{ target: { value: "https://oauth.example.com/authorize" } },
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "core:back" }));
+		clickProviderKindCard("Generic OAuth2");
+
+		expect(
+			screen.getByLabelText("external_auth_provider_client_id"),
+		).toHaveValue("preserved-client");
+		expect(
+			screen.getByLabelText("external_auth_provider_authorization_url"),
+		).toHaveValue("https://oauth.example.com/authorize");
 	});
 
 	it("applies Google create-dialog defaults and hides manual OIDC fields", async () => {
@@ -960,8 +1129,8 @@ describe("AdminExternalAuthPage", () => {
 			screen.getByLabelText("external_auth_provider_authorization_url"),
 		).toBeInTheDocument();
 		expect(
-			screen.queryByLabelText("external_auth_provider_issuer_url"),
-		).not.toBeInTheDocument();
+			screen.getByLabelText("external_auth_provider_issuer_url"),
+		).toBeInTheDocument();
 	});
 
 	it("tests provider draft parameters while creating", async () => {

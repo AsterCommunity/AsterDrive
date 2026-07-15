@@ -119,7 +119,18 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "oidc")
         .expect("OIDC kind should be listed");
     assert_eq!(oidc["protocol"], "oidc");
+    assert_eq!(oidc["create_defaults"]["display_name"], "");
+    assert_eq!(oidc["create_defaults"]["options"], serde_json::json!({}));
+    assert_eq!(oidc["create_defaults"]["require_email_verified"], true);
+    assert_eq!(oidc["create_defaults"]["scopes"], "openid email profile");
+    assert_eq!(oidc["create_defaults"]["enabled"], true);
+    assert_eq!(oidc["create_defaults"]["auto_provision_enabled"], false);
+    assert_eq!(
+        oidc["create_defaults"]["auto_link_verified_email_enabled"],
+        false
+    );
     assert_eq!(oidc["default_scopes"], "openid email profile");
+    assert_eq!(oidc["issuer_url_supported"], true);
     assert_eq!(oidc["supports_discovery"], true);
     assert_eq!(oidc["supports_pkce"], true);
 
@@ -128,6 +139,16 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "generic_oauth2")
         .expect("Generic OAuth2 kind should be listed");
     assert_eq!(generic_oauth2["protocol"], "oauth2");
+    assert_eq!(generic_oauth2["create_defaults"]["display_name"], "");
+    assert_eq!(
+        generic_oauth2["create_defaults"]["options"],
+        serde_json::json!({})
+    );
+    assert_eq!(
+        generic_oauth2["create_defaults"]["require_email_verified"],
+        true
+    );
+    assert_eq!(generic_oauth2["issuer_url_supported"], true);
     assert_eq!(generic_oauth2["issuer_url_required"], false);
     assert_eq!(
         generic_oauth2["manual_endpoint_configuration_supported"],
@@ -143,6 +164,10 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "github")
         .expect("GitHub kind should be listed");
     assert_eq!(github["protocol"], "oauth2");
+    assert_eq!(github["create_defaults"]["display_name"], "GitHub");
+    assert_eq!(github["create_defaults"]["options"], serde_json::json!({}));
+    assert_eq!(github["create_defaults"]["require_email_verified"], true);
+    assert_eq!(github["issuer_url_supported"], false);
     assert_eq!(github["default_scopes"], "read:user user:email");
     assert_eq!(github["issuer_url_required"], false);
     assert_eq!(github["manual_endpoint_configuration_supported"], false);
@@ -158,6 +183,10 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "google")
         .expect("Google kind should be listed");
     assert_eq!(google["protocol"], "oidc");
+    assert_eq!(google["create_defaults"]["display_name"], "Google");
+    assert_eq!(google["create_defaults"]["options"], serde_json::json!({}));
+    assert_eq!(google["create_defaults"]["require_email_verified"], true);
+    assert_eq!(google["issuer_url_supported"], false);
     assert_eq!(google["default_scopes"], "openid profile email");
     assert_eq!(google["issuer_url_required"], false);
     assert_eq!(google["manual_endpoint_configuration_supported"], false);
@@ -173,6 +202,16 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "microsoft")
         .expect("Microsoft kind should be listed");
     assert_eq!(microsoft["protocol"], "oidc");
+    assert_eq!(
+        microsoft["create_defaults"]["options"],
+        serde_json::json!({ "microsoft": { "tenant": "common" } })
+    );
+    assert_eq!(microsoft["create_defaults"]["display_name"], "Microsoft");
+    assert_eq!(
+        microsoft["create_defaults"]["require_email_verified"],
+        false
+    );
+    assert_eq!(microsoft["issuer_url_supported"], false);
     assert_eq!(microsoft["default_scopes"], "openid profile email");
     assert_eq!(microsoft["issuer_url_required"], false);
     assert_eq!(microsoft["manual_endpoint_configuration_supported"], false);
@@ -188,6 +227,10 @@ async fn admin_provider_kind_api_drives_create_contract() {
         .find(|kind| kind["kind"] == "qq")
         .expect("QQ kind should be listed");
     assert_eq!(qq["protocol"], "oauth2");
+    assert_eq!(qq["create_defaults"]["display_name"], "QQ");
+    assert_eq!(qq["create_defaults"]["options"], serde_json::json!({}));
+    assert_eq!(qq["create_defaults"]["require_email_verified"], false);
+    assert_eq!(qq["issuer_url_supported"], false);
     assert_eq!(qq["default_scopes"], "get_user_info");
     assert_eq!(qq["issuer_url_required"], false);
     assert_eq!(qq["manual_endpoint_configuration_supported"], false);

@@ -37,7 +37,11 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
         .find(|kind| kind["kind"] == "generic_oauth2")
         .expect("generic OAuth2 kind should be listed");
     assert_eq!(oauth2["protocol"], "oauth2");
+    assert_eq!(oauth2["create_defaults"]["display_name"], "");
+    assert_eq!(oauth2["create_defaults"]["options"], serde_json::json!({}));
+    assert_eq!(oauth2["create_defaults"]["require_email_verified"], true);
     assert_eq!(oauth2["default_scopes"], "openid email profile");
+    assert_eq!(oauth2["issuer_url_supported"], true);
     assert_eq!(oauth2["issuer_url_required"], false);
     assert_eq!(oauth2["manual_endpoint_configuration_supported"], true);
     assert_eq!(oauth2["authorization_url_required"], true);
@@ -51,6 +55,9 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
         .find(|kind| kind["kind"] == "github")
         .expect("GitHub kind should be listed");
     assert_eq!(github["protocol"], "oauth2");
+    assert_eq!(github["create_defaults"]["display_name"], "GitHub");
+    assert_eq!(github["create_defaults"]["require_email_verified"], true);
+    assert_eq!(github["issuer_url_supported"], false);
     assert_eq!(github["default_scopes"], "read:user user:email");
     assert_eq!(github["issuer_url_required"], false);
     assert_eq!(github["manual_endpoint_configuration_supported"], false);
@@ -66,6 +73,9 @@ async fn admin_provider_kind_api_includes_generic_oauth2_contract() {
         .find(|kind| kind["kind"] == "qq")
         .expect("QQ kind should be listed");
     assert_eq!(qq["protocol"], "oauth2");
+    assert_eq!(qq["create_defaults"]["display_name"], "QQ");
+    assert_eq!(qq["create_defaults"]["require_email_verified"], false);
+    assert_eq!(qq["issuer_url_supported"], false);
     assert_eq!(qq["default_scopes"], "get_user_info");
     assert_eq!(qq["issuer_url_required"], false);
     assert_eq!(qq["manual_endpoint_configuration_supported"], false);

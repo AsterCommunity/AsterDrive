@@ -14,6 +14,7 @@ import {
 	formConnectionChanged,
 	formConnectionSummary,
 	formFromProvider,
+	formFromProviderKind,
 	getManagedExternalAuthSearchString,
 	isGitHubProviderKind,
 	isGoogleProviderKind,
@@ -140,9 +141,19 @@ function kind(
 ): AdminExternalAuthProviderKindInfo {
 	return {
 		authorization_url_required: false,
+		create_defaults: {
+			auto_link_verified_email_enabled: false,
+			auto_provision_enabled: false,
+			display_name: "",
+			enabled: true,
+			options: {},
+			require_email_verified: true,
+			scopes: "openid email profile",
+		},
 		default_scopes: "openid email profile",
 		description: "OIDC sign-in.",
 		display_name: "OpenID Connect",
+		issuer_url_supported: true,
 		issuer_url_required: true,
 		kind: "oidc",
 		manual_endpoint_configuration_supported: false,
@@ -183,6 +194,7 @@ function githubKind(
 		default_scopes: "read:user user:email",
 		description: "GitHub sign-in.",
 		display_name: "GitHub",
+		issuer_url_supported: false,
 		issuer_url_required: false,
 		kind: "github",
 		manual_endpoint_configuration_supported: false,
@@ -203,6 +215,7 @@ function googleKind(
 		default_scopes: "openid profile email",
 		description: "Google sign-in.",
 		display_name: "Google",
+		issuer_url_supported: false,
 		issuer_url_required: false,
 		kind: "google",
 		manual_endpoint_configuration_supported: false,
@@ -223,6 +236,16 @@ function microsoftKind(
 		default_scopes: "openid profile email",
 		description: "Microsoft OpenID Connect sign-in.",
 		display_name: "Microsoft",
+		create_defaults: {
+			auto_link_verified_email_enabled: false,
+			auto_provision_enabled: false,
+			display_name: "Microsoft",
+			enabled: true,
+			options: { microsoft: { tenant: "common" } },
+			require_email_verified: false,
+			scopes: "openid profile email",
+		},
+		issuer_url_supported: false,
 		issuer_url_required: false,
 		kind: "microsoft",
 		manual_endpoint_configuration_supported: false,
@@ -243,6 +266,16 @@ function qqKind(
 		default_scopes: "get_user_info",
 		description: "QQ sign-in.",
 		display_name: "QQ",
+		create_defaults: {
+			auto_link_verified_email_enabled: false,
+			auto_provision_enabled: false,
+			display_name: "QQ",
+			enabled: true,
+			options: {},
+			require_email_verified: false,
+			scopes: "get_user_info",
+		},
+		issuer_url_supported: false,
 		issuer_url_required: false,
 		kind: "qq",
 		manual_endpoint_configuration_supported: false,
@@ -256,6 +289,61 @@ function qqKind(
 }
 
 describe("admin external auth shared helpers", () => {
+	it("builds a fresh create form entirely from provider descriptor defaults", () => {
+		const descriptor = microsoftKind({
+			create_defaults: {
+				auto_link_verified_email_enabled: false,
+				auto_provision_enabled: false,
+				display_name: "Microsoft Entra ID",
+				enabled: true,
+				options: { microsoft: { tenant: "organizations" } },
+				require_email_verified: false,
+				scopes: "openid profile email",
+			},
+			display_name: "Microsoft Entra ID",
+		});
+
+		expect(formFromProviderKind(descriptor)).toEqual({
+			...emptyForm,
+			displayName: "Microsoft Entra ID",
+			microsoftTenant: "organizations",
+			microsoftTenantMode: "organizations",
+			providerKind: "microsoft",
+			requireEmailVerified: false,
+			scopes: "openid profile email",
+		});
+	});
+
+	it("filters stale connection fields according to the active descriptor", () => {
+		const descriptor = kind({
+			issuer_url_supported: false,
+			issuer_url_required: false,
+			manual_endpoint_configuration_supported: false,
+		});
+		const form = {
+			...emptyForm,
+			authorizationUrl: "https://stale.example.com/authorize",
+			clientId: "client-123",
+			displayName: "Example",
+			issuerUrl: "https://stale.example.com",
+			tokenUrl: "https://stale.example.com/token",
+			userinfoUrl: "https://stale.example.com/userinfo",
+		};
+
+		expect(createPayload(form, descriptor)).toMatchObject({
+			authorization_url: null,
+			issuer_url: null,
+			token_url: null,
+			userinfo_url: null,
+		});
+		expect(testParamsPayload(form, descriptor)).toMatchObject({
+			authorization_url: null,
+			issuer_url: null,
+			token_url: null,
+			userinfo_url: null,
+		});
+	});
+
 	it("normalizes domains and payload text fields", () => {
 		expect(parseAllowedDomains(" @Example.COM, example.com\nTeam.io ")).toEqual(
 			["example.com", "team.io"],
@@ -310,6 +398,7 @@ describe("admin external auth shared helpers", () => {
 			authorizationUrl: "https://idp.example.com/authorize",
 			clientId: "client-123",
 			displayName: "Generic OAuth2",
+			issuerUrl: "https://identity.example.com",
 			providerKind: "generic_oauth2" as const,
 			scopes: " ",
 			tokenUrl: "https://idp.example.com/token",
@@ -318,6 +407,7 @@ describe("admin external auth shared helpers", () => {
 
 		expect(defaultScopesForKind(descriptor)).toBe("openid email profile");
 		expect(createPayload(form, descriptor)).toMatchObject({
+			issuer_url: "https://identity.example.com",
 			provider_kind: "generic_oauth2",
 			scopes: "openid email profile",
 		});

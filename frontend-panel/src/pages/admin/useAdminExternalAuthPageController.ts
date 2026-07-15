@@ -6,7 +6,6 @@ import {
 	connectionRequirementsMissing,
 	createPayload,
 	DEFAULT_EXTERNAL_AUTH_PAGE_SIZE,
-	defaultScopesForKind,
 	EXTERNAL_AUTH_PAGE_SIZE_OPTIONS,
 	type ExternalAuthCreateStep,
 	type ExternalAuthProviderFormData,
@@ -14,11 +13,7 @@ import {
 	formatTestResultSummary,
 	formConnectionChanged,
 	formFromProvider,
-	isGitHubProviderKind,
-	isGoogleProviderKind,
-	isMicrosoftProviderKind,
-	isQqProviderKind,
-	MICROSOFT_DEFAULT_TENANT,
+	formFromProviderKind,
 	requiredFieldsMissing,
 	sortExternalAuthProviderKinds,
 	testParamsPayload,
@@ -112,10 +107,8 @@ type AdminExternalAuthUiAction =
 	| { open: boolean; type: "set_dialog_open" }
 	| SetExternalAuthFormFieldAction
 	| {
-			kind: ExternalAuthProviderKind;
-			patch?: Partial<ExternalAuthProviderFormData>;
-			scopes: string;
-			type: "set_provider_kind";
+			form: ExternalAuthProviderFormData;
+			type: "replace_create_form";
 	  }
 	| { step: number; type: "set_create_step" }
 	| { touched: boolean; type: "set_create_step_touched" }
@@ -168,66 +161,6 @@ function resetDialogFields(state: AdminExternalAuthUiState) {
 	};
 }
 
-function initialProviderKindPatch(
-	kind: AdminExternalAuthProviderKindInfo | undefined,
-): Partial<ExternalAuthProviderFormData> {
-	if (!kind) {
-		return {};
-	}
-	if (isMicrosoftProviderKind(kind) || isQqProviderKind(kind)) {
-		return {
-			requireEmailVerified: false,
-		};
-	}
-	return {};
-}
-
-function dedicatedProviderKindPatch(
-	displayName: string,
-	fallbackDisplayName: string,
-	requireEmailVerified: boolean,
-): Partial<ExternalAuthProviderFormData> {
-	return {
-		authorizationUrl: "",
-		avatarUrlClaim: "",
-		displayName: displayName.trim() ? displayName : fallbackDisplayName,
-		displayNameClaim: "",
-		emailClaim: "",
-		emailVerifiedClaim: "",
-		groupsClaim: "",
-		iconUrl: "",
-		issuerUrl: "",
-		requireEmailVerified,
-		subjectClaim: "",
-		tokenUrl: "",
-		userinfoUrl: "",
-		usernameClaim: "",
-	};
-}
-
-function providerKindPatch(
-	kind: AdminExternalAuthProviderKindInfo | ExternalAuthProviderKind,
-	displayName: string,
-): Partial<ExternalAuthProviderFormData> {
-	if (isGitHubProviderKind(kind)) {
-		return dedicatedProviderKindPatch(displayName, "GitHub", true);
-	}
-	if (isGoogleProviderKind(kind)) {
-		return dedicatedProviderKindPatch(displayName, "Google", true);
-	}
-	if (isMicrosoftProviderKind(kind)) {
-		return {
-			...dedicatedProviderKindPatch(displayName, "Microsoft", false),
-			microsoftTenantMode: MICROSOFT_DEFAULT_TENANT,
-			microsoftTenant: MICROSOFT_DEFAULT_TENANT,
-		};
-	}
-	if (isQqProviderKind(kind)) {
-		return dedicatedProviderKindPatch(displayName, "QQ", false);
-	}
-	return {};
-}
-
 function adminExternalAuthUiReducer(
 	state: AdminExternalAuthUiState,
 	action: AdminExternalAuthUiAction,
@@ -247,14 +180,7 @@ function adminExternalAuthUiReducer(
 			const nextKind = providerKinds[0];
 			return {
 				...state,
-				form: nextKind
-					? {
-							...state.form,
-							...initialProviderKindPatch(nextKind),
-							providerKind: nextKind.kind,
-							scopes: defaultScopesForKind(nextKind),
-						}
-					: state.form,
+				form: nextKind ? formFromProviderKind(nextKind) : state.form,
 				providerKinds,
 			};
 		}
@@ -291,15 +217,11 @@ function adminExternalAuthUiReducer(
 				} as ExternalAuthProviderFormData,
 				testResult: null,
 			};
-		case "set_provider_kind":
+		case "replace_create_form":
 			return {
 				...state,
-				form: {
-					...state.form,
-					...action.patch,
-					providerKind: action.kind,
-					scopes: action.scopes,
-				},
+				createStepTouched: false,
+				form: action.form,
 				testResult: null,
 			};
 		case "set_create_step":
@@ -488,14 +410,14 @@ export function useAdminExternalAuthPageController() {
 	};
 
 	const setProviderKind = (kind: ExternalAuthProviderKind) => {
+		if (kind === form.providerKind) {
+			return;
+		}
 		const descriptor = providerKinds.find((item) => item.kind === kind);
-		const selectedProviderKind = descriptor ?? kind;
-		const patch = providerKindPatch(selectedProviderKind, form.displayName);
+		if (!descriptor) return;
 		dispatchUi({
-			kind,
-			patch,
-			scopes: descriptor?.default_scopes || defaultScopesForKind(descriptor),
-			type: "set_provider_kind",
+			form: formFromProviderKind(descriptor),
+			type: "replace_create_form",
 		});
 	};
 
@@ -513,12 +435,7 @@ export function useAdminExternalAuthPageController() {
 		createDialogRequestRef.current = requestId;
 		const firstKind = providerKinds[0];
 		dispatchUi({
-			form: {
-				...emptyForm,
-				...initialProviderKindPatch(firstKind),
-				providerKind: firstKind?.kind ?? "oidc",
-				scopes: defaultScopesForKind(firstKind),
-			},
+			form: firstKind ? formFromProviderKind(firstKind) : emptyForm,
 			type: "open_create",
 		});
 		if (providerKinds.length === 0) {

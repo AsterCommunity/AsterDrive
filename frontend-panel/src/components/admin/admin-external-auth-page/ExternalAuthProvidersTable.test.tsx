@@ -154,9 +154,19 @@ function provider(
 const providerKinds: AdminExternalAuthProviderKindInfo[] = [
 	{
 		authorization_url_required: false,
+		create_defaults: {
+			auto_link_verified_email_enabled: false,
+			auto_provision_enabled: false,
+			display_name: "",
+			enabled: true,
+			options: {},
+			require_email_verified: true,
+			scopes: "openid email profile",
+		},
 		default_scopes: "openid email profile",
 		description: "OIDC sign-in.",
 		display_name: "OpenID Connect",
+		issuer_url_supported: true,
 		issuer_url_required: true,
 		kind: "oidc",
 		manual_endpoint_configuration_supported: false,

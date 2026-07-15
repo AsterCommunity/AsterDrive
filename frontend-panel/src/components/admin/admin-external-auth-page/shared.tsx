@@ -164,6 +164,27 @@ export const emptyForm: ExternalAuthProviderFormData = {
 	usernameClaim: "",
 };
 
+export function formFromProviderKind(
+	kind: AdminExternalAuthProviderKindInfo,
+): ExternalAuthProviderFormData {
+	const microsoftTenant =
+		kind.create_defaults.options.microsoft?.tenant.trim() ||
+		MICROSOFT_DEFAULT_TENANT;
+	return {
+		...emptyForm,
+		autoLinkVerifiedEmailEnabled:
+			kind.create_defaults.auto_link_verified_email_enabled,
+		autoProvisionEnabled: kind.create_defaults.auto_provision_enabled,
+		displayName: kind.create_defaults.display_name,
+		enabled: kind.create_defaults.enabled,
+		microsoftTenantMode: microsoftTenantModeForValue(microsoftTenant),
+		microsoftTenant,
+		providerKind: kind.kind,
+		requireEmailVerified: kind.create_defaults.require_email_verified,
+		scopes: kind.create_defaults.scopes,
+	};
+}
+
 export function formFromProvider(
 	provider: AdminExternalAuthProviderInfo,
 ): ExternalAuthProviderFormData {
@@ -295,7 +316,7 @@ function providerUsesFixedConnection(
 ) {
 	if (descriptor && descriptor.kind === providerKindValue(kind)) {
 		return (
-			!descriptor.issuer_url_required &&
+			!descriptor.issuer_url_supported &&
 			!descriptor.manual_endpoint_configuration_supported
 		);
 	}
@@ -474,6 +495,12 @@ function formIssuerUrlForPayload(
 	form: ExternalAuthProviderFormData,
 	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ) {
+	if (
+		selectedKind?.kind === form.providerKind &&
+		!selectedKind.issuer_url_supported
+	) {
+		return null;
+	}
 	if (providerUsesFixedConnection(form.providerKind, selectedKind)) {
 		return null;
 	}
@@ -485,14 +512,23 @@ function formManualEndpointForPayload(
 	value: string,
 	selectedKind?: AdminExternalAuthProviderKindInfo | null,
 ) {
+	if (
+		selectedKind?.kind === form.providerKind &&
+		!selectedKind.manual_endpoint_configuration_supported
+	) {
+		return null;
+	}
 	if (providerUsesFixedConnection(form.providerKind, selectedKind)) {
 		return null;
 	}
 	return nullableText(value);
 }
 
-function formOptionsForPayload(form: ExternalAuthProviderFormData) {
-	if (!isMicrosoftProviderKind(form.providerKind)) {
+function formOptionsForPayload(
+	form: ExternalAuthProviderFormData,
+	selectedKind?: AdminExternalAuthProviderKindInfo | null,
+) {
+	if (!selectedKind?.create_defaults.options.microsoft) {
 		return {};
 	}
 	return {
@@ -567,7 +603,7 @@ export function createPayload(
 		groups_claim: nullableText(form.groupsClaim),
 		icon_url: nullableText(form.iconUrl),
 		issuer_url: formIssuerUrlForPayload(form, selectedKind),
-		options: formOptionsForPayload(form),
+		options: formOptionsForPayload(form, selectedKind),
 		provider_kind: form.providerKind,
 		require_email_verified: form.requireEmailVerified,
 		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
@@ -609,7 +645,7 @@ export function updatePayload(
 		groups_claim: nullableText(form.groupsClaim),
 		icon_url: nullableText(form.iconUrl),
 		issuer_url: formIssuerUrlForPayload(form, selectedKind),
-		options: formOptionsForPayload(form),
+		options: formOptionsForPayload(form, selectedKind),
 		require_email_verified: form.requireEmailVerified,
 		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
 		subject_claim: nullableText(form.subjectClaim),
@@ -636,7 +672,7 @@ export function testParamsPayload(
 		client_id: form.clientId.trim(),
 		client_secret: nullableSecretText(form.clientSecret),
 		issuer_url: formIssuerUrlForPayload(form, selectedKind),
-		options: formOptionsForPayload(form),
+		options: formOptionsForPayload(form, selectedKind),
 		provider_kind: form.providerKind,
 		scopes: form.scopes.trim() || defaultScopesForKind(selectedKind),
 		token_url: formManualEndpointForPayload(form, form.tokenUrl, selectedKind),
@@ -696,7 +732,7 @@ export function formConnectionChanged(
 		form.providerKind !== provider.provider_kind ||
 		normalizeConnectionValue(formIssuerUrl) !==
 			normalizeConnectionValue(providerIssuerUrl) ||
-		(isMicrosoftProviderKind(form.providerKind) &&
+		(Boolean(selectedKind?.create_defaults.options.microsoft) &&
 			formMicrosoftTenantValue(form) !==
 				providerMicrosoftTenantValue(provider)) ||
 		normalizeConnectionValue(formAuthorizationUrl) !==
@@ -866,16 +902,7 @@ export function mergeManagedExternalAuthSearchParams(
 export function shouldShowIssuerUrl(
 	kind: AdminExternalAuthProviderKindInfo | null,
 ) {
-	if (isGoogleProviderKind(kind)) {
-		return false;
-	}
-	if (isMicrosoftProviderKind(kind)) {
-		return false;
-	}
-	if (isQqProviderKind(kind)) {
-		return false;
-	}
-	return Boolean(kind?.supports_discovery || kind?.issuer_url_required);
+	return Boolean(kind?.issuer_url_supported);
 }
 
 export function shouldShowManualEndpoints(
@@ -895,7 +922,7 @@ export function connectionRequirementsMissing(
 		return true;
 	}
 	if (
-		isMicrosoftProviderKind(kind ?? form.providerKind) &&
+		kind?.create_defaults.options.microsoft &&
 		form.microsoftTenantMode === MICROSOFT_CUSTOM_TENANT_MODE &&
 		!form.microsoftTenant.trim()
 	) {

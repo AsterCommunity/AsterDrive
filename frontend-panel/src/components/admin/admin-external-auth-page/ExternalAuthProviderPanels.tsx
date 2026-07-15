@@ -387,7 +387,7 @@ export function ExternalAuthProviderIdentityPanel({
 	testResult,
 }: ExternalAuthProviderIdentityPanelProps) {
 	const { t } = useTranslation("admin");
-	const isMicrosoft = isMicrosoftProviderKind(selectedKind);
+	const isMicrosoft = Boolean(selectedKind?.create_defaults.options.microsoft);
 	const microsoftTenantOptions = isMicrosoft
 		? [
 				...MICROSOFT_TENANT_PRESETS.map((value) => ({

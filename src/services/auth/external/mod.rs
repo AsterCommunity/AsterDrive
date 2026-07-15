@@ -58,6 +58,8 @@ pub struct ExternalAuthProviderKindInfo {
     pub display_name: String,
     pub description: String,
     pub default_scopes: String,
+    pub create_defaults: ExternalAuthProviderCreateDefaults,
+    pub issuer_url_supported: bool,
     pub issuer_url_required: bool,
     pub manual_endpoint_configuration_supported: bool,
     pub authorization_url_required: bool,
@@ -66,6 +68,18 @@ pub struct ExternalAuthProviderKindInfo {
     pub supports_discovery: bool,
     pub supports_pkce: bool,
     pub supports_email_verified_claim: bool,
+}
+
+#[derive(Clone, Debug, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
+pub struct ExternalAuthProviderCreateDefaults {
+    pub display_name: String,
+    pub options: ExternalAuthProviderOptions,
+    pub scopes: String,
+    pub enabled: bool,
+    pub auto_provision_enabled: bool,
+    pub auto_link_verified_email_enabled: bool,
+    pub require_email_verified: bool,
 }
 
 #[derive(Debug, Deserialize)]

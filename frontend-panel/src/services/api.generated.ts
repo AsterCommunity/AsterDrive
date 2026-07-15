@@ -5377,6 +5377,15 @@ export interface components {
          * @enum {string}
          */
         ExternalAuthProtocol: "oidc" | "oauth2";
+        ExternalAuthProviderCreateDefaults: {
+            auto_link_verified_email_enabled: boolean;
+            auto_provision_enabled: boolean;
+            display_name: string;
+            enabled: boolean;
+            options: components["schemas"]["ExternalAuthProviderOptions"];
+            require_email_verified: boolean;
+            scopes: string;
+        };
         /**
          * @description Built-in external authentication provider kinds.
          * @enum {string}
@@ -9295,10 +9304,12 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             authorization_url_required: boolean;
+                            create_defaults: components["schemas"]["ExternalAuthProviderCreateDefaults"];
                             default_scopes: string;
                             description: string;
                             display_name: string;
                             issuer_url_required: boolean;
+                            issuer_url_supported: boolean;
                             kind: components["schemas"]["ExternalAuthProviderKind"];
                             manual_endpoint_configuration_supported: boolean;
                             protocol: components["schemas"]["ExternalAuthProtocol"];

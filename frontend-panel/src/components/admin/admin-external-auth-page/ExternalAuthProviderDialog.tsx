@@ -90,17 +90,8 @@ export function ExternalAuthProviderDialog({
 		providerKinds[0] ??
 		null;
 	const providerKindLabel = kindDisplayName(t, providerKind, providerKinds);
-	const showOptionalGenericIssuer =
-		selectedKind?.kind === "generic_oauth2" && Boolean(form.issuerUrl.trim());
-	const showIssuerUrl = Boolean(
-		shouldShowIssuerUrl(selectedKind) || showOptionalGenericIssuer,
-	);
-	const showManualEndpoints = Boolean(
-		shouldShowManualEndpoints(selectedKind) ||
-			form.authorizationUrl.trim() ||
-			form.tokenUrl.trim() ||
-			form.userinfoUrl.trim(),
-	);
+	const showIssuerUrl = shouldShowIssuerUrl(selectedKind);
+	const showManualEndpoints = shouldShowManualEndpoints(selectedKind);
 	const currentCallbackUrl = callbackUrl(providerKind, form.key);
 	const identityMissing = !form.displayName.trim();
 	const connectionMissing = connectionRequirementsMissing(form, selectedKind);
@@ -193,7 +184,7 @@ export function ExternalAuthProviderDialog({
 								<div className="rounded-2xl border border-border/70 bg-background/70 p-5">
 									<div className="relative overflow-hidden">
 										<div
-											key={`${createStep}-${createStepDirection}`}
+											key={`${providerKind}-${createStep}-${createStepDirection}`}
 											data-testid="external-auth-provider-step-panel"
 											className={stepPanelClass}
 										>

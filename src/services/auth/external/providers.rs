@@ -24,18 +24,24 @@ use aster_forge_utils::id;
 use super::REDACTED_SECRET;
 use super::normalize::{normalize_secret_create, normalize_secret_update};
 use super::{
-    AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput, ExternalAuthProviderKindInfo,
+    AdminExternalAuthProviderInfo, CreateExternalAuthProviderInput,
+    ExternalAuthProviderCreateDefaults, ExternalAuthProviderKindInfo,
     ExternalAuthProviderTestParamsInput, ExternalAuthPublicProvider,
     UpdateExternalAuthProviderInput,
 };
 
 fn descriptor_to_info(descriptor: ExternalAuthProviderDescriptor) -> ExternalAuthProviderKindInfo {
+    let create_defaults = provider_create_defaults(&descriptor);
+    let issuer_url_supported =
+        descriptor.issuer_url_required || descriptor.manual_endpoint_configuration_supported;
     ExternalAuthProviderKindInfo {
         kind: descriptor.kind,
         protocol: descriptor.protocol,
         display_name: descriptor.display_name.to_string(),
         description: descriptor.description.to_string(),
         default_scopes: descriptor.default_scopes.to_string(),
+        create_defaults,
+        issuer_url_supported,
         issuer_url_required: descriptor.issuer_url_required,
         manual_endpoint_configuration_supported: descriptor.manual_endpoint_configuration_supported,
         authorization_url_required: descriptor.authorization_url_required,
@@ -44,6 +50,35 @@ fn descriptor_to_info(descriptor: ExternalAuthProviderDescriptor) -> ExternalAut
         supports_discovery: descriptor.supports_discovery,
         supports_pkce: descriptor.supports_pkce,
         supports_email_verified_claim: descriptor.supports_email_verified_claim,
+    }
+}
+
+fn provider_create_defaults(
+    descriptor: &ExternalAuthProviderDescriptor,
+) -> ExternalAuthProviderCreateDefaults {
+    let require_email_verified = !matches!(
+        descriptor.kind,
+        ExternalAuthProviderKind::Microsoft | ExternalAuthProviderKind::Qq
+    );
+    let options = if descriptor.kind == ExternalAuthProviderKind::Microsoft {
+        ExternalAuthProviderOptions {
+            microsoft: Some(MicrosoftExternalAuthProviderOptions::new("common")),
+        }
+    } else {
+        ExternalAuthProviderOptions::default()
+    };
+    let has_fixed_connection =
+        !descriptor.issuer_url_required && !descriptor.manual_endpoint_configuration_supported;
+    ExternalAuthProviderCreateDefaults {
+        display_name: has_fixed_connection
+            .then(|| descriptor.display_name.to_string())
+            .unwrap_or_default(),
+        options,
+        scopes: descriptor.default_scopes.to_string(),
+        enabled: true,
+        auto_provision_enabled: false,
+        auto_link_verified_email_enabled: false,
+        require_email_verified,
     }
 }
 
@@ -378,13 +413,6 @@ fn serialize_options(
         })
 }
 
-fn default_require_email_verified(provider_kind: ExternalAuthProviderKind) -> bool {
-    !matches!(
-        provider_kind,
-        ExternalAuthProviderKind::Microsoft | ExternalAuthProviderKind::Qq
-    )
-}
-
 pub async fn list_public_providers(
     state: &impl SharedRuntimeState,
 ) -> Result<Vec<ExternalAuthPublicProvider>> {
@@ -459,6 +487,7 @@ pub async fn create_provider(
     input: CreateExternalAuthProviderInput,
 ) -> Result<AdminExternalAuthProviderInfo> {
     let descriptor = default_registry().descriptor_for(input.provider_kind)?;
+    let create_defaults = provider_create_defaults(&descriptor);
     let key = id::new_best_effort_uuid("external auth provider key", |candidate| {
         let db = state.writer_db();
         let provider_kind = input.provider_kind;
@@ -534,14 +563,16 @@ pub async fn create_provider(
         client_id: Set(client_id),
         client_secret: Set(normalize_secret_create(input.client_secret)),
         scopes: Set(scopes),
-        enabled: Set(input.enabled.unwrap_or(true)),
-        auto_provision_enabled: Set(input.auto_provision_enabled.unwrap_or(false)),
+        enabled: Set(input.enabled.unwrap_or(create_defaults.enabled)),
+        auto_provision_enabled: Set(input
+            .auto_provision_enabled
+            .unwrap_or(create_defaults.auto_provision_enabled)),
         auto_link_verified_email_enabled: Set(input
             .auto_link_verified_email_enabled
-            .unwrap_or(false)),
+            .unwrap_or(create_defaults.auto_link_verified_email_enabled)),
         require_email_verified: Set(input
             .require_email_verified
-            .unwrap_or_else(|| default_require_email_verified(provider_kind))),
+            .unwrap_or(create_defaults.require_email_verified)),
         subject_claim: Set(external_auth_normalize::normalize_optional_claim(
             input.subject_claim,
             "subject_claim",
@@ -765,4 +796,60 @@ pub async fn test_provider_params(
         .driver_for_provider(&provider)?
         .test_provider(&provider)
         .await?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn provider_kind_info_exposes_authoritative_create_defaults() {
+        let kinds = list_provider_kinds();
+        let oidc = kinds
+            .iter()
+            .find(|kind| kind.kind == ExternalAuthProviderKind::Oidc)
+            .expect("OIDC descriptor");
+        assert!(oidc.create_defaults.require_email_verified);
+        assert!(oidc.create_defaults.display_name.is_empty());
+        assert!(oidc.issuer_url_supported);
+        assert_eq!(
+            oidc.create_defaults.options,
+            ExternalAuthProviderOptions::default()
+        );
+
+        let generic_oauth2 = kinds
+            .iter()
+            .find(|kind| kind.kind == ExternalAuthProviderKind::GenericOAuth2)
+            .expect("Generic OAuth2 descriptor");
+        assert!(generic_oauth2.issuer_url_supported);
+        assert!(!generic_oauth2.issuer_url_required);
+
+        let microsoft = kinds
+            .iter()
+            .find(|kind| kind.kind == ExternalAuthProviderKind::Microsoft)
+            .expect("Microsoft descriptor");
+        assert!(!microsoft.create_defaults.require_email_verified);
+        assert_eq!(microsoft.create_defaults.display_name, "Microsoft");
+        assert!(!microsoft.issuer_url_supported);
+        assert_eq!(
+            microsoft
+                .create_defaults
+                .options
+                .microsoft
+                .as_ref()
+                .map(|options| options.tenant.as_str()),
+            Some("common")
+        );
+
+        let qq = kinds
+            .iter()
+            .find(|kind| kind.kind == ExternalAuthProviderKind::Qq)
+            .expect("QQ descriptor");
+        assert!(!qq.create_defaults.require_email_verified);
+        assert_eq!(qq.create_defaults.display_name, "QQ");
+        assert_eq!(
+            qq.create_defaults.options,
+            ExternalAuthProviderOptions::default()
+        );
+    }
 }
