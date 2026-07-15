@@ -89,7 +89,8 @@ Open:
 http://127.0.0.1:3000
 ```
 
-The first registered user becomes `admin`.
+Complete the first-start setup screen to create the initial `admin`. Ordinary registration is
+available only after setup and never grants the administrator role.
 
 `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=true` is only for local or internal HTTP testing. For production, put AsterDrive behind HTTPS and keep secure cookies enabled.
 

@@ -390,11 +390,11 @@ async fn create_policy_upload_session(
 
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
-    use aster_drive::services::{auth::local, files::file, storage_policy::policy, user::account};
+    use aster_drive::services::{files::file, storage_policy::policy, user::account};
     use aster_drive::types::DriverType;
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "policysnapsw",
         "policy-snapshot-switch@example.com",
@@ -485,11 +485,11 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
 #[actix_web::test]
 async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::{auth::local, storage_policy::policy};
+    use aster_drive::services::storage_policy::policy;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "policybackfill",
         "policy-backfill@example.com",
@@ -2068,10 +2068,8 @@ async fn test_cannot_disable_or_delete_policy_group_assigned_to_team() {
 
 #[actix_web::test]
 async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_default() {
-    use aster_drive::services::auth::local;
-
     let state = common::setup().await;
-    let admin_user = local::register(
+    let admin_user = common::create_test_account(
         &state,
         "pgmigrate-admin",
         "pgmigrate-admin@example.com",
@@ -2079,7 +2077,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
     )
     .await
     .unwrap();
-    let user_with_source_only = local::register(
+    let user_with_source_only = common::create_test_account(
         &state,
         "pgmigrate1",
         "pgmigrate1@example.com",
@@ -2087,7 +2085,7 @@ async fn test_migrate_policy_group_assignments_moves_assignments_and_preserves_d
     )
     .await
     .unwrap();
-    let user_with_existing_target = local::register(
+    let user_with_existing_target = common::create_test_account(
         &state,
         "pgmigrate2",
         "pgmigrate2@example.com",
@@ -2476,11 +2474,11 @@ async fn test_cannot_unset_only_default_policy() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_without_user_policy_group() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::services::{auth::local, files::file};
+    use aster_drive::services::files::file;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "nogroup-user",
         "nogroup-user@example.com",
@@ -2512,11 +2510,11 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     use aster_drive::db::repository::{policy_group_repo, user_repo};
-    use aster_drive::services::{auth::local, files::file};
+    use aster_drive::services::files::file;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "disabledgrpusr",
         "disabled-group-user@example.com",
@@ -2592,12 +2590,12 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
 #[actix_web::test]
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
-    use aster_drive::services::{auth::local, files::file, storage_policy::policy};
+    use aster_drive::services::{files::file, storage_policy::policy};
     use aster_drive::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "gappolicyuser",
         "gap-policy-user@example.com",

@@ -259,7 +259,8 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     Ok(user)
 }
 
-pub(super) async fn create_first_admin(
+pub(super) async fn create_first_admin<C: ConnectionTrait>(
+    db: &C,
     state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
@@ -267,7 +268,7 @@ pub(super) async fn create_first_admin(
 ) -> Result<user::Model> {
     tracing::info!("first user registered — granting admin role to '{username}'");
     create_user_with_role(
-        state.writer_db(),
+        db,
         state,
         CreateUserWithRoleInput {
             username,
@@ -280,13 +281,6 @@ pub(super) async fn create_first_admin(
         },
     )
     .await
-    .inspect(|user| {
-        if let Some(policy_group_id) = user.policy_group_id {
-            state
-                .policy_snapshot()
-                .set_user_policy_group(user.id, policy_group_id);
-        }
-    })
 }
 
 pub(super) async fn issue_contact_verification_token<C: ConnectionTrait>(

@@ -19,7 +19,7 @@ async fn load_user_model(state: &PrimaryAppState, user_id: i64) -> user::Model {
 #[actix_web::test]
 async fn test_gravatar_default_url() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "gravatar_default",
         "default@example.com",
@@ -52,7 +52,7 @@ async fn test_gravatar_default_url() {
 #[actix_web::test]
 async fn test_gravatar_custom_base_url() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "gravatar_custom",
         "custom@example.com",
@@ -92,14 +92,10 @@ async fn test_gravatar_custom_base_url() {
 #[actix_web::test]
 async fn test_gravatar_empty_config_fallback() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "gravatar_empty",
-        "empty@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "gravatar_empty", "empty@example.com", "password123")
+            .await
+            .unwrap();
 
     // 设置空字符串配置
     let config = config_repo::upsert(state.writer_db(), "gravatar_base_url", "", user.id)
@@ -126,14 +122,10 @@ async fn test_gravatar_empty_config_fallback() {
 #[actix_web::test]
 async fn test_gravatar_trailing_slash_normalization() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "gravatar_slash",
-        "slash@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "gravatar_slash", "slash@example.com", "password123")
+            .await
+            .unwrap();
 
     // 配置带末尾斜杠
     let config = config_repo::upsert(
@@ -171,7 +163,7 @@ async fn test_gravatar_trailing_slash_normalization() {
 #[actix_web::test]
 async fn test_gravatar_whitespace_only_config_fallback() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "gravatar_ws",
         "whitespace@example.com",

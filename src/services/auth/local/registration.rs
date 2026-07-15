@@ -9,7 +9,7 @@ use crate::config::{
     branding,
     local_email_policy::LocalEmailPolicy,
 };
-use crate::db::repository::user_repo;
+use crate::db::repository::system_initialization_repo;
 use crate::errors::{Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
@@ -90,6 +90,13 @@ pub async fn register(
     email: &str,
     password: &str,
 ) -> Result<AuthUserInfo> {
+    if !system_initialization_repo::is_initialized(state.writer_db()).await? {
+        return Err(validation_error_with_code(
+            ApiErrorCode::ValidationSystemNotInitialized,
+            "system is not initialized",
+        ));
+    }
+
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     tracing::debug!(
         registration_enabled = auth_policy.allow_user_registration,
@@ -101,12 +108,6 @@ pub async fn register(
             ApiErrorCode::AuthRegistrationDisabled,
             "new user registration is disabled",
         ));
-    }
-
-    if user_repo::count_all(state.writer_db()).await? == 0 {
-        return create_first_admin(state, username, email, password)
-            .await
-            .map(AuthUserInfo::from);
     }
 
     LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(email)?;
@@ -236,7 +237,7 @@ pub async fn resend_register_activation(
 }
 
 pub async fn check_auth_state(state: &impl SharedRuntimeState) -> Result<bool> {
-    Ok(user_repo::count_all(state.writer_db()).await? > 0)
+    system_initialization_repo::is_initialized(state.writer_db()).await
 }
 
 pub async fn setup(
@@ -246,15 +247,25 @@ pub async fn setup(
     password: &str,
 ) -> Result<AuthUserInfo> {
     tracing::debug!("running initial setup");
-    if user_repo::count_all(state.writer_db()).await? > 0 {
+    let txn = transaction::begin(state.writer_db()).await?;
+    system_initialization_repo::acquire_setup_lock(&txn).await?;
+    if system_initialization_repo::is_initialized(&txn).await? {
         return Err(validation_error_with_code(
             ApiErrorCode::ValidationSystemAlreadyInitialized,
             "system already initialized",
         ));
     }
-    let user = create_first_admin(state, username, email, password)
+
+    let user = create_first_admin(&txn, state, username, email, password)
         .await
         .map(AuthUserInfo::from)?;
+    transaction::commit(txn).await?;
+
+    if let Some(policy_group_id) = user.policy_group_id {
+        state
+            .policy_snapshot()
+            .set_user_policy_group(user.id, policy_group_id);
+    }
     tracing::debug!(user_id = user.id, "completed initial setup");
     Ok(user)
 }

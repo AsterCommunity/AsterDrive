@@ -3059,7 +3059,7 @@ async fn test_remote_storage_end_to_end_via_internal_api() {
     )
     .await;
 
-    let user = local::register(
+    let user = common::create_test_account(
         &consumer_state,
         "remoteuser",
         "remoteuser@example.com",
@@ -5905,7 +5905,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     )
     .await;
 
-    let user = local::register(
+    let user = common::create_test_account(
         &consumer_state,
         "remrelaydir",
         "remote-relay-direct@example.com",
@@ -6575,7 +6575,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     )
     .await;
 
-    let user = local::register(
+    let user = common::create_test_account(
         &consumer_state,
         "remrelaych",
         "remote-relay-chunked@example.com",

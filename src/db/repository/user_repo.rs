@@ -265,7 +265,7 @@ fn apply_admin_user_sort(
     }
 }
 
-pub async fn count_all(db: &DatabaseConnection) -> Result<u64> {
+pub async fn count_all<C: ConnectionTrait>(db: &C) -> Result<u64> {
     User::find().count(db).await.map_err(AsterError::from)
 }
 

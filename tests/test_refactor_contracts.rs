@@ -17,9 +17,9 @@ async fn test_login_returns_correct_user_id_and_tokens() {
     let state_http = common::setup().await;
     let app = create_test_app!(state_http);
 
-    // 注册
+    // 初始化首个管理员
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .set_json(serde_json::json!({
             "username": "logintest",
             "email": "login@test.com",
@@ -42,14 +42,9 @@ async fn test_login_returns_correct_user_id_and_tokens() {
 
     // service 层验证 user_id（用独立 state）
     let state_svc = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
-        &state_svc,
-        "logintest",
-        "login@test.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state_svc, "logintest", "login@test.com", "pass1234")
+        .await
+        .unwrap();
 
     let result =
         aster_drive::services::auth::local::login(&state_svc, "logintest", "pass1234", None, None)
@@ -72,9 +67,9 @@ async fn test_login_wrong_password_returns_401_without_user_id() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 注册
+    // 初始化首个管理员
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .set_json(serde_json::json!({
             "username": "wrongpw",
             "email": "wrongpw@test.com",
@@ -181,9 +176,9 @@ async fn test_config_schema_returns_non_empty_with_required_fields() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 注册 admin
+    // 初始化 admin
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .set_json(serde_json::json!({
             "username": "admintk",
             "email": "admin@tk.com",
@@ -247,9 +242,9 @@ async fn test_locked_file_blocks_other_users_delete_and_rename() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 用户 A 注册 + 上传 + 锁定
+    // 用户 A 初始化 + 上传 + 锁定
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .set_json(serde_json::json!({
             "username": "locker",
             "email": "locker@test.com",
@@ -311,9 +306,9 @@ async fn test_locked_folder_blocks_other_users_delete() {
     let state = common::setup().await;
     let app = create_test_app!(state);
 
-    // 用户 A 创建并锁定文件夹
+    // 用户 A 初始化并锁定文件夹
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .set_json(serde_json::json!({
             "username": "folderlocker",
             "email": "folderlocker@test.com",

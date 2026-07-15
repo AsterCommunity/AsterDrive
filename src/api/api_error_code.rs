@@ -341,6 +341,7 @@ define_api_error_codes! {
     ValidationRequestSchemeInvalid => "validation.request_scheme_invalid",
     ValidationRequestHeaderValueInvalid => "validation.request_header_value_invalid",
     ValidationSystemAlreadyInitialized => "validation.system_already_initialized",
+    ValidationSystemNotInitialized => "validation.system_not_initialized",
 
     // search API: stable query parameter validation failures.
     SearchQueryEmpty => "search.query_empty",

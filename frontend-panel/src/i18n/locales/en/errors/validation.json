@@ -4,5 +4,6 @@
 	"validation_request_host_invalid": "The request host information is invalid",
 	"validation_request_scheme_invalid": "The request scheme information is invalid",
 	"validation_request_header_value_invalid": "The request header value is too long or invalid",
-	"validation_system_already_initialized": "The system has already been initialized"
+	"validation_system_already_initialized": "The system has already been initialized",
+	"validation_system_not_initialized": "The system has not been initialized"
 }

@@ -149,14 +149,9 @@ async fn test_auth_local_register_login() {
     let state = common::setup().await;
 
     // 注册
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "alice",
-        "alice@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "alice", "alice@example.com", "password123")
+        .await
+        .unwrap();
     assert_eq!(user.username, "alice");
 
     // 第一个用户是 admin
@@ -178,13 +173,8 @@ async fn test_auth_local_register_login() {
     assert!(err.is_err());
 
     // 重复注册
-    let err = aster_drive::services::auth::local::register(
-        &state,
-        "alice",
-        "alice2@example.com",
-        "password123",
-    )
-    .await;
+    let err =
+        common::create_test_account(&state, "alice", "alice2@example.com", "password123").await;
     assert!(err.is_err());
 }
 
@@ -192,14 +182,9 @@ async fn test_auth_local_register_login() {
 async fn test_auth_local_rejects_password_shorter_than_eight_chars() {
     let state = common::setup().await;
 
-    let err = aster_drive::services::auth::local::register(
-        &state,
-        "alice",
-        "alice@example.com",
-        "pass123",
-    )
-    .await
-    .unwrap_err();
+    let err = common::create_test_account(&state, "alice", "alice@example.com", "pass123")
+        .await
+        .unwrap_err();
 
     assert_eq!(err.message(), "password must be at least 8 characters");
 }
@@ -208,14 +193,9 @@ async fn test_auth_local_rejects_password_shorter_than_eight_chars() {
 async fn test_auth_local_change_password() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "alice",
-        "alice@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "alice", "alice@example.com", "password123")
+        .await
+        .unwrap();
 
     aster_drive::services::auth::local::change_password(
         &state,
@@ -242,14 +222,9 @@ async fn test_auth_local_change_password() {
 async fn test_auth_local_set_password() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "alice",
-        "alice@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "alice", "alice@example.com", "password123")
+        .await
+        .unwrap();
 
     aster_drive::services::auth::local::set_password(&state, user.id, "resetpass789")
         .await
@@ -271,7 +246,7 @@ async fn test_auth_local_set_password() {
 async fn test_auth_local_verify_token() {
     let state = common::setup().await;
 
-    aster_drive::services::auth::local::register(&state, "bobb", "bob@example.com", "pass1234")
+    common::create_test_account(&state, "bobb", "bob@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -303,10 +278,9 @@ async fn test_auth_local_verify_token() {
 async fn test_file_service_get_info() {
     let state = common::setup().await;
 
-    let user =
-        aster_drive::services::auth::local::register(&state, "user1", "u1@example.com", "pass1234")
-            .await
-            .unwrap();
+    let user = common::create_test_account(&state, "user1", "u1@example.com", "pass1234")
+        .await
+        .unwrap();
 
     // 上传临时文件
     let temp_dir = format!("/tmp/asterdrive-svc-test-{}", uuid::Uuid::new_v4());
@@ -332,10 +306,9 @@ async fn test_file_service_get_info() {
     assert_eq!(info.created_by_username, user.username);
 
     // 别人的文件
-    let user2 =
-        aster_drive::services::auth::local::register(&state, "user2", "u2@example.com", "pass1234")
-            .await
-            .unwrap();
+    let user2 = common::create_test_account(&state, "user2", "u2@example.com", "pass1234")
+        .await
+        .unwrap();
     let err = aster_drive::services::files::file::get_info(&state, file.id, user2.id).await;
     assert!(err.is_err());
 }
@@ -347,7 +320,7 @@ async fn test_file_active_model_partial_name_update_refreshes_classification() {
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "filepartialname",
         "filepartialname@example.com",
@@ -383,7 +356,7 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "filepartialmime",
         "filepartialmime@example.com",
@@ -414,10 +387,10 @@ async fn test_file_active_model_partial_mime_update_refreshes_classification() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_respects_deleted_visibility() {
-    use aster_drive::services::{auth::local, files::folder, webdav::tree};
+    use aster_drive::services::{files::folder, webdav::tree};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "treewalker",
         "treewalker@example.com",
@@ -522,12 +495,13 @@ async fn test_collect_folder_tree_respects_deleted_visibility() {
 
 #[actix_web::test]
 async fn test_collect_folder_tree_handles_empty_leaf_folder() {
-    use aster_drive::services::{auth::local, files::folder, webdav::tree};
+    use aster_drive::services::{files::folder, webdav::tree};
 
     let state = common::setup().await;
-    let user = local::register(&state, "treeleaf", "treeleaf@example.com", "password123")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "treeleaf", "treeleaf@example.com", "password123")
+            .await
+            .unwrap();
 
     let leaf = folder::create(&state, user.id, "leaf", None).await.unwrap();
 
@@ -547,10 +521,10 @@ async fn test_collect_folder_tree_handles_empty_leaf_folder() {
 
 #[actix_web::test]
 async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
-    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
+    use aster_drive::services::{files::file, files::folder, files::trash};
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "trashpaths",
         "trashpaths@example.com",
@@ -591,12 +565,13 @@ async fn test_list_trash_keeps_original_paths_for_files_and_folders() {
 
 #[actix_web::test]
 async fn test_list_trash_handles_root_and_shared_parent_paths() {
-    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
+    use aster_drive::services::{files::file, files::folder, files::trash};
 
     let state = common::setup().await;
-    let user = local::register(&state, "trashmix", "trashmix@example.com", "password123")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "trashmix", "trashmix@example.com", "password123")
+            .await
+            .unwrap();
 
     let shared = folder::create(&state, user.id, "Shared", None)
         .await
@@ -667,12 +642,13 @@ async fn test_list_trash_handles_root_and_shared_parent_paths() {
 
 #[actix_web::test]
 async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
-    use aster_drive::services::{auth::local, files::file, files::folder, files::trash};
+    use aster_drive::services::{files::file, files::folder, files::trash};
 
     let state = common::setup().await;
-    let user = local::register(&state, "trashzero", "trashzero@example.com", "password123")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "trashzero", "trashzero@example.com", "password123")
+            .await
+            .unwrap();
 
     let root_folder = folder::create(&state, user.id, "ZeroFolder", None)
         .await
@@ -701,14 +677,9 @@ async fn test_list_trash_zero_limits_keep_totals_and_empty_items() {
 async fn test_file_lock_lock_unlock() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "locker",
-        "locker@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "locker", "locker@example.com", "pass1234")
+        .await
+        .unwrap();
 
     // 创建文件夹来锁
     let folder = aster_drive::services::files::folder::create(&state, user.id, "LockTest", None)
@@ -777,14 +748,9 @@ async fn test_file_lock_lock_unlock() {
 async fn test_file_lock_force_unlock() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "admin1",
-        "admin1@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "admin1", "admin1@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let folder = aster_drive::services::files::folder::create(&state, user.id, "ForceTest", None)
         .await
@@ -815,12 +781,13 @@ async fn test_file_lock_force_unlock() {
 #[actix_web::test]
 async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file, files::lock};
+    use aster_drive::services::{files::file, files::lock};
 
     let state = common::setup().await;
-    let user = local::register(&state, "tokunlock", "tokunlock@example.com", "pass1234")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "tokunlock", "tokunlock@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let temp_dir = format!("/tmp/asterdrive-lock-token-test-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&temp_dir).unwrap();
@@ -868,13 +835,14 @@ async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
 #[actix_web::test]
 async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::folder, files::lock};
+    use aster_drive::services::{files::folder, files::lock};
     use chrono::Duration;
 
     let state = common::setup().await;
-    let user = local::register(&state, "lockcleanup", "lockcleanup@example.com", "pass1234")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "lockcleanup", "lockcleanup@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let expired_folder = folder::create(&state, user.id, "ExpiredLock", None)
         .await
@@ -935,14 +903,9 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
 async fn test_version_service_list_delete() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "veruser",
-        "ver@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "veruser", "ver@example.com", "pass1234")
+        .await
+        .unwrap();
 
     // 上传 v1
     let temp_dir = format!("/tmp/asterdrive-ver-test-{}", uuid::Uuid::new_v4());
@@ -1003,14 +966,9 @@ async fn test_version_service_list_delete() {
 async fn test_delete_version_keeps_history_numbers_dense() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "densever",
-        "densever@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "densever", "densever@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let temp1 = write_service_fixture("dense-v1.txt", "1111");
     let file = aster_drive::services::files::file::store_from_temp(
@@ -1090,7 +1048,7 @@ async fn test_delete_version_keeps_history_numbers_dense() {
 async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "versionquota",
         "versionquota@example.com",
@@ -1174,7 +1132,7 @@ async fn test_version_storage_used_tracks_overwrite_delete_and_restore() {
 async fn test_version_cleanup_excess_reclaims_storage_used() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "versionlimit",
         "versionlimit@example.com",
@@ -1235,14 +1193,10 @@ async fn test_version_cleanup_excess_reclaims_storage_used() {
 async fn test_version_restore_truncates_future_versions_without_deleting_target_blob() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "restoreuser",
-        "restore@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "restoreuser", "restore@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let temp_dir = format!("/tmp/asterdrive-restore-test-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&temp_dir).unwrap();
@@ -1363,14 +1317,9 @@ async fn test_version_restore_truncates_future_versions_without_deleting_target_
 async fn test_copy_file_naming() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "copier",
-        "copier@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "copier", "copier@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let temp_dir = format!("/tmp/asterdrive-copy-test-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&temp_dir).unwrap();
@@ -1404,10 +1353,9 @@ async fn test_copy_file_naming() {
 async fn test_folder_service_cycle_detection() {
     let state = common::setup().await;
 
-    let user =
-        aster_drive::services::auth::local::register(&state, "cycl", "cyc@example.com", "pass1234")
-            .await
-            .unwrap();
+    let user = common::create_test_account(&state, "cycl", "cyc@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let a = aster_drive::services::files::folder::create(&state, user.id, "A", None)
         .await
@@ -1448,14 +1396,9 @@ async fn test_folder_service_cycle_detection() {
 async fn test_folder_copy_preserves_multi_level_tree_and_storage_used() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "copytree",
-        "copytree@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "copytree", "copytree@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let root = aster_drive::services::files::folder::create(&state, user.id, "Tree", None)
         .await
@@ -1602,14 +1545,10 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
     let state = common::setup().await;
     let db = state.writer_db().clone();
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "copyquota",
-        "copyquota@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "copyquota", "copyquota@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let root = aster_drive::services::files::folder::create(&state, user.id, "QuotaTree", None)
         .await
@@ -1714,14 +1653,9 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
 async fn test_property_service_dav_readonly() {
     let state = common::setup().await;
 
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "prop",
-        "prop@example.com",
-        "pass1234",
-    )
-    .await
-    .unwrap();
+    let user = common::create_test_account(&state, "prop", "prop@example.com", "pass1234")
+        .await
+        .unwrap();
 
     let folder = aster_drive::services::files::folder::create(&state, user.id, "PropTest", None)
         .await
@@ -1849,7 +1783,7 @@ async fn test_share_service_batch_delete_validates_ids_before_scope_work() {
 #[actix_web::test]
 async fn test_share_download_failure_rolls_back_download_quota() {
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "sharedownload",
         "sharedownload@example.com",
@@ -1921,14 +1855,10 @@ async fn test_share_download_abort_rolls_back_download_quota() {
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "sdlabort",
-        "sdlabort@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "sdlabort", "sdlabort@example.com", "password123")
+            .await
+            .unwrap();
 
     let file_id = store_service_file(
         &state,
@@ -1973,7 +1903,7 @@ async fn test_share_target_check_constraint_rejects_zero_or_multiple_targets() {
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "shareconstraint",
         "shareconstraint@example.com",
@@ -2034,7 +1964,7 @@ async fn test_share_token_length_constraint_rejects_tokens_longer_than_32_chars(
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
+    let user = common::create_test_account(
         &state,
         "sharetokenlen",
         "sharetokenlen@example.com",
@@ -2071,7 +2001,7 @@ async fn test_share_token_length_constraint_rejects_tokens_longer_than_32_chars(
 #[actix_web::test]
 async fn test_team_service_accepts_128_multibyte_characters_in_name() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "teamunicode",
         "teamunicode@example.com",
@@ -2113,14 +2043,10 @@ async fn test_team_service_accepts_128_multibyte_characters_in_name() {
 #[actix_web::test]
 async fn test_team_service_clamps_negative_default_storage_quota() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
-        &state,
-        "teamquota",
-        "teamquota@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let owner =
+        common::create_test_account(&state, "teamquota", "teamquota@example.com", "password123")
+            .await
+            .unwrap();
 
     let mut updated = aster_drive::db::repository::config_repo::find_by_key(
         state.writer_db(),
@@ -2151,7 +2077,7 @@ async fn test_team_service_rejects_create_without_default_policy_group() {
     use sea_orm::ConnectionTrait;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "teamnodefault",
         "teamnodefault@example.com",
@@ -2194,15 +2120,11 @@ async fn test_team_service_degrades_missing_creator_rows() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
-        &state,
-        "missowner",
-        "missowner@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
-    let member = aster_drive::services::auth::local::register(
+    let owner =
+        common::create_test_account(&state, "missowner", "missowner@example.com", "password123")
+            .await
+            .unwrap();
+    let member = common::create_test_account(
         &state,
         "missmember",
         "missmember@example.com",
@@ -2269,7 +2191,7 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "trashteamowner",
         "trashteamowner@example.com",
@@ -2325,22 +2247,14 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
-        &state,
-        "foldown",
-        "foldown@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
-    let member = aster_drive::services::auth::local::register(
-        &state,
-        "foldmem",
-        "foldmem@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let owner =
+        common::create_test_account(&state, "foldown", "foldown@example.com", "password123")
+            .await
+            .unwrap();
+    let member =
+        common::create_test_account(&state, "foldmem", "foldmem@example.com", "password123")
+            .await
+            .unwrap();
 
     let team = aster_drive::services::workspace::team::create_team(
         &state,
@@ -2422,14 +2336,10 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
     use sea_orm::Set;
 
     let state = common::setup().await;
-    let user = aster_drive::services::auth::local::register(
-        &state,
-        "trashord",
-        "trashord@example.com",
-        "password123",
-    )
-    .await
-    .unwrap();
+    let user =
+        common::create_test_account(&state, "trashord", "trashord@example.com", "password123")
+            .await
+            .unwrap();
 
     let deleted_at = Utc::now();
     let first = aster_drive::db::repository::folder_repo::create(
@@ -2499,7 +2409,7 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
 #[actix_web::test]
 async fn test_team_service_list_teams_for_member() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "listteams-owner",
         "listteams-owner@example.com",
@@ -2507,7 +2417,7 @@ async fn test_team_service_list_teams_for_member() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth::local::register(
+    let member = common::create_test_account(
         &state,
         "listteams-member",
         "listteams-member@example.com",
@@ -2551,7 +2461,7 @@ async fn test_team_service_list_teams_for_member() {
 #[actix_web::test]
 async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "teamids-owner",
         "listteamids-owner@example.com",
@@ -2559,7 +2469,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
     )
     .await
     .unwrap();
-    let member = aster_drive::services::auth::local::register(
+    let member = common::create_test_account(
         &state,
         "teamids-member",
         "listteamids-member@example.com",
@@ -2631,7 +2541,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "cleanup-owner",
         "cleanup-owner@example.com",
@@ -2868,7 +2778,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "cleanupfail",
         "cleanup-fail-owner@example.com",
@@ -2988,7 +2898,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "batchowner",
         "batchcleanup-owner@example.com",
@@ -3155,7 +3065,7 @@ async fn test_team_archive_cleanup_respects_configured_retention() {
     use sea_orm::{IntoActiveModel, Set};
 
     let state = common::setup().await;
-    let owner = aster_drive::services::auth::local::register(
+    let owner = common::create_test_account(
         &state,
         "clnretainown",
         "cleanup-retention-owner@example.com",

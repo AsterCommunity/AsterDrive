@@ -19,13 +19,13 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 #[actix_web::test]
 async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delete() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file, files::folder};
+    use aster_drive::services::{files::file, files::folder};
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
     use xmltree::Element;
 
     let state = common::setup().await;
-    let user = local::register(&state, "davlocks", "davlocks@example.com", "pass1234")
+    let user = common::create_test_account(&state, "davlocks", "davlocks@example.com", "pass1234")
         .await
         .unwrap();
 
@@ -140,12 +140,12 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
 #[actix_web::test]
 async fn test_db_lock_system_rejects_unrepresentable_timeout() {
     use aster_drive::db::repository::lock_repo;
-    use aster_drive::services::{auth::local, files::file};
+    use aster_drive::services::files::file;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "davlocks-timeout",
         "davlocks-timeout@example.com",
@@ -196,16 +196,17 @@ async fn test_db_lock_system_rejects_unrepresentable_timeout() {
 #[actix_web::test]
 async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file, files::lock};
+    use aster_drive::services::{files::file, files::lock};
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
     use chrono::Duration as ChronoDuration;
 
     let state = common::setup().await;
-    let user = local::register(&state, "davexpired", "davexpired@example.com", "pass1234")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "davexpired", "davexpired@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let temp_path = write_temp_fixture("expired.txt", "expired lock content");
     let file = file::store_from_temp(
@@ -322,15 +323,16 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
 #[actix_web::test]
 async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unlock() {
     use aster_drive::db::repository::{file_repo, lock_repo};
-    use aster_drive::services::{auth::local, files::file};
+    use aster_drive::services::files::file;
     use aster_drive::types::EntityType;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
 
     let state = common::setup().await;
-    let user = local::register(&state, "davshared", "davshared@example.com", "pass1234")
-        .await
-        .unwrap();
+    let user =
+        common::create_test_account(&state, "davshared", "davshared@example.com", "pass1234")
+            .await
+            .unwrap();
 
     let temp_path = write_temp_fixture("shared.txt", "shared lock content");
     let file = file::store_from_temp(
@@ -418,12 +420,12 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
 
 #[actix_web::test]
 async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
-    use aster_drive::services::{auth::local, files::file};
+    use aster_drive::services::files::file;
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
 
     let state = common::setup().await;
-    let user = local::register(
+    let user = common::create_test_account(
         &state,
         "davexclusive",
         "davexclusive@example.com",

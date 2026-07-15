@@ -261,6 +261,7 @@ export const ApiErrorCode = {
 	ValidationRequestHeaderValueInvalid:
 		"validation.request_header_value_invalid",
 	ValidationSystemAlreadyInitialized: "validation.system_already_initialized",
+	ValidationSystemNotInitialized: "validation.system_not_initialized",
 	SearchQueryEmpty: "search.query_empty",
 	SearchTypeInvalid: "search.type_invalid",
 	SearchTagMatchInvalid: "search.tag_match_invalid",

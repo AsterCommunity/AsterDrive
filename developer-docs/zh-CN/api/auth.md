@@ -8,7 +8,7 @@
 | --- | --- | --- |
 | `POST` | `/auth/check` | 返回公开认证状态（系统是否已初始化、是否允许公开注册） |
 | `POST` | `/auth/setup` | 初始化系统并创建首个管理员 |
-| `POST` | `/auth/register` | 注册用户；第一个用户自动成为管理员 |
+| `POST` | `/auth/register` | 系统初始化后注册普通用户 |
 | `POST` | `/auth/register/resend` | 重发注册激活邮件 |
 | `GET` | `/auth/contact-verification/confirm` | 消费邮箱验证 token 并重定向前端 |
 | `POST` | `/auth/password/reset/request` | 请求密码重置邮件 |
@@ -56,8 +56,8 @@
 
 - `POST /auth/check`：返回 `has_users` 和 `allow_user_registration`，只用于判断实例处于初始化、登录还是“关闭公开注册”的大状态，不会公开暴露账号是否存在
   这条接口当前不需要请求体。
-- `POST /auth/setup`：仅在系统还没有任何用户时可用，用来创建首个管理员
-- `POST /auth/register`：普通注册入口；当 `auth_allow_user_registration = true` 时可用。第一个注册用户自动成为 `admin`，新用户默认配额来自 `default_storage_quota`
+- `POST /auth/setup`：创建首个管理员的唯一入口，仅在系统还没有任何用户时可用
+- `POST /auth/register`：必须在系统完成初始化后使用，并且只会创建普通用户；初始化完成且 `auth_allow_user_registration = true` 时可用，新用户默认配额来自 `default_storage_quota`
 - `POST /auth/register/resend`：对“尚未完成激活”的账号重发确认邮件，请求体如下：
 
 ```json
@@ -75,10 +75,12 @@
 
 这两个策略只作用于本地注册和本地账号邮箱变更。国际化域名必须按 punycode 写入。它们不是 CORS 白名单，也不是外部认证 provider 的域名限制。
 
-如果运营方关闭了 `auth_allow_user_registration`：
+系统尚未初始化时，`/auth/register` 固定返回 `400` 和 `validation.system_not_initialized`，不会代替 `/auth/setup` 创建管理员。
+
+系统初始化完成后，如果运营方关闭了 `auth_allow_user_registration`：
 
 - `/auth/register` 会返回 `403`
-- `/auth/setup` 仍然可以在系统尚未初始化时创建首个管理员
+- `/auth/setup` 会继续返回“系统已经初始化”
 
 `/auth/setup` 和 `/auth/register` 的请求体相同：
 

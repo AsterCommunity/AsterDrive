@@ -8,7 +8,7 @@ All paths below are relative to `/api/v1`.
 | --- | --- | --- |
 | `POST` | `/auth/check` | Return public authentication state: initialized or not, public registration allowed or not |
 | `POST` | `/auth/setup` | Initialize the system and create the first admin |
-| `POST` | `/auth/register` | Register a user; the first user becomes admin |
+| `POST` | `/auth/register` | Register an ordinary user after system initialization |
 | `POST` | `/auth/register/resend` | Resend registration activation email |
 | `GET` | `/auth/contact-verification/confirm` | Consume email verification token and redirect frontend |
 | `POST` | `/auth/password/reset/request` | Request password reset email |
@@ -55,8 +55,8 @@ All paths below are relative to `/api/v1`.
 ## Initialization and registration
 
 - `POST /auth/check` returns `has_users` and `allow_user_registration`; it only tells the frontend which high-level state to show and does not expose whether a specific account exists
-- `POST /auth/setup` is available only before any user exists and creates the first admin
-- `POST /auth/register` is available when `auth_allow_user_registration = true`; the first registered user becomes `admin`, and the default quota comes from `default_storage_quota`
+- `POST /auth/setup` is the only endpoint that can create the first admin and is available only before any user exists
+- `POST /auth/register` requires completed setup and never grants the admin role; after initialization it is available when `auth_allow_user_registration = true`, and the default quota comes from `default_storage_quota`
 - `POST /auth/register/resend` resends activation mail for accounts that have not completed activation
 
 Resend request:
@@ -86,7 +86,7 @@ The policy applies to local registration and local email changes only. Internati
 }
 ```
 
-If public registration is disabled, `/auth/register` returns `403`, while `/auth/setup` still works before initialization.
+Before setup, `/auth/register` returns `400` with `validation.system_not_initialized`, regardless of the public-registration setting. After setup, disabling public registration makes `/auth/register` return `403`, while `/auth/setup` always reports that the system is already initialized.
 
 ## Login state
 

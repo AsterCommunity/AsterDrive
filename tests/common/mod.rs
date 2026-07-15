@@ -902,6 +902,25 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
     }
 }
 
+/// Creates a test account while respecting the production initialization lifecycle.
+///
+/// The first fixture account goes through `setup`; later fixture accounts use ordinary
+/// registration. Tests that exercise setup/register behavior directly should call those service
+/// functions themselves instead of this convenience helper.
+#[allow(dead_code)]
+pub async fn create_test_account(
+    state: &PrimaryAppState,
+    username: &str,
+    email: &str,
+    password: &str,
+) -> aster_drive::errors::Result<aster_drive::services::auth::local::AuthUserInfo> {
+    if aster_drive::services::auth::local::check_auth_state(state).await? {
+        aster_drive::services::auth::local::register(state, username, email, password).await
+    } else {
+        aster_drive::services::auth::local::setup(state, username, email, password).await
+    }
+}
+
 fn should_use_mysql_schema_template(database_url: &str) -> bool {
     database_url.starts_with("mysql://")
         && configured_test_database_backend() == TestDatabaseBackend::MySql
@@ -1368,9 +1387,12 @@ macro_rules! register_and_login {
     ($app:expr) => {{
         use actix_web::test;
 
-        // 注册
+        // 初始化首个管理员
         let req = test::TestRequest::post()
-            .uri("/api/v1/auth/register")
+            .uri("/api/v1/auth/setup")
+            // Keep this generic account fixture from implicitly configuring public_site_url.
+            // Dedicated setup route tests cover origin bootstrapping with a real Host/Origin.
+            .insert_header(("Host", "@"))
             .peer_addr("127.0.0.1:12345".parse().unwrap())
             .set_json(serde_json::json!({
                 "username": "testuser",
@@ -1379,7 +1401,7 @@ macro_rules! register_and_login {
             }))
             .to_request();
         let resp = test::call_service(&$app, req).await;
-        assert_eq!(resp.status(), 201, "register should return 201");
+        assert_eq!(resp.status(), 201, "setup should return 201");
 
         // 登录
         let req = test::TestRequest::post()

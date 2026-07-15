@@ -9,7 +9,9 @@ use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::pagination::AdminAuditLogSortBy;
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
-use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
+use aster_drive::db::repository::{
+    audit_log_repo, auth_session_repo, passkey_repo, system_initialization_repo, user_repo,
+};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
@@ -469,7 +471,23 @@ async fn testuser_id<C: sea_orm::ConnectionTrait>(db: &C) -> i64 {
 #[actix_web::test]
 async fn test_register_and_login() {
     let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
+        "false",
+    ));
     let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "owner",
+            "email": "owner@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
 
     // 注册
     let req = test::TestRequest::post()
@@ -606,12 +624,332 @@ async fn test_register_and_login() {
 }
 
 #[actix_web::test]
-async fn test_login_rejects_untrusted_origin() {
+async fn test_register_requires_completed_setup_even_when_public_registration_is_enabled() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "earlyuser",
+            "email": "early@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ValidationSystemNotInitialized.as_str()
+    );
+    assert_eq!(body["msg"], "system is not initialized");
+    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
+    assert!(!local::check_auth_state(&state).await.unwrap());
+}
+
+#[actix_web::test]
+async fn test_uninitialized_state_takes_precedence_over_registration_disabled() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_ALLOW_USER_REGISTRATION_KEY,
+        "false",
+    ));
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "earlyuser",
+            "email": "early@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::ValidationSystemNotInitialized.as_str()
+    );
+    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
+}
+
+#[actix_web::test]
+async fn test_failed_setup_releases_initialization_claim() {
+    let state = common::setup().await;
+
+    let error = local::setup(&state, "adminuser", "admin@example.com", "short")
+        .await
+        .expect_err("invalid setup should fail");
+    assert_eq!(error.message(), "password must be at least 8 characters");
+    assert!(
+        !system_initialization_repo::is_initialized(state.writer_db())
+            .await
+            .unwrap()
+    );
+    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
+
+    let admin = local::setup(&state, "adminuser", "admin@example.com", "secret123")
+        .await
+        .expect("valid setup should retry after rollback");
+    assert!(admin.role.is_admin());
+    assert!(
+        system_initialization_repo::is_initialized(state.writer_db())
+            .await
+            .unwrap()
+    );
+}
+
+#[actix_web::test]
+async fn test_repeated_setup_returns_stable_already_initialized_error() {
+    let state = common::setup().await;
+    local::setup(&state, "firstadmin", "firstadmin@example.com", "secret123")
+        .await
+        .unwrap();
+
+    let error = local::setup(
+        &state,
+        "secondadmin",
+        "secondadmin@example.com",
+        "secret123",
+    )
+    .await
+    .expect_err("second setup should be rejected");
+    assert_eq!(
+        error.api_error_code(),
+        ApiErrorCode::ValidationSystemAlreadyInitialized
+    );
+
+    let users = user_repo::find_all(state.writer_db()).await.unwrap();
+    assert_eq!(users.len(), 1);
+    assert_eq!(users[0].username, "firstadmin");
+    assert!(users[0].role.is_admin());
+}
+
+#[actix_web::test]
+async fn test_concurrent_setup_requests_create_exactly_one_admin() {
+    let state = common::setup().await;
+    let app_a = create_test_app!(state.clone());
+    let app_b = create_test_app!(state.clone());
+
+    let request_a = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "admina",
+            "email": "admina@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let request_b = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "adminb",
+            "email": "adminb@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+
+    let (response_a, response_b) = tokio::join!(
+        test::call_service(&app_a, request_a),
+        test::call_service(&app_b, request_b)
+    );
+    let statuses = [response_a.status(), response_b.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| status.as_u16() == 201)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| status.as_u16() == 400)
+            .count(),
+        1
+    );
+
+    let loser = if response_a.status().as_u16() == 400 {
+        response_a
+    } else {
+        response_b
+    };
+    let loser_body: Value = test::read_body_json(loser).await;
+    assert_eq!(
+        loser_body["code"],
+        ApiErrorCode::ValidationSystemAlreadyInitialized.as_str()
+    );
+
+    let users = user_repo::find_all(state.writer_db()).await.unwrap();
+    assert_eq!(users.len(), 1);
+    assert!(users[0].role.is_admin());
+}
+
+async fn assert_concurrent_setup_across_independent_connections(database_url: String) {
+    let state_a = common::setup_with_database_url(&database_url).await;
+    let second_db = aster_drive::db::connect_with_metrics(
+        &aster_drive::config::DatabaseConfig {
+            url: database_url,
+            pool_size: 1,
+            retry_count: 0,
+        },
+        aster_drive::metrics::NoopMetrics::arc(),
+    )
+    .await
+    .expect("second SQLite writer connection should open");
+    let state_b = aster_drive::runtime::PrimaryAppState {
+        db_handles: aster_forge_db::DbHandles::single(second_db),
+        ..state_a.clone()
+    };
+
+    let (result_a, result_b) = tokio::join!(
+        local::setup(
+            &state_a,
+            "connectiona",
+            "connectiona@example.com",
+            "secret123"
+        ),
+        local::setup(
+            &state_b,
+            "connectionb",
+            "connectionb@example.com",
+            "secret123"
+        )
+    );
+
+    assert_eq!(
+        usize::from(result_a.is_ok()) + usize::from(result_b.is_ok()),
+        1
+    );
+    let loser = result_a.err().or_else(|| result_b.err()).unwrap();
+    assert_eq!(
+        loser.api_error_code(),
+        ApiErrorCode::ValidationSystemAlreadyInitialized
+    );
+    let users = user_repo::find_all(state_a.writer_db()).await.unwrap();
+    assert_eq!(users.len(), 1);
+    assert!(users[0].role.is_admin());
+}
+
+#[actix_web::test]
+async fn test_concurrent_setup_across_independent_sqlite_connections_creates_one_admin() {
+    let database_path = format!("/tmp/asterdrive-setup-race-{}.db", uuid::Uuid::new_v4());
+    assert_concurrent_setup_across_independent_connections(format!(
+        "sqlite://{database_path}?mode=rwc"
+    ))
+    .await;
+}
+
+#[actix_web::test]
+async fn test_concurrent_setup_across_independent_postgres_connections_creates_one_admin() {
+    if std::env::var("ASTER_TEST_DATABASE_BACKEND").as_deref() != Ok("postgres") {
+        return;
+    }
+    assert_concurrent_setup_across_independent_connections(
+        common::postgres_test_database_url().await,
+    )
+    .await;
+}
+
+#[actix_web::test]
+async fn test_concurrent_setup_across_independent_mysql_connections_creates_one_admin() {
+    if std::env::var("ASTER_TEST_DATABASE_BACKEND").as_deref() != Ok("mysql") {
+        return;
+    }
+    assert_concurrent_setup_across_independent_connections(common::mysql_test_database_url().await)
+        .await;
+}
+
+#[actix_web::test]
+async fn test_setup_fails_closed_when_lock_config_is_missing() {
+    use aster_forge_db::system_config;
+    use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+
+    let state = common::setup().await;
+    system_config::Entity::delete_many()
+        .filter(
+            system_config::Column::Key
+                .eq(aster_drive::config::definitions::AUTH_ALLOW_USER_REGISTRATION_KEY),
+        )
+        .exec(state.writer_db())
+        .await
+        .expect("setup lock fixture should delete");
+
+    let error = local::setup(&state, "adminuser", "admin@example.com", "secret123")
+        .await
+        .expect_err("setup should fail closed without its database lock row");
+    assert_eq!(error.api_error_code(), ApiErrorCode::InternalServerError);
+    assert!(error.message().contains("setup lock config"));
+    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
+}
+
+#[actix_web::test]
+async fn test_concurrent_setup_and_register_never_promotes_registration_to_admin() {
+    let state = common::setup().await;
+    state.runtime_config.apply(common::system_config_model(
+        aster_drive::config::auth_runtime::AUTH_REGISTER_ACTIVATION_ENABLED_KEY,
+        "false",
+    ));
+    let app_setup = create_test_app!(state.clone());
+    let app_register = create_test_app!(state.clone());
+
+    let setup_request = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "setupadmin",
+            "email": "setupadmin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let register_request = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "raceuser",
+            "email": "raceuser@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+
+    let (setup_response, register_response) = tokio::join!(
+        test::call_service(&app_setup, setup_request),
+        test::call_service(&app_register, register_request)
+    );
+    assert_eq!(setup_response.status(), 201);
+    assert!(matches!(register_response.status().as_u16(), 201 | 400));
+    if register_response.status().as_u16() == 400 {
+        let body: Value = test::read_body_json(register_response).await;
+        assert_eq!(
+            body["code"],
+            ApiErrorCode::ValidationSystemNotInitialized.as_str()
+        );
+    }
+
+    let users = user_repo::find_all(state.writer_db()).await.unwrap();
+    assert_eq!(users.iter().filter(|user| user.role.is_admin()).count(), 1);
+    let admin = users
+        .iter()
+        .find(|user| user.username == "setupadmin")
+        .expect("setup account should exist");
+    assert!(admin.role.is_admin());
+    if let Some(registered) = users.iter().find(|user| user.username == "raceuser") {
+        assert!(!registered.role.is_admin());
+    }
+}
+
+#[actix_web::test]
+async fn test_login_rejects_untrusted_origin() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "alice",
@@ -662,7 +1000,7 @@ async fn test_login_uses_generic_invalid_credentials_message() {
     );
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "alice",
@@ -807,7 +1145,7 @@ async fn test_cookie_authenticated_write_accepts_matching_csrf_token() {
     let app = create_test_app!(state);
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "alice",
@@ -872,7 +1210,7 @@ async fn test_refresh_accepts_matching_csrf_token_and_rotates_cookie() {
     let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "alice",
@@ -1244,7 +1582,7 @@ async fn test_recent_refresh_reuse_from_spoofed_forwarded_ip_stays_stale() {
     let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "testuser",
@@ -2799,7 +3137,7 @@ async fn test_login_uses_runtime_auth_policy() {
     let app = create_test_app!(state);
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "runtimeauth",
@@ -3358,7 +3696,7 @@ async fn test_auth_sessions_list_and_revoke_specific_device() {
     let app = create_test_app!(state.clone());
 
     let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
+        .uri("/api/v1/auth/setup")
         .peer_addr("127.0.0.1:12345".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "alice",
