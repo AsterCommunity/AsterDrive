@@ -20,6 +20,7 @@ use crate::services::files::upload::scope::{personal_scope, team_scope};
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
+use crate::services::files::upload::staging;
 use crate::services::workspace::storage::{WorkspaceStorageScope, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
@@ -143,8 +144,8 @@ async fn init_chunked_upload_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<InitUploadResponse> {
-    // 本地 / 其他非 direct 场景：服务端维护分片目录与 upload session，
-    // complete 阶段会把这些 chunk 组装成最终文件。
+    // 本地 / 其他非 direct 场景：服务端维护 upload session，并预创建一个逻辑 staging
+    // 文件。每个 chunk PUT 按 offset 写入，complete 只校验 marker 后推进存储和元数据。
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
@@ -176,7 +177,10 @@ async fn init_chunked_upload_session(
     })
     .await?;
 
-    if let Err(error) = prepare_chunked_upload_temp_dir(state, &upload_id).await {
+    if let Err(error) = prepare_chunked_upload_staging_file(state, &upload_id, ctx.total_size).await
+    {
+        let temp_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, &upload_id);
+        aster_forge_utils::fs::cleanup_temp_dir(&temp_dir).await;
         delete_upload_session_record_after_init_error(
             state.writer_db(),
             &upload_id,
@@ -205,13 +209,18 @@ async fn init_chunked_upload_session(
     ))
 }
 
-async fn prepare_chunked_upload_temp_dir(state: &PrimaryAppState, upload_id: &str) -> Result<()> {
+async fn prepare_chunked_upload_staging_file(
+    state: &PrimaryAppState,
+    upload_id: &str,
+    total_size: i64,
+) -> Result<()> {
     let temp_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
     tokio::fs::create_dir_all(&temp_dir)
         .await
         .map_aster_err_ctx("create temp dir", |message| {
             chunk_upload_error_with_code(ApiErrorCode::UploadTempDirCreateFailed, message)
         })?;
+    staging::prepare(state, upload_id, total_size).await?;
     Ok(())
 }
 
