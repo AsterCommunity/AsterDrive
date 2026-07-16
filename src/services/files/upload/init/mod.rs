@@ -144,8 +144,10 @@ async fn init_chunked_upload_session(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<InitUploadResponse> {
-    // 本地 / 其他非 direct 场景：服务端维护 upload session，并预创建一个逻辑 staging
-    // 文件。每个 chunk PUT 按 offset 写入，complete 只校验 marker 后推进存储和元数据。
+    // 本地 / 其他非 direct 场景：服务端维护 upload session，并预创建格式专用的
+    // `.offset-staging-v1` 文件。每个 Chunk PUT 按 offset 写入并登记 DB receipt，Complete
+    // 只校验 receipt 和 staging 内容后推进存储和元数据；legacy `assembled` 路径不参与新
+    // session 的格式判断。
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);

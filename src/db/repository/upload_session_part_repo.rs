@@ -2,8 +2,8 @@
 
 use chrono::Utc;
 use sea_orm::{
-    ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder,
-    QuerySelect, Set, TryInsertResult, sea_query::Expr,
+    ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+    TryInsertResult, sea_query::Expr,
 };
 
 use crate::entities::upload_session_part::{self, Entity as UploadSessionPart};
@@ -115,8 +115,8 @@ pub async fn upsert_part<C: ConnectionTrait>(
     Ok(UpsertPartResult { model, inserted })
 }
 
-pub async fn find_by_upload_and_part(
-    db: &DatabaseConnection,
+pub async fn find_by_upload_and_part<C: ConnectionTrait>(
+    db: &C,
     upload_id: &str,
     part_number: i32,
 ) -> Result<Option<upload_session_part::Model>> {
@@ -128,8 +128,8 @@ pub async fn find_by_upload_and_part(
         .map_err(AsterError::from)
 }
 
-pub async fn list_by_upload(
-    db: &DatabaseConnection,
+pub async fn list_by_upload<C: ConnectionTrait>(
+    db: &C,
     upload_id: &str,
 ) -> Result<Vec<upload_session_part::Model>> {
     UploadSessionPart::find()
@@ -141,7 +141,19 @@ pub async fn list_by_upload(
         .map_err(AsterError::from)
 }
 
-pub async fn list_part_numbers(db: &DatabaseConnection, upload_id: &str) -> Result<Vec<i32>> {
+pub async fn list_all_by_upload<C: ConnectionTrait>(
+    db: &C,
+    upload_id: &str,
+) -> Result<Vec<upload_session_part::Model>> {
+    UploadSessionPart::find()
+        .filter(upload_session_part::Column::UploadId.eq(upload_id))
+        .order_by_asc(upload_session_part::Column::PartNumber)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn list_part_numbers<C: ConnectionTrait>(db: &C, upload_id: &str) -> Result<Vec<i32>> {
     UploadSessionPart::find()
         .select_only()
         .column(upload_session_part::Column::PartNumber)
@@ -152,6 +164,44 @@ pub async fn list_part_numbers(db: &DatabaseConnection, upload_id: &str) -> Resu
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+/// Inserts a completed local offset-staging receipt without replacing an existing row.
+///
+/// A local receipt is the durable completion index for the staging range. Keeping this
+/// operation insert-only prevents a retry from changing a provider multipart ETag or
+/// accidentally turning a corrupted local row into a valid one.
+pub async fn insert_part_if_missing<C: ConnectionTrait>(
+    db: &C,
+    upload_id: &str,
+    part_number: i32,
+    etag: &str,
+    size: i64,
+) -> Result<bool> {
+    let now = Utc::now();
+    match UploadSessionPart::insert(upload_session_part::ActiveModel {
+        upload_id: Set(upload_id.to_string()),
+        part_number: Set(part_number),
+        etag: Set(etag.to_string()),
+        size: Set(size),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    })
+    .on_conflict_do_nothing_on([
+        upload_session_part::Column::UploadId,
+        upload_session_part::Column::PartNumber,
+    ])
+    .exec(db)
+    .await
+    .map_err(AsterError::from)?
+    {
+        TryInsertResult::Inserted(_) => Ok(true),
+        TryInsertResult::Conflicted => Ok(false),
+        TryInsertResult::Empty => Err(AsterError::internal_error(
+            "insert_part_if_missing produced empty insert result",
+        )),
+    }
 }
 
 pub async fn delete_by_upload<C: ConnectionTrait>(db: &C, upload_id: &str) -> Result<u64> {

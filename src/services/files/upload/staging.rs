@@ -1,8 +1,14 @@
 //! Local staging-file contract for server-managed chunked uploads.
 //!
-//! New chunked sessions preallocate one logical file and write each chunk directly to its
-//! deterministic offset. Compact per-chunk marker files remain the durable completion/index contract;
-//! the staging file itself may contain unwritten sparse ranges until all markers exist.
+//! New sessions use a format-specific `.offset-staging-v1` file instead of the legacy `assembled`
+//! path. Init preallocates it to `total_size`; each Chunk PUT writes its range at
+//! `chunk_number * chunk_size`. The database receipt table is the durable completion index, while
+//! the staging file may still contain unwritten sparse ranges until every receipt exists.
+//!
+//! The distinct path is also the session-format discriminator used by Chunk PUT and Complete.
+//! Legacy completion may create `assembled` before a retryable storage/DB failure, so treating that
+//! generic output path as an offset-staging signal would misread payload-sized legacy chunks as
+//! completion records on retry.
 
 use std::io::SeekFrom;
 
@@ -15,10 +21,16 @@ use crate::runtime::SharedRuntimeState;
 use aster_forge_utils::numbers::i64_to_u64;
 use aster_forge_utils::paths;
 
-const CHUNK_MARKER_PREFIX: &str = "aster-drive-staged-chunk-v1:";
+pub(crate) const CHUNK_RECEIPT_ETAG: &str = "aster-drive-offset-staging-receipt-v1";
+const OFFSET_STAGING_FILE_NAME: &str = ".offset-staging-v1";
 
 pub(crate) fn file_path(state: &impl SharedRuntimeState, upload_id: &str) -> String {
-    paths::upload_assembled_path(&state.config().server.upload_temp_dir, upload_id)
+    file_path_in_upload_temp_dir(&state.config().server.upload_temp_dir, upload_id)
+}
+
+pub(crate) fn file_path_in_upload_temp_dir(upload_temp_dir: &str, upload_id: &str) -> String {
+    let session_temp_dir = paths::upload_temp_dir(upload_temp_dir, upload_id);
+    paths::temp_file_path(&session_temp_dir, OFFSET_STAGING_FILE_NAME)
 }
 
 pub(crate) async fn prepare(
@@ -55,16 +67,18 @@ pub(crate) async fn exists(state: &impl SharedRuntimeState, upload_id: &str) -> 
     }
 }
 
-pub(crate) fn chunk_marker_contents(expected_size: i64) -> String {
-    format!("{CHUNK_MARKER_PREFIX}{expected_size}\n")
+pub(crate) fn chunk_receipt_etag() -> &'static str {
+    CHUNK_RECEIPT_ETAG
 }
 
-pub(crate) async fn chunk_marker_matches(
-    chunk_path: &str,
+pub(crate) fn chunk_receipt_matches(
+    receipt: &crate::entities::upload_session_part::Model,
+    expected_part_number: i32,
     expected_size: i64,
-) -> std::io::Result<bool> {
-    let contents = tokio::fs::read_to_string(chunk_path).await?;
-    Ok(contents == chunk_marker_contents(expected_size))
+) -> bool {
+    receipt.part_number == expected_part_number
+        && receipt.etag == CHUNK_RECEIPT_ETAG
+        && receipt.size == expected_size
 }
 
 pub(crate) async fn open_for_chunk_write(

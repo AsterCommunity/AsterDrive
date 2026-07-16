@@ -1,9 +1,15 @@
+//! Server-managed chunked-upload completion.
+//!
+//! `.offset-staging-v1` is the explicit format discriminator for current sessions. The generic
+//! `assembled` path belongs only to the deprecated payload-per-chunk compatibility path and may
+//! survive a retryable storage/DB failure; its presence must never select offset-staging validation.
+
 use aster_forge_db::transaction;
 use chrono::Utc;
 use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::file_repo;
+use crate::db::repository::{file_repo, upload_session_part_repo};
 use crate::entities::{file, storage_policy, upload_session};
 use crate::errors::{AsterError, MapAsterErr, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -17,7 +23,7 @@ use crate::storage::connectors::{
     StorageConnectorChunkedCompletion, resolve_policy_upload_transport,
 };
 use crate::types::UploadSessionStatus;
-use aster_forge_utils::numbers::{i64_to_u64, usize_to_i64};
+use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64, usize_to_i64};
 use aster_forge_utils::paths;
 use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWriteExt;
@@ -139,22 +145,29 @@ async fn validate_offset_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<String> {
-    for chunk_number in 0..session.total_chunks {
-        let chunk_path = paths::upload_chunk_path(
-            &state.config().server.upload_temp_dir,
-            &session.id,
-            chunk_number,
-        );
+    let receipts =
+        upload_session_part_repo::list_all_by_upload(state.writer_db(), &session.id).await?;
+    let expected_receipt_count = i32_to_usize(session.total_chunks, "total chunk count")?;
+    if receipts.len() != expected_receipt_count {
+        return Err(upload_assembly_error_with_code(
+            ApiErrorCode::UploadAssemblyIoFailed,
+            format!(
+                "offset staging receipt count mismatch: expected {}, got {}",
+                session.total_chunks,
+                receipts.len()
+            ),
+        ));
+    }
+
+    for (chunk_number, receipt) in (0..session.total_chunks).zip(&receipts) {
         let expected_size = expected_chunk_size_for_upload(session, chunk_number)?;
-        let marker_matches = staging::chunk_marker_matches(&chunk_path, expected_size)
-            .await
-            .map_aster_err_ctx(&format!("open chunk {chunk_number}"), |message| {
-                upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-            })?;
-        if !marker_matches {
+        if !staging::chunk_receipt_matches(receipt, chunk_number + 1, expected_size) {
             return Err(upload_assembly_error_with_code(
                 ApiErrorCode::UploadAssemblyIoFailed,
-                format!("chunk {chunk_number} marker is invalid for size {expected_size}"),
+                format!(
+                    "offset staging receipt is invalid for chunk {chunk_number}: part_number={}, etag={}, size={}, expected_size={expected_size}",
+                    receipt.part_number, receipt.etag, receipt.size
+                ),
             ));
         }
     }
@@ -183,6 +196,8 @@ async fn load_offset_staging_file(
     session: &upload_session::Model,
     should_dedup: bool,
 ) -> Result<Option<ChunkedTempFile>> {
+    // This checks the format-specific path, not the legacy `assembled` output. A stale legacy
+    // assembly must remain retryable as legacy chunk files.
     if !staging::exists(state, &session.id).await? {
         return Ok(None);
     }

@@ -1712,7 +1712,7 @@ async fn test_s3_presigned_download_redirects_and_share_counts() {
 
 #[actix_web::test]
 async fn test_chunked_upload_offset_staging_preserves_content() {
-    use aster_drive::db::repository::file_repo;
+    use aster_drive::db::repository::{file_repo, upload_session_part_repo};
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -1738,7 +1738,7 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
         .unwrap();
     assert_eq!(resp1.received_count, 2);
 
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );
@@ -1747,15 +1747,25 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
     let staged = tokio::fs::read(&staging_path).await.unwrap();
     assert_eq!(staged, [chunk0.as_slice(), chunk1.as_slice()].concat());
 
+    let receipts = upload_session_part_repo::list_all_by_upload(state.writer_db(), &upload_id)
+        .await
+        .unwrap();
+    assert_eq!(receipts.len(), 2);
+    assert!(receipts.iter().enumerate().all(|(index, receipt)| {
+        receipt.part_number == index as i32 + 1
+            && receipt.etag == upload::test_support::offset_staging_receipt_etag()
+            && receipt.size == TEST_CHUNK_SIZE as i64
+    }));
     for chunk_number in 0..2 {
-        let marker = aster_forge_utils::paths::upload_chunk_path(
-            &state.config.server.upload_temp_dir,
-            &upload_id,
-            chunk_number,
-        );
         assert!(
-            tokio::fs::metadata(marker).await.unwrap().len() < 64,
-            "chunk completion marker should stay metadata-sized instead of duplicating payload"
+            tokio::fs::metadata(aster_forge_utils::paths::upload_chunk_path(
+                &state.config.server.upload_temp_dir,
+                &upload_id,
+                chunk_number,
+            ))
+            .await
+            .is_err(),
+            "offset staging should not create legacy chunk marker files"
         );
     }
 
@@ -1804,15 +1814,21 @@ async fn test_concurrent_distinct_chunks_write_to_their_staging_offsets() {
     let upload_id = init.upload_id.unwrap();
     let first = vec![b'A'; TEST_CHUNK_SIZE];
     let second = vec![b'B'; TEST_CHUNK_SIZE];
+    let _write_rendezvous = upload::test_support::install_distinct_chunk_rendezvous(&upload_id, 2);
 
-    let (first_result, second_result) = tokio::join!(
-        upload::upload_chunk(&state, &upload_id, 0, user.id, &first),
-        upload::upload_chunk(&state, &upload_id, 1, user.id, &second),
-    );
+    let (first_result, second_result) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            tokio::join!(
+                upload::upload_chunk(&state, &upload_id, 0, user.id, &first),
+                upload::upload_chunk(&state, &upload_id, 1, user.id, &second),
+            )
+        })
+        .await
+        .expect("distinct chunk writes must enter their critical sections concurrently");
     first_result.unwrap();
     second_result.unwrap();
 
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );
@@ -1852,15 +1868,25 @@ async fn test_concurrent_duplicate_staged_chunk_keeps_one_complete_payload() {
     let upload_id = init.upload_id.unwrap();
     let first = vec![b'A'; TEST_CHUNK_SIZE];
     let second = vec![b'B'; TEST_CHUNK_SIZE];
+    let exclusion = upload::test_support::install_same_chunk_exclusion_observer(&upload_id);
 
-    let (first_result, second_result) = tokio::join!(
-        upload::upload_chunk(&state, &upload_id, 0, user.id, &first),
-        upload::upload_chunk(&state, &upload_id, 0, user.id, &second),
-    );
+    let (first_result, second_result) =
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            tokio::join!(
+                upload::upload_chunk(&state, &upload_id, 0, user.id, &first),
+                upload::upload_chunk(&state, &upload_id, 0, user.id, &second),
+            )
+        })
+        .await
+        .expect("duplicate chunk uploads must finish while the exclusion observer is installed");
     first_result.unwrap();
     second_result.unwrap();
+    assert!(
+        !exclusion.overlap_observed(),
+        "duplicate chunk uploads entered the staging write critical section together"
+    );
 
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );
@@ -1897,7 +1923,7 @@ async fn test_retry_overwrites_uncommitted_partial_staging_range() {
         .await
         .unwrap();
     let upload_id = init.upload_id.unwrap();
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );
@@ -1926,6 +1952,174 @@ async fn test_retry_overwrites_uncommitted_partial_staging_range() {
             .chunks_on_disk,
         vec![0]
     );
+}
+
+#[actix_web::test]
+async fn test_retry_repairs_staged_chunk_receipt_without_double_counting() {
+    use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
+    use aster_drive::entities::upload_session;
+    use aster_drive::services::files::upload;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "offsetreceipt",
+        "offset-receipt@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let init = upload::init_upload(
+        &state,
+        user.id,
+        "offset-receipt.bin",
+        10_485_760,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let upload_id = init.upload_id.unwrap();
+    let committed = vec![b'A'; TEST_CHUNK_SIZE];
+
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &committed)
+        .await
+        .unwrap();
+    upload_session_part_repo::delete_by_upload_and_part(state.writer_db(), &upload_id, 1)
+        .await
+        .unwrap();
+    let mut session: upload_session::ActiveModel =
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .unwrap()
+            .into();
+    session.received_count = Set(0);
+    session.update(state.writer_db()).await.unwrap();
+
+    let repaired = upload::upload_chunk(&state, &upload_id, 0, user.id, &committed)
+        .await
+        .unwrap();
+    assert_eq!(repaired.received_count, 1);
+    let duplicate = upload::upload_chunk(&state, &upload_id, 0, user.id, &committed)
+        .await
+        .unwrap();
+    assert_eq!(duplicate.received_count, 1);
+}
+
+#[actix_web::test]
+async fn test_retry_with_existing_receipt_keeps_committed_staging_range() {
+    use aster_drive::services::files::upload;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "receiptretry",
+        "offset-receipt-retry@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let init = upload::init_upload(
+        &state,
+        user.id,
+        "offset-receipt-retry.bin",
+        10_485_760,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let upload_id = init.upload_id.unwrap();
+    let first = vec![b'A'; TEST_CHUNK_SIZE];
+    let replacement = vec![b'B'; TEST_CHUNK_SIZE];
+
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &first)
+        .await
+        .unwrap();
+    let retried = upload::upload_chunk(&state, &upload_id, 0, user.id, &replacement)
+        .await
+        .unwrap();
+    assert_eq!(retried.received_count, 1);
+
+    let staging_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    );
+    let staged = tokio::fs::read(staging_path).await.unwrap();
+    assert_eq!(&staged[..TEST_CHUNK_SIZE], first.as_slice());
+}
+
+#[actix_web::test]
+async fn test_offset_staging_rejects_corrupted_receipt_on_retry_and_complete() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "corruptreceipt",
+        "corrupt-receipt@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let init = upload::init_upload(
+        &state,
+        user.id,
+        "corrupt-receipt.bin",
+        10_485_760,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    let upload_id = init.upload_id.unwrap();
+    let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
+    let chunk1 = vec![b'B'; TEST_CHUNK_SIZE];
+    upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0)
+        .await
+        .unwrap();
+    upload::upload_chunk(&state, &upload_id, 1, user.id, &chunk1)
+        .await
+        .unwrap();
+
+    let mut receipt =
+        upload_session_part_repo::find_by_upload_and_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_active_model();
+    receipt.etag = Set("corrupted-receipt".to_string());
+    receipt.update(state.writer_db()).await.unwrap();
+
+    let retry_error = match upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk0).await {
+        Ok(_) => panic!("corrupted local receipt must reject a retry"),
+        Err(error) => error,
+    };
+    assert!(retry_error.message().contains("receipt is corrupted"));
+
+    let mut receipt =
+        upload_session_part_repo::find_by_upload_and_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap()
+            .unwrap()
+            .into_active_model();
+    receipt.etag = Set(upload::test_support::offset_staging_receipt_etag().to_string());
+    receipt.size = Set(1);
+    receipt.update(state.writer_db()).await.unwrap();
+
+    let progress_error = match upload::get_progress(&state, &upload_id, user.id).await {
+        Ok(_) => panic!("corrupted local receipt size must reject progress recovery"),
+        Err(error) => error,
+    };
+    assert!(progress_error.message().contains("receipt is corrupted"));
+
+    let complete_error = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .unwrap_err();
+    assert!(complete_error.message().contains("receipt is invalid"));
 }
 
 #[actix_web::test]
@@ -2499,8 +2693,8 @@ async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or
 }
 
 #[actix_web::test]
-async fn test_complete_upload_marks_session_failed_after_missing_chunk_marker() {
-    use aster_drive::db::repository::upload_session_repo;
+async fn test_complete_upload_marks_session_failed_after_missing_chunk_receipt() {
+    use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -2523,19 +2717,15 @@ async fn test_complete_upload_marks_session_failed_after_missing_chunk_marker() 
         .await
         .unwrap();
 
-    tokio::fs::remove_file(aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        1,
-    ))
-    .await
-    .unwrap();
+    upload_session_part_repo::delete_by_upload_and_part(state.writer_db(), &upload_id, 2)
+        .await
+        .unwrap();
 
     let err = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap_err();
     assert_eq!(err.code(), "E057");
-    assert!(err.message().contains("open chunk 1"));
+    assert!(err.message().contains("receipt count mismatch"));
 
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
         .await
@@ -2608,7 +2798,7 @@ async fn test_complete_upload_rejects_truncated_offset_staging_file() {
         .await
         .unwrap();
 
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );
@@ -2753,6 +2943,16 @@ async fn test_complete_legacy_chunk_files_after_upgrade() {
         .unwrap();
     tokio::fs::write(&chunk0, b"12345").await.unwrap();
     tokio::fs::write(&chunk1, b"67890").await.unwrap();
+
+    // A retryable failure or process crash may leave the first legacy assembly behind. That
+    // artifact must not reclassify the session as offset staging on the next completion attempt.
+    let assembled_path = aster_forge_utils::paths::upload_assembled_path(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    );
+    tokio::fs::write(&assembled_path, b"stale legacy assembly")
+        .await
+        .unwrap();
 
     let file = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
@@ -2940,7 +3140,7 @@ async fn test_complete_offset_staging_stream_relay_remains_retryable_after_stora
     let temp_dir =
         aster_forge_utils::paths::upload_temp_dir(&state.config.server.upload_temp_dir, &upload_id);
     tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    let staging_path = aster_forge_utils::paths::upload_assembled_path(
+    let staging_path = upload::test_support::offset_staging_file_path(
         &state.config.server.upload_temp_dir,
         &upload_id,
     );

@@ -23,6 +23,8 @@ use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 
+#[cfg(debug_assertions)]
+pub use chunk::test_support;
 pub use chunk::{
     upload_chunk, upload_chunk_bytes, upload_chunk_bytes_for_team, upload_chunk_for_team,
     upload_chunk_payload, upload_chunk_payload_for_team,

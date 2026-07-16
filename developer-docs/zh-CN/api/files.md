@@ -101,9 +101,15 @@
 
 其中 `completed_parts` 用于恢复 `relay_stream` multipart 或 `presigned_multipart` 已完成的 part 记录；普通本地 chunked 上传主要看 `chunks_on_disk`。
 
+当前新建的 server-managed chunked session 使用 offset staging：Init 在 session 临时目录预创建 `.offset-staging-v1`，每个 Chunk PUT 按 `chunk_number * chunk_size` 写入对应 range；`upload_session_parts` 中的本地 receipt 表示该 range 已 durable publish。新 session 不创建 `chunk_N` marker，Complete 也不会再次拼写整文件。
+
+本地 Chunk PUT 会先对 staging range 执行 `sync_data`，再在只含 SQL 的短 writer transaction 中 insert-only 登记 chunk receipt 并更新 `received_count`。客户端重试只校验已有 receipt，不会重写已提交 range，也不会重复计数。
+
+升级前已经存在的 payload-per-chunk session 仍走 legacy compatibility path：这类 session 的 `chunk_N` 是实际 payload，Complete 可能创建 `assembled`。新旧格式通过 `.offset-staging-v1` 专用路径区分，不通过 `assembled` 是否存在判断；legacy `assembled` 即使在失败后残留，也仍按 legacy session 重试。
+
 完成阶段的服务端行为分两类：
 
-- 本地路径：会校验大小和配额；若 local 策略开启了 `content_dedup`，还会计算 SHA-256 并做 Blob 去重，否则直接创建独立 Blob
+- 本地路径：会校验全部本地 chunk receipt、staging 总大小和配额；若 local 策略开启了 `content_dedup`，还会从 staging file 流式计算 SHA-256 并做 Blob 去重，否则直接 promote/上传 staging file 创建独立 Blob，不再额外生成完整 assembled 副本
 - 所有对象存储 / OneDrive / Remote 路径（`relay_stream` / `presigned` / `presigned_multipart` / provider resumable）：都会校验大小和配额，但不会做 Blob 去重；最终会使用上传 session 派生的占位 hash 和 `files/{upload_id}` 风格的对象路径为每次上传创建独立 Blob；这些路径都不会回读对象计算 SHA-256
 
 `POST /files/new` 创建空文件时也遵循同样规则：只有 local 显式开启 `content_dedup` 才会复用 0 字节 Blob，非本地 connector 始终创建独立 Blob。

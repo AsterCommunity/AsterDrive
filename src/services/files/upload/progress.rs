@@ -6,7 +6,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::api::constants::HOUR_SECS;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::entities::upload_session;
-use crate::errors::{Result, validation_error_with_code};
+use crate::errors::{Result, chunk_upload_error_with_code, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::responses::{
     RecoverableUploadPartResponse, RecoverableUploadSessionResponse, UploadProgressResponse,
@@ -14,6 +14,8 @@ use crate::services::files::upload::responses::{
 use crate::services::files::upload::scope::{
     load_upload_session, load_upload_session_for_read, personal_scope, team_scope,
 };
+use crate::services::files::upload::shared::expected_chunk_size_for_upload;
+use crate::services::files::upload::staging;
 use crate::services::workspace::storage::{self, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use aster_forge_utils::paths;
@@ -66,6 +68,8 @@ async fn get_progress_impl(
         } else {
             scan_received_chunks(state, &session.id).await
         }
+    } else if staging::exists(state, &session.id).await? {
+        list_offset_staging_chunks(state, &session).await?
     } else {
         scan_received_chunks(state, &session.id).await
     };
@@ -88,6 +92,44 @@ async fn get_progress_impl(
         "loaded upload progress"
     );
     Ok(progress)
+}
+
+async fn list_offset_staging_chunks(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+) -> Result<Vec<i32>> {
+    let receipts =
+        upload_session_part_repo::list_all_by_upload(state.reader_db(), &session.id).await?;
+    let mut chunks = Vec::with_capacity(receipts.len());
+    for receipt in receipts {
+        let chunk_number = receipt.part_number.checked_sub(1).ok_or_else(|| {
+            chunk_upload_error_with_code(
+                ApiErrorCode::UploadChunkPersistFailed,
+                format!(
+                    "local chunk receipt has invalid part number {}",
+                    receipt.part_number
+                ),
+            )
+        })?;
+        if chunk_number >= session.total_chunks {
+            return Err(chunk_upload_error_with_code(
+                ApiErrorCode::UploadChunkPersistFailed,
+                format!(
+                    "local chunk receipt part {} is out of range",
+                    receipt.part_number
+                ),
+            ));
+        }
+        let expected_size = expected_chunk_size_for_upload(session, chunk_number)?;
+        if !staging::chunk_receipt_matches(&receipt, chunk_number + 1, expected_size) {
+            return Err(chunk_upload_error_with_code(
+                ApiErrorCode::UploadChunkPersistFailed,
+                format!("local chunk receipt is corrupted for chunk {chunk_number}"),
+            ));
+        }
+        chunks.push(chunk_number);
+    }
+    Ok(chunks)
 }
 
 fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) -> Result<bool> {
