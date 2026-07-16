@@ -2380,6 +2380,27 @@ async fn test_complete_upload_marks_session_failed_after_assembly_error() {
         .unwrap_err();
     assert_eq!(retry_err.code(), "E057");
     assert!(retry_err.message().contains("previously"));
+
+    let next_init =
+        upload::init_upload(&state, user.id, "after-broken.txt", 10_485_760, None, None)
+            .await
+            .unwrap();
+    let next_upload_id = next_init.upload_id.unwrap();
+    upload::upload_chunk(&state, &next_upload_id, 0, user.id, &chunk0)
+        .await
+        .unwrap();
+    upload::upload_chunk(&state, &next_upload_id, 1, user.id, &chunk1)
+        .await
+        .unwrap();
+
+    let next_file = tokio::time::timeout(
+        std::time::Duration::from_secs(2),
+        upload::complete_upload(&state, &next_upload_id, user.id, None),
+    )
+    .await
+    .expect("assembly failure must release the limiter for the next upload")
+    .unwrap();
+    assert_eq!(next_file.name, "after-broken.txt");
 }
 
 #[actix_web::test]

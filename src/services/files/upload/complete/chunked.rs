@@ -82,6 +82,13 @@ async fn finalize_chunked_upload_session(
         .await;
     }
 
+    let assembly_wait_started_at = Instant::now();
+    let assembly_permit = state
+        .upload_runtime
+        .acquire_chunk_assembly_to_local_temp_file()
+        .await?;
+    let assembly_wait_elapsed_ms = assembly_wait_started_at.elapsed().as_millis();
+
     let assemble_started_at = Instant::now();
     let assembled = assemble_local_chunks_to_temp_file(
         state,
@@ -90,6 +97,7 @@ async fn finalize_chunked_upload_session(
     )
     .await?;
     let assemble_elapsed_ms = assemble_started_at.elapsed().as_millis();
+    drop(assembly_permit);
 
     let stage_started_at = Instant::now();
     let assembled_size = assembled.size;
@@ -104,6 +112,7 @@ async fn finalize_chunked_upload_session(
                 upload_id = %session.id,
                 file_id = file.id,
                 size = assembled_size,
+                assembly_wait_elapsed_ms,
                 assemble_elapsed_ms,
                 stage_elapsed_ms,
                 persist_elapsed_ms = persist_started_at.elapsed().as_millis(),

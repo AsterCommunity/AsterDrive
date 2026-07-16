@@ -10,6 +10,7 @@ mod init;
 mod lifecycle;
 mod progress;
 mod responses;
+mod runtime;
 mod scope;
 mod shared;
 
@@ -45,6 +46,7 @@ pub use responses::{
     ChunkUploadResponse, InitUploadResponse, RecoverableUploadSessionResponse,
     UploadProgressResponse,
 };
+pub use runtime::UploadRuntime;
 
 #[derive(Clone, Copy)]
 pub(crate) struct UploadInScopeParams<'a> {
