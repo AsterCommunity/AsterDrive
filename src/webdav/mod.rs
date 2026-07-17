@@ -21,6 +21,8 @@ mod transfer;
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
 use futures::StreamExt;
+use std::io::Cursor;
+use xml::reader::{EventReader, XmlEvent};
 use xmltree::{Element, XMLNode};
 
 use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
@@ -55,14 +57,26 @@ pub(crate) fn encode_href(path: &str) -> String {
     utf8_percent_encode(path, PATH_SET).to_string()
 }
 
+pub(crate) const WEB_DAV_XML_MAX_DEPTH: usize = 128;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum XmlSafetyError {
+    ExternalEntity,
+    TooDeep,
+    Malformed,
+}
+
 pub(crate) fn reject_xml_dtd_or_entity(body: &[u8]) -> Result<(), ()> {
     let mut index = 0;
     while let Some(offset) = find_byte(&body[index..], b'<') {
         index += offset + 1;
+        let Some(marker) = body.get(index) else {
+            break;
+        };
         let Some(after_bang) = body.get(index + 1..) else {
             break;
         };
-        if body[index] == b'!'
+        if *marker == b'!'
             && (starts_with_ascii_case_insensitive(after_bang, b"DOCTYPE")
                 || starts_with_ascii_case_insensitive(after_bang, b"ENTITY"))
         {
@@ -70,6 +84,42 @@ pub(crate) fn reject_xml_dtd_or_entity(body: &[u8]) -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+pub(crate) fn validate_xml_safety(body: &[u8]) -> Result<(), XmlSafetyError> {
+    if reject_xml_dtd_or_entity(body).is_err() {
+        return Err(XmlSafetyError::ExternalEntity);
+    }
+
+    let mut depth = 0usize;
+    let reader = EventReader::new(Cursor::new(body));
+    for event in reader {
+        match event.map_err(|_| XmlSafetyError::Malformed)? {
+            XmlEvent::StartElement { .. } => {
+                depth = depth.checked_add(1).ok_or(XmlSafetyError::TooDeep)?;
+                if depth > WEB_DAV_XML_MAX_DEPTH {
+                    return Err(XmlSafetyError::TooDeep);
+                }
+            }
+            XmlEvent::EndElement { .. } => {
+                depth = depth.checked_sub(1).ok_or(XmlSafetyError::Malformed)?;
+            }
+            XmlEvent::Doctype { .. } => return Err(XmlSafetyError::ExternalEntity),
+            XmlEvent::EndDocument => {
+                if depth != 0 {
+                    return Err(XmlSafetyError::Malformed);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    Ok(())
+}
+
+pub(crate) fn parse_webdav_element(body: &[u8]) -> Result<Element, XmlSafetyError> {
+    validate_xml_safety(body)?;
+    Element::parse(Cursor::new(body)).map_err(|_| XmlSafetyError::Malformed)
 }
 
 fn find_byte(haystack: &[u8], needle: u8) -> Option<usize> {
@@ -551,7 +601,10 @@ mod handler_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::reject_xml_dtd_or_entity;
+    use super::{
+        WEB_DAV_XML_MAX_DEPTH, XmlSafetyError, parse_webdav_element, reject_xml_dtd_or_entity,
+        validate_xml_safety,
+    };
 
     #[test]
     fn reject_xml_dtd_or_entity_allows_regular_webdav_xml() {
@@ -572,5 +625,69 @@ mod tests {
         let body = br#"<!ENTITY x "boom"><propfind/>"#;
 
         assert!(reject_xml_dtd_or_entity(body).is_err());
+    }
+
+    #[test]
+    fn reject_xml_dtd_or_entity_handles_trailing_markup_start() {
+        assert!(reject_xml_dtd_or_entity(b"<").is_ok());
+    }
+
+    #[test]
+    fn validate_xml_safety_rejects_deep_nesting_without_recursive_parse() {
+        let mut body = String::from("<propfind>");
+        for _ in 1..WEB_DAV_XML_MAX_DEPTH {
+            body.push_str("<prop>");
+        }
+        for _ in 1..WEB_DAV_XML_MAX_DEPTH {
+            body.push_str("</prop>");
+        }
+        body.push_str("</propfind>");
+
+        assert_eq!(validate_xml_safety(body.as_bytes()), Ok(()));
+
+        let mut too_deep = String::from("<propfind>");
+        for _ in 1..=WEB_DAV_XML_MAX_DEPTH {
+            too_deep.push_str("<prop>");
+        }
+        for _ in 1..=WEB_DAV_XML_MAX_DEPTH {
+            too_deep.push_str("</prop>");
+        }
+        too_deep.push_str("</propfind>");
+        assert_eq!(
+            validate_xml_safety(too_deep.as_bytes()),
+            Err(XmlSafetyError::TooDeep)
+        );
+    }
+
+    #[test]
+    fn parse_webdav_element_rejects_probe_depth_before_xmltree_parse() {
+        const PROBE_DEPTH: usize = 30_000;
+
+        let mut body = String::with_capacity(64 + PROBE_DEPTH * 7);
+        body.push_str(r#"<D:propfind xmlns:D="DAV:"><D:prop>"#);
+        for _ in 0..PROBE_DEPTH {
+            body.push_str("<x>");
+        }
+        for _ in 0..PROBE_DEPTH {
+            body.push_str("</x>");
+        }
+        body.push_str("</D:prop></D:propfind>");
+
+        assert_eq!(
+            parse_webdav_element(body.as_bytes()),
+            Err(XmlSafetyError::TooDeep)
+        );
+    }
+
+    #[test]
+    fn validate_xml_safety_rejects_doctype_and_malformed_xml() {
+        assert_eq!(
+            validate_xml_safety(br#"<!DOCTYPE propfind><propfind/>"#),
+            Err(XmlSafetyError::ExternalEntity)
+        );
+        assert_eq!(
+            validate_xml_safety(br#"<propfind>"#),
+            Err(XmlSafetyError::Malformed)
+        );
     }
 }

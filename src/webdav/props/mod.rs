@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 use std::collections::{BTreeMap, HashMap};
-use std::io::Cursor;
 use std::time::Instant;
 
 use actix_web::http::StatusCode;
@@ -19,9 +18,10 @@ use crate::webdav::locks::{lockdiscovery_element, supportedlock_element};
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::responses;
 use crate::webdav::{
-    child_elements, child_relative_path, dav_element, display_name, ensure_unlocked,
-    format_creation_date, fs_error_response, href_for_dav_path, href_for_relative, multi_status,
-    request_origin, request_path, status_element, text_element, xml_bytes, xml_response,
+    XmlSafetyError, child_elements, child_relative_path, dav_element, display_name,
+    ensure_unlocked, format_creation_date, fs_error_response, href_for_dav_path, href_for_relative,
+    multi_status, parse_webdav_element, request_origin, request_path, status_element, text_element,
+    xml_bytes, xml_response,
 };
 
 #[derive(Clone)]
@@ -350,8 +350,13 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
         });
     }
 
-    crate::webdav::reject_xml_dtd_or_entity(body).map_err(|_| responses::no_external_entities())?;
-    let root = Element::parse(Cursor::new(body)).map_err(|_| responses::invalid_xml_body())?;
+    let root = match parse_webdav_element(body) {
+        Ok(root) => root,
+        Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
+        Err(XmlSafetyError::TooDeep | XmlSafetyError::Malformed) => {
+            return Err(responses::invalid_xml_body());
+        }
+    };
     if root.name != "propfind" {
         return Err(invalid_propfind_body());
     }
@@ -408,8 +413,13 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
 }
 
 fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResponse> {
-    crate::webdav::reject_xml_dtd_or_entity(body).map_err(|_| responses::no_external_entities())?;
-    let root = Element::parse(Cursor::new(body)).map_err(|_| responses::invalid_xml_body())?;
+    let root = match parse_webdav_element(body) {
+        Ok(root) => root,
+        Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
+        Err(XmlSafetyError::TooDeep | XmlSafetyError::Malformed) => {
+            return Err(responses::invalid_xml_body());
+        }
+    };
     if root.name != "propertyupdate" {
         return Err(invalid_proppatch_body());
     }
@@ -840,7 +850,7 @@ fn append_stored_property_data(element: &mut Element, prop: &DavProp) {
         return;
     }
 
-    if let Ok(stored) = Element::parse(Cursor::new(xml))
+    if let Ok(stored) = parse_webdav_element(xml)
         && stored.name == prop.name
         && stored.namespace.as_deref() == prop.namespace.as_deref()
     {

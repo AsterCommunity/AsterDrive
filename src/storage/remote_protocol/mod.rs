@@ -43,3 +43,4 @@ pub const PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY: &str = "response-content
 pub const PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY: &str = "response-content-type";
 pub const REMOTE_STORAGE_TARGET_KEY_QUERY: &str = "target_key";
 pub const REMOTE_POLICY_MAX_FILE_SIZE_QUERY: &str = "max_file_size";
+pub const REMOTE_CONTROL_PLANE_BODY_LIMIT: usize = 1024 * 1024;

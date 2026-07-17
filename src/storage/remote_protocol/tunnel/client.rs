@@ -14,9 +14,11 @@ use crate::entities::master_binding;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{FollowerAppState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use crate::storage::remote_protocol::errors::map_reqwest_error;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH, sign_internal_request,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH, REMOTE_CONTROL_PLANE_BODY_LIMIT,
+    sign_internal_request,
 };
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
@@ -994,12 +996,7 @@ async fn parse_api_response<T: for<'de> serde::Deserialize<'de>>(
     action: &str,
 ) -> Result<T> {
     let status = response.status();
-    let body = response.bytes().await.map_err(|error| {
-        storage_driver_error(
-            StorageErrorKind::Transient,
-            format!("failed to read {action} response body: {error}"),
-        )
-    })?;
+    let body = read_response_body_limited(response, action).await?;
     let envelope: ApiEnvelope<T> = serde_json::from_slice(&body).map_err(|error| {
         storage_driver_error(
             StorageErrorKind::Misconfigured,
@@ -1024,12 +1021,7 @@ async fn parse_api_response<T: for<'de> serde::Deserialize<'de>>(
 
 async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> Result<()> {
     let status = response.status();
-    let body = response.bytes().await.map_err(|error| {
-        storage_driver_error(
-            StorageErrorKind::Transient,
-            format!("failed to read {action} response body: {error}"),
-        )
-    })?;
+    let body = read_response_body_limited(response, action).await?;
     let envelope: ApiEnvelope<serde_json::Value> =
         serde_json::from_slice(&body).map_err(|error| {
             storage_driver_error(
@@ -1046,6 +1038,31 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
         return Err(storage_driver_error(StorageErrorKind::Transient, message));
     }
     Ok(())
+}
+
+async fn read_response_body_limited(response: reqwest::Response, action: &str) -> Result<Vec<u8>> {
+    let mut body = Vec::with_capacity(REMOTE_CONTROL_PLANE_BODY_LIMIT.min(4096));
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+            storage_driver_error(
+                StorageErrorKind::Transient,
+                format!("{action} response body size overflow"),
+            )
+        })?;
+        if next_len > REMOTE_CONTROL_PLANE_BODY_LIMIT {
+            return Err(storage_driver_error(
+                StorageErrorKind::Transient,
+                format!(
+                    "{action} response body exceeds {} bytes limit",
+                    REMOTE_CONTROL_PLANE_BODY_LIMIT
+                ),
+            ));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    Ok(body)
 }
 
 fn tunnel_http_client() -> Result<reqwest::Client> {
