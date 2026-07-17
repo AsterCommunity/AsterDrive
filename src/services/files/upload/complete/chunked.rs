@@ -19,10 +19,8 @@ use crate::services::files::upload::shared::{
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
-use crate::storage::connectors::{
-    StorageConnectorChunkedCompletion, resolve_policy_upload_transport,
-};
-use crate::types::UploadSessionStatus;
+use crate::storage::connectors::resolve_policy_upload_transport;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64, usize_to_i64};
 use aster_forge_utils::paths;
 use tokio::io::AsyncReadExt;
@@ -50,6 +48,7 @@ fn warn_legacy_chunk_file_completion(session: &upload_session::Model, completion
 pub(super) async fn complete_chunked_upload_with_actor_username(
     state: &PrimaryAppState,
     session: upload_session::Model,
+    session_kind: UploadSessionKind,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let db = state.writer_db();
@@ -68,6 +67,7 @@ pub(super) async fn complete_chunked_upload_with_actor_username(
                 &session,
                 &policy,
                 driver.as_ref(),
+                session_kind,
                 actor_username,
             )
             .await
@@ -83,16 +83,21 @@ async fn finalize_chunked_upload_session(
     session: &upload_session::Model,
     policy: &storage_policy::Model,
     driver: &dyn StorageDriver,
+    session_kind: UploadSessionKind,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    if resolve_policy_upload_transport(policy)?.chunked_completion()
-        == StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-    {
+    // Only the pre-migration legacy kind may consult the connector fallback. New sessions already
+    // carry an explicit execution plan, so capability probing cannot redirect their completion.
+    let legacy_stream_relay = session_kind == UploadSessionKind::LegacyChunkFiles
+        && resolve_policy_upload_transport(policy)?.chunked_completion()
+            == crate::storage::connectors::StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload;
+    if matches!(session_kind, UploadSessionKind::StreamStaging) || legacy_stream_relay {
         return finalize_stream_relay_chunked_upload_session(
             state,
             session,
             policy,
             driver,
+            session_kind,
             actor_username,
         )
         .await;
@@ -100,22 +105,23 @@ async fn finalize_chunked_upload_session(
 
     let prepare_started_at = Instant::now();
     let should_dedup = storage::local_content_dedup_enabled(policy);
-    let (chunked_temp, used_offset_staging, legacy_assembly_wait_elapsed_ms) =
-        if let Some(staged) = load_offset_staging_file(state, session, should_dedup).await? {
-            (staged, true, 0)
-        } else {
-            warn_legacy_chunk_file_completion(session, "assemble_to_local_temp_file");
-            let assembly_wait_started_at = Instant::now();
-            let assembly_permit = state
-                .upload_runtime
-                .acquire_chunk_assembly_to_local_temp_file()
-                .await?;
-            let assembly_wait_elapsed_ms = assembly_wait_started_at.elapsed().as_millis();
-            let assembled =
-                assemble_legacy_local_chunks_to_temp_file(state, session, should_dedup).await?;
-            drop(assembly_permit);
-            (assembled, false, assembly_wait_elapsed_ms)
-        };
+    let (chunked_temp, used_offset_staging, legacy_assembly_wait_elapsed_ms) = if let Some(staged) =
+        load_offset_staging_file(state, session, session_kind, should_dedup).await?
+    {
+        (staged, true, 0)
+    } else {
+        warn_legacy_chunk_file_completion(session, "assemble_to_local_temp_file");
+        let assembly_wait_started_at = Instant::now();
+        let assembly_permit = state
+            .upload_runtime
+            .acquire_chunk_assembly_to_local_temp_file()
+            .await?;
+        let assembly_wait_elapsed_ms = assembly_wait_started_at.elapsed().as_millis();
+        let assembled =
+            assemble_legacy_local_chunks_to_temp_file(state, session, should_dedup).await?;
+        drop(assembly_permit);
+        (assembled, false, assembly_wait_elapsed_ms)
+    };
     let prepare_elapsed_ms = prepare_started_at.elapsed().as_millis();
 
     let stage_started_at = Instant::now();
@@ -194,11 +200,16 @@ async fn validate_offset_staging_file(
 async fn load_offset_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
+    session_kind: UploadSessionKind,
     should_dedup: bool,
 ) -> Result<Option<ChunkedTempFile>> {
     // This checks the format-specific path, not the legacy `assembled` output. A stale legacy
     // assembly must remain retryable as legacy chunk files.
-    if !staging::exists(state, &session.id).await? {
+    if !matches!(
+        session_kind,
+        UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
+    ) || !staging::exists(state, &session.id).await?
+    {
         return Ok(None);
     }
 
@@ -247,9 +258,10 @@ async fn finalize_stream_relay_chunked_upload_session(
     session: &upload_session::Model,
     policy: &storage_policy::Model,
     driver: &dyn StorageDriver,
+    session_kind: UploadSessionKind,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    if staging::exists(state, &session.id).await? {
+    if session_kind == UploadSessionKind::StreamStaging {
         return finalize_offset_staging_stream_relay(
             state,
             session,

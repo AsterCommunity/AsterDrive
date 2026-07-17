@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::UploadSessionStatus;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -27,6 +27,9 @@ pub struct Model {
     pub folder_id: Option<i64>,
     pub policy_id: i64,
     pub status: UploadSessionStatus,
+    /// Explicit data-plane kind. Null is only for pre-migration sessions resolved by compatibility
+    /// classification; every new session persists this value at init.
+    pub session_kind: Option<UploadSessionKind>,
     /// Driver-agnostic temporary object key used by object/presigned multipart upload flows.
     pub object_temp_key: Option<String>,
     /// Driver-agnostic multipart upload id; empty for direct/stream upload transports.

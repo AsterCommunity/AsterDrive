@@ -60,7 +60,22 @@ etag        = aster-drive-offset-staging-receipt-v1
 size        = expected_chunk_size
 ```
 
-`.offset-staging-v1` 同时是显式 session 格式标识。Complete 只在该格式专用路径存在时进入 offset-staging 校验；legacy compatibility path 创建的通用 `assembled` 文件不参与判断。这个边界很重要：legacy 首次拼装后如果 storage/DB 阶段出现可重试失败，`assembled` 可能保留到下一次 Complete；若拿它判断格式，就会把 payload-sized `chunk_N` 错当成 offset receipt。
+`.offset-staging-v1` 是旧 session 的兼容格式线索，但新 session 的权威格式字段是 `upload_sessions.session_kind`。Complete、Chunk PUT、Progress 和 lifecycle 先使用显式 kind；只有 `session_kind IS NULL` 的迁移前 row 才通过统一 compatibility classifier 读取 policy transport、multipart 字段和 `.offset-staging-v1`。legacy compatibility path 创建的通用 `assembled` 文件不参与判断。这个边界很重要：legacy 首次拼装后如果 storage/DB 阶段出现可重试失败，`assembled` 可能保留到下一次 Complete；若拿它判断格式，就会把 payload-sized `chunk_N` 错当成 offset receipt。
+
+### 显式 session kind
+
+Init 根据 connector-owned `PolicyUploadTransport` 持久化执行计划，不根据 `DriverType` 猜路径。当前值包括：
+
+| `session_kind` | 数据面 | 完成计划 |
+| --- | --- | --- |
+| `offset_staging` | 本地 `.offset-staging-v1` + DB receipt | 本地 staging finalize |
+| `stream_staging` | staging file + connector stream relay | stream relay finalize |
+| `provider_relay_multipart` / `remote_relay_multipart` | provider multipart parts + DB ETag | relay multipart complete |
+| `provider_presigned_single` / `remote_presigned_single` | provider temp object | presigned single complete |
+| `provider_presigned_multipart` / `remote_presigned_multipart` | provider multipart parts | presigned multipart complete |
+| `legacy_chunk_files` | 迁移前 `chunk_N` payload | legacy assemble/relay compatibility |
+
+`session_kind` 在 0.5.0 前保持 nullable，以便读取升级前的 session；新 Init 永远写入非空值。显式 kind 与 multipart 字段组合不一致时，接口返回 `upload.session_corrupted`，不会降级到另一条数据面。
 
 ### Chunk PUT 的 durable receipt 顺序
 
@@ -122,13 +137,13 @@ Local completion 直接消费这份 staging file：开启 `content_dedup` 时会
 
 ## session status 与完成计划
 
-`upload::complete::plan::determine_completion_plan` 当前用 session 状态和 object 字段选择完成计划：
+`upload::complete::plan::determine_completion_plan` 使用已解析的 `UploadSessionKind` 选择完成计划；session 状态只负责幂等、assembling、过期和失败错误：
 
 - `completed` -> `ReturnCompleted`，通过 `find_file_by_session` 幂等返回已有文件，不应再次 charge quota。
-- `presigned` + `object_multipart_id = None` -> `CompletePresigned`。
-- `presigned` + `object_multipart_id = Some` -> `CompletePresignedMultipart`，客户端必须提交 parts。
-- `uploading` + `object_multipart_id = Some` -> `CompleteRelayMultipart`，parts 来自服务端已保存的 `upload_session_parts`。
-- 其他 `uploading` session -> `CompleteChunked`，要求 `received_count == total_chunks`；随后再由格式专用 `.offset-staging-v1` 路径区分当前 offset staging 与 legacy chunk files。
+- `provider_presigned_single` / `remote_presigned_single` -> `CompletePresigned`。
+- `provider_presigned_multipart` / `remote_presigned_multipart` -> `CompletePresignedMultipart`，客户端必须提交 parts。
+- `provider_relay_multipart` / `remote_relay_multipart` -> `CompleteRelayMultipart`，parts 来自服务端已保存的 `upload_session_parts`。
+- `offset_staging` / `stream_staging` / `legacy_chunk_files` -> `CompleteChunked`，要求 `received_count == total_chunks`；只有 legacy null row 才需要 compatibility classifier。
 
 `run_upload_completion_stage` 会先把 expected status 切到 `assembling`。非 retryable 失败会把 session 标为 `failed`；retryable storage error 会尝试恢复到原状态，允许客户端重试。
 

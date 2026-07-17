@@ -6,13 +6,14 @@ use crate::db::repository::upload_session_repo;
 use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::files::upload::kind::resolve_upload_session_kind;
 use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::files::upload::shared::{
     UploadStorageErrorClass, classify_upload_storage_error, cleanup_upload_temp_dir,
     mark_session_failed_with_expiration, upload_storage_error_class_label,
 };
 use crate::storage::StorageDriver;
-use crate::types::UploadSessionStatus;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::numbers::usize_to_u32;
 
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;
@@ -108,6 +109,32 @@ async fn cleanup_remote_upload_state(
     state: &impl SharedRuntimeState,
     session: &upload_session::Model,
 ) -> UploadRemoteCleanupOutcome {
+    let kind = match resolve_upload_session_kind(state, session).await {
+        Ok(kind) => kind,
+        Err(error) => {
+            tracing::warn!(
+                session_id = %session.id,
+                "failed to classify upload session before remote cleanup: {error}"
+            );
+            return UploadRemoteCleanupOutcome::DeferredIntervention;
+        }
+    };
+    let has_legacy_remote_temp =
+        kind == UploadSessionKind::LegacyChunkFiles && session.object_temp_key.is_some();
+    if !has_legacy_remote_temp
+        && !matches!(
+            kind,
+            UploadSessionKind::ProviderRelayMultipart
+                | UploadSessionKind::ProviderPresignedSingle
+                | UploadSessionKind::ProviderPresignedMultipart
+                | UploadSessionKind::RemoteRelayMultipart
+                | UploadSessionKind::RemotePresignedSingle
+                | UploadSessionKind::RemotePresignedMultipart
+        )
+    {
+        return UploadRemoteCleanupOutcome::Complete;
+    }
+
     let Some(temp_key) = session.object_temp_key.as_deref() else {
         return UploadRemoteCleanupOutcome::Complete;
     };
@@ -218,7 +245,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 
 pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i64) -> Result<()> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    let mode = upload_session_mode_label(&session);
+    let mode = upload_session_mode_label(state, &session).await?;
     cancel_upload_impl(state, session)
         .await
         .inspect(|_| record_upload_cancel_metric(state, mode, true))
@@ -232,24 +259,28 @@ pub async fn cancel_upload_for_team(
     user_id: i64,
 ) -> Result<()> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    let mode = upload_session_mode_label(&session);
+    let mode = upload_session_mode_label(state, &session).await?;
     cancel_upload_impl(state, session)
         .await
         .inspect(|_| record_upload_cancel_metric(state, mode, true))
         .inspect_err(|_| record_upload_cancel_metric(state, mode, false))
 }
 
-fn upload_session_mode_label(session: &upload_session::Model) -> &'static str {
-    if session.status == UploadSessionStatus::Presigned {
-        if session.object_multipart_id.is_some() {
-            return "presigned_multipart";
-        }
-        return "presigned";
-    }
-    if session.object_multipart_id.is_some() {
-        return "presigned_multipart";
-    }
-    "chunked"
+async fn upload_session_mode_label(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+) -> Result<&'static str> {
+    Ok(match resolve_upload_session_kind(state, session).await? {
+        UploadSessionKind::OffsetStaging => "offset_staging",
+        UploadSessionKind::StreamStaging => "stream_staging",
+        UploadSessionKind::ProviderRelayMultipart => "provider_relay_multipart",
+        UploadSessionKind::ProviderPresignedSingle => "provider_presigned_single",
+        UploadSessionKind::ProviderPresignedMultipart => "provider_presigned_multipart",
+        UploadSessionKind::RemoteRelayMultipart => "remote_relay_multipart",
+        UploadSessionKind::RemotePresignedSingle => "remote_presigned_single",
+        UploadSessionKind::RemotePresignedMultipart => "remote_presigned_multipart",
+        UploadSessionKind::LegacyChunkFiles => "legacy_chunk_files",
+    })
 }
 
 fn record_upload_cancel_metric(state: &impl SharedRuntimeState, mode: &'static str, success: bool) {

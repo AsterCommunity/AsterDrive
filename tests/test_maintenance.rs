@@ -119,6 +119,7 @@ async fn create_upload_session(
             folder_id: Set(None),
             policy_id: Set(policy.id),
             status: Set(spec.status),
+            session_kind: Set(None),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(spec.object_multipart_id.map(str::to_string)),
             file_id: Set(spec.file_id),

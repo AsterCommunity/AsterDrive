@@ -121,6 +121,9 @@ impl StorageConnectorUploadTransport {
     ///
     /// object storage 仍组装成本地文件再进入对象存储路径；remote/provider stream upload
     /// 可以把 chunk 串成 reader 直接喂给 `StreamUploadDriver`，避免再造第二份完整临时文件。
+    ///
+    /// 这是迁移前 `legacy_chunk_files` 的兼容 fallback，不是新 session 的主路由事实来源。
+    /// 新 session 已由 `UploadSessionKind` 选定执行计划，不能再次通过 capability 推断改道。
     pub fn chunked_completion(self) -> StorageConnectorChunkedCompletion {
         match self {
             // Remote and provider stream uploads should not assemble a second

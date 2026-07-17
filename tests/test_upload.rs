@@ -132,6 +132,7 @@ struct UploadSessionSpec<'a> {
     expires_at: chrono::DateTime<chrono::Utc>,
     total_chunks: i32,
     received_count: i32,
+    session_kind: Option<aster_drive::types::UploadSessionKind>,
     policy_id: Option<i64>,
     object_temp_key: Option<&'a str>,
     object_multipart_id: Option<&'a str>,
@@ -150,6 +151,7 @@ impl<'a> UploadSessionSpec<'a> {
             expires_at,
             total_chunks: 0,
             received_count: 0,
+            session_kind: None,
             policy_id: None,
             object_temp_key: None,
             object_multipart_id: None,
@@ -165,6 +167,11 @@ impl<'a> UploadSessionSpec<'a> {
 
     fn policy(mut self, policy_id: i64) -> Self {
         self.policy_id = Some(policy_id);
+        self
+    }
+
+    fn session_kind(mut self, kind: aster_drive::types::UploadSessionKind) -> Self {
+        self.session_kind = Some(kind);
         self
     }
 
@@ -213,6 +220,7 @@ async fn create_upload_session(
             folder_id: Set(None),
             policy_id: Set(policy_id),
             status: Set(spec.status),
+            session_kind: Set(spec.session_kind),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(spec.object_multipart_id.map(str::to_string)),
             file_id: Set(spec.file_id),
@@ -255,6 +263,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
+        session_kind: Set(None),
         object_temp_key: Set(None),
         object_multipart_id: Set(None),
         file_id: Set(None),
@@ -316,6 +325,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
+        session_kind: Set(None),
         object_temp_key: Set(None),
         object_multipart_id: Set(None),
         file_id: Set(None),
@@ -2374,6 +2384,107 @@ async fn test_init_upload_local_never_presigned() {
     assert!(body["data"]["presigned_url"].is_null());
 }
 
+#[tokio::test]
+async fn test_chunked_init_persists_explicit_offset_staging_kind() {
+    use aster_drive::db::repository::upload_session_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive::types::{UploadMode, UploadSessionKind};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(&state, "kindinit", "kind-init@test.com", "password123")
+        .await
+        .unwrap();
+    let response = upload::init_upload(
+        &state,
+        user.id,
+        "kind-init.bin",
+        10 * 1024 * 1024,
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+    assert_eq!(response.mode, UploadMode::Chunked);
+    let session =
+        upload_session_repo::find_by_id(state.writer_db(), response.upload_id.as_deref().unwrap())
+            .await
+            .unwrap();
+    assert_eq!(session.session_kind, Some(UploadSessionKind::OffsetStaging));
+}
+
+#[tokio::test]
+async fn test_explicit_session_kind_rejects_incompatible_fields() {
+    use aster_drive::services::files::upload;
+    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "kindcorrupt",
+        "kind-corrupt@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 0)
+        .session_kind(UploadSessionKind::ProviderRelayMultipart),
+    )
+    .await;
+
+    let error = match upload::get_progress(&state, &upload_id, user.id).await {
+        Ok(_) => panic!("provider multipart kind without multipart id must be rejected"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code(), "E057");
+    assert!(error.message().contains("multipart fields"));
+}
+
+#[tokio::test]
+async fn test_presigned_session_kind_rejects_server_chunk_put() {
+    use aster_drive::services::files::upload;
+    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "kindpresigned",
+        "kind-presigned@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 0)
+        .session_kind(UploadSessionKind::ProviderPresignedMultipart)
+        .object_upload(Some("files/temp"), Some("multipart")),
+    )
+    .await;
+
+    let error = match upload::upload_chunk(&state, &upload_id, 0, user.id, b"12345").await {
+        Ok(_) => panic!("presigned session must not enter server chunk path"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code(), "E057");
+    assert!(error.message().contains("presigned"));
+}
+
 /// 并发上传同一分片不会导致 received_count 多算（TOCTOU 修复验证）
 #[tokio::test]
 async fn test_concurrent_chunk_upload_idempotent() {
@@ -3368,6 +3479,9 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
                 folder_id: Set(None),
                 policy_id: Set(relay_policy.id),
                 status: Set(status),
+                session_kind: Set(Some(
+                    aster_drive::types::UploadSessionKind::ProviderRelayMultipart,
+                )),
                 object_temp_key: Set(Some(format!("files/{upload_id}"))),
                 object_multipart_id: Set(Some(format!("multipart-{status_name}"))),
                 file_id: Set(None),

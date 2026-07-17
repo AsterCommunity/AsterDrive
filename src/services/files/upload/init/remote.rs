@@ -13,7 +13,8 @@ use aster_forge_utils::numbers;
 
 use super::context::{
     InitUploadContext, MultipartSessionInitParams, UploadSessionRecordParams,
-    direct_upload_response, init_multipart_session_with_retry, try_persist_upload_session,
+    direct_upload_response, init_multipart_session_with_retry, session_kind_for_transport,
+    try_persist_upload_session,
 };
 
 pub(super) async fn init_remote_upload(
@@ -63,6 +64,7 @@ async fn init_relay_stream_remote_upload(
         MultipartSessionInitParams {
             mode: UploadMode::Chunked,
             status: UploadSessionStatus::Uploading,
+            session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),
@@ -102,6 +104,7 @@ async fn init_presigned_remote_upload(
         MultipartSessionInitParams {
             mode: UploadMode::PresignedMultipart,
             status: UploadSessionStatus::Presigned,
+            session_kind: session_kind_for_transport(transport, UploadMode::PresignedMultipart)?,
             chunk_size,
             total_chunks,
             expires_in: Duration::hours(24),
@@ -135,6 +138,10 @@ async fn init_remote_presigned_single_upload(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Presigned,
+                session_kind: session_kind_for_transport(
+                    PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+                    UploadMode::Presigned,
+                )?,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: None,
                 expires_at: Utc::now() + Duration::hours(1),

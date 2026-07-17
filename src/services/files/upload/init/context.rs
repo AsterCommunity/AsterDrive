@@ -9,9 +9,12 @@ use crate::services::files::upload::responses::InitUploadResponse;
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
 use crate::storage::MultipartStorageDriver;
-use crate::types::{UploadMode, UploadSessionStatus};
+use crate::types::{
+    ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode, UploadSessionKind,
+    UploadSessionStatus,
+};
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
@@ -39,6 +42,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) policy_id: i64,
     pub(super) frontend_client_id: Option<&'a str>,
     pub(super) status: UploadSessionStatus,
+    pub(super) session_kind: UploadSessionKind,
     pub(super) object_temp_key: Option<&'a str>,
     pub(super) object_multipart_id: Option<&'a str>,
     pub(super) expires_at: DateTime<Utc>,
@@ -47,6 +51,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
 pub(super) struct MultipartSessionInitParams {
     pub(super) mode: UploadMode,
     pub(super) status: UploadSessionStatus,
+    pub(super) session_kind: UploadSessionKind,
     pub(super) chunk_size: i64,
     pub(super) total_chunks: i32,
     pub(super) expires_in: chrono::Duration,
@@ -54,6 +59,52 @@ pub(super) struct MultipartSessionInitParams {
     pub(super) abort_db_error_context: &'static str,
     pub(super) abort_db_error_message: &'static str,
     pub(super) abort_collision_context: &'static str,
+}
+
+/// Resolves the persisted data plane from connector-owned transport semantics.
+///
+/// This is intentionally expressed in terms of `PolicyUploadTransport`, not `DriverType`: a
+/// connector may expose the same driver through different upload strategies, and the strategy is
+/// what determines the session lifecycle and cleanup contract.
+pub(super) fn session_kind_for_transport(
+    transport: PolicyUploadTransport,
+    mode: UploadMode,
+) -> Result<UploadSessionKind> {
+    let kind = match (transport, mode) {
+        (PolicyUploadTransport::Local, UploadMode::Chunked) => UploadSessionKind::OffsetStaging,
+        (
+            PolicyUploadTransport::StreamUpload | PolicyUploadTransport::Sftp,
+            UploadMode::Chunked,
+        ) => UploadSessionKind::StreamStaging,
+        (
+            PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+            UploadMode::Chunked,
+        ) => UploadSessionKind::ProviderRelayMultipart,
+        (
+            PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+            UploadMode::Presigned,
+        ) => UploadSessionKind::ProviderPresignedSingle,
+        (
+            PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+            UploadMode::PresignedMultipart,
+        ) => UploadSessionKind::ProviderPresignedMultipart,
+        (PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream), UploadMode::Chunked) => {
+            UploadSessionKind::RemoteRelayMultipart
+        }
+        (PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned), UploadMode::Presigned) => {
+            UploadSessionKind::RemotePresignedSingle
+        }
+        (
+            PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+            UploadMode::PresignedMultipart,
+        ) => UploadSessionKind::RemotePresignedMultipart,
+        _ => {
+            return Err(AsterError::validation_error(format!(
+                "upload transport {transport:?} cannot initialize mode {mode:?}"
+            )));
+        }
+    };
+    Ok(kind)
 }
 
 pub(super) async fn resolve_init_upload_context(
@@ -190,6 +241,7 @@ pub(super) async fn init_multipart_session_with_retry(
     let MultipartSessionInitParams {
         mode,
         status,
+        session_kind,
         chunk_size,
         total_chunks,
         expires_in,
@@ -215,6 +267,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status,
+                session_kind,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: Some(&multipart_id),
                 expires_at: Utc::now() + expires_in,
@@ -290,6 +343,7 @@ fn upload_session_active_model(
         policy_id,
         frontend_client_id,
         status,
+        session_kind,
         object_temp_key,
         object_multipart_id,
         expires_at,
@@ -309,6 +363,7 @@ fn upload_session_active_model(
         folder_id: Set(folder_id),
         policy_id: Set(policy_id),
         status: Set(status),
+        session_kind: Set(Some(session_kind)),
         object_temp_key: Set(object_temp_key.map(str::to_string)),
         object_multipart_id: Set(object_multipart_id.map(str::to_string)),
         file_id: Set(None),
@@ -344,5 +399,90 @@ pub(super) fn chunked_upload_response(
         presigned_url: None,
         presigned_headers: Default::default(),
         presigned_require_etag: None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::session_kind_for_transport;
+    use crate::services::workspace::storage::PolicyUploadTransport;
+    use crate::types::{
+        ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode, UploadSessionKind,
+    };
+
+    #[test]
+    fn session_kind_mapping_covers_each_connector_transport() {
+        let cases = [
+            (
+                PolicyUploadTransport::Local,
+                UploadMode::Chunked,
+                UploadSessionKind::OffsetStaging,
+            ),
+            (
+                PolicyUploadTransport::StreamUpload,
+                UploadMode::Chunked,
+                UploadSessionKind::StreamStaging,
+            ),
+            (
+                PolicyUploadTransport::Sftp,
+                UploadMode::Chunked,
+                UploadSessionKind::StreamStaging,
+            ),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
+                UploadMode::Chunked,
+                UploadSessionKind::ProviderRelayMultipart,
+            ),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+                UploadMode::Presigned,
+                UploadSessionKind::ProviderPresignedSingle,
+            ),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+                UploadMode::PresignedMultipart,
+                UploadSessionKind::ProviderPresignedMultipart,
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+                UploadMode::Chunked,
+                UploadSessionKind::RemoteRelayMultipart,
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+                UploadMode::Presigned,
+                UploadSessionKind::RemotePresignedSingle,
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::Presigned),
+                UploadMode::PresignedMultipart,
+                UploadSessionKind::RemotePresignedMultipart,
+            ),
+        ];
+
+        for (transport, mode, expected) in cases {
+            assert_eq!(
+                session_kind_for_transport(transport, mode).unwrap(),
+                expected
+            );
+        }
+    }
+
+    #[test]
+    fn session_kind_mapping_rejects_impossible_mode_combinations() {
+        let invalid = [
+            (PolicyUploadTransport::Local, UploadMode::Direct),
+            (
+                PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
+                UploadMode::Chunked,
+            ),
+            (
+                PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
+                UploadMode::Presigned,
+            ),
+        ];
+        for (transport, mode) in invalid {
+            assert!(session_kind_for_transport(transport, mode).is_err());
+        }
     }
 }

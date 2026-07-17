@@ -8,6 +8,7 @@ use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::entities::upload_session;
 use crate::errors::{Result, chunk_upload_error_with_code, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::services::files::upload::kind::{mode_for_kind, resolve_upload_session_kind};
 use crate::services::files::upload::responses::{
     RecoverableUploadPartResponse, RecoverableUploadSessionResponse, UploadProgressResponse,
 };
@@ -16,8 +17,8 @@ use crate::services::files::upload::scope::{
 };
 use crate::services::files::upload::shared::expected_chunk_size_for_upload;
 use crate::services::files::upload::staging;
-use crate::services::workspace::storage::{self, resolve_policy_upload_transport};
-use crate::types::{UploadMode, UploadSessionStatus};
+use crate::services::workspace::storage;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::paths;
 use futures::{StreamExt, stream};
 
@@ -38,40 +39,41 @@ async fn get_progress_impl(
         "loading upload progress"
     );
 
-    let chunks_on_disk = if session.status == UploadSessionStatus::Presigned {
-        match (
-            session.object_temp_key.as_deref(),
-            session.object_multipart_id.as_deref(),
-        ) {
-            (Some(temp_key), Some(multipart_id)) => {
-                let policy = state
-                    .policy_snapshot()
-                    .get_policy_or_err(session.policy_id)?;
-                state
-                    .driver_registry
-                    .get_multipart_driver(&policy)?
-                    .list_uploaded_parts(temp_key, multipart_id)
-                    .await?
+    let kind = resolve_upload_session_kind(state, &session).await?;
+    let chunks_on_disk = match kind {
+        UploadSessionKind::ProviderPresignedMultipart
+        | UploadSessionKind::RemotePresignedMultipart => {
+            match (
+                session.object_temp_key.as_deref(),
+                session.object_multipart_id.as_deref(),
+            ) {
+                (Some(temp_key), Some(multipart_id)) => {
+                    let policy = state
+                        .policy_snapshot()
+                        .get_policy_or_err(session.policy_id)?;
+                    state
+                        .driver_registry
+                        .get_multipart_driver(&policy)?
+                        .list_uploaded_parts(temp_key, multipart_id)
+                        .await?
+                }
+                _ => scan_received_chunks(state, &session.id).await,
             }
-            _ => scan_received_chunks(state, &session.id).await,
         }
-    } else if session.object_multipart_id.is_some() {
-        let policy = state
-            .policy_snapshot()
-            .get_policy_or_err(session.policy_id)?;
-        if is_relay_multipart_policy(&policy)? {
+        UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
             upload_session_part_repo::list_part_numbers(state.reader_db(), &session.id)
                 .await?
                 .into_iter()
                 .map(|part_number| part_number - 1)
                 .collect()
-        } else {
+        }
+        UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
+            list_offset_staging_chunks(state, &session).await?
+        }
+        UploadSessionKind::LegacyChunkFiles => scan_received_chunks(state, &session.id).await,
+        UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
             scan_received_chunks(state, &session.id).await
         }
-    } else if staging::exists(state, &session.id).await? {
-        list_offset_staging_chunks(state, &session).await?
-    } else {
-        scan_received_chunks(state, &session.id).await
     };
 
     let progress = UploadProgressResponse {
@@ -132,25 +134,11 @@ async fn list_offset_staging_chunks(
     Ok(chunks)
 }
 
-fn is_relay_multipart_policy(policy: &crate::entities::storage_policy::Model) -> Result<bool> {
-    Ok(resolve_policy_upload_transport(policy)?.uses_relay_multipart_tracking())
-}
-
-fn recoverable_mode_for_session(session: &upload_session::Model) -> UploadMode {
-    if session.status == UploadSessionStatus::Presigned {
-        if session.object_multipart_id.is_some() {
-            return UploadMode::PresignedMultipart;
-        }
-        return UploadMode::Presigned;
-    }
-    UploadMode::Chunked
-}
-
 async fn recoverable_session_response(
     state: &PrimaryAppState,
     session: upload_session::Model,
 ) -> Result<RecoverableUploadSessionResponse> {
-    let mode = recoverable_mode_for_session(&session);
+    let mode = mode_for_kind(resolve_upload_session_kind(state, &session).await?);
     let progress = get_progress_impl(state, session.clone()).await?;
     let completed_parts = upload_session_part_repo::list_by_upload(state.reader_db(), &session.id)
         .await?

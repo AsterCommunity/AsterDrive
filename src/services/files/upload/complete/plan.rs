@@ -5,7 +5,7 @@ use crate::entities::upload_session;
 use crate::errors::{
     AsterError, Result, upload_assembly_error_with_code, validation_error_with_code,
 };
-use crate::types::UploadSessionStatus;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 
 #[derive(Debug)]
 pub(super) enum CompletionPlan {
@@ -18,6 +18,7 @@ pub(super) enum CompletionPlan {
 
 pub(super) fn determine_completion_plan(
     session: &upload_session::Model,
+    kind: UploadSessionKind,
     parts: Option<Vec<(i32, String)>>,
 ) -> Result<CompletionPlan> {
     if session.status == UploadSessionStatus::Completed {
@@ -41,38 +42,38 @@ pub(super) fn determine_completion_plan(
         ));
     }
 
-    if session.status == UploadSessionStatus::Presigned {
-        if session.object_multipart_id.is_some() {
+    match kind {
+        UploadSessionKind::ProviderPresignedMultipart
+        | UploadSessionKind::RemotePresignedMultipart => {
             let parts = parts.ok_or_else(|| {
                 validation_error_with_code(
                     ApiErrorCode::UploadPartsRequired,
                     "parts required for multipart upload completion",
                 )
             })?;
-            return Ok(CompletionPlan::CompletePresignedMultipart { parts });
+            Ok(CompletionPlan::CompletePresignedMultipart { parts })
         }
-
-        // presigned 单文件没有分片清单，只需要校验 temp object 真实存在且大小匹配。
-        return Ok(CompletionPlan::CompletePresigned);
+        UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
+            Ok(CompletionPlan::CompletePresigned)
+        }
+        UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
+            Ok(CompletionPlan::CompleteRelayMultipart)
+        }
+        UploadSessionKind::OffsetStaging
+        | UploadSessionKind::StreamStaging
+        | UploadSessionKind::LegacyChunkFiles => {
+            if session.received_count != session.total_chunks {
+                return Err(upload_assembly_error_with_code(
+                    ApiErrorCode::UploadIncompleteChunks,
+                    format!(
+                        "expected {} chunks, got {}",
+                        session.total_chunks, session.received_count
+                    ),
+                ));
+            }
+            Ok(CompletionPlan::CompleteChunked)
+        }
     }
-
-    if session.status == UploadSessionStatus::Uploading && session.object_multipart_id.is_some() {
-        // relay multipart 的 completed parts 由服务端在 chunk 阶段自行收集，
-        // complete 时无需客户端再次回传。
-        return Ok(CompletionPlan::CompleteRelayMultipart);
-    }
-
-    if session.received_count != session.total_chunks {
-        return Err(upload_assembly_error_with_code(
-            ApiErrorCode::UploadIncompleteChunks,
-            format!(
-                "expected {} chunks, got {}",
-                session.total_chunks, session.received_count
-            ),
-        ));
-    }
-
-    Ok(CompletionPlan::CompleteChunked)
 }
 
 pub(super) fn completion_plan_label(plan: &CompletionPlan) -> &'static str {

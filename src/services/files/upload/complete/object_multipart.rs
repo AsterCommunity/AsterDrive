@@ -806,6 +806,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: crate::types::UploadSessionStatus::Assembling,
+            session_kind: Some(crate::types::UploadSessionKind::ProviderRelayMultipart),
             object_temp_key: Some("temp".to_string()),
             object_multipart_id: Some("multipart".to_string()),
             file_id: None,

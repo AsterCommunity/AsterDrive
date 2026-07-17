@@ -7,6 +7,7 @@
 mod chunk;
 mod complete;
 mod init;
+mod kind;
 mod lifecycle;
 mod progress;
 mod responses;

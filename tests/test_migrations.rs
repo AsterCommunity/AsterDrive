@@ -27,6 +27,7 @@ const ALIGN_FORGE_MAIL_OUTBOX_CONTRACT_MIGRATION: &str =
 const RUNTIME_LEASES_MIGRATION: &str = "m20260713_000001_runtime_leases";
 const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
     "m20260716_000001_bind_external_auth_login_flows";
+const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_session_kind";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -51,17 +52,48 @@ async fn external_auth_login_flow_browser_binding_migration_is_registered_and_re
     let current_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
     assert!(has_column(&current_columns, "browser_binding_hash"));
 
-    CurrentMigrator::down(&db, Some(1))
+    let rollback_steps = steps_to_roll_back_migration(BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
         .await
         .expect("external auth browser binding migration should roll back");
     let rolled_back_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
     assert!(!has_column(&rolled_back_columns, "browser_binding_hash"));
 
-    CurrentMigrator::up(&db, Some(1))
+    CurrentMigrator::up(&db, Some(rollback_steps))
         .await
         .expect("external auth browser binding migration should reapply");
     let reapplied_columns = sqlite_table_columns(&db, "external_auth_login_flows").await;
     assert!(has_column(&reapplied_columns, "browser_binding_hash"));
+}
+
+#[tokio::test]
+async fn upload_session_kind_migration_is_nullable_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == ADD_UPLOAD_SESSION_KIND_MIGRATION),
+        "upload session kind migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&current_columns, "session_kind"));
+    assert!(
+        !sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await,
+        "pre-0.5.0 rows must remain readable with a null session kind"
+    );
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("upload session kind migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(!has_column(&rolled_back_columns, "session_kind"));
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("upload session kind migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&reapplied_columns, "session_kind"));
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

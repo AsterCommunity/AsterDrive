@@ -28,7 +28,7 @@ use aster_forge_utils::paths;
 
 use self::context::{
     InitUploadContext, UploadSessionRecordParams, direct_upload_response,
-    resolve_init_upload_context, try_persist_upload_session,
+    resolve_init_upload_context, session_kind_for_transport, try_persist_upload_session,
 };
 
 #[derive(Clone, Copy)]
@@ -148,6 +148,7 @@ async fn init_chunked_upload_session(
     // `.offset-staging-v1` 文件。每个 Chunk PUT 按 offset 写入并登记 DB receipt，Complete
     // 只校验 receipt 和 staging 内容后推进存储和元数据；legacy `assembled` 路径不参与新
     // session 的格式判断。
+    let transport = resolve_policy_upload_transport(&ctx.policy)?;
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
@@ -166,6 +167,7 @@ async fn init_chunked_upload_session(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,
+                session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
                 object_temp_key: None,
                 object_multipart_id: None,
                 expires_at,

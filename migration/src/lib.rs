@@ -55,6 +55,7 @@ mod m20260713_000001_runtime_leases;
 mod m20260713_000002_background_task_dedupe_key;
 mod m20260713_000003_scheduled_tasks;
 mod m20260716_000001_bind_external_auth_login_flows;
+mod m20260717_000001_add_upload_session_kind;
 mod search_acceleration;
 mod time;
 
@@ -175,6 +176,7 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260713_000002_background_task_dedupe_key::Migration),
             Box::new(m20260713_000003_scheduled_tasks::Migration),
             Box::new(m20260716_000001_bind_external_auth_login_flows::Migration),
+            Box::new(m20260717_000001_add_upload_session_kind::Migration),
         ]
     }
 }

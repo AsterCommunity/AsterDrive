@@ -491,6 +491,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Uploading,
+            session_kind: None,
             object_temp_key: None,
             object_multipart_id: None,
             file_id: None,

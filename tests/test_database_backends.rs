@@ -183,6 +183,35 @@ async fn assert_mysql_search_objects(db: &DatabaseConnection) {
     assert_eq!(precision, Some(6));
 }
 
+async fn assert_upload_session_kind_column(db: &DatabaseConnection, backend: DbBackend) {
+    let statement = match backend {
+        DbBackend::Postgres => Statement::from_string(
+            DbBackend::Postgres,
+            "SELECT is_nullable FROM information_schema.columns \
+             WHERE table_schema = current_schema() \
+               AND table_name = 'upload_sessions' \
+               AND column_name = 'session_kind'",
+        ),
+        DbBackend::MySql => Statement::from_string(
+            DbBackend::MySql,
+            "SELECT is_nullable FROM information_schema.columns \
+             WHERE table_schema = DATABASE() \
+               AND table_name = 'upload_sessions' \
+               AND column_name = 'session_kind'",
+        ),
+        _ => unreachable!("only postgres/mysql smoke tests use this helper"),
+    };
+    let row = db
+        .query_one_raw(statement)
+        .await
+        .expect("upload session kind column lookup should succeed")
+        .expect("upload_sessions.session_kind should exist");
+    let is_nullable: String = row
+        .try_get_by_index(0)
+        .expect("session_kind metadata should include is_nullable");
+    assert_eq!(is_nullable, "YES");
+}
+
 async fn assert_background_task_display_name_column_len(
     db: &DatabaseConnection,
     backend: DbBackend,
@@ -309,6 +338,7 @@ async fn exercise_backend_smoke(database_url: &str, backend: DbBackend) {
     }
     assert_background_task_display_name_column_len(state.writer_db(), backend).await;
     assert_background_task_display_name_accepts_expanded_len(state.writer_db()).await;
+    assert_upload_session_kind_column(state.writer_db(), backend).await;
 
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);

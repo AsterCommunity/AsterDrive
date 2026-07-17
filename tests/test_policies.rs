@@ -376,6 +376,7 @@ async fn create_policy_upload_session(
             status: Set(spec
                 .status
                 .unwrap_or(aster_drive::types::UploadSessionStatus::Uploading)),
+            session_kind: Set(None),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(None),
             file_id: Set(None),

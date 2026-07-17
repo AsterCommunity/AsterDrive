@@ -19,6 +19,7 @@ pub mod storage_policy;
 pub mod tag;
 pub mod task;
 pub mod team;
+pub mod upload_session;
 pub mod user;
 pub mod user_invitation;
 

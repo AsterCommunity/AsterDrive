@@ -3,7 +3,7 @@ use super::plan::{CompletionPlan, determine_completion_plan};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::upload_session;
-use crate::types::UploadSessionStatus;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 
 fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
     upload_session::Model {
@@ -19,6 +19,7 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         folder_id: None,
         policy_id: 1,
         status,
+        session_kind: None,
         object_temp_key: None,
         object_multipart_id: None,
         file_id: None,
@@ -30,8 +31,12 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
 
 #[test]
 fn determine_completion_plan_marks_previous_failure_with_code() {
-    let err = determine_completion_plan(&mock_session(UploadSessionStatus::Failed), None)
-        .expect_err("failed session should not continue");
+    let err = determine_completion_plan(
+        &mock_session(UploadSessionStatus::Failed),
+        UploadSessionKind::OffsetStaging,
+        None,
+    )
+    .expect_err("failed session should not continue");
 
     assert_eq!(err.code(), "E057");
     assert_eq!(
@@ -45,7 +50,8 @@ fn determine_completion_plan_rejects_expired_active_session() {
     let mut session = mock_session(UploadSessionStatus::Presigned);
     session.expires_at = chrono::Utc::now() - chrono::Duration::seconds(1);
 
-    let err = determine_completion_plan(&session, None).expect_err("expired session should fail");
+    let err = determine_completion_plan(&session, UploadSessionKind::ProviderPresignedSingle, None)
+        .expect_err("expired session should fail");
 
     assert_eq!(err.code(), "E055");
 }
@@ -55,8 +61,12 @@ fn determine_completion_plan_requires_parts_for_presigned_multipart() {
     let mut session = mock_session(UploadSessionStatus::Presigned);
     session.object_multipart_id = Some("mp-1".to_string());
 
-    let err =
-        determine_completion_plan(&session, None).expect_err("multipart complete needs parts");
+    let err = determine_completion_plan(
+        &session,
+        UploadSessionKind::ProviderPresignedMultipart,
+        None,
+    )
+    .expect_err("multipart complete needs parts");
 
     assert_eq!(err.code(), "E005");
     assert_eq!(
@@ -70,7 +80,8 @@ fn determine_completion_plan_marks_incomplete_chunks_with_code() {
     let mut session = mock_session(UploadSessionStatus::Uploading);
     session.received_count = 2;
 
-    let err = determine_completion_plan(&session, None).expect_err("missing chunks should fail");
+    let err = determine_completion_plan(&session, UploadSessionKind::OffsetStaging, None)
+        .expect_err("missing chunks should fail");
 
     assert_eq!(err.code(), "E057");
     assert_eq!(
@@ -81,8 +92,12 @@ fn determine_completion_plan_marks_incomplete_chunks_with_code() {
 
 #[test]
 fn determine_completion_plan_returns_chunked_completion_when_all_chunks_arrived() {
-    let plan = determine_completion_plan(&mock_session(UploadSessionStatus::Uploading), None)
-        .expect("complete session should produce plan");
+    let plan = determine_completion_plan(
+        &mock_session(UploadSessionStatus::Uploading),
+        UploadSessionKind::OffsetStaging,
+        None,
+    )
+    .expect("complete session should produce plan");
 
     assert!(matches!(plan, CompletionPlan::CompleteChunked));
 }
