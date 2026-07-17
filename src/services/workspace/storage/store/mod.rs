@@ -139,7 +139,9 @@ pub(crate) async fn create_empty(
     let created = if should_dedup {
         let storage_path =
             aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
-        driver.put(&storage_path, &[]).await?;
+        if !driver.exists(&storage_path).await? {
+            driver.put(&storage_path, &[]).await?;
+        }
         let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
         let transaction_storage_path = storage_path.clone();
         let transaction_filename = filename.clone();

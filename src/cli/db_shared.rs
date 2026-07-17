@@ -7,6 +7,7 @@ use std::path::Path;
 
 use migration::{MigrationHistory, MigrationTrack, inspect_migration_history};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
+use url::Url;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 
@@ -102,20 +103,24 @@ pub(super) fn redact_database_url(database_url: &str) -> String {
         return redact_sqlite_database_url(database_url);
     }
 
-    let Some((scheme, rest)) = database_url.split_once("://") else {
-        return database_url.to_string();
-    };
+    if let Ok(mut url) = Url::parse(database_url) {
+        if !url.username().is_empty() || url.password().is_some() {
+            let _ = url.set_username("***");
+            let _ = url.set_password(None);
+        }
+        redact_url_query(&mut url);
+        return url.to_string();
+    }
 
-    let Some((_authority, suffix)) = rest.rsplit_once('@') else {
-        return database_url.to_string();
-    };
-
-    format!("{scheme}://***@{suffix}")
+    redact_unparsed_url(database_url)
 }
 
 fn redact_sqlite_database_url(database_url: &str) -> String {
     let Some(path_and_query) = database_url.strip_prefix("sqlite://") else {
-        return database_url.to_string();
+        let Some((base, query)) = database_url.split_once('?') else {
+            return database_url.to_string();
+        };
+        return format!("{base}?{}", redact_query_string(query));
     };
     let (path, query) = path_and_query
         .split_once('?')
@@ -123,9 +128,93 @@ fn redact_sqlite_database_url(database_url: &str) -> String {
     let redacted_path = redact_sqlite_path(path);
 
     match query {
-        Some(query) => format!("sqlite://{redacted_path}?{query}"),
+        Some(query) => format!("sqlite://{redacted_path}?{}", redact_query_string(query)),
         None => format!("sqlite://{redacted_path}"),
     }
+}
+
+fn redact_url_query(url: &mut Url) {
+    let Some(query) = url.query() else {
+        return;
+    };
+    let redacted = redact_query_string(query);
+    url.set_query(Some(&redacted));
+}
+
+fn redact_query_string(query: &str) -> String {
+    url::form_urlencoded::parse(query.as_bytes())
+        .map(|(key, value)| {
+            let value = if is_sensitive_query_key(&key) {
+                "***"
+            } else {
+                value.as_ref()
+            };
+            (key.into_owned(), value.to_string())
+        })
+        .fold(
+            url::form_urlencoded::Serializer::new(String::new()),
+            |mut serializer, (key, value)| {
+                serializer.append_pair(&key, &value);
+                serializer
+            },
+        )
+        .finish()
+}
+
+fn is_sensitive_query_key(key: &str) -> bool {
+    let normalized = key
+        .chars()
+        .filter(|character| character.is_ascii_alphanumeric())
+        .flat_map(char::to_lowercase)
+        .collect::<String>();
+
+    matches!(
+        normalized.as_str(),
+        "pass"
+            | "password"
+            | "token"
+            | "accesstoken"
+            | "refreshtoken"
+            | "secret"
+            | "apikey"
+            | "key"
+            | "credential"
+            | "credentials"
+    ) || normalized.contains("token")
+        || normalized.contains("password")
+        || normalized.contains("secret")
+        || normalized.contains("credential")
+}
+
+fn redact_unparsed_url(database_url: &str) -> String {
+    let (without_fragment, fragment) = database_url
+        .split_once('#')
+        .map_or((database_url, None), |(value, fragment)| {
+            (value, Some(fragment))
+        });
+    let (base, query) = without_fragment
+        .split_once('?')
+        .map_or((without_fragment, None), |(base, query)| {
+            (base, Some(query))
+        });
+    let base = if let Some((scheme, rest)) = base.split_once("://") {
+        if let Some((_authority, suffix)) = rest.rsplit_once('@') {
+            format!("{scheme}://***@{suffix}")
+        } else {
+            base.to_string()
+        }
+    } else {
+        base.to_string()
+    };
+    let mut redacted = match query {
+        Some(query) => format!("{base}?{}", redact_query_string(query)),
+        None => base,
+    };
+    if let Some(fragment) = fragment {
+        redacted.push('#');
+        redacted.push_str(fragment);
+    }
+    redacted
 }
 
 fn redact_sqlite_path(path: &str) -> String {
@@ -167,6 +256,16 @@ mod tests {
             redact_database_url("mysql://aster@db.internal:3306/asterdrive"),
             "mysql://***@db.internal:3306/asterdrive"
         );
+        let redacted = redact_database_url(
+            "postgres://us%40er:p%40ss@db.internal:5432/asterdrive?password=p%40ss&%61ccess_token=a%2Fb&sslmode=require",
+        );
+        assert!(redacted.starts_with("postgres://***@db.internal:5432/asterdrive?"));
+        assert!(redacted.contains("password=***"));
+        assert!(redacted.contains("access_token=***"));
+        assert!(redacted.contains("sslmode=require"));
+        assert!(!redacted.contains("us%40er"));
+        assert!(!redacted.contains("p%40ss"));
+        assert!(!redacted.contains("a%2Fb"));
     }
 
     #[test]
@@ -185,6 +284,18 @@ mod tests {
         assert_eq!(
             redact_database_url("sqlite://:memory:"),
             "sqlite://:memory:"
+        );
+        let redacted = redact_database_url(
+            "sqlite://data/asterdrive.db?mode=rwc&password=secret%2Fvalue&DB_TOKEN=abc",
+        );
+        assert!(redacted.contains("mode=rwc"));
+        assert!(redacted.contains("password=***"));
+        assert!(redacted.contains("DB_TOKEN=***"));
+        assert!(!redacted.contains("secret%2Fvalue"));
+        assert!(!redacted.contains("abc"));
+        assert_eq!(
+            redact_database_url("sqlite::memory:?token=encoded%2Fsecret&mode=memory"),
+            "sqlite::memory:?token=***&mode=memory"
         );
     }
 }

@@ -2684,7 +2684,7 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
 
 #[actix_web::test]
 async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_loser() {
-    use aster_drive::db::repository::{file_repo, team_repo, upload_session_repo};
+    use aster_drive::db::repository::{file_repo, team_repo, upload_session_repo, version_repo};
     use aster_drive::entities::team as team_entity;
     use aster_drive::services::{files::upload, workspace::team};
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
@@ -2769,15 +2769,15 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
         .await
         .unwrap();
     assert_eq!(team_after.storage_used, single_file_size);
-    assert_eq!(
-        file_repo::find_by_team_folder(state.writer_db(), team.id, None)
-            .await
-            .unwrap()
-            .into_iter()
-            .filter(|file| file.name.starts_with("team-chunked-quota-race-"))
-            .count(),
-        1
-    );
+    let live_files = file_repo::find_by_team_folder(state.writer_db(), team.id, None)
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|file| file.name.starts_with("team-chunked-quota-race-"))
+        .collect::<Vec<_>>();
+    assert_eq!(live_files.len(), 1);
+    let completed_file = &live_files[0];
+    assert!(completed_file.deleted_at.is_none());
     assert_eq!(
         aster_drive::entities::file_blob::Entity::find()
             .count(state.writer_db())
@@ -2799,7 +2799,14 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
         assert_eq!(session.team_id, Some(team.id));
         match session.status {
             aster_drive::types::UploadSessionStatus::Completed => {
-                assert!(session.file_id.is_some());
+                let file_id = session
+                    .file_id
+                    .expect("completed session must reference a file");
+                assert_eq!(file_id, completed_file.id);
+                let versions = version_repo::find_by_file_id(state.writer_db(), file_id)
+                    .await
+                    .unwrap();
+                assert!(versions.is_empty());
                 completed += 1;
             }
             aster_drive::types::UploadSessionStatus::Failed => {
@@ -2810,6 +2817,13 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
         }
     }
     assert_eq!((completed, failed), (1, 1));
+    assert_eq!(
+        aster_drive::entities::file_version::Entity::find()
+            .count(state.writer_db())
+            .await
+            .unwrap(),
+        0
+    );
 }
 
 #[actix_web::test]

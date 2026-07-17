@@ -1106,6 +1106,26 @@ mod tests {
     }
 
     #[test]
+    fn forge_database_errors_preserve_classification_and_commit_uncertainty() {
+        let classified = AsterError::from(aster_forge_db::DbError::database_operation_classified(
+            "deadlock",
+            aster_forge_db::DatabaseErrorKind::Deadlock,
+        ));
+        assert_eq!(
+            classified.database_error_kind(),
+            Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        );
+        assert!(!classified.database_commit_outcome_uncertain());
+
+        let uncertain = AsterError::from(aster_forge_db::DbError::commit_outcome_unknown(
+            "connection lost after commit",
+            None,
+        ));
+        assert!(uncertain.database_commit_outcome_uncertain());
+        assert_eq!(uncertain.database_error_kind(), None);
+    }
+
+    #[test]
     fn forge_csrf_errors_preserve_every_product_error_code() {
         let cases = [
             (CsrfErrorKind::TokenNameInvalid, ApiErrorCode::ConfigError),
