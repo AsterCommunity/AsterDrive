@@ -4,8 +4,8 @@
 //! `assembled` path belongs only to the deprecated payload-per-chunk compatibility path and may
 //! survive a retryable storage/DB failure; its presence must never select offset-staging validation.
 
-use aster_forge_db::transaction;
 use chrono::Utc;
+use sea_orm::DbBackend;
 use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
@@ -556,70 +556,70 @@ async fn persist_chunked_upload(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
-    let mut deadlock_attempt = 0;
-    let create_result = loop {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let result = async {
-            storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_session = session.clone();
+    let transaction_verified = verified.clone();
+    let transaction_actor_username = actor_username.map(str::to_owned);
+    let transaction_now = now;
+    let create_result = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        move |txn| {
+            let session = transaction_session.clone();
+            let verified = transaction_verified.clone();
+            let actor_username = transaction_actor_username.clone();
+            let now = transaction_now;
+            Box::pin(async move {
+                storage::lock_storage_usage(txn, workspace_scope_from_session(&session)).await?;
 
-            let blob = match verified.source() {
-                VerifiedUploadSource::ContentAddressed { file_hash }
-                | VerifiedUploadSource::OpaqueObject { file_hash } => {
-                    file_repo::find_or_create_blob(
-                        &txn,
-                        file_hash,
-                        verified.size(),
-                        verified.policy_id(),
-                        verified.storage_path(),
-                    )
-                    .await?
-                    .model
-                }
-                VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
-                    storage::persist_preuploaded_blob(&txn, prepared).await?
-                }
-            };
+                let blob = match verified.source() {
+                    VerifiedUploadSource::ContentAddressed { file_hash }
+                    | VerifiedUploadSource::OpaqueObject { file_hash } => {
+                        file_repo::find_or_create_blob(
+                            txn,
+                            file_hash,
+                            verified.size(),
+                            verified.policy_id(),
+                            verified.storage_path(),
+                        )
+                        .await?
+                        .model
+                    }
+                    VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                        storage::persist_preuploaded_blob(txn, prepared).await?
+                    }
+                };
 
-            let created = storage::finalize_upload_session_blob_with_actor_username(
-                &txn,
-                session,
-                &blob,
-                now,
-                actor_username,
-            )
-            .await?;
+                let created = storage::finalize_upload_session_blob_with_actor_username(
+                    txn,
+                    &session,
+                    &blob,
+                    now,
+                    actor_username.as_deref(),
+                )
+                .await?;
 
-            Ok::<file::Model, AsterError>(created)
-        }
-        .await;
-        match result {
-            Ok(created) => {
-                transaction::commit(txn).await?;
-                break Ok(created);
-            }
-            Err(error) => {
-                if let Err(rollback_error) = transaction::rollback(txn).await {
-                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
-                }
-                if storage::retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await
-                {
-                    deadlock_attempt += 1;
-                    continue;
-                }
-                break Err(error);
-            }
-        }
-    };
+                Ok::<file::Model, AsterError>(created)
+            })
+        },
+        move |error: &AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
+    .await;
 
     match create_result {
         Ok(created) => Ok(created),
         Err(error) => {
-            cleanup_verified_upload_after_db_failure(
-                driver,
-                verified,
-                "chunked upload DB error after storing staged blob",
-            )
-            .await;
+            if !error.database_commit_outcome_uncertain() {
+                cleanup_verified_upload_after_db_failure(
+                    driver,
+                    verified,
+                    "chunked upload DB error after storing staged blob",
+                )
+                .await;
+            }
             // dedup 失败不主动删 storage 对象：另一路并发上传可能正在引用同内容的 blob，
             // 删除会造成 ref=1 的活 blob 丢数据；留给 orphan-blob GC 处理。
             Err(error)
@@ -635,62 +635,62 @@ async fn persist_verified_chunked_upload(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
-    let mut deadlock_attempt = 0;
-    let create_result = loop {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let result = async {
-            storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
-            let blob = match verified.source() {
-                VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
-                    storage::persist_preuploaded_blob(&txn, prepared).await?
-                }
-                VerifiedUploadSource::ContentAddressed { .. }
-                | VerifiedUploadSource::OpaqueObject { .. } => {
-                    return Err(upload_assembly_error_with_code(
-                        ApiErrorCode::UploadSessionCorrupted,
-                        "stream relay chunked upload expected preuploaded blob",
-                    ));
-                }
-            };
-            let created = storage::finalize_upload_session_blob_with_actor_username(
-                &txn,
-                session,
-                &blob,
-                now,
-                actor_username,
-            )
-            .await?;
-            Ok::<file::Model, AsterError>(created)
-        }
-        .await;
-        match result {
-            Ok(created) => {
-                transaction::commit(txn).await?;
-                break Ok(created);
-            }
-            Err(error) => {
-                if let Err(rollback_error) = transaction::rollback(txn).await {
-                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
-                }
-                if storage::retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await
-                {
-                    deadlock_attempt += 1;
-                    continue;
-                }
-                break Err(error);
-            }
-        }
-    };
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_session = session.clone();
+    let transaction_verified = verified.clone();
+    let transaction_actor_username = actor_username.map(str::to_owned);
+    let transaction_now = now;
+    let create_result = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        move |txn| {
+            let session = transaction_session.clone();
+            let verified = transaction_verified.clone();
+            let actor_username = transaction_actor_username.clone();
+            let now = transaction_now;
+            Box::pin(async move {
+                storage::lock_storage_usage(txn, workspace_scope_from_session(&session)).await?;
+                let blob = match verified.source() {
+                    VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                        storage::persist_preuploaded_blob(txn, prepared).await?
+                    }
+                    VerifiedUploadSource::ContentAddressed { .. }
+                    | VerifiedUploadSource::OpaqueObject { .. } => {
+                        return Err(upload_assembly_error_with_code(
+                            ApiErrorCode::UploadSessionCorrupted,
+                            "stream relay chunked upload expected preuploaded blob",
+                        ));
+                    }
+                };
+                let created = storage::finalize_upload_session_blob_with_actor_username(
+                    txn,
+                    &session,
+                    &blob,
+                    now,
+                    actor_username.as_deref(),
+                )
+                .await?;
+                Ok::<file::Model, AsterError>(created)
+            })
+        },
+        move |error: &AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
+    .await;
 
     match create_result {
         Ok(created) => Ok(created),
         Err(error) => {
-            cleanup_verified_upload_after_db_failure(
-                driver,
-                verified,
-                "chunked upload DB error after streaming preuploaded blob",
-            )
-            .await;
+            if !error.database_commit_outcome_uncertain() {
+                cleanup_verified_upload_after_db_failure(
+                    driver,
+                    verified,
+                    "chunked upload DB error after streaming preuploaded blob",
+                )
+                .await;
+            }
             Err(error)
         }
     }

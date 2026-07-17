@@ -3,11 +3,9 @@ use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{
-    StorageOperationContext, check_quota, cleanup_preuploaded_blob_upload,
-    persist_preuploaded_blob, retry_mysql_deadlock,
+    StorageOperationContext, check_quota, cleanup_preuploaded_blob_upload, persist_preuploaded_blob,
 };
-use aster_forge_db::transaction;
-use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectionTrait, DbBackend};
 
 use super::TempBlobPlan;
 use super::contract::{
@@ -84,68 +82,74 @@ pub(super) async fn persist_temp_store(
         return Err(error);
     }
 
-    let mut deadlock_attempt = 0;
-    let create_result = loop {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let result = async {
-            crate::services::workspace::storage::lock_storage_usage(&txn, scope).await?;
-            operation_context.checkpoint()?;
-            if storage_delta > 0 {
-                check_quota(&txn, scope, storage_delta).await?;
-            }
-            operation_context.checkpoint()?;
-
-            let blob = persist_temp_blob(&txn, &verified_blob).await?;
-            operation_context.checkpoint()?;
-            let result = super::write_record::write_file_record_from_temp(
-                &txn,
-                WriteFileRecordFromTempParams {
-                    scope,
-                    folder_id,
-                    filename: &filename,
-                    mime: &mime,
-                    blob: &blob,
-                    overwrite_ctx: overwrite_ctx.clone(),
-                    now,
-                    storage_delta,
-                    new_file_mode,
-                    actor_username: actor_username.as_deref(),
-                },
-            )
-            .await?;
-            operation_context.checkpoint()?;
-            Ok::<file::Model, AsterError>(result)
-        }
-        .await;
-
-        match result {
-            Ok(result) => {
-                transaction::commit(txn).await?;
-                break Ok(result);
-            }
-            Err(error) => {
-                if let Err(rollback_error) = transaction::rollback(txn).await {
-                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_operation_context = operation_context.clone();
+    let transaction_verified_blob = verified_blob.clone();
+    let transaction_filename = filename.clone();
+    let transaction_mime = mime.clone();
+    let transaction_overwrite_ctx = overwrite_ctx.clone();
+    let transaction_actor_username = actor_username.clone();
+    let transaction_now = now;
+    let create_result = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        move |txn| {
+            let operation_context = transaction_operation_context.clone();
+            let verified_blob = transaction_verified_blob.clone();
+            let filename = transaction_filename.clone();
+            let mime = transaction_mime.clone();
+            let overwrite_ctx = transaction_overwrite_ctx.clone();
+            let actor_username = transaction_actor_username.clone();
+            let now = transaction_now;
+            Box::pin(async move {
+                crate::services::workspace::storage::lock_storage_usage(txn, scope).await?;
+                operation_context.checkpoint()?;
+                if storage_delta > 0 {
+                    check_quota(txn, scope, storage_delta).await?;
                 }
-                if retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await {
-                    deadlock_attempt += 1;
-                    continue;
-                }
-                break Err(error);
-            }
-        }
-    };
+                operation_context.checkpoint()?;
+
+                let blob = persist_temp_blob(txn, &verified_blob).await?;
+                operation_context.checkpoint()?;
+                let result = super::write_record::write_file_record_from_temp(
+                    txn,
+                    WriteFileRecordFromTempParams {
+                        scope,
+                        folder_id,
+                        filename: &filename,
+                        mime: &mime,
+                        blob: &blob,
+                        overwrite_ctx,
+                        now,
+                        storage_delta,
+                        new_file_mode,
+                        actor_username: actor_username.as_deref(),
+                    },
+                )
+                .await?;
+                operation_context.checkpoint()?;
+                Ok::<file::Model, AsterError>(result)
+            })
+        },
+        move |error: &AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
+    .await;
 
     match create_result {
         Ok(result) => Ok(result),
         Err(error) => {
-            cleanup_verified_temp_blob_after_db_failure(
-                state,
-                &verified_blob,
-                driver.as_ref(),
-                "DB error after temp file upload",
-            )
-            .await;
+            if !error.database_commit_outcome_uncertain() {
+                cleanup_verified_temp_blob_after_db_failure(
+                    state,
+                    &verified_blob,
+                    driver.as_ref(),
+                    "DB error after temp file upload",
+                )
+                .await;
+            }
             Err(error)
         }
     }

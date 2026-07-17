@@ -34,7 +34,7 @@ pub(crate) use crate::services::workspace::storage_core::{
     load_storage_limits, local_content_dedup_enabled, lock_storage_usage,
     lock_storage_usage_for_resource_scope, parse_relative_upload_path, resolve_policy_for_size,
     resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
-    retry_mysql_deadlock, update_storage_used, update_storage_used_for_resource_scope,
+    update_storage_used, update_storage_used_for_resource_scope,
 };
 
 pub(crate) use crate::services::workspace::scope::load_scope_actor_username_cached;

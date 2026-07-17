@@ -234,7 +234,11 @@ async fn finalize_verified_opaque_upload_session(
         },
     )
     .await;
-    if result.is_err() {
+    if result
+        .as_ref()
+        .err()
+        .is_some_and(|error| !error.database_commit_outcome_uncertain())
+    {
         cleanup_verified_upload_after_db_failure(
             driver,
             verified,

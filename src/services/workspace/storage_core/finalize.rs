@@ -1,6 +1,5 @@
-use aster_forge_db::transaction;
 use chrono::Utc;
-use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectionTrait, DbBackend};
 use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
@@ -93,47 +92,42 @@ pub(crate) async fn finalize_upload_session_file(
         actor_username,
     } = params;
     let scope = scope_from_session(session);
-    let mut deadlock_attempt = 0;
-    let created = loop {
-        let txn = transaction::begin(state.writer_db()).await?;
-        let result = async {
-            super::quota::lock_storage_usage(&txn, scope).await?;
-            let blob =
-                file_repo::find_or_create_blob(&txn, file_hash, size, policy_id, storage_path)
-                    .await?;
-            finalize_upload_session_blob_with_actor_username(
-                &txn,
-                session,
-                &blob.model,
-                now,
-                actor_username,
-            )
-            .await
-        }
-        .await;
-        match result {
-            Ok(created) => {
-                transaction::commit(txn).await?;
-                break created;
-            }
-            Err(error) => {
-                if let Err(rollback_error) = transaction::rollback(txn).await {
-                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
-                }
-                if super::db_retry::retry_mysql_deadlock(
-                    state.writer_db(),
-                    deadlock_attempt,
-                    &error,
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_session = session.clone();
+    let transaction_file_hash = file_hash.to_owned();
+    let transaction_storage_path = storage_path.to_owned();
+    let transaction_actor_username = actor_username.map(str::to_owned);
+    let transaction_now = now;
+    let created = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        move |txn| {
+            let session = transaction_session.clone();
+            let file_hash = transaction_file_hash.clone();
+            let storage_path = transaction_storage_path.clone();
+            let actor_username = transaction_actor_username.clone();
+            let now = transaction_now;
+            Box::pin(async move {
+                super::quota::lock_storage_usage(txn, scope).await?;
+                let blob =
+                    file_repo::find_or_create_blob(txn, &file_hash, size, policy_id, &storage_path)
+                        .await?;
+                finalize_upload_session_blob_with_actor_username(
+                    txn,
+                    &session,
+                    &blob.model,
+                    now,
+                    actor_username.as_deref(),
                 )
                 .await
-                {
-                    deadlock_attempt += 1;
-                    continue;
-                }
-                break Err(error)?;
-            }
-        }
-    };
+            })
+        },
+        move |error: &crate::errors::AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
+    .await?;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
