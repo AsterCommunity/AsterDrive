@@ -23,13 +23,15 @@ use super::models::{
 use super::transport::{
     DirectHttpTransport, RemoteRequestBody, RemoteTransport, RemoteTransportRequest,
     RemoteTransportResponse, ReverseTunnelTransport, build_remote_status_error, ensure_success,
-    ensure_success_response, ensure_success_without_body, response_stream,
+    ensure_success_response, ensure_success_with_body_limit, ensure_success_without_body,
+    response_stream,
 };
 use super::tunnel::server::RemoteTunnelBroker;
 use super::{
     INTERNAL_STORAGE_BASE_PATH, PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY,
     PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY, PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
-    REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_POLICY_MAX_FILE_SIZE_QUERY,
+    REMOTE_STORAGE_TARGET_KEY_QUERY,
 };
 
 const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
@@ -90,7 +92,12 @@ impl RemoteStorageClient {
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "probe remote storage capabilities").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "probe remote storage capabilities",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<RemoteStorageCapabilities> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -207,7 +214,12 @@ impl RemoteStorageClient {
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "get remote storage metadata").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "get remote storage metadata",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<RemoteStorageObjectMetadata> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -242,7 +254,12 @@ impl RemoteStorageClient {
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "list remote storage objects").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "list remote storage objects",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<RemoteStorageListResponse> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -265,7 +282,12 @@ impl RemoteStorageClient {
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "get remote storage capacity").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "get remote storage capacity",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<RemoteStorageCapacityResponse> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -311,7 +333,12 @@ impl RemoteStorageClient {
         let response = self
             .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
             .await?;
-        let body = ensure_success(response, "list remote storage targets").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "list remote storage targets",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<Vec<RemoteStorageTargetInfo>> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -444,7 +471,12 @@ impl RemoteStorageClient {
                 RemoteRequestBody::Bytes(Bytes::from(body)),
             )
             .await?;
-        let body = ensure_success(response, "compose remote storage objects").await?;
+        let body = ensure_success_with_body_limit(
+            response,
+            "compose remote storage objects",
+            REMOTE_CONTROL_PLANE_BODY_LIMIT,
+        )
+        .await?;
         let envelope: ApiEnvelope<RemoteStorageComposeResponse> = serde_json::from_slice(&body)
             .map_err(|e| {
                 storage_driver_error(
@@ -529,7 +561,8 @@ async fn parse_storage_target_response(
     response: RemoteTransportResponse,
     context: &str,
 ) -> Result<RemoteStorageTargetInfo> {
-    let body = ensure_success(response, context).await?;
+    let body =
+        ensure_success_with_body_limit(response, context, REMOTE_CONTROL_PLANE_BODY_LIMIT).await?;
     let envelope: ApiEnvelope<RemoteStorageTargetInfo> =
         serde_json::from_slice(&body).map_err(|e| {
             storage_driver_error(

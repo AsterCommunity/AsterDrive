@@ -396,6 +396,7 @@ impl From<aster_forge_db::DbError> for AsterError {
                 Self::database_operation("database retry exhausted")
             }
             aster_forge_db::DbError::NonRetryable(message) => Self::database_operation(message),
+            _ => todo!(),
         }
     }
 }

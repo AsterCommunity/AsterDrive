@@ -20,7 +20,9 @@ mod transfer;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_utils::xml::{XmlSafetyError, XmlSafetyPolicy, validate_xml_input};
 use futures::StreamExt;
+use std::io::Cursor;
 use xmltree::{Element, XMLNode};
 
 use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
@@ -55,29 +57,9 @@ pub(crate) fn encode_href(path: &str) -> String {
     utf8_percent_encode(path, PATH_SET).to_string()
 }
 
-pub(crate) fn reject_xml_dtd_or_entity(body: &[u8]) -> Result<(), ()> {
-    let mut index = 0;
-    while let Some(offset) = find_byte(&body[index..], b'<') {
-        index += offset + 1;
-        let Some(after_bang) = body.get(index + 1..) else {
-            break;
-        };
-        if body[index] == b'!'
-            && (starts_with_ascii_case_insensitive(after_bang, b"DOCTYPE")
-                || starts_with_ascii_case_insensitive(after_bang, b"ENTITY"))
-        {
-            return Err(());
-        }
-    }
-    Ok(())
-}
-
-fn find_byte(haystack: &[u8], needle: u8) -> Option<usize> {
-    haystack.iter().position(|byte| *byte == needle)
-}
-
-fn starts_with_ascii_case_insensitive(value: &[u8], prefix: &[u8]) -> bool {
-    value.len() >= prefix.len() && value[..prefix.len()].eq_ignore_ascii_case(prefix)
+pub(crate) fn parse_webdav_element(body: &[u8]) -> Result<Element, XmlSafetyError> {
+    validate_xml_input(body, XmlSafetyPolicy::untrusted())?;
+    Element::parse(Cursor::new(body)).map_err(|_| XmlSafetyError::Malformed)
 }
 
 /// WebDAV 共享状态（单例）
@@ -551,26 +533,25 @@ mod handler_tests;
 
 #[cfg(test)]
 mod tests {
-    use super::reject_xml_dtd_or_entity;
+    use super::{XmlSafetyError, parse_webdav_element};
 
     #[test]
-    fn reject_xml_dtd_or_entity_allows_regular_webdav_xml() {
-        let body = br#"<?xml version="1.0"?><propfind xmlns="DAV:"><allprop/></propfind>"#;
+    fn parse_webdav_element_rejects_probe_depth_before_xmltree_parse() {
+        const PROBE_DEPTH: usize = 30_000;
 
-        assert!(reject_xml_dtd_or_entity(body).is_ok());
-    }
+        let mut body = String::with_capacity(64 + PROBE_DEPTH * 7);
+        body.push_str(r#"<D:propfind xmlns:D="DAV:"><D:prop>"#);
+        for _ in 0..PROBE_DEPTH {
+            body.push_str("<x>");
+        }
+        for _ in 0..PROBE_DEPTH {
+            body.push_str("</x>");
+        }
+        body.push_str("</D:prop></D:propfind>");
 
-    #[test]
-    fn reject_xml_dtd_or_entity_rejects_doctype_case_insensitively() {
-        let body = br#"<!doctype propfind [<!ENTITY x "boom">]><propfind/>"#;
-
-        assert!(reject_xml_dtd_or_entity(body).is_err());
-    }
-
-    #[test]
-    fn reject_xml_dtd_or_entity_rejects_entity_declaration() {
-        let body = br#"<!ENTITY x "boom"><propfind/>"#;
-
-        assert!(reject_xml_dtd_or_entity(body).is_err());
+        assert_eq!(
+            parse_webdav_element(body.as_bytes()),
+            Err(XmlSafetyError::TooDeep)
+        );
     }
 }
