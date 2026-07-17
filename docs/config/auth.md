@@ -54,7 +54,7 @@ bootstrap_insecure_cookies = false
 ::: tip 这把密钥目前只覆盖 OneDrive
 它保护的是 `storage_connector_application_configs.client_secret_ciphertext` 和 `storage_policy_credentials` 表里的 access / refresh token 密文。
 
-S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及 Remote follower 节点凭据，**目前是明文落库**，不依赖这把密钥——换掉它不会影响这些驱动。
+S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及远程节点（follower）凭据，**目前是明文落库**，不依赖这把密钥——换掉它不会影响这些驱动。
 :::
 
 ::: warning 备份和迁移时必须保留

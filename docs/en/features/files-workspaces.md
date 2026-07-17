@@ -13,7 +13,7 @@ Files and workspaces are the main business path in AsterDrive. This area connect
 | Personal space | User-owned files, folders, trash, tasks, quota | [User Manual](/en/guide/user-guide) |
 | Team space | Team-owned files, member roles, team archive, team audit | [Teams and Permissions](/en/guide/teams-and-permissions) |
 | Folder tree | Create, rename, move, copy, recursive delete, path building | [Common Workflows](/en/guide/core-workflows) |
-| File records | Filename conflicts, versions, blob references, lock state, properties | [File Editing](/en/guide/editing), [Architecture Overview](/en/guide/architecture) |
+| File records | Filename conflicts, versions, blob references, lock state, properties | [File Editing](/en/guide/editing), [Architecture Overview](/en/reference/architecture) |
 | Trash | Delete, restore, purge, periodic cleanup | [User Manual](/en/guide/user-guide), [System Settings](/en/config/runtime) |
 | Shares | File/folder shares, passwords, expiration, download limits, scope checks | [Sharing and Public Access](/en/guide/sharing) |
 | Batch operations | Batch move, copy, delete, workspace boundary checks | [User Manual](/en/guide/user-guide) |

@@ -3,10 +3,15 @@ name: Deploy Documentation
 on:
   release:
     types: [published]
+  push:
+    branches: [master, 'release/**']
+    paths:
+      - 'docs/**'
+      - '.github/workflows/vitepress.yml'
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write # 创建 release/x.y 分支
   pages: write
   id-token: write
 
@@ -27,17 +32,45 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      - name: Install dependencies
-        working-directory: docs
-        run: bun install --frozen-lockfile
+      - name: Ensure release branch exists
+        if: github.event_name == 'release'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          MINOR="$(echo "${{ github.event.release.tag_name }}" | sed -E 's/^v?([0-9]+\.[0-9]+).*/\1/')"
+          if git ls-remote --exit-code --heads origin "release/$MINOR" >/dev/null 2>&1; then
+            echo "release/$MINOR 已存在"
+          else
+            git push origin "${{ github.event.release.tag_name }}:refs/heads/release/$MINOR"
+            echo "已创建 release/$MINOR"
+          fi
 
-      - name: Build documentation
-        working-directory: docs
-        run: bun run docs:build
+      - name: Build all versions
+        env:
+          GIT_REMOTE: origin
+        run: |
+          set -euo pipefail
+          docs/scripts/resolve-versions.sh | tee versions.tsv
+          while IFS=$'\t' read -r version path ref latest; do
+            if [ "$latest" = "true" ]; then
+              docs/scripts/build-version.sh "$ref" "/" dist
+            else
+              docs/scripts/build-version.sh "$ref" "$path" "dist$path" \
+                "这是 v$version 的旧版文档。" "/" "查看最新版本 →"
+            fi
+          done < versions.tsv
+          # 还没有任何正式发布版本时，根站点退回 master
+          if [ ! -d dist ]; then
+            docs/scripts/build-version.sh "origin/master" "/" dist
+          fi
+          # next = master 开发版，带开发版横幅
+          docs/scripts/build-version.sh "origin/master" "/next/" "dist/next" \
+            "这是开发中版本的文档，内容可能尚未发布。" "/" "查看稳定版本 →"
 
       - uses: actions/upload-pages-artifact@v4
         with:
-          path: docs/.vitepress/dist
+          path: dist
 
   deploy:
     environment:

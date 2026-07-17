@@ -54,7 +54,7 @@ This is the server-side encryption master key for the Microsoft Graph credential
 ::: tip This key currently only covers OneDrive
 It protects `storage_connector_application_configs.client_secret_ciphertext` and the access / refresh token ciphertext in the `storage_policy_credentials` table.
 
-The `access_key` / `secret_key` for S3, Azure Blob, and Tencent COS, as well as Remote follower node credentials, **are currently stored in plaintext** and do not depend on this key — rotating it does not affect those drivers.
+The `access_key` / `secret_key` for S3, Azure Blob, and Tencent COS, as well as remote node (follower) credentials, **are currently stored in plaintext** and do not depend on this key — rotating it does not affect those drivers.
 :::
 
 ::: warning Preserve it during backup and migration

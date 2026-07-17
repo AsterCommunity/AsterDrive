@@ -65,11 +65,11 @@ Read the [Feature Map](/en/features/). It connects identity, files, uploads, pre
 
 ### I Need to Go Live or Troubleshoot
 
-Before going live, choose a deployment method from [Deployment Overview](/en/deployment/), then add [Reverse Proxy](/en/deployment/reverse-proxy), [First-Start Checklist](/en/deployment/runtime-behavior), [Production Launch Checklist](/en/deployment/production-checklist), and [Backup and Restore](/en/deployment/backup). If something is already broken, go directly to [Troubleshooting](/en/deployment/troubleshooting), then combine it with [Error Code Handling](/en/guide/errors) when you see an error code.
+Before going live, choose a deployment method from [Deployment Overview](/en/deployment/), then add [Reverse Proxy](/en/deployment/reverse-proxy), [First-Start Checklist](/en/deployment/runtime-behavior), [Production Launch Checklist](/en/deployment/production-checklist), and [Backup and Restore](/en/deployment/backup). If something is already broken, go directly to [Troubleshooting](/en/deployment/troubleshooting), then combine it with [Error Code Handling](/en/reference/errors) when you see an error code.
 
 ### I Do Not Understand a Term, or I Do Not Know Where to Look
 
-Start with the [Glossary](/en/guide/glossary) and [FAQ Quick Reference](/en/guide/faq). These two pages are not meant to be read from beginning to end; they are there to keep you from taking unnecessary detours.
+Start with the [Glossary](/en/reference/glossary) and [FAQ Quick Reference](/en/reference/faq). These two pages are not meant to be read from beginning to end; they are there to keep you from taking unnecessary detours.
 
 ---
 

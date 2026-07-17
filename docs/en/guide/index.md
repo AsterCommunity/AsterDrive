@@ -61,8 +61,8 @@ After launch, stable operation matters more than whether the page can open. Prep
 
 ## The Project Itself
 
-To understand why AsterDrive is designed this way, who it is for, and who it is not for, read [About AsterDrive](./about).
+To understand why AsterDrive is designed this way, who it is for, and who it is not for, read [About AsterDrive](/en/reference/about).
 
-To build the system mental model first, read [Architecture Overview](./architecture). It covers primary / follower nodes, component relationships, upload and download data flows, and troubleshooting entry points.
+To build the system mental model first, read [Architecture Overview](/en/reference/architecture). It covers primary / follower nodes, component relationships, upload and download data flows, and troubleshooting entry points.
 
-If a concept is unclear, start with the [Glossary](./glossary). When you hit a problem, check the [FAQ Triage](./faq) first. If you have an error code, read [Error Code Handling](./errors). If the problem happens during deployment, reverse proxying, WebDAV, or WOPI, use it together with [Troubleshooting](/en/deployment/troubleshooting).
+If a concept is unclear, start with the [Glossary](/en/reference/glossary). When you hit a problem, check the [FAQ Triage](/en/reference/faq) first. If you have an error code, read [Error Code Handling](/en/reference/errors). If the problem happens during deployment, reverse proxying, WebDAV, or WOPI, use it together with [Troubleshooting](/en/deployment/troubleshooting).

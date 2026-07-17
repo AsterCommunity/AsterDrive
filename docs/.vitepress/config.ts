@@ -1,5 +1,6 @@
+import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
-import { resolve, dirname } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
 import { withMermaid } from 'vitepress-plugin-mermaid'
@@ -51,7 +52,89 @@ function getVersion(): string {
 }
 
 const VERSION = getVersion()
+
+// 归档版本构建时用 VITEPRESS_BASE 指定子路径（如 /v0.3/），根站点构建时是 /。
+const BASE = process.env.VITEPRESS_BASE || '/'
+const BASE_PREFIX = BASE === '/' ? '' : BASE.replace(/\/$/, '')
+
+// 旧版本 / next 版本的提示条。通过 vite define 注入为构建期常量，SSR 和客户端产物都内联，
+// 不会出现 SSR 有横幅、客户端 hydrate 后又拔掉的问题（import.meta.env 自定义变量做不到这点）。
+const VERSION_BANNER = process.env.VITE_VERSION_BANNER || ''
+const VERSION_BANNER_URL = process.env.VITE_VERSION_BANNER_URL || ''
+const VERSION_BANNER_LINK_TEXT = process.env.VITE_VERSION_BANNER_LINK_TEXT || ''
+const VERSION_BANNER_DEFINE = JSON.stringify(
+  VERSION_BANNER ? { text: VERSION_BANNER, url: VERSION_BANNER_URL, linkText: VERSION_BANNER_LINK_TEXT } : null
+)
+
+// 版本清单直接从 git（tag + release/* 分支）解析，不在仓库里维护静态版本表。
+// latest: true 的版本部署在根路径，其余在各自的 /vX.Y/ 子路径。
+type VersionEntry = { version: string; path: string; latest: boolean }
+
+function resolveVersionEntries(): VersionEntry[] {
+  try {
+    const repoRoot = resolve(__dirname, '../..')
+    const output = execSync(`bash "${resolve(__dirname, '../scripts/resolve-versions.sh')}"`, {
+      cwd: repoRoot,
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore']
+    })
+    const entries = output
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .map((line) => {
+        const [version, path, , latest] = line.split('\t')
+        return { version, path, latest: latest === 'true' }
+      })
+    if (entries.length > 0) {
+      return entries
+    }
+  } catch {
+    // 不在 git 仓库里时退回只含当前版本的清单
+  }
+  const minor = VERSION.match(/^(\d+\.\d+)/)?.[1] ?? VERSION
+  return [{ version: minor, path: '/', latest: true }]
+}
+
+function versionUrl(path: string): string {
+  return new URL(path.replace(/^\//, ''), SITE_URL).href
+}
+
+function versionNavItems(locale: 'zh' | 'en') {
+  const sorted = [...resolveVersionEntries()].sort((a, b) => {
+    if (a.latest) return -1
+    if (b.latest) return 1
+    return -a.version.localeCompare(b.version, undefined, { numeric: true })
+  })
+  const items = sorted.map((entry) => ({
+    text: entry.latest
+      ? locale === 'zh'
+        ? `v${entry.version}（当前）`
+        : `v${entry.version} (current)`
+      : locale === 'zh'
+        ? `v${entry.version}（旧版）`
+        : `v${entry.version} (archive)`,
+    link: versionUrl(entry.path)
+  }))
+  items.splice(1, 0, {
+    text: locale === 'zh' ? '开发版（next）' : 'Next (development)',
+    link: versionUrl('/next/')
+  })
+  return items
+}
 const PAGE_DESCRIPTION_LIMIT = 160
+
+// 参考页从 guide/ 迁到 reference/ 后，旧路径保留自动跳转占位页。
+// 这些占位页不进 sitemap，也不让搜索引擎索引。
+const LEGACY_REDIRECT_PAGES = new Set(
+  ['architecture', 'faq', 'glossary', 'errors', 'docs-contributing', 'about'].flatMap((page) => [
+    `guide/${page}.md`,
+    `en/guide/${page}.md`
+  ])
+)
+const LEGACY_REDIRECT_URLS = ['architecture', 'faq', 'glossary', 'errors', 'docs-contributing', 'about'].flatMap(
+  (page) => [`guide/${page}`, `en/guide/${page}`]
+)
 const MIN_USEFUL_DESCRIPTION_LENGTH = 24
 const descriptionCache = new Map<string, string>()
 
@@ -241,40 +324,19 @@ function buildZhNav() {
       items: [
         { text: '使用指南总览', link: '/guide/' },
         { text: '用户手册', link: '/guide/user-guide' },
-        { text: '常用流程', link: '/guide/core-workflows' },
-        { text: '团队与权限', link: '/guide/teams-and-permissions' },
         { text: '分享与公开访问', link: '/guide/sharing' },
-        { text: '文件编辑', link: '/guide/editing' },
-        { text: '在线预览与 WOPI', link: '/guide/preview-and-wopi' },
         { text: '上传与大文件', link: '/guide/upload-modes' },
         { text: 'WebDAV', link: '/config/webdav' }
-      ]
-    },
-    {
-      text: '功能',
-      items: [
-        { text: '功能地图', link: '/features/' },
-        { text: '身份与访问', link: '/features/auth-access' },
-        { text: '文件与工作空间', link: '/features/files-workspaces' },
-        { text: '上传与存储', link: '/features/upload-storage' },
-        { text: '预览与处理', link: '/features/preview-processing' },
-        { text: '系统与运维', link: '/features/runtime-operations' }
       ]
     },
     {
       text: '管理',
       items: [
         { text: '管理后台', link: '/guide/admin-console' },
-        { text: '远程节点', link: '/guide/remote-nodes' },
-        { text: '自定义前端', link: '/guide/custom-frontend' },
         { text: '配置总览', link: '/config/' },
-        { text: '系统设置', link: '/config/runtime' },
-        { text: '登录与会话', link: '/config/auth' },
-        { text: '外部认证', link: '/config/external-auth' },
-        { text: '邮件', link: '/config/mail' },
         { text: '存储策略', link: '/config/storage' },
         { text: '存储策略后端', link: '/storage/' },
-        { text: '离线下载', link: '/config/offline-download' }
+        { text: '远程节点', link: '/guide/remote-nodes' }
       ]
     },
     {
@@ -282,20 +344,15 @@ function buildZhNav() {
       items: [
         { text: '部署概览', link: '/deployment/' },
         { text: 'Docker', link: '/deployment/docker' },
-        { text: 'systemd', link: '/deployment/systemd' },
         { text: '反向代理', link: '/deployment/reverse-proxy' },
-        { text: '上线检查', link: '/deployment/production-checklist' },
-        { text: '监控与 Grafana', link: '/deployment/monitoring' },
-        { text: '容量规划参考', link: '/deployment/capacity-planning' },
-        { text: '运维 CLI', link: '/deployment/ops-cli' },
         { text: '备份恢复', link: '/deployment/backup' },
-        { text: '升级', link: '/deployment/upgrade' },
         { text: '故障排查', link: '/deployment/troubleshooting' }
       ]
     },
     {
       text: `v${VERSION}`,
       items: [
+        ...versionNavItems('zh'),
         { text: '更新日志', link: 'https://github.com/AsterCommunity/AsterDrive/blob/master/CHANGELOG.md' },
         { text: '发布页面', link: 'https://github.com/AsterCommunity/AsterDrive/releases' },
         { text: 'GitHub', link: 'https://github.com/AsterCommunity/AsterDrive' }
@@ -320,40 +377,19 @@ function buildEnNav() {
       items: [
         { text: 'Guide Overview', link: '/en/guide/' },
         { text: 'User Manual', link: '/en/guide/user-guide' },
-        { text: 'Common Workflows', link: '/en/guide/core-workflows' },
-        { text: 'Teams and Permissions', link: '/en/guide/teams-and-permissions' },
         { text: 'Sharing and Public Access', link: '/en/guide/sharing' },
-        { text: 'File Editing', link: '/en/guide/editing' },
-        { text: 'Online Preview and WOPI', link: '/en/guide/preview-and-wopi' },
         { text: 'Uploads and Large Files', link: '/en/guide/upload-modes' },
         { text: 'WebDAV', link: '/en/config/webdav' }
-      ]
-    },
-    {
-      text: 'Features',
-      items: [
-        { text: 'Feature Map', link: '/en/features/' },
-        { text: 'Identity and Access', link: '/en/features/auth-access' },
-        { text: 'Files and Workspaces', link: '/en/features/files-workspaces' },
-        { text: 'Uploads and Storage', link: '/en/features/upload-storage' },
-        { text: 'Preview and Processing', link: '/en/features/preview-processing' },
-        { text: 'System and Operations', link: '/en/features/runtime-operations' }
       ]
     },
     {
       text: 'Admin',
       items: [
         { text: 'Admin Console', link: '/en/guide/admin-console' },
-        { text: 'Follower Nodes', link: '/en/guide/remote-nodes' },
-        { text: 'Custom Frontend', link: '/en/guide/custom-frontend' },
         { text: 'Configuration Overview', link: '/en/config/' },
-        { text: 'System Settings', link: '/en/config/runtime' },
-        { text: 'Login and Sessions', link: '/en/config/auth' },
-        { text: 'External Authentication', link: '/en/config/external-auth' },
-        { text: 'Mail', link: '/en/config/mail' },
         { text: 'Storage Policies', link: '/en/config/storage' },
         { text: 'Storage Backends', link: '/en/storage/' },
-        { text: 'Offline Download', link: '/en/config/offline-download' }
+        { text: 'Follower Nodes', link: '/en/guide/remote-nodes' }
       ]
     },
     {
@@ -361,20 +397,15 @@ function buildEnNav() {
       items: [
         { text: 'Deployment Overview', link: '/en/deployment/' },
         { text: 'Docker', link: '/en/deployment/docker' },
-        { text: 'systemd', link: '/en/deployment/systemd' },
         { text: 'Reverse Proxy', link: '/en/deployment/reverse-proxy' },
-        { text: 'Launch Checklist', link: '/en/deployment/production-checklist' },
-        { text: 'Monitoring and Grafana', link: '/en/deployment/monitoring' },
-        { text: 'Capacity Planning', link: '/en/deployment/capacity-planning' },
-        { text: 'Operations CLI', link: '/en/deployment/ops-cli' },
         { text: 'Backup and Restore', link: '/en/deployment/backup' },
-        { text: 'Upgrade', link: '/en/deployment/upgrade' },
         { text: 'Troubleshooting', link: '/en/deployment/troubleshooting' }
       ]
     },
     {
       text: `v${VERSION}`,
       items: [
+        ...versionNavItems('en'),
         { text: 'Changelog', link: 'https://github.com/AsterCommunity/AsterDrive/blob/master/CHANGELOG.md' },
         { text: 'Releases', link: 'https://github.com/AsterCommunity/AsterDrive/releases' },
         { text: 'GitHub', link: 'https://github.com/AsterCommunity/AsterDrive' }
@@ -489,12 +520,13 @@ function buildZhSidebar() {
       text: '参考与项目',
       collapsed: true,
       items: [
-        { text: '架构概览', link: '/guide/architecture' },
-        { text: '常见问题速查', link: '/guide/faq' },
-        { text: '术语表', link: '/guide/glossary' },
-        { text: '错误码处理', link: '/guide/errors' },
-        { text: '文档贡献说明', link: '/guide/docs-contributing' },
-        { text: '关于 AsterDrive', link: '/guide/about' }
+        { text: '参考总览', link: '/reference/' },
+        { text: '架构概览', link: '/reference/architecture' },
+        { text: '常见问题速查', link: '/reference/faq' },
+        { text: '术语表', link: '/reference/glossary' },
+        { text: '错误码处理', link: '/reference/errors' },
+        { text: '文档贡献说明', link: '/reference/docs-contributing' },
+        { text: '关于 AsterDrive', link: '/reference/about' }
       ]
     }
   ]
@@ -606,15 +638,45 @@ function buildEnSidebar() {
       text: 'Reference and Project',
       collapsed: true,
       items: [
-        { text: 'Architecture Overview', link: '/en/guide/architecture' },
-        { text: 'FAQ', link: '/en/guide/faq' },
-        { text: 'Glossary', link: '/en/guide/glossary' },
-        { text: 'Error Codes', link: '/en/guide/errors' },
-        { text: 'Docs Contribution Guide', link: '/en/guide/docs-contributing' },
-        { text: 'About AsterDrive', link: '/en/guide/about' }
+        { text: 'Reference Overview', link: '/en/reference/' },
+        { text: 'Architecture Overview', link: '/en/reference/architecture' },
+        { text: 'FAQ', link: '/en/reference/faq' },
+        { text: 'Glossary', link: '/en/reference/glossary' },
+        { text: 'Error Codes', link: '/en/reference/errors' },
+        { text: 'Docs Contribution Guide', link: '/en/reference/docs-contributing' },
+        { text: 'About AsterDrive', link: '/en/reference/about' }
       ]
     }
   ]
+}
+
+// minisearch 默认按空格/标点分词，中文整句会变成一个 token，导致中文搜索几乎失效。
+// 这里把 CJK 连续段切成单字 + 二字组，拉丁词保持原样。
+const CJK_SEGMENT = /[㐀-鿿豈-﫿]+/u
+const CJK_OR_LATIN_RUN = /[㐀-鿿豈-﫿]+|[^㐀-鿿豈-﫿]+/gu
+
+function tokenizeForSearch(text: string): string[] {
+  const tokens: string[] = []
+  for (const word of text.split(/[\s\p{P}\p{S}]+/u)) {
+    if (!word) {
+      continue
+    }
+    // 中英混合片段（如“从节点follower”）按 CJK 连续段 / 非 CJK 连续段拆开
+    for (const segment of word.match(CJK_OR_LATIN_RUN) ?? []) {
+      if (!CJK_SEGMENT.test(segment)) {
+        tokens.push(segment.toLowerCase())
+        continue
+      }
+      const chars = [...segment]
+      for (let index = 0; index < chars.length; index++) {
+        tokens.push(chars[index])
+        if (index + 1 < chars.length) {
+          tokens.push(chars[index] + chars[index + 1])
+        }
+      }
+    }
+  }
+  return tokens
 }
 
 type SidebarItem = {
@@ -643,7 +705,7 @@ function assertUniqueSidebarLinks<T extends SidebarGroup[]>(sidebar: T, locale: 
       const previous = seen.get(item.link)
       if (previous) {
         throw new Error(
-          `Duplicate sidebar link in ${locale}: ${item.link} appears in both "${previous}" and "${group.text}"`
+          `Duplicate sidebar link in ${locale}: ${item.link} appears in both "${previous}" and "${section}"`
         )
       }
 
@@ -660,12 +722,19 @@ function assertUniqueSidebarLinks<T extends SidebarGroup[]>(sidebar: T, locale: 
 }
 
 export default withMermaid(defineConfig({
+  base: BASE,
   lang: 'zh-CN',
   title: 'AsterDrive',
   description: ZH_SITE_DESCRIPTION,
   lastUpdated: true,
   sitemap: {
-    hostname: SITE_URL
+    hostname: SITE_URL,
+    transformItems(items) {
+      return items.filter((item) => {
+        const path = item.url.replace(/^\//, '').replace(/\.html$/, '').replace(/\/$/, '')
+        return !LEGACY_REDIRECT_URLS.includes(path)
+      })
+    }
   },
 
   locales: {
@@ -733,18 +802,26 @@ export default withMermaid(defineConfig({
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'AsterDrive' }],
-    ['meta', { name: 'twitter:card', content: 'summary' }]
+    ['meta', { name: 'twitter:card', content: 'summary' }],
+    // 有横幅时把固定导航整体下移一个横幅高度（滚动时 Layout.vue 会把它平滑收回 0）
+    ...(VERSION_BANNER ? [['style', {}, ':root{--vp-layout-top-height:36px}']] : [])
   ],
 
+  vite: {
+    define: {
+      __ASTER_VERSION_BANNER__: VERSION_BANNER_DEFINE
+    }
+  },
+
   transformHead(context) {
-    if (context.page === '404.md') {
+    if (context.page === '404.md' || LEGACY_REDIRECT_PAGES.has(context.page)) {
       return [['meta', { name: 'robots', content: 'noindex, nofollow' }]]
     }
 
     const locale = getLocaleForPage(context.page)
-    const canonicalUrl = new URL(toCanonicalPath(context.page), SITE_URL).href
-    const rootUrl = new URL(toCanonicalPath(getLocalizedPage(context.page, 'root')), SITE_URL).href
-    const enUrl = new URL(toCanonicalPath(getLocalizedPage(context.page, 'en')), SITE_URL).href
+    const canonicalUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(context.page)}`, SITE_URL).href
+    const rootUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(getLocalizedPage(context.page, 'root'))}`, SITE_URL).href
+    const enUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(getLocalizedPage(context.page, 'en'))}`, SITE_URL).href
     const title = context.title || 'AsterDrive'
     const description = context.description || LOCALES[locale].siteDescription
 
@@ -793,6 +870,11 @@ export default withMermaid(defineConfig({
     search: {
       provider: 'local',
       options: {
+        miniSearch: {
+          options: {
+            tokenize: tokenizeForSearch
+          }
+        },
         locales: {
           root: {
             translations: {

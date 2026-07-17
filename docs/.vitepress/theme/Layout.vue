@@ -6,6 +6,9 @@ import { nextTick, onBeforeUnmount, onMounted, provide, ref } from "vue"
 const { isDark } = useData()
 const { Layout } = DefaultTheme
 const zoomedDiagram = ref("")
+
+// 构建期常量：CI 构建旧版本 / next 版本时注入横幅（+ 可选链接），根站点构建为 null。
+const versionBanner = __ASTER_VERSION_BANNER__
 let cleanupAppearanceTransition: (() => void) | null = null
 
 function canUseAppearanceTransition() {
@@ -138,7 +141,14 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-	<Layout />
+	<Layout>
+		<template #layout-top>
+			<div v-if="versionBanner" class="aster-version-banner">
+				{{ versionBanner.text }}
+				<a v-if="versionBanner.url" :href="versionBanner.url">{{ versionBanner.linkText || versionBanner.url }}</a>
+			</div>
+		</template>
+	</Layout>
 	<Teleport to="body">
 		<div v-if="zoomedDiagram" class="aster-diagram-zoom" role="dialog" aria-modal="true" @click.self="closeDiagramZoom">
 			<button class="aster-diagram-zoom-close" type="button" aria-label="Close diagram zoom" @click="closeDiagramZoom">
@@ -150,6 +160,32 @@ onBeforeUnmount(() => {
 </template>
 
 <style>
+/* 横幅钉在视口顶部（AppHeader 之上），不随滚动移动；
+   导航和正文的下移由 config 注入的 --vp-layout-top-height 静态承担 */
+.aster-version-banner {
+	position: fixed;
+	top: 0;
+	right: 0;
+	left: 0;
+	z-index: var(--vp-z-index-layout-top, 40);
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	height: 36px;
+	padding: 0 24px;
+	background: linear-gradient(var(--vp-c-yellow-soft, rgb(234 179 8 / 0.14)), var(--vp-c-yellow-soft, rgb(234 179 8 / 0.14))), var(--vp-c-bg);
+	color: var(--vp-c-text-1);
+	font-size: 14px;
+	line-height: 1.5;
+	border-bottom: 1px solid var(--vp-c-divider);
+}
+
+.aster-version-banner a {
+	margin-left: 8px;
+	font-weight: 600;
+	text-decoration: underline;
+}
+
 .aster-appearance-transition-layer {
 	position: fixed;
 	inset: 0;

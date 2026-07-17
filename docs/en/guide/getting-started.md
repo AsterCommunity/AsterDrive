@@ -14,7 +14,7 @@ If this is your first self-hosted service, AsterDrive's default configuration ca
 
 If you already know Docker and reverse proxies, you can jump directly to [Deployment Overview](/en/deployment/).
 
-AsterDrive does not have a paid edition, Pro edition, or feature wall. Every feature is open source under the MIT license, and everyone gets the same capabilities. For the project's tradeoffs and future direction, read [About AsterDrive](./about).
+AsterDrive does not have a paid edition, Pro edition, or feature wall. Every feature is open source under the MIT license, and everyone gets the same capabilities. For the project's tradeoffs and future direction, read [About AsterDrive](/en/reference/about).
 
 Let's start.
 
@@ -184,9 +184,9 @@ After the basic flow works, you may want to do these next:
 - Learn what daily use looks like -> [User Manual](./user-guide)
 - Go deeper into the admin console -> [Admin Console](./admin-console)
 - Connect Office online editing -> [File Editing](./editing)
-- Hit a problem -> [Error Code Handling](./errors) / [Troubleshooting](/en/deployment/troubleshooting)
+- Hit a problem -> [Error Code Handling](/en/reference/errors) / [Troubleshooting](/en/deployment/troubleshooting)
 
-Or, if you want to understand the project itself first: [About AsterDrive](./about).
+Or, if you want to understand the project itself first: [About AsterDrive](/en/reference/about).
 
 **Do not add mental overhead to your own data**. That is why we are building AsterDrive.  
 Enjoy using it.

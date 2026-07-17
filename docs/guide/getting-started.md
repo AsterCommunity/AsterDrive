@@ -14,7 +14,7 @@
 
 如果你已经熟悉 Docker、反向代理这些，可以直接跳到 [部署概览](/deployment/)。
 
-AsterDrive 不会有付费版、Pro 版或功能墙——所有功能在 MIT 协议下开源，每个人能用到的东西完全一样。关于这个项目的取舍和后续路线，可以看 [关于 AsterDrive](./about)。
+AsterDrive 不会有付费版、Pro 版或功能墙——所有功能在 MIT 协议下开源，每个人能用到的东西完全一样。关于这个项目的取舍和后续路线，可以看 [关于 AsterDrive](/reference/about)。
 
 来吧，开始。
 
@@ -184,9 +184,9 @@ http://服务器地址:3000
 - 想了解日常用 AsterDrive 是什么样 → [用户手册](./user-guide)
 - 想深入管理后台 → [管理后台](./admin-console)
 - 想接 Office 在线编辑 → [文件编辑](./editing)
-- 碰到问题了 → [错误码处理](./errors) / [故障排查](/deployment/troubleshooting)
+- 碰到问题了 → [错误码处理](/reference/errors) / [故障排查](/deployment/troubleshooting)
 
-或者，如果你想先了解这个项目本身：[关于 AsterDrive](./about)。
+或者，如果你想先了解这个项目本身：[关于 AsterDrive](/reference/about)。
 
 **别给自己的数据增加心智负担**——这是我们做 AsterDrive 的初衷。  
 祝你用得开心。

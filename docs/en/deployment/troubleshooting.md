@@ -8,7 +8,7 @@ If your symptom is outside this page's scope, such as a functional bug or data p
 Before troubleshooting, do two things:
 
 1. Check the responses from `/health` and `/health/ready`; they can directly tell you whether the DB is unreachable or the storage backend is not ready.
-2. Check recent logs. The top-level `code` in API responses is the public error code; comparing it against [Error Code Handling](/en/guide/errors) is faster than staring at English error text.
+2. Check recent logs. The top-level `code` in API responses is the public error code; comparing it against [Error Code Handling](/en/reference/errors) is faster than staring at English error text.
 
 ## Service Does Not Start
 

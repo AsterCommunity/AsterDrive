@@ -2,7 +2,7 @@
 
 ::: tip 这一篇覆盖 `[logging]`
 先决定日志写到哪里（stdout / journald / 文件），其他选项都是围绕这个来配的。
-排障时优先看 API 响应里的 `code`；运行日志里如果有结构化 `error_code` 字段，也一起保留。错误码对照见 [错误码处理](/guide/errors)。
+排障时优先看 API 响应里的 `code`；运行日志里如果有结构化 `error_code` 字段，也一起保留。错误码对照见 [错误码处理](/reference/errors)。
 :::
 
 ```toml
