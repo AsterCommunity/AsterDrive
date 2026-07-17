@@ -83,13 +83,14 @@ async fn upload_session_kind_migration_is_nullable_and_reversible() {
         "pre-0.5.0 rows must remain readable with a null session kind"
     );
 
-    CurrentMigrator::down(&db, Some(1))
+    let rollback_steps = steps_to_roll_back_migration(ADD_UPLOAD_SESSION_KIND_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
         .await
         .expect("upload session kind migration should roll back");
     let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(!has_column(&rolled_back_columns, "session_kind"));
 
-    CurrentMigrator::up(&db, Some(1))
+    CurrentMigrator::up(&db, Some(rollback_steps))
         .await
         .expect("upload session kind migration should reapply");
     let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;

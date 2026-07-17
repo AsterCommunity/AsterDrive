@@ -203,16 +203,15 @@ async fn load_offset_staging_file(
     session_kind: UploadSessionKind,
     should_dedup: bool,
 ) -> Result<Option<ChunkedTempFile>> {
-    // This checks the format-specific path, not the legacy `assembled` output. A stale legacy
-    // assembly must remain retryable as legacy chunk files.
     if !matches!(
         session_kind,
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
-    ) || !staging::exists(state, &session.id).await?
-    {
+    ) {
         return Ok(None);
     }
 
+    // A staging kind is an explicit execution contract. Missing or malformed staging must fail
+    // the session rather than silently switching to the legacy `chunk_N` assembly path.
     let path = validate_offset_staging_file(state, session).await?;
     let file_hash = if should_dedup {
         Some(hash_staging_file(&path).await?)

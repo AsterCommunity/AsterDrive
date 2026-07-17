@@ -57,6 +57,22 @@ struct LocalChunkWriteLock {
     file: std::fs::File,
 }
 
+fn relay_multipart_fields(session: &upload_session::Model) -> Result<(&str, &str)> {
+    let temp_key = session.object_temp_key.as_deref().ok_or_else(|| {
+        crate::errors::upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "relay multipart session is missing object_temp_key",
+        )
+    })?;
+    let multipart_id = session.object_multipart_id.as_deref().ok_or_else(|| {
+        crate::errors::upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "relay multipart session is missing object_multipart_id",
+        )
+    })?;
+    Ok((temp_key, multipart_id))
+}
+
 impl Drop for LocalChunkWriteLock {
     fn drop(&mut self) {
         if let Err(error) = fs2::FileExt::unlock(&self.file) {
@@ -700,10 +716,8 @@ async fn upload_chunk_impl(
         session_kind,
         crate::types::UploadSessionKind::ProviderRelayMultipart
             | crate::types::UploadSessionKind::RemoteRelayMultipart
-    ) && let (Some(temp_key), Some(multipart_id)) = (
-        session.object_temp_key.as_deref(),
-        session.object_multipart_id.as_deref(),
     ) {
+        let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
         let object_part_number = chunk_number + 1;
 
         // relay multipart 下，先 claim part 再上传到对象存储。
@@ -972,10 +986,8 @@ async fn upload_chunk_payload_impl(
         session_kind,
         crate::types::UploadSessionKind::ProviderRelayMultipart
             | crate::types::UploadSessionKind::RemoteRelayMultipart
-    ) && let (Some(temp_key), Some(multipart_id)) = (
-        session.object_temp_key.as_deref(),
-        session.object_multipart_id.as_deref(),
     ) {
+        let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
         let object_part_number = chunk_number + 1;
 
         if !upload_session_part_repo::try_claim_part(db, upload_id, object_part_number).await? {

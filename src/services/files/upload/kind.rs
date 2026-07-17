@@ -27,8 +27,8 @@ pub(crate) async fn resolve_upload_session_kind(
     // fields are only a compatibility hint; local staging is identified by its dedicated path,
     // never by the legacy `assembled` output.
     let transport = resolve_policy_upload_transport_for_session(state, session)?;
-    if session.status == UploadSessionStatus::Presigned {
-        return Ok(match (transport, session.object_multipart_id.is_some()) {
+    let kind = if session.status == UploadSessionStatus::Presigned {
+        match (transport, session.object_multipart_id.is_some()) {
             (
                 PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
                 true,
@@ -47,11 +47,9 @@ pub(crate) async fn resolve_upload_session_kind(
             // id remains the compatibility marker, so keep provider as the conservative default.
             (_, true) => UploadSessionKind::ProviderPresignedMultipart,
             (_, false) => UploadSessionKind::ProviderPresignedSingle,
-        });
-    }
-
-    if session.object_multipart_id.is_some() {
-        return Ok(match transport {
+        }
+    } else if session.object_multipart_id.is_some() {
+        match transport {
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream) => {
                 UploadSessionKind::ProviderRelayMultipart
             }
@@ -63,11 +61,9 @@ pub(crate) async fn resolve_upload_session_kind(
                     "relay multipart session has incompatible upload transport",
                 ));
             }
-        });
-    }
-
-    if staging::exists(state, &session.id).await? {
-        return Ok(match transport {
+        }
+    } else if staging::exists(state, &session.id).await? {
+        match transport {
             PolicyUploadTransport::Local => UploadSessionKind::OffsetStaging,
             PolicyUploadTransport::StreamUpload | PolicyUploadTransport::Sftp => {
                 UploadSessionKind::StreamStaging
@@ -81,10 +77,12 @@ pub(crate) async fn resolve_upload_session_kind(
                     "local staging session has incompatible upload transport",
                 ));
             }
-        });
-    }
+        }
+    } else {
+        UploadSessionKind::LegacyChunkFiles
+    };
 
-    Ok(UploadSessionKind::LegacyChunkFiles)
+    validate_persisted_kind(session, kind)
 }
 
 fn resolve_policy_upload_transport_for_session(

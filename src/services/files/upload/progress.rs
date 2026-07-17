@@ -6,7 +6,10 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::api::constants::HOUR_SECS;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::entities::upload_session;
-use crate::errors::{Result, chunk_upload_error_with_code, validation_error_with_code};
+use crate::errors::{
+    Result, chunk_upload_error_with_code, upload_assembly_error_with_code,
+    validation_error_with_code,
+};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::{mode_for_kind, resolve_upload_session_kind};
 use crate::services::files::upload::responses::{
@@ -57,15 +60,31 @@ async fn get_progress_impl(
                         .list_uploaded_parts(temp_key, multipart_id)
                         .await?
                 }
-                _ => scan_received_chunks(state, &session.id).await,
+                _ => {
+                    return Err(upload_assembly_error_with_code(
+                        ApiErrorCode::UploadSessionCorrupted,
+                        "presigned multipart session is missing object_temp_key or object_multipart_id",
+                    ));
+                }
             }
         }
         UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
-            upload_session_part_repo::list_part_numbers(state.reader_db(), &session.id)
-                .await?
-                .into_iter()
-                .map(|part_number| part_number - 1)
-                .collect()
+            let part_numbers =
+                upload_session_part_repo::list_part_numbers(state.reader_db(), &session.id).await?;
+            let mut chunks = Vec::with_capacity(part_numbers.len());
+            for part_number in part_numbers {
+                if part_number <= 0 || part_number > session.total_chunks {
+                    return Err(chunk_upload_error_with_code(
+                        ApiErrorCode::UploadChunkPersistFailed,
+                        format!(
+                            "relay multipart part number {part_number} is out of range [1, {}]",
+                            session.total_chunks
+                        ),
+                    ));
+                }
+                chunks.push(part_number - 1);
+            }
+            chunks
         }
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
             list_offset_staging_chunks(state, &session).await?

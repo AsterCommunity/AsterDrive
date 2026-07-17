@@ -2449,6 +2449,181 @@ async fn test_explicit_session_kind_rejects_incompatible_fields() {
 }
 
 #[tokio::test]
+async fn test_legacy_relay_kind_rejects_missing_object_temp_key() {
+    use aster_drive::services::files::upload;
+    use aster_drive::types::UploadSessionStatus;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "legacykindbad",
+        "legacy-kind-corrupt@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = create_dead_remote_policy(&state).await;
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 0)
+        .policy(policy.id)
+        .object_upload(None, Some("multipart")),
+    )
+    .await;
+
+    let error = match upload::get_progress(&state, &upload_id, user.id).await {
+        Ok(_) => panic!("legacy relay session without temp key must be rejected"),
+        Err(error) => error,
+    };
+    assert_eq!(error.code(), "E057");
+    assert!(error.message().contains("temporary object fields"));
+}
+
+#[actix_web::test]
+async fn test_relay_chunk_endpoint_rejects_missing_object_temp_key() {
+    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "relayendpoint",
+        "relay-endpoint@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let (access_token, _) =
+        local::issue_tokens_for_session(&state, user.id, user.session_version, None, None)
+            .await
+            .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 0)
+        .session_kind(UploadSessionKind::ProviderRelayMultipart)
+        .object_upload(None, Some("multipart")),
+    )
+    .await;
+
+    let app = create_test_app!(state.clone());
+    let request = test::TestRequest::put()
+        .uri(&format!("/api/v1/files/upload/{upload_id}/0"))
+        .insert_header(("Authorization", format!("Bearer {access_token}")))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .set_payload(b"1234567890".to_vec())
+        .to_request();
+    let response = test::call_service(&app, request).await;
+    assert!(!response.status().is_success());
+    let body: Value = test::read_body_json(response).await;
+    assert_upload_error_contract(&body, ApiErrorCode::UploadSessionCorrupted.as_str());
+}
+
+#[tokio::test]
+async fn test_relay_progress_rejects_zero_and_out_of_range_part_numbers() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+
+    for (index, part_number) in [0, 3].into_iter().enumerate() {
+        let state = common::setup().await;
+        let user = common::create_test_account(
+            &state,
+            &format!("relayrange{index}"),
+            &format!("relay-range{index}@test.com"),
+            "password123",
+        )
+        .await
+        .unwrap();
+        let upload_id = new_test_upload_id();
+        create_upload_session(
+            &state,
+            user.id,
+            UploadSessionSpec::new(
+                &upload_id,
+                UploadSessionStatus::Uploading,
+                chrono::Utc::now() + chrono::Duration::hours(1),
+            )
+            .chunks(2, 1)
+            .session_kind(UploadSessionKind::ProviderRelayMultipart)
+            .object_upload(Some("files/temp"), Some("multipart")),
+        )
+        .await;
+        upload_session_part_repo::upsert_part(
+            state.writer_db(),
+            &upload_id,
+            part_number,
+            "etag",
+            5,
+        )
+        .await
+        .unwrap();
+
+        let error = match upload::get_progress(&state, &upload_id, user.id).await {
+            Ok(_) => panic!("invalid provider part number must be rejected"),
+            Err(error) => error,
+        };
+        assert!(error.message().contains("out of range"));
+    }
+}
+
+#[tokio::test]
+async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
+    use aster_drive::db::repository::upload_session_part_repo;
+    use aster_drive::services::files::upload;
+    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "missingstaging",
+        "missing-staging@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 1)
+        .session_kind(UploadSessionKind::OffsetStaging),
+    )
+    .await;
+    upload_session_part_repo::upsert_part(
+        state.writer_db(),
+        &upload_id,
+        1,
+        upload::test_support::offset_staging_receipt_etag(),
+        10,
+    )
+    .await
+    .unwrap();
+
+    let error = upload::complete_upload(&state, &upload_id, user.id, None)
+        .await
+        .expect_err("missing explicit staging file must not enter legacy assembly");
+    assert!(error.message().contains("stat chunk staging file"));
+}
+
+#[tokio::test]
 async fn test_presigned_session_kind_rejects_server_chunk_put() {
     use aster_drive::services::files::upload;
     use aster_drive::types::{UploadSessionKind, UploadSessionStatus};

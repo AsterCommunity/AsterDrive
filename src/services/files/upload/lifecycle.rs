@@ -245,7 +245,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
 
 pub async fn cancel_upload(state: &PrimaryAppState, upload_id: &str, user_id: i64) -> Result<()> {
     let session = load_upload_session(state, personal_scope(user_id), upload_id).await?;
-    let mode = upload_session_mode_label(state, &session).await?;
+    let mode = upload_session_mode_label_for_cancel(state, &session).await;
     cancel_upload_impl(state, session)
         .await
         .inspect(|_| record_upload_cancel_metric(state, mode, true))
@@ -259,11 +259,29 @@ pub async fn cancel_upload_for_team(
     user_id: i64,
 ) -> Result<()> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
-    let mode = upload_session_mode_label(state, &session).await?;
+    let mode = upload_session_mode_label_for_cancel(state, &session).await;
     cancel_upload_impl(state, session)
         .await
         .inspect(|_| record_upload_cancel_metric(state, mode, true))
         .inspect_err(|_| record_upload_cancel_metric(state, mode, false))
+}
+
+async fn upload_session_mode_label_for_cancel(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+) -> &'static str {
+    match upload_session_mode_label(state, session).await {
+        Ok(mode) => mode,
+        Err(error) => {
+            // Cancellation must remain able to quarantine a corrupted legacy session. Metrics
+            // classification failure is recorded explicitly instead of blocking cleanup.
+            tracing::warn!(
+                upload_id = %session.id,
+                "failed to classify upload session for cancel metrics: {error}"
+            );
+            "corrupted"
+        }
+    }
 }
 
 async fn upload_session_mode_label(
