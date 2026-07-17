@@ -108,9 +108,20 @@ async fn delete_temp_object_for_cleanup(
 async fn cleanup_remote_upload_state(
     state: &impl SharedRuntimeState,
     session: &upload_session::Model,
+    allow_corrupted_object_fields: bool,
 ) -> UploadRemoteCleanupOutcome {
     let kind = match resolve_upload_session_kind(state, session).await {
-        Ok(kind) => kind,
+        Ok(kind) => Some(kind),
+        Err(error) if allow_corrupted_object_fields && session.object_temp_key.is_some() => {
+            // Policy force-delete already records these raw keys in a delayed cleanup task. A
+            // corrupted legacy classifier must not block administrative deletion; attempt the
+            // recorded object cleanup once, then let the task catch a late-arriving object.
+            tracing::warn!(
+                session_id = %session.id,
+                "using recorded object fields for forced policy cleanup after classification failure: {error}"
+            );
+            None
+        }
         Err(error) => {
             tracing::warn!(
                 session_id = %session.id,
@@ -119,20 +130,22 @@ async fn cleanup_remote_upload_state(
             return UploadRemoteCleanupOutcome::DeferredIntervention;
         }
     };
-    let has_legacy_remote_temp =
-        kind == UploadSessionKind::LegacyChunkFiles && session.object_temp_key.is_some();
-    if !has_legacy_remote_temp
-        && !matches!(
-            kind,
-            UploadSessionKind::ProviderRelayMultipart
-                | UploadSessionKind::ProviderPresignedSingle
-                | UploadSessionKind::ProviderPresignedMultipart
-                | UploadSessionKind::RemoteRelayMultipart
-                | UploadSessionKind::RemotePresignedSingle
-                | UploadSessionKind::RemotePresignedMultipart
-        )
-    {
-        return UploadRemoteCleanupOutcome::Complete;
+    if let Some(kind) = kind {
+        let has_legacy_remote_temp =
+            kind == UploadSessionKind::LegacyChunkFiles && session.object_temp_key.is_some();
+        if !has_legacy_remote_temp
+            && !matches!(
+                kind,
+                UploadSessionKind::ProviderRelayMultipart
+                    | UploadSessionKind::ProviderPresignedSingle
+                    | UploadSessionKind::ProviderPresignedMultipart
+                    | UploadSessionKind::RemoteRelayMultipart
+                    | UploadSessionKind::RemotePresignedSingle
+                    | UploadSessionKind::RemotePresignedMultipart
+            )
+        {
+            return UploadRemoteCleanupOutcome::Complete;
+        }
     }
 
     let Some(temp_key) = session.object_temp_key.as_deref() else {
@@ -231,7 +244,7 @@ async fn cancel_upload_impl(state: &PrimaryAppState, session: upload_session::Mo
         return Ok(());
     }
 
-    let cleanup_outcome = cleanup_remote_upload_state(state, &session).await;
+    let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
     if !cleanup_outcome.is_complete() {
         return defer_upload_session_cleanup(state, upload_id, "canceled upload cleanup blocked")
             .await;
@@ -288,17 +301,7 @@ async fn upload_session_mode_label(
     state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<&'static str> {
-    Ok(match resolve_upload_session_kind(state, session).await? {
-        UploadSessionKind::OffsetStaging => "offset_staging",
-        UploadSessionKind::StreamStaging => "stream_staging",
-        UploadSessionKind::ProviderRelayMultipart => "provider_relay_multipart",
-        UploadSessionKind::ProviderPresignedSingle => "provider_presigned_single",
-        UploadSessionKind::ProviderPresignedMultipart => "provider_presigned_multipart",
-        UploadSessionKind::RemoteRelayMultipart => "remote_relay_multipart",
-        UploadSessionKind::RemotePresignedSingle => "remote_presigned_single",
-        UploadSessionKind::RemotePresignedMultipart => "remote_presigned_multipart",
-        UploadSessionKind::LegacyChunkFiles => "legacy_chunk_files",
-    })
+    Ok(resolve_upload_session_kind(state, session).await?.as_str())
 }
 
 fn record_upload_cancel_metric(state: &impl SharedRuntimeState, mode: &'static str, success: bool) {
@@ -326,7 +329,7 @@ pub async fn force_cleanup_by_policy(
             }
         }
 
-        let cleanup_outcome = cleanup_remote_upload_state(state, session).await;
+        let cleanup_outcome = cleanup_remote_upload_state(state, session, true).await;
         if !cleanup_outcome.is_complete() {
             return Err(AsterError::validation_error(format!(
                 "cannot force delete policy: upload session {} still has remote cleanup pending",
@@ -356,7 +359,7 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
             );
             continue;
         }
-        let cleanup_outcome = cleanup_remote_upload_state(state, &session).await;
+        let cleanup_outcome = cleanup_remote_upload_state(state, &session, false).await;
         cleanup_upload_temp_dir(state, &session.id).await;
         if !cleanup_outcome.is_complete() {
             tracing::warn!(

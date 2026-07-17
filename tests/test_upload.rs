@@ -2625,6 +2625,7 @@ async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
 
 #[tokio::test]
 async fn test_presigned_session_kind_rejects_server_chunk_put() {
+    use actix_web::FromRequest;
     use aster_drive::services::files::upload;
     use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
 
@@ -2656,6 +2657,34 @@ async fn test_presigned_session_kind_rejects_server_chunk_put() {
         Ok(_) => panic!("presigned session must not enter server chunk path"),
         Err(error) => error,
     };
+    assert_eq!(error.code(), "E057");
+    assert!(error.message().contains("presigned"));
+
+    let payload_upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &payload_upload_id,
+            UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+        )
+        .chunks(1, 0)
+        .session_kind(UploadSessionKind::ProviderPresignedMultipart)
+        .object_upload(Some("files/temp"), Some("multipart")),
+    )
+    .await;
+    let (request, mut dev_payload) = actix_web::test::TestRequest::default()
+        .set_payload(b"12345".to_vec())
+        .to_http_parts();
+    let payload = actix_web::web::Payload::from_request(&request, &mut dev_payload)
+        .await
+        .expect("test payload should extract");
+    let error =
+        match upload::upload_chunk_payload(&state, &payload_upload_id, 0, user.id, payload).await {
+            Ok(_) => panic!("presigned payload PUT must be rejected"),
+            Err(error) => error,
+        };
     assert_eq!(error.code(), "E057");
     assert!(error.message().contains("presigned"));
 }

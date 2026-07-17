@@ -46,27 +46,15 @@ async fn get_progress_impl(
     let chunks_on_disk = match kind {
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => {
-            match (
-                session.object_temp_key.as_deref(),
-                session.object_multipart_id.as_deref(),
-            ) {
-                (Some(temp_key), Some(multipart_id)) => {
-                    let policy = state
-                        .policy_snapshot()
-                        .get_policy_or_err(session.policy_id)?;
-                    state
-                        .driver_registry
-                        .get_multipart_driver(&policy)?
-                        .list_uploaded_parts(temp_key, multipart_id)
-                        .await?
-                }
-                _ => {
-                    return Err(upload_assembly_error_with_code(
-                        ApiErrorCode::UploadSessionCorrupted,
-                        "presigned multipart session is missing object_temp_key or object_multipart_id",
-                    ));
-                }
-            }
+            let (temp_key, multipart_id) = presigned_multipart_fields(&session)?;
+            let policy = state
+                .policy_snapshot()
+                .get_policy_or_err(session.policy_id)?;
+            state
+                .driver_registry
+                .get_multipart_driver(&policy)?
+                .list_uploaded_parts(temp_key, multipart_id)
+                .await?
         }
         UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
             let part_numbers =
@@ -113,6 +101,22 @@ async fn get_progress_impl(
         "loaded upload progress"
     );
     Ok(progress)
+}
+
+fn presigned_multipart_fields(session: &upload_session::Model) -> Result<(&str, &str)> {
+    let temp_key = session.object_temp_key.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "presigned multipart session is missing object_temp_key",
+        )
+    })?;
+    let multipart_id = session.object_multipart_id.as_deref().ok_or_else(|| {
+        upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "presigned multipart session is missing object_multipart_id",
+        )
+    })?;
+    Ok((temp_key, multipart_id))
 }
 
 async fn list_offset_staging_chunks(
@@ -374,4 +378,49 @@ async fn scan_received_chunks(state: &PrimaryAppState, upload_id: &str) -> Vec<i
     }
     received.sort();
     received
+}
+
+#[cfg(test)]
+mod tests {
+    use super::presigned_multipart_fields;
+    use crate::entities::upload_session;
+    use crate::types::UploadSessionStatus;
+
+    fn session(
+        object_temp_key: Option<&str>,
+        object_multipart_id: Option<&str>,
+    ) -> upload_session::Model {
+        let now = chrono::Utc::now();
+        upload_session::Model {
+            id: "progress-test".to_string(),
+            user_id: 1,
+            team_id: None,
+            frontend_client_id: None,
+            filename: "progress-test.bin".to_string(),
+            total_size: 10,
+            chunk_size: 5,
+            total_chunks: 2,
+            received_count: 0,
+            folder_id: None,
+            policy_id: 1,
+            status: UploadSessionStatus::Presigned,
+            session_kind: None,
+            object_temp_key: object_temp_key.map(str::to_string),
+            object_multipart_id: object_multipart_id.map(str::to_string),
+            file_id: None,
+            created_at: now,
+            expires_at: now + chrono::Duration::hours(1),
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn presigned_multipart_fields_requires_both_object_identifiers() {
+        assert_eq!(
+            presigned_multipart_fields(&session(Some("files/temp"), Some("multipart"))).unwrap(),
+            ("files/temp", "multipart")
+        );
+        assert!(presigned_multipart_fields(&session(None, Some("multipart"))).is_err());
+        assert!(presigned_multipart_fields(&session(Some("files/temp"), None)).is_err());
+    }
 }

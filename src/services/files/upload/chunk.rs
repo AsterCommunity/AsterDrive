@@ -1461,6 +1461,44 @@ mod tests {
     use actix_web::FromRequest;
     use std::time::Duration;
 
+    fn relay_session(
+        object_temp_key: Option<&str>,
+        object_multipart_id: Option<&str>,
+    ) -> upload_session::Model {
+        let now = chrono::Utc::now();
+        upload_session::Model {
+            id: "chunk-test".to_string(),
+            user_id: 1,
+            team_id: None,
+            frontend_client_id: None,
+            filename: "chunk-test.bin".to_string(),
+            total_size: 10,
+            chunk_size: 5,
+            total_chunks: 2,
+            received_count: 0,
+            folder_id: None,
+            policy_id: 1,
+            status: UploadSessionStatus::Uploading,
+            session_kind: None,
+            object_temp_key: object_temp_key.map(str::to_string),
+            object_multipart_id: object_multipart_id.map(str::to_string),
+            file_id: None,
+            created_at: now,
+            expires_at: now + chrono::Duration::hours(1),
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn relay_multipart_fields_requires_both_object_identifiers() {
+        assert_eq!(
+            relay_multipart_fields(&relay_session(Some("files/temp"), Some("multipart"))).unwrap(),
+            ("files/temp", "multipart")
+        );
+        assert!(relay_multipart_fields(&relay_session(None, Some("multipart"))).is_err());
+        assert!(relay_multipart_fields(&relay_session(Some("files/temp"), None)).is_err());
+    }
+
     struct PendingMultipart;
 
     #[async_trait::async_trait]
