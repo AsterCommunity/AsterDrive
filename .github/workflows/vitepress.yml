@@ -5,6 +5,7 @@ on:
     types: [published]
   push:
     branches: [master, 'release/**']
+    tags: ['v*']
     paths:
       - 'docs/**'
       - '.github/workflows/vitepress.yml'
@@ -32,19 +33,26 @@ jobs:
 
       - uses: actions/configure-pages@v5
 
-      - name: Ensure release branch exists
-        if: github.event_name == 'release'
+      - name: Create or advance release branch
+        if: github.event_name == 'release' || startsWith(github.ref, 'refs/tags/v')
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          MINOR="$(echo "${{ github.event.release.tag_name }}" | sed -E 's/^v?([0-9]+\.[0-9]+).*/\1/')"
-          if git ls-remote --exit-code --heads origin "release/$MINOR" >/dev/null 2>&1; then
-            echo "release/$MINOR 已存在"
+          if [ "$GITHUB_EVENT_NAME" = "release" ]; then
+            TAG="${{ github.event.release.tag_name }}"
           else
-            git push origin "${{ github.event.release.tag_name }}:refs/heads/release/$MINOR"
-            echo "已创建 release/$MINOR"
+            TAG="$GITHUB_REF_NAME"
           fi
+          MINOR="$(echo "$TAG" | sed -E 's/^v?([0-9]+\.[0-9]+).*/\1/')"
+          if [ "$MINOR" = "0.0" ]; then
+            echo "跳过没有正式 release 的 v0.0.x 版本线"
+            exit 0
+          fi
+          # 同一 minor 的后续 patch/rc release 推进同一条 release 分支。
+          # 只接受 fast-forward，避免较旧的 release event 覆盖较新的分支末端。
+          git push origin "$TAG:refs/heads/release/$MINOR"
+          echo "已创建或推进 release/$MINOR -> $TAG"
 
       - name: Build all versions
         env:

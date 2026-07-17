@@ -7,6 +7,81 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0-beta.3] - 2026-07-18
+
+### Release Highlights
+
+**AsterDrive `v0.4.0-beta.3` 是 `0.4.0` 系列的第三个 beta，主线是上传数据平面的架构改进、WebDAV 安全加固与存储配额并发死锁修复。** 分片上传引入 `.offset-staging-v1` 暂存文件格式：Init 阶段预分配空间，Chunk PUT 按偏移量写入暂存文件，不再为每个分片创建独立文件；上传会话新增持久化的 `session_kind`，显式区分数据平面类型，旧会话通过兼容分支推断（兼容分支计划在 `0.5.0` 移除）；chunk 组装纳入全局并发限制，抑制高并发上传下的临时文件资源占用。
+安全方面，本版本包含一个 WebDAV 安全修复（GHSA-7797-6gjx-hwgh，CVE 申请中），建议所有启用 WebDAV 的实例尽快升级；远程协议控制平面响应统一限制大小，防御恶意远端响应导致的内存耗尽；release profile panic 策略从 `abort` 改为 `unwind`，单请求 panic 不再终止整个进程。此外，存储配额在写入前按序锁定配额行，消除 InnoDB 共享锁升级为排他锁时的死锁；远程存储列表支持游标分页（每页上限 1000 项，响应体限制 8MB）。
+
+- **上传 offset-staging 暂存文件** — Init 预分配、Chunk PUT 按偏移写入，重试只校验 receipt 不重复写数据
+- **上传会话类型持久化** — `session_kind` 显式区分数据平面，chunk 组装全局并发限制
+- **WebDAV 安全修复** — GHSA-7797-6gjx-hwgh（CVE 申请中），建议启用 WebDAV 的实例尽快升级
+- **配额死锁修复** — 写入前按序锁定配额行，消除 InnoDB 锁升级死锁
+- **远程存储列表分页** — 游标分页每页上限 1000 项，响应体限制 8MB
+- **进程容错提升** — panic 策略 `abort` → `unwind`，单请求 panic 不再拖垮整个进程
+
+### Added
+
+- **上传 offset-staging 暂存文件**
+  - 新增 `.offset-staging-v1` 暂存文件格式，Init 阶段预分配空间，每个 Chunk PUT 按偏移量写入
+  - Chunk PUT 先 `sync_data` 再在短事务中登记 receipt，重试只校验已有 receipt，不重复写数据
+  - `staging.rs` 模块统一管理 offset-staging 文件生命周期
+
+- **上传会话类型持久化与并发限制**
+  - `upload_sessions` 新增 `session_kind` 字段，显式区分 offset_staging / stream_staging / provider_relay_multipart / provider_presigned_single 等数据平面
+  - `resolve_upload_session_kind()` 统一处理新旧会话的类型解析，旧会话（NULL）通过兼容分支推断
+  - 新增 `UploadRuntime`，对同时进行 chunk 组装到本地临时文件的上传做全局并发限制
+
+- **远程存储列表游标分页**
+  - 列表操作支持基于游标的分页，每页上限 1000 项，响应体限制 8MB
+  - `RemoteStorageListResponse` 新增 `next_cursor` 字段，客户端自动跟踪游标
+  - 未提供 `limit` 参数时保持旧版无分页响应，兼容存量客户端
+
+- **开发工作流与文档发布**
+  - 新增 Makefile，覆盖 setup / dev / test / build / docs 等完整开发工作流
+  - 文档站支持多版本发布，vitepress workflow 自动创建 release/x.y 分支并构建各版本文档，旧版文档显示版本横幅
+  - 新增 docs-check workflow，校验错误码文档同步与文档构建
+
+### Changed
+
+- **上传类型系统重构** — 新增 `UploadSessionKind` 枚举，各数据平面显式建模，不再依赖 provider 字段推断
+- **WebDAV 递归操作迭代化** — 递归 COPY / MOVE 改为迭代式工作队列处理，新增 `extend_unique_failures()` 去重锁冲突报告
+- **远程协议共享函数提取** — 提取 `read_reqwest_response_body_limited()` 等共享响应读取函数；`append_query_pairs()` 泛化为 `AsRef<str>` 减少分配
+- **远程协议错误类型调整** — 响应体超限错误从 `Transient` 改为 `Misconfigured`
+- **依赖更新** — `aws-sdk-s3` 1.138.0 → 1.138.1，`aster_forge_utils` 升级至包含 XML 安全工具的版本
+
+### Fixed
+
+- **存储配额死锁** — 文件完成、版本恢复 / 删除前先按序锁定配额行，消除 InnoDB 共享锁升级排他锁时的死锁
+- **WebDAV 递归 COPY / MOVE 边界行为** — 修复递归操作中的锁冲突处理与目标覆盖逻辑
+- **远程列表客户端游标跟踪** — 修复自动游标前进逻辑，并验证游标前进防止无限循环
+
+### Security
+
+- **WebDAV 安全修复（GHSA-7797-6gjx-hwgh，CVE 申请中）** — 本版本修复一个已认证 WebDAV 用户可触发的进程级拒绝服务问题，建议所有启用 WebDAV 的实例尽快升级；技术细节将在安全公告发布后披露
+- **远程协议响应限制** — 控制平面响应体限制 1MB，分页列表响应限制 8MB，防御恶意远端响应导致的内存耗尽
+- **进程容错提升** — release / profiling profile panic 策略从 `abort` 改为 `unwind`，单请求 / 任务 panic 不再终止整个进程，Actix worker 互不影响
+
+### Database Migrations
+
+- `m20260717_000001_add_upload_session_kind`
+  - 为 `upload_sessions` 新增 `session_kind` 列（string(32)，nullable），持久化上传会话的数据平面类型
+  - 存量会话该列为 NULL，通过兼容分支推断类型（兼容分支计划在 `0.5.0` 移除）
+
+### Statistics
+
+- 144 files changed, 9438 insertions(+), 3223 deletions(-)
+- 6 commits
+- 1 个数据库 migration
+
+### Notes
+
+- 本版本包含 WebDAV 安全修复（GHSA-7797-6gjx-hwgh），建议所有启用 WebDAV 的实例尽快升级；升级前可通过管理后台临时关闭 WebDAV
+- 1 个数据库 migration 会在启动时自动执行
+- 存量上传会话通过 `session_kind` 兼容分支推断数据平面，兼容分支计划在 `0.5.0` 移除
+- 远程存储列表未提供 `limit` 参数时保持旧版无分页响应；自定义远程存储客户端建议逐步迁移到分页模式
+
 ## [v0.4.0-beta.2] - 2026-07-16
 
 ### Release Highlights
@@ -5623,7 +5698,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...HEAD
+[v0.4.0-beta.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.2...v0.4.0-beta.3
 [v0.4.0-beta.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [v0.4.0-beta.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.2...v0.4.0-beta.1
 [v0.3.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.1...v0.3.2
