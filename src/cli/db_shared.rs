@@ -109,6 +109,7 @@ pub(super) fn redact_database_url(database_url: &str) -> String {
             let _ = url.set_password(None);
         }
         redact_url_query(&mut url);
+        url.set_fragment(None);
         return url.to_string();
     }
 
@@ -116,20 +117,27 @@ pub(super) fn redact_database_url(database_url: &str) -> String {
 }
 
 fn redact_sqlite_database_url(database_url: &str) -> String {
-    let Some(path_and_query) = database_url.strip_prefix("sqlite://") else {
-        let Some((base, query)) = database_url.split_once('?') else {
+    let (database_url, _) = database_url
+        .split_once('#')
+        .map_or((database_url, None), |(value, fragment)| {
+            (value, Some(fragment))
+        });
+    let (prefix, path_and_query) =
+        if let Some(path_and_query) = database_url.strip_prefix("sqlite://") {
+            ("sqlite://", path_and_query)
+        } else if let Some(path_and_query) = database_url.strip_prefix("sqlite:") {
+            ("sqlite:", path_and_query)
+        } else {
             return database_url.to_string();
         };
-        return format!("{base}?{}", redact_query_string(query));
-    };
     let (path, query) = path_and_query
         .split_once('?')
         .map_or((path_and_query, None), |(path, query)| (path, Some(query)));
     let redacted_path = redact_sqlite_path(path);
 
     match query {
-        Some(query) => format!("sqlite://{redacted_path}?{}", redact_query_string(query)),
-        None => format!("sqlite://{redacted_path}"),
+        Some(query) => format!("{prefix}{redacted_path}?{}", redact_query_string(query)),
+        None => format!("{prefix}{redacted_path}"),
     }
 }
 
@@ -172,12 +180,15 @@ fn is_sensitive_query_key(key: &str) -> bool {
         normalized.as_str(),
         "pass"
             | "password"
+            | "pwd"
             | "token"
             | "accesstoken"
             | "refreshtoken"
             | "secret"
             | "apikey"
             | "key"
+            | "authorization"
+            | "accesskeyid"
             | "credential"
             | "credentials"
     ) || normalized.contains("token")
@@ -187,11 +198,9 @@ fn is_sensitive_query_key(key: &str) -> bool {
 }
 
 fn redact_unparsed_url(database_url: &str) -> String {
-    let (without_fragment, fragment) = database_url
+    let without_fragment = database_url
         .split_once('#')
-        .map_or((database_url, None), |(value, fragment)| {
-            (value, Some(fragment))
-        });
+        .map_or(database_url, |(value, _)| value);
     let (base, query) = without_fragment
         .split_once('?')
         .map_or((without_fragment, None), |(base, query)| {
@@ -206,15 +215,10 @@ fn redact_unparsed_url(database_url: &str) -> String {
     } else {
         base.to_string()
     };
-    let mut redacted = match query {
+    match query {
         Some(query) => format!("{base}?{}", redact_query_string(query)),
         None => base,
-    };
-    if let Some(fragment) = fragment {
-        redacted.push('#');
-        redacted.push_str(fragment);
     }
-    redacted
 }
 
 fn redact_sqlite_path(path: &str) -> String {
@@ -257,7 +261,7 @@ mod tests {
             "mysql://***@db.internal:3306/asterdrive"
         );
         let redacted = redact_database_url(
-            "postgres://us%40er:p%40ss@db.internal:5432/asterdrive?password=p%40ss&%61ccess_token=a%2Fb&sslmode=require",
+            "postgres://us%40er:p%40ss@db.internal:5432/asterdrive?password=p%40ss&%61ccess_token=a%2Fb&sslmode=require#access_token=fragment-secret",
         );
         assert!(redacted.starts_with("postgres://***@db.internal:5432/asterdrive?"));
         assert!(redacted.contains("password=***"));
@@ -266,16 +270,21 @@ mod tests {
         assert!(!redacted.contains("us%40er"));
         assert!(!redacted.contains("p%40ss"));
         assert!(!redacted.contains("a%2Fb"));
+        assert!(!redacted.contains("fragment-secret"));
+        assert!(!redacted.contains('#'));
     }
 
     #[test]
     fn redact_database_url_masks_query_variants_without_authority() {
         let redacted = redact_database_url(
-            "postgres://db.internal:5432/asterdrive?token=first&password=&client_secret=second&api-key=third&credential_file=fourth&monkey=safe&mode=rwc&token=fifth",
+            "postgres://db.internal:5432/asterdrive?token=first&password=&PWD=pwd-secret&Authorization=bearer-secret&access-key-id=key-secret&client_secret=second&api-key=third&credential_file=fourth&monkey=safe&mode=rwc&token=fifth",
         );
 
         assert!(redacted.contains("token=***"));
         assert!(redacted.contains("password=***"));
+        assert!(redacted.contains("PWD=***"));
+        assert!(redacted.contains("Authorization=***"));
+        assert!(redacted.contains("access-key-id=***"));
         assert!(redacted.contains("client_secret=***"));
         assert!(redacted.contains("api-key=***"));
         assert!(redacted.contains("credential_file=***"));
@@ -283,6 +292,9 @@ mod tests {
         assert!(redacted.contains("mode=rwc"));
         assert_eq!(redacted.matches("token=***").count(), 2);
         assert!(!redacted.contains("first"));
+        assert!(!redacted.contains("pwd-secret"));
+        assert!(!redacted.contains("bearer-secret"));
+        assert!(!redacted.contains("key-secret"));
         assert!(!redacted.contains("second"));
         assert!(!redacted.contains("third"));
         assert!(!redacted.contains("fourth"));
@@ -306,6 +318,14 @@ mod tests {
             redact_database_url("sqlite://:memory:"),
             "sqlite://:memory:"
         );
+        assert_eq!(
+            redact_database_url("sqlite:relative/path/asterdrive.db"),
+            "sqlite:.../asterdrive.db"
+        );
+        assert_eq!(
+            redact_database_url("sqlite:/Users/esap/data/asterdrive.db?mode=rwc"),
+            "sqlite:/.../asterdrive.db?mode=rwc"
+        );
         let redacted = redact_database_url(
             "sqlite://data/asterdrive.db?mode=rwc&password=secret%2Fvalue&DB_TOKEN=abc",
         );
@@ -315,14 +335,20 @@ mod tests {
         assert!(!redacted.contains("secret%2Fvalue"));
         assert!(!redacted.contains("abc"));
         assert_eq!(
-            redact_database_url("sqlite::memory:?token=encoded%2Fsecret&mode=memory"),
+            redact_database_url(
+                "sqlite::memory:?token=encoded%2Fsecret&mode=memory#token=fragment-secret"
+            ),
             "sqlite::memory:?token=***&mode=memory"
         );
 
-        let redacted = redact_database_url("postgres://user:secret@db host/db?token=abc");
+        let redacted = redact_database_url(
+            "postgres://user:secret@db host/db?token=abc#access_token=fragment-secret",
+        );
         assert!(redacted.starts_with("postgres://***@db host/db?"));
         assert!(redacted.contains("token=***"));
         assert!(!redacted.contains("secret"));
         assert!(!redacted.contains("abc"));
+        assert!(!redacted.contains("fragment-secret"));
+        assert!(!redacted.contains('#'));
     }
 }
