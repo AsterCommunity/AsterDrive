@@ -11,6 +11,8 @@
 //! completion records on retry.
 
 use std::io::SeekFrom;
+#[cfg(unix)]
+use std::path::Path;
 
 use tokio::io::AsyncSeekExt;
 
@@ -53,6 +55,38 @@ pub(crate) async fn prepare(
         .map_aster_err_ctx("preallocate chunk staging file", |message| {
             chunk_upload_error_with_code(ApiErrorCode::UploadTempFileWriteFailed, message)
         })?;
+    file.sync_all()
+        .await
+        .map_aster_err_ctx("sync chunk staging file", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadTempFileWriteFailed, message)
+        })?;
+    sync_parent_directory(&path).await?;
+    Ok(())
+}
+
+#[cfg(unix)]
+async fn sync_parent_directory(path: &str) -> Result<()> {
+    let parent = Path::new(path).parent().ok_or_else(|| {
+        chunk_upload_error_with_code(
+            ApiErrorCode::UploadTempFileWriteFailed,
+            "chunk staging file has no parent directory",
+        )
+    })?;
+    let directory = tokio::fs::File::open(parent)
+        .await
+        .map_aster_err_ctx("open chunk staging directory", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadTempFileWriteFailed, message)
+        })?;
+    directory
+        .sync_all()
+        .await
+        .map_aster_err_ctx("sync chunk staging directory", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadTempFileWriteFailed, message)
+        })
+}
+
+#[cfg(not(unix))]
+async fn sync_parent_directory(_path: &str) -> Result<()> {
     Ok(())
 }
 
