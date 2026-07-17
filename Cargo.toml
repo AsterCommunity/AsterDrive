@@ -33,7 +33,9 @@ debug = false
 opt-level = 2
 lto = true
 codegen-units = 1
-panic = "abort"
+# Keep ordinary request/task panics from taking down every HTTP worker. Stack overflow and OOM
+# remain process-fatal and must be prevented at their input/allocation boundaries.
+panic = "unwind"
 strip = true
 
 # 压测/火焰图采样用：接近 release，但保留符号并关闭 LTO，方便 perf 展开栈。
@@ -46,7 +48,7 @@ codegen-units = 1
 debug = true
 strip = false
 lto = false
-panic = "abort"
+panic = "unwind"
 
 [profile.release-performance]
 inherits = "release"

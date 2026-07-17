@@ -3,7 +3,7 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use http::{Method as HttpMethod, StatusCode};
 use reqwest::Method;
 use tokio::io::{AsyncRead, AsyncReadExt};
@@ -21,7 +21,7 @@ use super::tunnel::server::{
 };
 use super::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
-    INTERNAL_AUTH_TIMESTAMP_HEADER,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT,
 };
 
 const DEFAULT_REMOTE_CONNECT_TIMEOUT_SECS: u64 = 5;
@@ -382,6 +382,26 @@ pub async fn ensure_success(response: RemoteTransportResponse, context: &str) ->
     }
 }
 
+pub async fn ensure_success_with_body_limit(
+    response: RemoteTransportResponse,
+    context: &str,
+    max_body_bytes: usize,
+) -> Result<Vec<u8>> {
+    let response = ensure_success_response(response, context).await?;
+    match response {
+        RemoteTransportResponse::Direct(response) => {
+            read_reqwest_response_body_limited(response, context, max_body_bytes).await
+        }
+        RemoteTransportResponse::Tunnel(response) => {
+            ensure_body_within_limit(&response.body, context, max_body_bytes)?;
+            Ok(response.body.to_vec())
+        }
+        RemoteTransportResponse::TunnelStream(response) => {
+            read_async_body_limited(response.body, context, max_body_bytes).await
+        }
+    }
+}
+
 pub async fn ensure_success_without_body(
     response: RemoteTransportResponse,
     context: &str,
@@ -409,10 +429,24 @@ pub async fn build_remote_status_error(
     match response {
         RemoteTransportResponse::Direct(response) => {
             let status = response.status();
-            let body = response.text().await.unwrap_or_default();
+            let body = match read_reqwest_response_body_limited(
+                response,
+                context,
+                REMOTE_CONTROL_PLANE_BODY_LIMIT,
+            )
+            .await
+            {
+                Ok(body) => String::from_utf8_lossy(&body).into_owned(),
+                Err(error) => return error,
+            };
             build_remote_status_error_from_parts(status, &body, context, not_found_as_record)
         }
         RemoteTransportResponse::Tunnel(response) => {
+            if let Err(error) =
+                ensure_body_within_limit(&response.body, context, REMOTE_CONTROL_PLANE_BODY_LIMIT)
+            {
+                return error;
+            }
             let body = String::from_utf8_lossy(&response.body);
             build_remote_status_error_from_parts(
                 response.status,
@@ -421,14 +455,17 @@ pub async fn build_remote_status_error(
                 not_found_as_record,
             )
         }
-        RemoteTransportResponse::TunnelStream(mut response) => {
-            let mut body = Vec::new();
-            if let Err(error) = response.body.read_to_end(&mut body).await {
-                return storage_driver_error(
-                    StorageErrorKind::Transient,
-                    format!("read reverse tunnel streaming error response body: {error}"),
-                );
-            }
+        RemoteTransportResponse::TunnelStream(response) => {
+            let body = match read_async_body_limited(
+                response.body,
+                context,
+                REMOTE_CONTROL_PLANE_BODY_LIMIT,
+            )
+            .await
+            {
+                Ok(body) => body,
+                Err(error) => return error,
+            };
             let body = String::from_utf8_lossy(&body);
             build_remote_status_error_from_parts(
                 response.status,
@@ -438,6 +475,74 @@ pub async fn build_remote_status_error(
             )
         }
     }
+}
+
+pub(super) async fn read_reqwest_response_body_limited(
+    response: reqwest::Response,
+    context: &str,
+    max_body_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut body = Vec::with_capacity(max_body_bytes.min(4096));
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(map_reqwest_error)?;
+        extend_limited_body(&mut body, &chunk, context, max_body_bytes)?;
+    }
+    Ok(body)
+}
+
+async fn read_async_body_limited(
+    mut body: Box<dyn AsyncRead + Unpin + Send>,
+    context: &str,
+    max_body_bytes: usize,
+) -> Result<Vec<u8>> {
+    let mut data = Vec::with_capacity(max_body_bytes.min(4096));
+    let mut chunk = [0u8; 8192];
+    loop {
+        let read = body.read(&mut chunk).await.map_err(|error| {
+            storage_driver_error(
+                StorageErrorKind::Transient,
+                format!("read {context} response body: {error}"),
+            )
+        })?;
+        if read == 0 {
+            break;
+        }
+        extend_limited_body(&mut data, &chunk[..read], context, max_body_bytes)?;
+    }
+    Ok(data)
+}
+
+fn extend_limited_body(
+    body: &mut Vec<u8>,
+    chunk: &[u8],
+    context: &str,
+    max_body_bytes: usize,
+) -> Result<()> {
+    let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
+        storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("{context} response body size overflow"),
+        )
+    })?;
+    if next_len > max_body_bytes {
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("{context} response body exceeds {max_body_bytes} bytes limit"),
+        ));
+    }
+    body.extend_from_slice(chunk);
+    Ok(())
+}
+
+fn ensure_body_within_limit(body: &[u8], context: &str, max_body_bytes: usize) -> Result<()> {
+    if body.len() > max_body_bytes {
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("{context} response body exceeds {max_body_bytes} bytes limit"),
+        ));
+    }
+    Ok(())
 }
 
 pub fn response_stream(response: RemoteTransportResponse) -> Box<dyn AsyncRead + Unpin + Send> {
@@ -834,5 +939,58 @@ mod tests {
         assert!(error.message().contains("streaming upload exceeds"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn limited_body_accumulation_accepts_exact_limit_and_rejects_one_byte_over() {
+        let mut body = Vec::new();
+        extend_limited_body(&mut body, b"123", "test control plane", 4)
+            .expect("body below the limit should be accepted");
+        extend_limited_body(&mut body, b"4", "test control plane", 4)
+            .expect("body exactly at the limit should be accepted");
+        assert_eq!(body, b"1234");
+
+        let error = extend_limited_body(&mut body, b"5", "test control plane", 4)
+            .expect_err("body one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(error.message().contains("exceeds 4 bytes limit"));
+        assert_eq!(body, b"1234", "rejected chunk must not be appended");
+
+        ensure_body_within_limit(&body, "test buffered body", 4)
+            .expect("buffered body exactly at the limit should be accepted");
+        let error = ensure_body_within_limit(b"12345", "test buffered body", 4)
+            .expect_err("buffered body one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+    }
+
+    #[tokio::test]
+    async fn limited_async_body_reader_enforces_exact_boundary() {
+        let exact = read_async_body_limited(
+            Box::new(std::io::Cursor::new(Bytes::from_static(b"1234"))),
+            "test stream",
+            4,
+        )
+        .await
+        .expect("stream exactly at the limit should be accepted");
+        assert_eq!(exact, b"1234");
+
+        let error = read_async_body_limited(
+            Box::new(std::io::Cursor::new(Bytes::from_static(b"12345"))),
+            "test stream",
+            4,
+        )
+        .await
+        .expect_err("stream one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(error.message().contains("exceeds 4 bytes limit"));
     }
 }

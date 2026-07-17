@@ -102,10 +102,19 @@ async fn spawn_protocol_server() -> (TestHttpServer, Arc<ProtocolLog>) {
     ) -> HttpResponse {
         log_request(&req, &[], &log);
         let prefix = query.get("prefix").cloned().unwrap_or_default();
+        let cursor = query
+            .get("cursor")
+            .and_then(|value| value.parse::<usize>().ok())
+            .unwrap_or(0);
+        let items = [format!("{prefix}/one.bin"), format!("{prefix}/two.bin")];
+        let end = (cursor + 1).min(items.len());
         HttpResponse::Ok().json(serde_json::json!({
             "code": "success",
             "msg": "",
-            "data": { "items": [format!("{prefix}/one.bin"), format!("{prefix}/two.bin")] }
+            "data": {
+                "items": &items[cursor.min(items.len())..end],
+                "next_cursor": (end < items.len()).then_some(end),
+            }
         }))
     }
 
@@ -850,6 +859,31 @@ async fn remote_client_object_profile_and_compose_paths_roundtrip() {
     assert!(requests.iter().any(|request| {
         request.method == "GET" && request.path_and_query == "/api/v1/internal/storage/capacity"
     }));
+    let list_requests = requests
+        .iter()
+        .filter(|request| {
+            request.method == "GET"
+                && request
+                    .path_and_query
+                    .starts_with("/api/v1/internal/storage/objects?")
+                && request.path_and_query.contains("prefix=prefix")
+        })
+        .collect::<Vec<_>>();
+    assert_eq!(
+        list_requests.len(),
+        2,
+        "list client should follow pagination"
+    );
+    assert!(
+        list_requests
+            .iter()
+            .all(|request| request.path_and_query.contains("limit=1000"))
+    );
+    assert!(
+        list_requests
+            .iter()
+            .any(|request| request.path_and_query.contains("cursor=1"))
+    );
     assert!(requests.iter().any(|request| {
         request.method == "PATCH" && request.path_and_query.contains("/targets/profile%2Fa")
     }));
