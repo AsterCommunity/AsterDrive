@@ -1292,6 +1292,79 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
 }
 
 #[actix_web::test]
+async fn test_policy_force_delete_removes_corrupted_session_without_temp_object() {
+    use aster_drive::db::repository::{policy_repo, upload_session_repo};
+    use aster_drive::entities::upload_session;
+    use aster_drive::types::UploadSessionKind;
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let base_path = format!(
+        "/tmp/asterdrive-policy-corrupted-upload-{}",
+        uuid::Uuid::new_v4()
+    );
+    std::fs::create_dir_all(&base_path).unwrap();
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Corrupted Upload Cleanup Policy",
+            "driver_type": "local",
+            "base_path": base_path,
+            "chunk_size": 5_242_880,
+            "max_file_size": 0
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let policy_id = body["data"]["id"].as_i64().unwrap();
+
+    let user = aster_drive::db::repository::user_repo::find_by_username(&db, "testuser")
+        .await
+        .unwrap()
+        .expect("registered user should exist");
+    let upload_id = uuid::Uuid::new_v4().to_string();
+    create_policy_upload_session(
+        &state,
+        PolicyUploadSessionSpec {
+            upload_id: &upload_id,
+            policy_id,
+            user_id: user.id,
+            object_temp_key: None,
+            status: None,
+            expires_at: None,
+        },
+    )
+    .await;
+    let mut session: upload_session::ActiveModel = upload_session_repo::find_by_id(&db, &upload_id)
+        .await
+        .unwrap()
+        .into_active_model();
+    session.session_kind = Set(Some(UploadSessionKind::ProviderPresignedSingle));
+    session.update(&db).await.unwrap();
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}?force=true"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert!(policy_repo::find_by_id(&db, policy_id).await.is_err());
+    assert!(
+        upload_session_repo::find_by_id(&db, &upload_id)
+            .await
+            .is_err()
+    );
+}
+
+#[actix_web::test]
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
     use aster_drive::services::{files::file, storage_policy::policy, user::account};

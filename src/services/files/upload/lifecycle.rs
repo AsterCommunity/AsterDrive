@@ -112,10 +112,9 @@ async fn cleanup_remote_upload_state(
 ) -> UploadRemoteCleanupOutcome {
     let kind = match resolve_upload_session_kind(state, session).await {
         Ok(kind) => Some(kind),
-        Err(error) if allow_corrupted_object_fields && session.object_temp_key.is_some() => {
-            // Policy force-delete already records these raw keys in a delayed cleanup task. A
-            // corrupted legacy classifier must not block administrative deletion; attempt the
-            // recorded object cleanup once, then let the task catch a late-arriving object.
+        Err(error) if allow_corrupted_object_fields => {
+            // A corrupted classifier must not block administrative deletion. Recorded object
+            // fields are cleaned below; sessions without a temp key have no remote state.
             tracing::warn!(
                 session_id = %session.id,
                 "using recorded object fields for forced policy cleanup after classification failure: {error}"
