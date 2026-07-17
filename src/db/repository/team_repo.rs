@@ -80,6 +80,7 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Mod
         .ok_or_else(|| AsterError::record_not_found(format!("team #{id}")))
 }
 
+/// Locks a team row for quota-authoritative transaction ordering.
 pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: i64) -> Result<team::Model> {
     match db.get_database_backend() {
         DbBackend::Postgres | DbBackend::MySql => Team::find_by_id(id)

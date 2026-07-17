@@ -37,6 +37,7 @@ pub(super) struct PreparedStoreFromTemp {
     pub actor_username: Option<String>,
 }
 
+#[derive(Clone)]
 pub(super) struct OverwriteContext {
     pub old_file: file::Model,
     pub old_blob: file_blob::Model,

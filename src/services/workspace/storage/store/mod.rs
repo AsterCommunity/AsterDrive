@@ -10,7 +10,7 @@ use sea_orm::{ActiveModelTrait, Set};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::entities::file;
-use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_code};
+use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::events::storage_change;
 
@@ -19,7 +19,7 @@ use super::{
     cleanup_preuploaded_blob_upload, create_new_file_from_blob,
     create_new_file_from_blob_with_actor_username, local_content_dedup_enabled, lock_storage_usage,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
-    update_storage_used, verify_file_access, verify_folder_access,
+    retry_mysql_deadlock, update_storage_used, verify_file_access, verify_folder_access,
 };
 use preuploaded_contract::{
     VerifiedPreuploadedNondedupStoreBlob, cleanup_verified_preuploaded_nondedup_store_blob,
@@ -277,80 +277,100 @@ pub(crate) async fn store_preuploaded_nondedup(
         .first_or_octet_stream()
         .to_string();
 
-    let create_result = async {
+    let mut deadlock_attempt = 0;
+    let create_result = loop {
         let txn = transaction::begin(state.writer_db()).await?;
-        lock_storage_usage(&txn, scope).await?;
-        if storage_delta > 0 {
-            check_quota(&txn, scope, storage_delta).await?;
-        }
-
-        let blob = persist_preuploaded_blob(&txn, verified_blob.prepared()).await?;
-        debug_assert_eq!(blob.size, verified_blob.size());
-        debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
-        debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
-
-        let result = if let Some((old_file, old_blob)) = overwrite_ctx {
-            let current_file =
-                revalidate_preuploaded_overwrite_target(&txn, scope, &old_file, skip_lock_check)
-                    .await?;
-            let existing_id = current_file.id;
-            let current_name = current_file.name.clone();
-            let mut active: file::ActiveModel = current_file.into();
-            active.blob_id = Set(blob.id);
-            active.size = Set(blob.size);
-            let classification =
-                aster_forge_file_classification::classify_file(&current_name, &mime);
-            active.mime_type = Set(mime);
-            active.extension = Set(classification.extension);
-            active.compound_extension = Set(classification.compound_extension);
-            active.file_category = Set(classification.category);
-            active.updated_at = Set(now);
-            let updated = active
-                .update(&txn)
-                .await
-                .map_aster_err(AsterError::database_operation)?;
-
-            let next_ver =
-                crate::db::repository::version_repo::next_version(&txn, existing_id).await?;
-            crate::db::repository::version_repo::create(
-                &txn,
-                crate::entities::file_version::ActiveModel {
-                    file_id: Set(existing_id),
-                    blob_id: Set(old_blob.id),
-                    version: Set(next_ver),
-                    size: Set(old_blob.size),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-            if storage_delta != 0 {
-                update_storage_used(&txn, scope, storage_delta).await?;
+        let result = async {
+            lock_storage_usage(&txn, scope).await?;
+            if storage_delta > 0 {
+                check_quota(&txn, scope, storage_delta).await?;
             }
-            updated
-        } else {
-            let created = match actor_username {
-                Some(username) => {
-                    create_new_file_from_blob_with_actor_username(
-                        &txn, scope, folder_id, &filename, &blob, now, username,
-                    )
-                    .await?
+
+            let blob = persist_preuploaded_blob(&txn, verified_blob.prepared()).await?;
+            debug_assert_eq!(blob.size, verified_blob.size());
+            debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
+            debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
+
+            let result = if let Some((old_file, old_blob)) = overwrite_ctx.clone() {
+                let current_file = revalidate_preuploaded_overwrite_target(
+                    &txn,
+                    scope,
+                    &old_file,
+                    skip_lock_check,
+                )
+                .await?;
+                let existing_id = current_file.id;
+                let current_name = current_file.name.clone();
+                let mut active: file::ActiveModel = current_file.into();
+                active.blob_id = Set(blob.id);
+                active.size = Set(blob.size);
+                let classification =
+                    aster_forge_file_classification::classify_file(&current_name, &mime);
+                active.mime_type = Set(mime.clone());
+                active.extension = Set(classification.extension);
+                active.compound_extension = Set(classification.compound_extension);
+                active.file_category = Set(classification.category);
+                active.updated_at = Set(now);
+                let updated = active.update(&txn).await.map_err(AsterError::from)?;
+
+                let next_ver =
+                    crate::db::repository::version_repo::next_version(&txn, existing_id).await?;
+                crate::db::repository::version_repo::create(
+                    &txn,
+                    crate::entities::file_version::ActiveModel {
+                        file_id: Set(existing_id),
+                        blob_id: Set(old_blob.id),
+                        version: Set(next_ver),
+                        size: Set(old_blob.size),
+                        created_at: Set(now),
+                        ..Default::default()
+                    },
+                )
+                .await?;
+
+                if storage_delta != 0 {
+                    update_storage_used(&txn, scope, storage_delta).await?;
                 }
-                None => {
-                    create_new_file_from_blob(&txn, scope, folder_id, &filename, &blob, now).await?
+                updated
+            } else {
+                let created = match actor_username {
+                    Some(username) => {
+                        create_new_file_from_blob_with_actor_username(
+                            &txn, scope, folder_id, &filename, &blob, now, username,
+                        )
+                        .await?
+                    }
+                    None => {
+                        create_new_file_from_blob(&txn, scope, folder_id, &filename, &blob, now)
+                            .await?
+                    }
+                };
+                if storage_delta != 0 {
+                    update_storage_used(&txn, scope, storage_delta).await?;
                 }
+                created
             };
-            if storage_delta != 0 {
-                update_storage_used(&txn, scope, storage_delta).await?;
-            }
-            created
-        };
 
-        transaction::commit(txn).await?;
-        Ok::<file::Model, AsterError>(result)
-    }
-    .await;
+            Ok::<file::Model, AsterError>(result)
+        }
+        .await;
+        match result {
+            Ok(result) => {
+                transaction::commit(txn).await?;
+                break Ok(result);
+            }
+            Err(error) => {
+                if let Err(rollback_error) = transaction::rollback(txn).await {
+                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+                }
+                if retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await {
+                    deadlock_attempt += 1;
+                    continue;
+                }
+                break Err(error);
+            }
+        }
+    };
 
     let result = match create_result {
         Ok(result) => result,

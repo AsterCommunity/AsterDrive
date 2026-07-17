@@ -11,11 +11,51 @@ use aster_drive::services::auth::local;
 use serde_json::Value;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::task::JoinSet;
+use tokio::time::{Duration, timeout};
 
 const TEST_CHUNK_SIZE: usize = 5_242_880;
 const PERSONAL_FINALIZATION_CONCURRENCY: usize = 8;
 const TEAM_FINALIZATION_CONCURRENCY: usize = 4;
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
+
+async fn hold_personal_quota_row(
+    state: &aster_drive::runtime::PrimaryAppState,
+    user_id: i64,
+) -> Option<sea_orm::DatabaseTransaction> {
+    use aster_drive::db::repository::user_repo;
+    if state.writer_db().get_database_backend() == sea_orm::DbBackend::Sqlite {
+        return None;
+    }
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    user_repo::lock_by_id(&txn, user_id).await.unwrap();
+    Some(txn)
+}
+
+async fn hold_team_quota_row(
+    state: &aster_drive::runtime::PrimaryAppState,
+    team_id: i64,
+) -> Option<sea_orm::DatabaseTransaction> {
+    use aster_drive::db::repository::team_repo;
+    if state.writer_db().get_database_backend() == sea_orm::DbBackend::Sqlite {
+        return None;
+    }
+    let txn = aster_forge_db::transaction::begin(state.writer_db())
+        .await
+        .unwrap();
+    team_repo::lock_by_id(&txn, team_id).await.unwrap();
+    Some(txn)
+}
+
+async fn assert_tasks_wait_for_quota_guard<T: Send + 'static>(tasks: &mut JoinSet<T>) {
+    assert!(
+        timeout(Duration::from_millis(100), tasks.join_next())
+            .await
+            .is_err(),
+        "a finalization task crossed the quota-row lock before the guard was released"
+    );
+}
 
 fn assert_upload_error_contract(body: &Value, expected_code: &str) {
     assert_eq!(body["code"], expected_code);
@@ -924,6 +964,7 @@ async fn test_concurrent_store_from_temp_same_owner_serializes_quota_row() {
         paths.push(path);
     }
 
+    let quota_guard = hold_personal_quota_row(state.as_ref(), user.id).await;
     let barrier = Arc::new(tokio::sync::Barrier::new(2));
     let mut tasks = JoinSet::new();
     for (index, path) in paths.iter().cloned().enumerate() {
@@ -940,6 +981,13 @@ async fn test_concurrent_store_from_temp_same_owner_serializes_quota_row() {
             )
             .await
         });
+    }
+
+    if let Some(quota_guard) = quota_guard {
+        assert_tasks_wait_for_quota_guard(&mut tasks).await;
+        aster_forge_db::transaction::commit(quota_guard)
+            .await
+            .unwrap();
     }
 
     let mut file_ids = Vec::new();
@@ -2385,6 +2433,7 @@ async fn test_concurrent_chunked_complete_same_user_commits_all_quota_and_sessio
         );
     }
 
+    let quota_guard = hold_personal_quota_row(&state, user.id).await;
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(upload_ids.len()));
     let mut tasks = JoinSet::new();
     for upload_id in upload_ids.clone() {
@@ -2394,6 +2443,13 @@ async fn test_concurrent_chunked_complete_same_user_commits_all_quota_and_sessio
             barrier.wait().await;
             upload::complete_upload(&state, &upload_id, user.id, None).await
         });
+    }
+
+    if let Some(quota_guard) = quota_guard {
+        assert_tasks_wait_for_quota_guard(&mut tasks).await;
+        aster_forge_db::transaction::commit(quota_guard)
+            .await
+            .unwrap();
     }
 
     let mut files = Vec::new();
@@ -2465,6 +2521,7 @@ async fn test_concurrent_chunked_complete_same_user_quota_boundary_rolls_back_lo
     active.storage_quota = Set(single_file_size);
     active.update(state.writer_db()).await.unwrap();
 
+    let quota_guard = hold_personal_quota_row(&state, user.id).await;
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(upload_ids.len()));
     let mut tasks = JoinSet::new();
     for upload_id in upload_ids.clone() {
@@ -2474,6 +2531,13 @@ async fn test_concurrent_chunked_complete_same_user_quota_boundary_rolls_back_lo
             barrier.wait().await;
             upload::complete_upload(&state, &upload_id, user.id, None).await
         });
+    }
+
+    if let Some(quota_guard) = quota_guard {
+        assert_tasks_wait_for_quota_guard(&mut tasks).await;
+        aster_forge_db::transaction::commit(quota_guard)
+            .await
+            .unwrap();
     }
 
     let mut succeeded = Vec::new();
@@ -2570,6 +2634,7 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
         );
     }
 
+    let quota_guard = hold_team_quota_row(&state, team.id).await;
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(upload_ids.len()));
     let mut tasks = JoinSet::new();
     for upload_id in upload_ids.clone() {
@@ -2579,6 +2644,12 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
             barrier.wait().await;
             upload::complete_upload_for_team(&state, team.id, &upload_id, owner.id, None).await
         });
+    }
+    if let Some(quota_guard) = quota_guard {
+        assert_tasks_wait_for_quota_guard(&mut tasks).await;
+        aster_forge_db::transaction::commit(quota_guard)
+            .await
+            .unwrap();
     }
     while let Some(result) = tasks.join_next().await {
         result.unwrap().unwrap();
@@ -2591,6 +2662,7 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
         team_after.storage_used,
         i64::try_from(TEST_CHUNK_SIZE * 2 * TEAM_FINALIZATION_CONCURRENCY).unwrap()
     );
+    let mut file_ids = Vec::new();
     for upload_id in upload_ids {
         let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
             .await
@@ -2599,8 +2671,15 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
             session.status,
             aster_drive::types::UploadSessionStatus::Completed
         );
+        let file_id = session
+            .file_id
+            .expect("completed session must reference a file");
+        file_ids.push(file_id);
         assert_eq!(session.team_id, Some(team.id));
     }
+    file_ids.sort_unstable();
+    file_ids.dedup();
+    assert_eq!(file_ids.len(), TEAM_FINALIZATION_CONCURRENCY);
 }
 
 #[actix_web::test]
@@ -2656,6 +2735,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
     active.storage_quota = Set(single_file_size);
     active.update(state.writer_db()).await.unwrap();
 
+    let quota_guard = hold_team_quota_row(&state, team.id).await;
     let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(upload_ids.len()));
     let mut tasks = JoinSet::new();
     for upload_id in upload_ids.clone() {
@@ -2665,6 +2745,13 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
             barrier.wait().await;
             upload::complete_upload_for_team(&state, team.id, &upload_id, owner.id, None).await
         });
+    }
+
+    if let Some(quota_guard) = quota_guard {
+        assert_tasks_wait_for_quota_guard(&mut tasks).await;
+        aster_forge_db::transaction::commit(quota_guard)
+            .await
+            .unwrap();
     }
 
     let mut succeeded = 0;
@@ -2705,18 +2792,23 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
             .map(|upload_id| upload_session_repo::find_by_id(state.writer_db(), upload_id)),
     )
     .await;
-    let completed = statuses
-        .iter()
-        .filter(|session| {
-            session.as_ref().unwrap().status == aster_drive::types::UploadSessionStatus::Completed
-        })
-        .count();
-    let failed = statuses
-        .iter()
-        .filter(|session| {
-            session.as_ref().unwrap().status == aster_drive::types::UploadSessionStatus::Failed
-        })
-        .count();
+    let mut completed = 0;
+    let mut failed = 0;
+    for session in statuses {
+        let session = session.unwrap();
+        assert_eq!(session.team_id, Some(team.id));
+        match session.status {
+            aster_drive::types::UploadSessionStatus::Completed => {
+                assert!(session.file_id.is_some());
+                completed += 1;
+            }
+            aster_drive::types::UploadSessionStatus::Failed => {
+                assert!(session.file_id.is_none());
+                failed += 1;
+            }
+            status => panic!("unexpected upload session status: {status:?}"),
+        }
+    }
     assert_eq!((completed, failed), (1, 1));
 }
 

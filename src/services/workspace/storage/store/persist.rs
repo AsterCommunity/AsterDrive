@@ -3,7 +3,8 @@ use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{
-    StorageOperationContext, check_quota, cleanup_preuploaded_blob_upload, persist_preuploaded_blob,
+    StorageOperationContext, check_quota, cleanup_preuploaded_blob_upload,
+    persist_preuploaded_blob, retry_mysql_deadlock,
 };
 use aster_forge_db::transaction;
 use sea_orm::ConnectionTrait;
@@ -83,39 +84,57 @@ pub(super) async fn persist_temp_store(
         return Err(error);
     }
 
-    let create_result = async {
+    let mut deadlock_attempt = 0;
+    let create_result = loop {
         let txn = transaction::begin(state.writer_db()).await?;
-        crate::services::workspace::storage::lock_storage_usage(&txn, scope).await?;
-        operation_context.checkpoint()?;
-        if storage_delta > 0 {
-            check_quota(&txn, scope, storage_delta).await?;
+        let result = async {
+            crate::services::workspace::storage::lock_storage_usage(&txn, scope).await?;
+            operation_context.checkpoint()?;
+            if storage_delta > 0 {
+                check_quota(&txn, scope, storage_delta).await?;
+            }
+            operation_context.checkpoint()?;
+
+            let blob = persist_temp_blob(&txn, &verified_blob).await?;
+            operation_context.checkpoint()?;
+            let result = super::write_record::write_file_record_from_temp(
+                &txn,
+                WriteFileRecordFromTempParams {
+                    scope,
+                    folder_id,
+                    filename: &filename,
+                    mime: &mime,
+                    blob: &blob,
+                    overwrite_ctx: overwrite_ctx.clone(),
+                    now,
+                    storage_delta,
+                    new_file_mode,
+                    actor_username: actor_username.as_deref(),
+                },
+            )
+            .await?;
+            operation_context.checkpoint()?;
+            Ok::<file::Model, AsterError>(result)
         }
-        operation_context.checkpoint()?;
+        .await;
 
-        let blob = persist_temp_blob(&txn, &verified_blob).await?;
-        operation_context.checkpoint()?;
-        let result = super::write_record::write_file_record_from_temp(
-            &txn,
-            WriteFileRecordFromTempParams {
-                scope,
-                folder_id,
-                filename: &filename,
-                mime: &mime,
-                blob: &blob,
-                overwrite_ctx,
-                now,
-                storage_delta,
-                new_file_mode,
-                actor_username: actor_username.as_deref(),
-            },
-        )
-        .await?;
-        operation_context.checkpoint()?;
-
-        transaction::commit(txn).await?;
-        Ok::<file::Model, AsterError>(result)
-    }
-    .await;
+        match result {
+            Ok(result) => {
+                transaction::commit(txn).await?;
+                break Ok(result);
+            }
+            Err(error) => {
+                if let Err(rollback_error) = transaction::rollback(txn).await {
+                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+                }
+                if retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await {
+                    deadlock_attempt += 1;
+                    continue;
+                }
+                break Err(error);
+            }
+        }
+    };
 
     match create_result {
         Ok(result) => Ok(result),

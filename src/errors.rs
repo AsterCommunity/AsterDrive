@@ -15,6 +15,7 @@ pub struct AsterErrorPayload {
     message: String,
     api_code: Option<ApiErrorCode>,
     storage_context: Option<StorageErrorContext>,
+    database_error_kind: Option<aster_forge_db::DatabaseErrorKind>,
 }
 
 impl AsterErrorPayload {
@@ -23,6 +24,7 @@ impl AsterErrorPayload {
             message: message.into(),
             api_code: None,
             storage_context: None,
+            database_error_kind: None,
         }
     }
 
@@ -46,6 +48,15 @@ impl AsterErrorPayload {
 
     fn storage_context(&self) -> Option<&StorageErrorContext> {
         self.storage_context.as_ref()
+    }
+
+    fn with_database_error_kind(mut self, kind: aster_forge_db::DatabaseErrorKind) -> Self {
+        self.database_error_kind = Some(kind);
+        self
+    }
+
+    fn database_error_kind(&self) -> Option<aster_forge_db::DatabaseErrorKind> {
+        self.database_error_kind
     }
 }
 
@@ -112,6 +123,12 @@ macro_rules! define_errors {
                 }
             }
 
+            pub(crate) fn database_error_kind(&self) -> Option<aster_forge_db::DatabaseErrorKind> {
+                match self {
+                    $(AsterError::$variant(payload) => payload.database_error_kind(),)*
+                }
+            }
+
             pub fn with_api_error_code(self, api_code: ApiErrorCode) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {
@@ -124,6 +141,17 @@ macro_rules! define_errors {
                 match self {
                     $(AsterError::$variant(payload) => {
                         AsterError::$variant(payload.with_storage_context(context))
+                    })*
+                }
+            }
+
+            pub(crate) fn with_database_error_kind(
+                self,
+                kind: aster_forge_db::DatabaseErrorKind,
+            ) -> Self {
+                match self {
+                    $(AsterError::$variant(payload) => {
+                        AsterError::$variant(payload.with_database_error_kind(kind))
                     })*
                 }
             }
@@ -376,9 +404,14 @@ impl AsterError {
 
 impl From<sea_orm::DbErr> for AsterError {
     fn from(e: sea_orm::DbErr) -> Self {
-        match e {
+        let database_error_kind = aster_forge_db::database_error_kind(&e);
+        let error = match e {
             sea_orm::DbErr::RecordNotFound(msg) => Self::record_not_found(msg),
             other => Self::database_operation(other.to_string()),
+        };
+        match database_error_kind {
+            Some(kind) => error.with_database_error_kind(kind),
+            None => error,
         }
     }
 }

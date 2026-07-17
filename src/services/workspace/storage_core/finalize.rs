@@ -93,21 +93,47 @@ pub(crate) async fn finalize_upload_session_file(
         actor_username,
     } = params;
     let scope = scope_from_session(session);
-    let txn = transaction::begin(state.writer_db()).await?;
-    super::quota::lock_storage_usage(&txn, scope).await?;
-
-    let blob =
-        file_repo::find_or_create_blob(&txn, file_hash, size, policy_id, storage_path).await?;
-    let created = finalize_upload_session_blob_with_actor_username(
-        &txn,
-        session,
-        &blob.model,
-        now,
-        actor_username,
-    )
-    .await?;
-
-    transaction::commit(txn).await?;
+    let mut deadlock_attempt = 0;
+    let created = loop {
+        let txn = transaction::begin(state.writer_db()).await?;
+        let result = async {
+            super::quota::lock_storage_usage(&txn, scope).await?;
+            let blob =
+                file_repo::find_or_create_blob(&txn, file_hash, size, policy_id, storage_path)
+                    .await?;
+            finalize_upload_session_blob_with_actor_username(
+                &txn,
+                session,
+                &blob.model,
+                now,
+                actor_username,
+            )
+            .await
+        }
+        .await;
+        match result {
+            Ok(created) => {
+                transaction::commit(txn).await?;
+                break created;
+            }
+            Err(error) => {
+                if let Err(rollback_error) = transaction::rollback(txn).await {
+                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+                }
+                if super::db_retry::retry_mysql_deadlock(
+                    state.writer_db(),
+                    deadlock_attempt,
+                    &error,
+                )
+                .await
+                {
+                    deadlock_attempt += 1;
+                    continue;
+                }
+                break Err(error)?;
+            }
+        }
+    };
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(

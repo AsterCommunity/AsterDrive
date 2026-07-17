@@ -265,6 +265,7 @@ pub async fn list_versions(
         .map(|versions| versions.into_iter().map(FileVersion::from).collect())
 }
 
+/// 列出团队工作空间中文件的所有版本。
 pub async fn list_versions_for_team(
     state: &impl SharedRuntimeState,
     team_id: i64,
@@ -300,6 +301,7 @@ pub async fn restore_version(
     .map(FileInfo::from)
 }
 
+/// 恢复个人文件版本并记录对应审计事件。
 pub async fn restore_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -321,6 +323,7 @@ pub async fn restore_version_with_audit(
     Ok(file)
 }
 
+/// 恢复团队文件到指定版本，并截断该版本及之后的历史版本。
 pub async fn restore_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -341,6 +344,7 @@ pub async fn restore_version_for_team(
     .map(FileInfo::from)
 }
 
+/// 恢复团队文件版本并记录对应审计事件。
 pub async fn restore_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -379,6 +383,7 @@ pub async fn delete_version(
     .await
 }
 
+/// 删除个人文件版本并记录对应审计事件。
 pub async fn delete_version_with_audit(
     state: &PrimaryAppState,
     file_id: i64,
@@ -404,6 +409,7 @@ pub async fn delete_version_with_audit(
     Ok(())
 }
 
+/// 删除团队文件的指定历史版本。
 pub async fn delete_version_for_team(
     state: &PrimaryAppState,
     team_id: i64,
@@ -423,6 +429,7 @@ pub async fn delete_version_for_team(
     .await
 }
 
+/// 删除团队文件版本并记录对应审计事件。
 pub async fn delete_version_for_team_with_audit(
     state: &PrimaryAppState,
     team_id: i64,
@@ -465,20 +472,24 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
     let mut reclaimed_bytes = 0i64;
 
     loop {
-        let count = version_repo::count_by_file_id(db, file_id).await?;
-        if count <= max_versions {
-            break;
-        }
-        let oldest = version_repo::find_oldest_by_file_id(db, file_id).await?;
-        if let Some(oldest) = oldest {
-            let txn = transaction::begin(state.writer_db()).await?;
-            storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
-            version_repo::delete_by_id(&txn, oldest.id).await?;
-            version_repo::decrement_versions_after(&txn, file_id, oldest.version).await?;
-            if oldest.size != 0 {
-                storage::update_storage_used_for_resource_scope(&txn, scope, -oldest.size).await?;
+        let oldest = transaction::with_transaction(state.writer_db(), async |txn| {
+            storage::lock_storage_usage_for_resource_scope(txn, scope).await?;
+            let count = version_repo::count_by_file_id(txn, file_id).await?;
+            if count <= max_versions {
+                return Ok::<Option<file_version::Model>, AsterError>(None);
             }
-            transaction::commit(txn).await?;
+            let Some(oldest) = version_repo::find_oldest_by_file_id(txn, file_id).await? else {
+                return Ok(None);
+            };
+            version_repo::delete_by_id(txn, oldest.id).await?;
+            version_repo::decrement_versions_after(txn, file_id, oldest.version).await?;
+            if oldest.size != 0 {
+                storage::update_storage_used_for_resource_scope(txn, scope, -oldest.size).await?;
+            }
+            Ok(Some(oldest))
+        })
+        .await?;
+        if let Some(oldest) = oldest {
             cleanup_blob_if_unused(state, oldest.blob_id).await?;
             deleted_count += 1;
             add_reclaimed_bytes(
@@ -520,23 +531,26 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     let db = state.writer_db();
     let file = file_repo::find_by_id(db, file_id).await?;
     let scope = resource_scope_from_file(&file)?;
-    let versions = version_repo::find_by_file_id(db, file_id).await?;
-    let mut reclaimed_bytes = 0i64;
-    for version in &versions {
-        add_reclaimed_bytes(
-            &mut reclaimed_bytes,
-            version.size,
-            "purge all version bytes",
-        )?;
-    }
-
-    let txn = transaction::begin(state.writer_db()).await?;
-    storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
-    let blob_ids = version_repo::delete_all_by_file_id(&txn, file_id).await?;
-    if reclaimed_bytes != 0 {
-        storage::update_storage_used_for_resource_scope(&txn, scope, -reclaimed_bytes).await?;
-    }
-    transaction::commit(txn).await?;
+    let (blob_ids, version_count, reclaimed_bytes) =
+        transaction::with_transaction(state.writer_db(), async |txn| {
+            storage::lock_storage_usage_for_resource_scope(txn, scope).await?;
+            let versions = version_repo::find_by_file_id(txn, file_id).await?;
+            let mut reclaimed_bytes = 0i64;
+            for version in &versions {
+                add_reclaimed_bytes(
+                    &mut reclaimed_bytes,
+                    version.size,
+                    "purge all version bytes",
+                )?;
+            }
+            let blob_ids = version_repo::delete_all_by_file_id(txn, file_id).await?;
+            if reclaimed_bytes != 0 {
+                storage::update_storage_used_for_resource_scope(txn, scope, -reclaimed_bytes)
+                    .await?;
+            }
+            Ok::<_, AsterError>((blob_ids, versions.len(), reclaimed_bytes))
+        })
+        .await?;
 
     for blob_id in blob_ids {
         cleanup_blob_if_unused(state, blob_id).await?;
@@ -545,7 +559,7 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     tracing::debug!(
         file_id,
         scope = ?scope,
-        version_count = versions.len(),
+        version_count,
         reclaimed_bytes,
         "purged all file versions"
     );

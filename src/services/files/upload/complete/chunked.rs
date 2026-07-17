@@ -556,41 +556,60 @@ async fn persist_chunked_upload(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
-    let create_result = async {
+    let mut deadlock_attempt = 0;
+    let create_result = loop {
         let txn = transaction::begin(state.writer_db()).await?;
-        storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
+        let result = async {
+            storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
 
-        let blob = match verified.source() {
-            VerifiedUploadSource::ContentAddressed { file_hash }
-            | VerifiedUploadSource::OpaqueObject { file_hash } => {
-                file_repo::find_or_create_blob(
-                    &txn,
-                    file_hash,
-                    verified.size(),
-                    verified.policy_id(),
-                    verified.storage_path(),
-                )
-                .await?
-                .model
+            let blob = match verified.source() {
+                VerifiedUploadSource::ContentAddressed { file_hash }
+                | VerifiedUploadSource::OpaqueObject { file_hash } => {
+                    file_repo::find_or_create_blob(
+                        &txn,
+                        file_hash,
+                        verified.size(),
+                        verified.policy_id(),
+                        verified.storage_path(),
+                    )
+                    .await?
+                    .model
+                }
+                VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                    storage::persist_preuploaded_blob(&txn, prepared).await?
+                }
+            };
+
+            let created = storage::finalize_upload_session_blob_with_actor_username(
+                &txn,
+                session,
+                &blob,
+                now,
+                actor_username,
+            )
+            .await?;
+
+            Ok::<file::Model, AsterError>(created)
+        }
+        .await;
+        match result {
+            Ok(created) => {
+                transaction::commit(txn).await?;
+                break Ok(created);
             }
-            VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
-                storage::persist_preuploaded_blob(&txn, prepared).await?
+            Err(error) => {
+                if let Err(rollback_error) = transaction::rollback(txn).await {
+                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+                }
+                if storage::retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await
+                {
+                    deadlock_attempt += 1;
+                    continue;
+                }
+                break Err(error);
             }
-        };
-
-        let created = storage::finalize_upload_session_blob_with_actor_username(
-            &txn,
-            session,
-            &blob,
-            now,
-            actor_username,
-        )
-        .await?;
-
-        transaction::commit(txn).await?;
-        Ok::<file::Model, AsterError>(created)
-    }
-    .await;
+        }
+    };
 
     match create_result {
         Ok(created) => Ok(created),
@@ -616,33 +635,52 @@ async fn persist_verified_chunked_upload(
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
     let now = Utc::now();
-    let create_result = async {
+    let mut deadlock_attempt = 0;
+    let create_result = loop {
         let txn = transaction::begin(state.writer_db()).await?;
-        storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
-        let blob = match verified.source() {
-            VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
-                storage::persist_preuploaded_blob(&txn, prepared).await?
+        let result = async {
+            storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
+            let blob = match verified.source() {
+                VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
+                    storage::persist_preuploaded_blob(&txn, prepared).await?
+                }
+                VerifiedUploadSource::ContentAddressed { .. }
+                | VerifiedUploadSource::OpaqueObject { .. } => {
+                    return Err(upload_assembly_error_with_code(
+                        ApiErrorCode::UploadSessionCorrupted,
+                        "stream relay chunked upload expected preuploaded blob",
+                    ));
+                }
+            };
+            let created = storage::finalize_upload_session_blob_with_actor_username(
+                &txn,
+                session,
+                &blob,
+                now,
+                actor_username,
+            )
+            .await?;
+            Ok::<file::Model, AsterError>(created)
+        }
+        .await;
+        match result {
+            Ok(created) => {
+                transaction::commit(txn).await?;
+                break Ok(created);
             }
-            VerifiedUploadSource::ContentAddressed { .. }
-            | VerifiedUploadSource::OpaqueObject { .. } => {
-                return Err(upload_assembly_error_with_code(
-                    ApiErrorCode::UploadSessionCorrupted,
-                    "stream relay chunked upload expected preuploaded blob",
-                ));
+            Err(error) => {
+                if let Err(rollback_error) = transaction::rollback(txn).await {
+                    tracing::warn!(callback_error = %error, rollback_error = %rollback_error, "storage transaction rollback failed");
+                }
+                if storage::retry_mysql_deadlock(state.writer_db(), deadlock_attempt, &error).await
+                {
+                    deadlock_attempt += 1;
+                    continue;
+                }
+                break Err(error);
             }
-        };
-        let created = storage::finalize_upload_session_blob_with_actor_username(
-            &txn,
-            session,
-            &blob,
-            now,
-            actor_username,
-        )
-        .await?;
-        transaction::commit(txn).await?;
-        Ok::<file::Model, AsterError>(created)
-    }
-    .await;
+        }
+    };
 
     match create_result {
         Ok(created) => Ok(created),
