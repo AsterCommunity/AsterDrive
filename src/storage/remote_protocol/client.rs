@@ -30,8 +30,8 @@ use super::tunnel::server::RemoteTunnelBroker;
 use super::{
     INTERNAL_STORAGE_BASE_PATH, PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY,
     PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY, PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
-    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_POLICY_MAX_FILE_SIZE_QUERY,
-    REMOTE_STORAGE_TARGET_KEY_QUERY,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_LIST_PAGE_BODY_LIMIT, REMOTE_LIST_PAGE_SIZE,
+    REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY,
 };
 
 const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
@@ -246,34 +246,60 @@ impl RemoteStorageClient {
     }
 
     pub async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
-        let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/objects");
-        self.append_storage_target_key(&mut path);
-        if let Some(prefix) = prefix.filter(|value| !value.is_empty()) {
-            append_query_pairs(&mut path, [("prefix", prefix.to_string())]);
-        }
-        let response = self
-            .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+        let prefix = prefix.filter(|value| !value.is_empty());
+        let mut cursor: Option<u64> = None;
+        let mut items = Vec::new();
+
+        loop {
+            let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/objects");
+            self.append_storage_target_key(&mut path);
+            let mut query = vec![("limit", REMOTE_LIST_PAGE_SIZE.to_string())];
+            if let Some(prefix) = prefix {
+                query.push(("prefix", prefix.to_string()));
+            }
+            if let Some(cursor) = cursor {
+                query.push(("cursor", cursor.to_string()));
+            }
+            append_query_pairs(&mut path, query);
+
+            let response = self
+                .send_signed(Method::GET, path, None, RemoteRequestBody::Empty)
+                .await?;
+            let body = ensure_success_with_body_limit(
+                response,
+                "list remote storage objects page",
+                REMOTE_LIST_PAGE_BODY_LIMIT,
+            )
             .await?;
-        let body = ensure_success_with_body_limit(
-            response,
-            "list remote storage objects",
-            REMOTE_CONTROL_PLANE_BODY_LIMIT,
-        )
-        .await?;
-        let envelope: ApiEnvelope<RemoteStorageListResponse> = serde_json::from_slice(&body)
-            .map_err(|e| {
-                storage_driver_error(
+            let envelope: ApiEnvelope<RemoteStorageListResponse> = serde_json::from_slice(&body)
+                .map_err(|e| {
+                    storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        format!("decode remote storage list response: {e}"),
+                    )
+                })?;
+            if envelope.code != ApiErrorCode::Success {
+                return Err(storage_driver_error(
+                    remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
+                    format!("remote storage list failed: {}", envelope.msg),
+                ));
+            }
+
+            let page = envelope.data.unwrap_or_default();
+            items.extend(page.items);
+            let Some(next_cursor) = page.next_cursor else {
+                break;
+            };
+            if next_cursor <= cursor.unwrap_or(0) {
+                return Err(storage_driver_error(
                     StorageErrorKind::Misconfigured,
-                    format!("decode remote storage list response: {e}"),
-                )
-            })?;
-        if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
-                remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
-                format!("remote storage list failed: {}", envelope.msg),
-            ));
+                    "remote storage list cursor did not advance",
+                ));
+            }
+            cursor = Some(next_cursor);
         }
-        Ok(envelope.data.unwrap_or_default().items)
+
+        Ok(items)
     }
 
     pub async fn capacity_info(&self) -> Result<StorageCapacityInfo> {

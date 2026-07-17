@@ -57,7 +57,8 @@ async fn handler_panic_does_not_stop_other_actix_workers() {
         tokio::time::sleep(Duration::from_millis(50)).await;
     }
 
-    handle.stop(true).await;
+    drop(client);
+    handle.stop(false).await;
     task.await
         .expect("panic isolation test server task should stop cleanly")
         .expect("panic isolation test server should stop without an I/O error");

@@ -44,3 +44,8 @@ pub const PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY: &str = "response-content-type";
 pub const REMOTE_STORAGE_TARGET_KEY_QUERY: &str = "target_key";
 pub const REMOTE_POLICY_MAX_FILE_SIZE_QUERY: &str = "max_file_size";
 pub const REMOTE_CONTROL_PLANE_BODY_LIMIT: usize = 1024 * 1024;
+/// Bounds each list page while allowing the client to aggregate an arbitrarily long listing.
+pub const REMOTE_LIST_PAGE_SIZE: usize = 1000;
+/// Eight MiB gives each item in a full page roughly eight KiB of serialized budget while staying
+/// well below the reverse-tunnel buffered response ceiling.
+pub const REMOTE_LIST_PAGE_BODY_LIMIT: usize = 8 * 1024 * 1024;

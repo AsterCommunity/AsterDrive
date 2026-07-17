@@ -521,13 +521,13 @@ fn extend_limited_body(
 ) -> Result<()> {
     let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
         storage_driver_error(
-            StorageErrorKind::Transient,
+            StorageErrorKind::Misconfigured,
             format!("{context} response body size overflow"),
         )
     })?;
     if next_len > max_body_bytes {
         return Err(storage_driver_error(
-            StorageErrorKind::Transient,
+            StorageErrorKind::Misconfigured,
             format!("{context} response body exceeds {max_body_bytes} bytes limit"),
         ));
     }
@@ -538,7 +538,7 @@ fn extend_limited_body(
 fn ensure_body_within_limit(body: &[u8], context: &str, max_body_bytes: usize) -> Result<()> {
     if body.len() > max_body_bytes {
         return Err(storage_driver_error(
-            StorageErrorKind::Transient,
+            StorageErrorKind::Misconfigured,
             format!("{context} response body exceeds {max_body_bytes} bytes limit"),
         ));
     }
@@ -939,5 +939,58 @@ mod tests {
         assert!(error.message().contains("streaming upload exceeds"));
         assert_eq!(broker.request_calls.load(Ordering::SeqCst), 0);
         assert_eq!(broker.stream_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn limited_body_accumulation_accepts_exact_limit_and_rejects_one_byte_over() {
+        let mut body = Vec::new();
+        extend_limited_body(&mut body, b"123", "test control plane", 4)
+            .expect("body below the limit should be accepted");
+        extend_limited_body(&mut body, b"4", "test control plane", 4)
+            .expect("body exactly at the limit should be accepted");
+        assert_eq!(body, b"1234");
+
+        let error = extend_limited_body(&mut body, b"5", "test control plane", 4)
+            .expect_err("body one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(error.message().contains("exceeds 4 bytes limit"));
+        assert_eq!(body, b"1234", "rejected chunk must not be appended");
+
+        ensure_body_within_limit(&body, "test buffered body", 4)
+            .expect("buffered body exactly at the limit should be accepted");
+        let error = ensure_body_within_limit(b"12345", "test buffered body", 4)
+            .expect_err("buffered body one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+    }
+
+    #[tokio::test]
+    async fn limited_async_body_reader_enforces_exact_boundary() {
+        let exact = read_async_body_limited(
+            Box::new(std::io::Cursor::new(Bytes::from_static(b"1234"))),
+            "test stream",
+            4,
+        )
+        .await
+        .expect("stream exactly at the limit should be accepted");
+        assert_eq!(exact, b"1234");
+
+        let error = read_async_body_limited(
+            Box::new(std::io::Cursor::new(Bytes::from_static(b"12345"))),
+            "test stream",
+            4,
+        )
+        .await
+        .expect_err("stream one byte over the limit should be rejected");
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+        assert!(error.message().contains("exceeds 4 bytes limit"));
     }
 }

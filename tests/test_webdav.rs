@@ -6438,6 +6438,102 @@ async fn test_webdav_recursive_copy_continues_unlocked_siblings_after_locked_des
 }
 
 #[actix_web::test]
+async fn test_webdav_recursive_copy_overwrite_removes_unmatched_destination_members() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    for uri in [
+        "/webdav/partial-overwrite-source/",
+        "/webdav/partial-overwrite-dest/",
+        "/webdav/partial-overwrite-dest/orphan/",
+    ] {
+        let req = test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201, "MKCOL {uri} should succeed");
+    }
+
+    for (uri, body) in [
+        (
+            "/webdav/partial-overwrite-source/current.txt",
+            "current source member",
+        ),
+        (
+            "/webdav/partial-overwrite-dest/stale.txt",
+            "stale destination member",
+        ),
+        (
+            "/webdav/partial-overwrite-dest/orphan/open.txt",
+            "unlocked orphan member",
+        ),
+        (
+            "/webdav/partial-overwrite-dest/orphan/locked.txt",
+            "locked orphan member",
+        ),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/partial-overwrite-dest/orphan/locked.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let req = test::TestRequest::with_uri("/webdav/partial-overwrite-source/")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/partial-overwrite-dest/"))
+        .insert_header(("Overwrite", "T"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("/webdav/partial-overwrite-dest/orphan/locked.txt"),
+        "{xml}"
+    );
+    assert!(xml.contains("423 Locked"), "{xml}");
+
+    for (uri, expected_status) in [
+        ("/webdav/partial-overwrite-dest/current.txt", 200),
+        ("/webdav/partial-overwrite-dest/stale.txt", 404),
+        ("/webdav/partial-overwrite-dest/orphan/open.txt", 404),
+        ("/webdav/partial-overwrite-dest/orphan/locked.txt", 200),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status().as_u16(),
+            expected_status,
+            "unexpected overwrite result for {uri}"
+        );
+    }
+}
+
+#[actix_web::test]
 async fn test_webdav_recursive_copy_preserves_locked_destination_root_file() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -6575,6 +6671,17 @@ async fn test_webdav_recursive_move_replaces_destination_root_file_before_partia
     assert_eq!(resp.status(), 200);
     let body = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&body), "movable child");
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/partial-move-over-file-source/open/file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        404,
+        "successfully moved source members must be removed"
+    );
 
     let req = test::TestRequest::get()
         .uri("/webdav/partial-move-over-file-source/locked.txt")
@@ -6834,8 +6941,7 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
 
     for uri in [
         "/webdav/partial-move-continue/",
-        "/webdav/partial-move-continue/open/",
-        "/webdav/partial-move-continue/locked/",
+        "/webdav/partial-move-continue/mixed/",
         "/webdav/partial-move-continue-target/",
     ] {
         let req = test::TestRequest::with_uri(uri)
@@ -6848,11 +6954,11 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
 
     for (uri, body) in [
         (
-            "/webdav/partial-move-continue/open/file.txt",
+            "/webdav/partial-move-continue/mixed/open.txt",
             "unlocked sibling",
         ),
         (
-            "/webdav/partial-move-continue/locked/file.txt",
+            "/webdav/partial-move-continue/mixed/locked.txt",
             "locked child",
         ),
     ] {
@@ -6870,7 +6976,7 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
   <D:lockscope><D:exclusive/></D:lockscope>
   <D:locktype><D:write/></D:locktype>
 </D:lockinfo>"#;
-    let req = test::TestRequest::with_uri("/webdav/partial-move-continue/locked/file.txt")
+    let req = test::TestRequest::with_uri("/webdav/partial-move-continue/mixed/locked.txt")
         .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
         .insert_header(("Authorization", auth.clone()))
         .insert_header(("Content-Type", "application/xml"))
@@ -6890,13 +6996,13 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
     let body = test::read_body(resp).await;
     let xml = String::from_utf8_lossy(&body);
     assert!(
-        xml.contains("/webdav/partial-move-continue/locked/file.txt"),
+        xml.contains("/webdav/partial-move-continue/mixed/locked.txt"),
         "{xml}"
     );
     assert!(xml.contains("423 Locked"), "{xml}");
 
     let req = test::TestRequest::get()
-        .uri("/webdav/partial-move-continue-target/moved/open/file.txt")
+        .uri("/webdav/partial-move-continue-target/moved/mixed/open.txt")
         .insert_header(("Authorization", auth.clone()))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -6907,6 +7013,24 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
     );
     let body = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&body), "unlocked sibling");
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/partial-move-continue/mixed/open.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404, "moved sibling must leave the source");
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/partial-move-continue/mixed/locked.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "locked sibling must remain at the source"
+    );
 }
 
 #[actix_web::test]
