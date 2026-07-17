@@ -13,7 +13,7 @@ use crate::webdav::auth::WebdavAuthResult;
 use crate::webdav::dav::DavPath;
 use crate::webdav::path_resolver::{self, ResolvedNode};
 use crate::webdav::{
-    XmlSafetyError, href_for_relative, parse_webdav_element, responses, xml_response,
+    XmlSafetyError, href_for_relative, responses, webdav_xml_root_local_name, xml_response,
 };
 
 /// 处理 REPORT 方法（cadaver `history` 发送 `DAV:version-tree`）
@@ -25,18 +25,18 @@ pub(crate) async fn handle_report(
     prefix: &str,
 ) -> HttpResponse {
     // 解析 XML body，确认是 version-tree 报告
-    let root = match parse_webdav_element(body_bytes) {
-        Ok(root) => root,
+    let root_name = match webdav_xml_root_local_name(body_bytes) {
+        Ok(root_name) => root_name,
         Err(XmlSafetyError::ExternalEntity) => return responses::no_external_entities(),
         Err(XmlSafetyError::TooDeep | XmlSafetyError::Malformed) => {
             return error_response(StatusCode::BAD_REQUEST, "Invalid XML body");
         }
     };
 
-    if root.name != "version-tree" {
+    if root_name != "version-tree" {
         return error_response(
             StatusCode::NOT_IMPLEMENTED,
-            &format!("Unsupported REPORT type: {}", root.name),
+            &format!("Unsupported REPORT type: {root_name}"),
         );
     }
 

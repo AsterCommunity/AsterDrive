@@ -20,9 +20,13 @@ mod transfer;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_utils::xml::{
+    XmlSafetyError as ForgeXmlSafetyError, XmlSafetyPolicy, validate_xml_input,
+};
 use futures::StreamExt;
+use quick_xml::Reader;
+use quick_xml::events::Event;
 use std::io::Cursor;
-use xml::reader::{EventReader, XmlEvent};
 use xmltree::{Element, XMLNode};
 
 use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
@@ -91,35 +95,46 @@ pub(crate) fn validate_xml_safety(body: &[u8]) -> Result<(), XmlSafetyError> {
         return Err(XmlSafetyError::ExternalEntity);
     }
 
-    let mut depth = 0usize;
-    let reader = EventReader::new(Cursor::new(body));
-    for event in reader {
-        match event.map_err(|_| XmlSafetyError::Malformed)? {
-            XmlEvent::StartElement { .. } => {
-                depth = depth.checked_add(1).ok_or(XmlSafetyError::TooDeep)?;
-                if depth > WEB_DAV_XML_MAX_DEPTH {
-                    return Err(XmlSafetyError::TooDeep);
-                }
-            }
-            XmlEvent::EndElement { .. } => {
-                depth = depth.checked_sub(1).ok_or(XmlSafetyError::Malformed)?;
-            }
-            XmlEvent::Doctype { .. } => return Err(XmlSafetyError::ExternalEntity),
-            XmlEvent::EndDocument => {
-                if depth != 0 {
-                    return Err(XmlSafetyError::Malformed);
-                }
-            }
-            _ => {}
+    validate_xml_input(
+        body,
+        XmlSafetyPolicy {
+            max_depth: WEB_DAV_XML_MAX_DEPTH,
+            reject_doctype: true,
+        },
+    )
+    .map_err(|error| match error {
+        ForgeXmlSafetyError::Doctype => XmlSafetyError::ExternalEntity,
+        ForgeXmlSafetyError::TooDeep => XmlSafetyError::TooDeep,
+        ForgeXmlSafetyError::InvalidPolicy | ForgeXmlSafetyError::Malformed => {
+            XmlSafetyError::Malformed
         }
-    }
-
-    Ok(())
+    })
 }
 
 pub(crate) fn parse_webdav_element(body: &[u8]) -> Result<Element, XmlSafetyError> {
     validate_xml_safety(body)?;
     Element::parse(Cursor::new(body)).map_err(|_| XmlSafetyError::Malformed)
+}
+
+pub(crate) fn webdav_xml_root_local_name(body: &[u8]) -> Result<String, XmlSafetyError> {
+    validate_xml_safety(body)?;
+
+    let mut reader = Reader::from_reader(Cursor::new(body));
+    let mut buffer = Vec::new();
+    loop {
+        match reader
+            .read_event_into(&mut buffer)
+            .map_err(|_| XmlSafetyError::Malformed)?
+        {
+            Event::Start(element) | Event::Empty(element) => {
+                return std::str::from_utf8(element.local_name().as_ref())
+                    .map(str::to_owned)
+                    .map_err(|_| XmlSafetyError::Malformed);
+            }
+            Event::Eof => return Err(XmlSafetyError::Malformed),
+            _ => buffer.clear(),
+        }
+    }
 }
 
 fn find_byte(haystack: &[u8], needle: u8) -> Option<usize> {
@@ -603,7 +618,7 @@ mod handler_tests;
 mod tests {
     use super::{
         WEB_DAV_XML_MAX_DEPTH, XmlSafetyError, parse_webdav_element, reject_xml_dtd_or_entity,
-        validate_xml_safety,
+        validate_xml_safety, webdav_xml_root_local_name,
     };
 
     #[test]
@@ -676,6 +691,14 @@ mod tests {
         assert_eq!(
             parse_webdav_element(body.as_bytes()),
             Err(XmlSafetyError::TooDeep)
+        );
+    }
+
+    #[test]
+    fn webdav_xml_root_local_name_reads_prefixed_and_empty_root_elements() {
+        assert_eq!(
+            webdav_xml_root_local_name(br#"<D:version-tree xmlns:D="DAV:"/>"#),
+            Ok("version-tree".to_string())
         );
     }
 

@@ -33,7 +33,9 @@ debug = false
 opt-level = 2
 lto = true
 codegen-units = 1
-panic = "abort"
+# Keep ordinary request/task panics from taking down every HTTP worker. Stack overflow and OOM
+# remain process-fatal and must be prevented at their input/allocation boundaries.
+panic = "unwind"
 strip = true
 
 # 压测/火焰图采样用：接近 release，但保留符号并关闭 LTO，方便 perf 展开栈。
@@ -46,7 +48,7 @@ codegen-units = 1
 debug = true
 strip = false
 lto = false
-panic = "abort"
+panic = "unwind"
 
 [profile.release-performance]
 inherits = "release"
@@ -157,6 +159,7 @@ parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
 rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
+quick-xml = { version = "0.41", default-features = false }
 reqwest = { version = "0.13", features = ["stream", "json"] }
 ring = "0.17"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }
@@ -186,9 +189,11 @@ validator = { version = "0.20", features = ["derive"] }
 webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.6.1-dev"
 xmltree = "0.12"
-xml = "1"
 zip = { version = "8", default-features = false, features = ["deflate"] }
 lofty = "0.24.0"
+
+[patch."https://github.com/AsterCommunity/AsterForge"]
+aster_forge_utils = { path = "/Users/esap/Desktop/Github/AsterForge/crates/aster_forge_utils" }
 
 [dev-dependencies]
 aws-smithy-http-client = { version = "1.2.0", features = ["test-util"] }

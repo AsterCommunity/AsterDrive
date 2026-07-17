@@ -821,6 +821,7 @@ dependencies = [
  "parking_lot",
  "paste",
  "percent-encoding",
+ "quick-xml",
  "rand 0.10.2",
  "reqwest 0.13.4",
  "ring",
@@ -854,7 +855,6 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "webauthn-rs-proto",
- "xml",
  "xmltree",
  "zip 8.6.0",
 ]
@@ -1122,12 +1122,12 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#e05d5b87f963019bdb030e2b399f37c10eaff647"
 dependencies = [
  "http 1.4.2",
  "httpdate",
  "ipnet",
  "md-5",
+ "quick-xml",
  "serde_json",
  "thiserror 2.0.18",
  "tokio",
