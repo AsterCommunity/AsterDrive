@@ -3,7 +3,7 @@ use crate::services::workspace::storage::{
     PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct VerifiedPreuploadedNondedupStoreBlob {
     size: i64,
     policy_id: i64,

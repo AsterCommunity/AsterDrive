@@ -31,10 +31,10 @@ pub(crate) use crate::services::workspace::storage_core::{
     create_nondedup_blob_with_key, create_opaque_nondedup_blob,
     ensure_policy_available_for_folder_binding, ensure_upload_parent_path,
     finalize_upload_session_blob_with_actor_username, finalize_upload_session_file,
-    load_storage_limits, local_content_dedup_enabled, parse_relative_upload_path,
-    resolve_policy_for_size, resolve_policy_for_size_with_verified_folder,
-    resolve_verified_folder_policy_hint, update_storage_used,
-    update_storage_used_for_resource_scope,
+    load_storage_limits, local_content_dedup_enabled, lock_storage_usage,
+    lock_storage_usage_for_resource_scope, parse_relative_upload_path, resolve_policy_for_size,
+    resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
+    update_storage_used, update_storage_used_for_resource_scope,
 };
 
 pub(crate) use crate::services::workspace::scope::load_scope_actor_username_cached;

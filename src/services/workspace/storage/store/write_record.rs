@@ -2,7 +2,7 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::entities::{file, file_blob};
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, Result};
 use crate::services::workspace::storage::{
     WorkspaceStorageScope, create_exact_file_from_blob,
     create_exact_file_from_blob_with_actor_username, create_new_file_from_blob,
@@ -60,10 +60,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         active.compound_extension = Set(classification.compound_extension);
         active.file_category = Set(classification.category);
         active.updated_at = Set(now);
-        let updated = active
-            .update(txn)
-            .await
-            .map_aster_err(AsterError::database_operation)?;
+        let updated = active.update(txn).await.map_err(AsterError::from)?;
 
         let next_ver = crate::db::repository::version_repo::next_version(txn, existing_id).await?;
         crate::db::repository::version_repo::create(

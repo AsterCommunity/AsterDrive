@@ -3,21 +3,20 @@
 pub(crate) mod from_temp;
 mod preuploaded_contract;
 
-use aster_forge_db::transaction;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, DbBackend, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::entities::file;
-use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_code};
+use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::events::storage_change;
 
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
     cleanup_preuploaded_blob_upload, create_new_file_from_blob,
-    create_new_file_from_blob_with_actor_username, local_content_dedup_enabled,
+    create_new_file_from_blob_with_actor_username, local_content_dedup_enabled, lock_storage_usage,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
     update_storage_used, verify_file_access, verify_folder_access,
 };
@@ -137,31 +136,87 @@ pub(crate) async fn create_empty(
     let should_dedup = local_content_dedup_enabled(&policy);
     let now = Utc::now();
 
-    let txn = transaction::begin(state.writer_db()).await?;
-    let blob = if should_dedup {
+    let created = if should_dedup {
         let storage_path =
             aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
-        let blob = file_repo::find_or_create_blob(
-            &txn,
-            EMPTY_SHA256,
-            EMPTY_SIZE,
-            policy.id,
-            &storage_path,
-        )
-        .await?;
-        if blob.inserted {
+        if !driver.exists(&storage_path).await? {
             driver.put(&storage_path, &[]).await?;
         }
-        blob.model
+        let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+        let transaction_storage_path = storage_path.clone();
+        let transaction_filename = filename.clone();
+        let transaction_now = now;
+        let policy_id = policy.id;
+        aster_forge_db::transaction::with_transaction_retry(
+            state.writer_db(),
+            &aster_forge_db::transaction::TransactionRetryConfig::default(),
+            move |txn| {
+                let storage_path = transaction_storage_path.clone();
+                let filename = transaction_filename.clone();
+                let now = transaction_now;
+                Box::pin(async move {
+                    lock_storage_usage(txn, scope).await?;
+                    let blob = file_repo::find_or_create_blob(
+                        txn,
+                        EMPTY_SHA256,
+                        EMPTY_SIZE,
+                        policy_id,
+                        &storage_path,
+                    )
+                    .await?;
+                    create_new_file_from_blob(txn, scope, folder_id, &filename, &blob.model, now)
+                        .await
+                })
+            },
+            move |error: &AsterError| {
+                retry_on_mysql_deadlock
+                    && error.database_error_kind()
+                        == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+            },
+        )
+        .await?
     } else {
         let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE)?;
-        let blob = persist_preuploaded_blob(&txn, &prepared).await?;
-        driver.put(&blob.storage_path, &[]).await?;
-        blob
+        driver.put(prepared.storage_path(), &[]).await?;
+        let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+        let transaction_prepared = prepared.clone();
+        let transaction_filename = filename.clone();
+        let transaction_now = now;
+        let result = aster_forge_db::transaction::with_transaction_retry(
+            state.writer_db(),
+            &aster_forge_db::transaction::TransactionRetryConfig::default(),
+            move |txn| {
+                let prepared = transaction_prepared.clone();
+                let filename = transaction_filename.clone();
+                let now = transaction_now;
+                Box::pin(async move {
+                    lock_storage_usage(txn, scope).await?;
+                    let blob = persist_preuploaded_blob(txn, &prepared).await?;
+                    create_new_file_from_blob(txn, scope, folder_id, &filename, &blob, now).await
+                })
+            },
+            move |error: &AsterError| {
+                retry_on_mysql_deadlock
+                    && error.database_error_kind()
+                        == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+            },
+        )
+        .await;
+        match result {
+            Ok(file) => file,
+            Err(error) => {
+                if !error.database_commit_outcome_uncertain() {
+                    cleanup_preuploaded_blob_upload(
+                        driver.as_ref(),
+                        &prepared,
+                        "empty file DB error",
+                    )
+                    .await;
+                }
+                return Err(error);
+            }
+        }
     };
-
-    let created = create_new_file_from_blob(&txn, scope, folder_id, &filename, &blob, now).await?;
-    transaction::commit(txn).await?;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
@@ -276,89 +331,115 @@ pub(crate) async fn store_preuploaded_nondedup(
         .first_or_octet_stream()
         .to_string();
 
-    let create_result = async {
-        let txn = transaction::begin(state.writer_db()).await?;
-        if storage_delta > 0 {
-            check_quota(&txn, scope, storage_delta).await?;
-        }
+    let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
+    let transaction_verified_blob = verified_blob.clone();
+    let transaction_overwrite_ctx = overwrite_ctx.clone();
+    let transaction_mime = mime.clone();
+    let transaction_filename = filename.clone();
+    let transaction_actor_username = actor_username.map(str::to_owned);
+    let transaction_now = now;
+    let create_result = aster_forge_db::transaction::with_transaction_retry(
+        state.writer_db(),
+        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        move |txn| {
+            let verified_blob = transaction_verified_blob.clone();
+            let overwrite_ctx = transaction_overwrite_ctx.clone();
+            let mime = transaction_mime.clone();
+            let filename = transaction_filename.clone();
+            let actor_username = transaction_actor_username.clone();
+            let now = transaction_now;
+            Box::pin(async move {
+                lock_storage_usage(txn, scope).await?;
+                if storage_delta > 0 {
+                    check_quota(txn, scope, storage_delta).await?;
+                }
 
-        let blob = persist_preuploaded_blob(&txn, verified_blob.prepared()).await?;
-        debug_assert_eq!(blob.size, verified_blob.size());
-        debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
-        debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
+                let blob = persist_preuploaded_blob(txn, verified_blob.prepared()).await?;
+                debug_assert_eq!(blob.size, verified_blob.size());
+                debug_assert_eq!(blob.policy_id, verified_blob.policy_id());
+                debug_assert_eq!(blob.storage_path, verified_blob.storage_path());
 
-        let result = if let Some((old_file, old_blob)) = overwrite_ctx {
-            let current_file =
-                revalidate_preuploaded_overwrite_target(&txn, scope, &old_file, skip_lock_check)
-                    .await?;
-            let existing_id = current_file.id;
-            let current_name = current_file.name.clone();
-            let mut active: file::ActiveModel = current_file.into();
-            active.blob_id = Set(blob.id);
-            active.size = Set(blob.size);
-            let classification =
-                aster_forge_file_classification::classify_file(&current_name, &mime);
-            active.mime_type = Set(mime);
-            active.extension = Set(classification.extension);
-            active.compound_extension = Set(classification.compound_extension);
-            active.file_category = Set(classification.category);
-            active.updated_at = Set(now);
-            let updated = active
-                .update(&txn)
-                .await
-                .map_aster_err(AsterError::database_operation)?;
-
-            let next_ver =
-                crate::db::repository::version_repo::next_version(&txn, existing_id).await?;
-            crate::db::repository::version_repo::create(
-                &txn,
-                crate::entities::file_version::ActiveModel {
-                    file_id: Set(existing_id),
-                    blob_id: Set(old_blob.id),
-                    version: Set(next_ver),
-                    size: Set(old_blob.size),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
-            )
-            .await?;
-
-            if storage_delta != 0 {
-                update_storage_used(&txn, scope, storage_delta).await?;
-            }
-            updated
-        } else {
-            let created = match actor_username {
-                Some(username) => {
-                    create_new_file_from_blob_with_actor_username(
-                        &txn, scope, folder_id, &filename, &blob, now, username,
+                let result = if let Some((old_file, old_blob)) = overwrite_ctx {
+                    let current_file = revalidate_preuploaded_overwrite_target(
+                        txn,
+                        scope,
+                        &old_file,
+                        skip_lock_check,
                     )
-                    .await?
-                }
-                None => {
-                    create_new_file_from_blob(&txn, scope, folder_id, &filename, &blob, now).await?
-                }
-            };
-            if storage_delta != 0 {
-                update_storage_used(&txn, scope, storage_delta).await?;
-            }
-            created
-        };
+                    .await?;
+                    let existing_id = current_file.id;
+                    let current_name = current_file.name.clone();
+                    let mut active: file::ActiveModel = current_file.into();
+                    active.blob_id = Set(blob.id);
+                    active.size = Set(blob.size);
+                    let classification =
+                        aster_forge_file_classification::classify_file(&current_name, &mime);
+                    active.mime_type = Set(mime.clone());
+                    active.extension = Set(classification.extension);
+                    active.compound_extension = Set(classification.compound_extension);
+                    active.file_category = Set(classification.category);
+                    active.updated_at = Set(now);
+                    let updated = active.update(txn).await.map_err(AsterError::from)?;
 
-        transaction::commit(txn).await?;
-        Ok::<file::Model, AsterError>(result)
-    }
+                    let next_ver =
+                        crate::db::repository::version_repo::next_version(txn, existing_id).await?;
+                    crate::db::repository::version_repo::create(
+                        txn,
+                        crate::entities::file_version::ActiveModel {
+                            file_id: Set(existing_id),
+                            blob_id: Set(old_blob.id),
+                            version: Set(next_ver),
+                            size: Set(old_blob.size),
+                            created_at: Set(now),
+                            ..Default::default()
+                        },
+                    )
+                    .await?;
+
+                    if storage_delta != 0 {
+                        update_storage_used(txn, scope, storage_delta).await?;
+                    }
+                    updated
+                } else {
+                    let created = match actor_username.as_deref() {
+                        Some(username) => {
+                            create_new_file_from_blob_with_actor_username(
+                                txn, scope, folder_id, &filename, &blob, now, username,
+                            )
+                            .await?
+                        }
+                        None => {
+                            create_new_file_from_blob(txn, scope, folder_id, &filename, &blob, now)
+                                .await?
+                        }
+                    };
+                    if storage_delta != 0 {
+                        update_storage_used(txn, scope, storage_delta).await?;
+                    }
+                    created
+                };
+
+                Ok::<file::Model, AsterError>(result)
+            })
+        },
+        move |error: &AsterError| {
+            retry_on_mysql_deadlock
+                && error.database_error_kind() == Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        },
+    )
     .await;
 
     let result = match create_result {
         Ok(result) => result,
         Err(error) => {
-            cleanup_verified_preuploaded_nondedup_store_blob(
-                driver.as_ref(),
-                &verified_blob,
-                "DB error after direct upload",
-            )
-            .await;
+            if !error.database_commit_outcome_uncertain() {
+                cleanup_verified_preuploaded_nondedup_store_blob(
+                    driver.as_ref(),
+                    &verified_blob,
+                    "DB error after direct upload",
+                )
+                .await;
+            }
             return Err(error);
         }
     };

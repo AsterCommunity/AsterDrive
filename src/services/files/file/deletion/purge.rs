@@ -102,6 +102,7 @@ async fn batch_purge_in_resource_scope_internal(
     let count = usize_to_u32(files.len(), "purged file count")?;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
 
     let version_blob_ids =
         crate::db::repository::version_repo::delete_all_by_file_ids(&txn, &file_ids).await?;

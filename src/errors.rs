@@ -15,6 +15,8 @@ pub struct AsterErrorPayload {
     message: String,
     api_code: Option<ApiErrorCode>,
     storage_context: Option<StorageErrorContext>,
+    database_error_kind: Option<aster_forge_db::DatabaseErrorKind>,
+    database_commit_outcome_uncertain: bool,
 }
 
 impl AsterErrorPayload {
@@ -23,6 +25,8 @@ impl AsterErrorPayload {
             message: message.into(),
             api_code: None,
             storage_context: None,
+            database_error_kind: None,
+            database_commit_outcome_uncertain: false,
         }
     }
 
@@ -46,6 +50,24 @@ impl AsterErrorPayload {
 
     fn storage_context(&self) -> Option<&StorageErrorContext> {
         self.storage_context.as_ref()
+    }
+
+    fn with_database_error_kind(mut self, kind: aster_forge_db::DatabaseErrorKind) -> Self {
+        self.database_error_kind = Some(kind);
+        self
+    }
+
+    fn database_error_kind(&self) -> Option<aster_forge_db::DatabaseErrorKind> {
+        self.database_error_kind
+    }
+
+    fn with_database_commit_outcome_uncertain(mut self) -> Self {
+        self.database_commit_outcome_uncertain = true;
+        self
+    }
+
+    fn database_commit_outcome_uncertain(&self) -> bool {
+        self.database_commit_outcome_uncertain
     }
 }
 
@@ -112,6 +134,18 @@ macro_rules! define_errors {
                 }
             }
 
+            pub(crate) fn database_error_kind(&self) -> Option<aster_forge_db::DatabaseErrorKind> {
+                match self {
+                    $(AsterError::$variant(payload) => payload.database_error_kind(),)*
+                }
+            }
+
+            pub(crate) fn database_commit_outcome_uncertain(&self) -> bool {
+                match self {
+                    $(AsterError::$variant(payload) => payload.database_commit_outcome_uncertain(),)*
+                }
+            }
+
             pub fn with_api_error_code(self, api_code: ApiErrorCode) -> Self {
                 match self {
                     $(AsterError::$variant(payload) => {
@@ -124,6 +158,25 @@ macro_rules! define_errors {
                 match self {
                     $(AsterError::$variant(payload) => {
                         AsterError::$variant(payload.with_storage_context(context))
+                    })*
+                }
+            }
+
+            pub(crate) fn with_database_error_kind(
+                self,
+                kind: aster_forge_db::DatabaseErrorKind,
+            ) -> Self {
+                match self {
+                    $(AsterError::$variant(payload) => {
+                        AsterError::$variant(payload.with_database_error_kind(kind))
+                    })*
+                }
+            }
+
+            pub(crate) fn with_database_commit_outcome_uncertain(self) -> Self {
+                match self {
+                    $(AsterError::$variant(payload) => {
+                        AsterError::$variant(payload.with_database_commit_outcome_uncertain())
                     })*
                 }
             }
@@ -376,9 +429,14 @@ impl AsterError {
 
 impl From<sea_orm::DbErr> for AsterError {
     fn from(e: sea_orm::DbErr) -> Self {
-        match e {
+        let database_error_kind = aster_forge_db::database_error_kind(&e);
+        let error = match e {
             sea_orm::DbErr::RecordNotFound(msg) => Self::record_not_found(msg),
             other => Self::database_operation(other.to_string()),
+        };
+        match database_error_kind {
+            Some(kind) => error.with_database_error_kind(kind),
+            None => error,
         }
     }
 }
@@ -392,11 +450,21 @@ impl From<aster_forge_db::DbError> for AsterError {
             aster_forge_db::DbError::DatabaseOperation(message) => {
                 Self::database_operation(message)
             }
+            aster_forge_db::DbError::DatabaseOperationClassified { message, kind } => {
+                Self::database_operation(message).with_database_error_kind(kind)
+            }
+            aster_forge_db::DbError::CommitOutcomeUnknown { message, kind } => {
+                let error = Self::database_operation(message);
+                let error = match kind {
+                    Some(kind) => error.with_database_error_kind(kind),
+                    None => error,
+                };
+                error.with_database_commit_outcome_uncertain()
+            }
             aster_forge_db::DbError::RetryExhausted => {
                 Self::database_operation("database retry exhausted")
             }
             aster_forge_db::DbError::NonRetryable(message) => Self::database_operation(message),
-            _ => todo!(),
         }
     }
 }
@@ -1035,6 +1103,26 @@ mod tests {
             let error = AsterError::from(forge_error);
             assert_eq!(error.code(), expected_code);
         }
+    }
+
+    #[test]
+    fn forge_database_errors_preserve_classification_and_commit_uncertainty() {
+        let classified = AsterError::from(aster_forge_db::DbError::database_operation_classified(
+            "deadlock",
+            aster_forge_db::DatabaseErrorKind::Deadlock,
+        ));
+        assert_eq!(
+            classified.database_error_kind(),
+            Some(aster_forge_db::DatabaseErrorKind::Deadlock)
+        );
+        assert!(!classified.database_commit_outcome_uncertain());
+
+        let uncertain = AsterError::from(aster_forge_db::DbError::commit_outcome_unknown(
+            "connection lost after commit",
+            None,
+        ));
+        assert!(uncertain.database_commit_outcome_uncertain());
+        assert_eq!(uncertain.database_error_kind(), None);
     }
 
     #[test]
