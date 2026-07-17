@@ -26,4 +26,7 @@ pub(crate) use policy::{
     local_content_dedup_enabled, resolve_policy_for_size,
     resolve_policy_for_size_with_verified_folder, resolve_verified_folder_policy_hint,
 };
-pub(crate) use quota::{check_quota, update_storage_used, update_storage_used_for_resource_scope};
+pub(crate) use quota::{
+    check_quota, lock_storage_usage, lock_storage_usage_for_resource_scope, update_storage_used,
+    update_storage_used_for_resource_scope,
+};

@@ -4,6 +4,30 @@ use crate::db::repository::{team_repo, user_repo};
 use crate::errors::Result;
 use crate::services::workspace::scope::{WorkspaceResourceScope, WorkspaceStorageScope};
 
+/// Locks the authoritative quota row before child rows with owner foreign keys are written.
+/// This avoids InnoDB shared-to-exclusive lock upgrades during concurrent file finalization.
+pub(crate) async fn lock_storage_usage<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+) -> Result<()> {
+    lock_storage_usage_for_resource_scope(db, scope.into()).await
+}
+
+pub(crate) async fn lock_storage_usage_for_resource_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceResourceScope,
+) -> Result<()> {
+    match scope {
+        WorkspaceResourceScope::Personal { user_id } => {
+            user_repo::lock_by_id(db, user_id).await?;
+        }
+        WorkspaceResourceScope::Team { team_id } => {
+            team_repo::lock_by_id(db, team_id).await?;
+        }
+    }
+    Ok(())
+}
+
 pub(crate) async fn check_quota<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,

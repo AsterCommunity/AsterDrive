@@ -158,6 +158,7 @@ pub(crate) async fn batch_duplicate_file_records_with_specs_in_scope(
     let now = chrono::Utc::now();
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage(&txn, scope).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
 
     // 原子性地增加配额（CAS 语义：如果 quota > 0 且 used + total_size > quota，则失败）
@@ -233,6 +234,7 @@ pub(crate) async fn duplicate_file_record_in_scope(
     let blob_size = blob.size;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage(&txn, scope).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
     storage::check_quota(&txn, scope, blob_size).await?;
 
@@ -343,6 +345,7 @@ pub(crate) async fn batch_duplicate_file_records_to_mixed_folders_in_scope(
     storage::check_quota(state.writer_db(), scope, total_size).await?;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage(&txn, scope).await?;
     let created_by_username = load_scope_actor_username(&txn, scope).await?;
     storage::check_quota(&txn, scope, total_size).await?;
 

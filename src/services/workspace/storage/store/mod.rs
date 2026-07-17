@@ -17,7 +17,7 @@ use crate::services::events::storage_change;
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
     cleanup_preuploaded_blob_upload, create_new_file_from_blob,
-    create_new_file_from_blob_with_actor_username, local_content_dedup_enabled,
+    create_new_file_from_blob_with_actor_username, local_content_dedup_enabled, lock_storage_usage,
     persist_preuploaded_blob, prepare_non_dedup_blob_upload, resolve_policy_for_size,
     update_storage_used, verify_file_access, verify_folder_access,
 };
@@ -138,6 +138,7 @@ pub(crate) async fn create_empty(
     let now = Utc::now();
 
     let txn = transaction::begin(state.writer_db()).await?;
+    lock_storage_usage(&txn, scope).await?;
     let blob = if should_dedup {
         let storage_path =
             aster_forge_validation::filename::storage_path_from_blob_key(EMPTY_SHA256)?;
@@ -278,6 +279,7 @@ pub(crate) async fn store_preuploaded_nondedup(
 
     let create_result = async {
         let txn = transaction::begin(state.writer_db()).await?;
+        lock_storage_usage(&txn, scope).await?;
         if storage_delta > 0 {
             check_quota(&txn, scope, storage_delta).await?;
         }

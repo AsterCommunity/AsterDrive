@@ -558,6 +558,7 @@ async fn persist_chunked_upload(
     let now = Utc::now();
     let create_result = async {
         let txn = transaction::begin(state.writer_db()).await?;
+        storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
 
         let blob = match verified.source() {
             VerifiedUploadSource::ContentAddressed { file_hash }
@@ -617,6 +618,7 @@ async fn persist_verified_chunked_upload(
     let now = Utc::now();
     let create_result = async {
         let txn = transaction::begin(state.writer_db()).await?;
+        storage::lock_storage_usage(&txn, workspace_scope_from_session(session)).await?;
         let blob = match verified.source() {
             VerifiedUploadSource::PreuploadedNonDedup { prepared } => {
                 storage::persist_preuploaded_blob(&txn, prepared).await?
@@ -653,5 +655,17 @@ async fn persist_verified_chunked_upload(
             .await;
             Err(error)
         }
+    }
+}
+
+fn workspace_scope_from_session(session: &upload_session::Model) -> storage::WorkspaceStorageScope {
+    match session.team_id {
+        Some(team_id) => storage::WorkspaceStorageScope::Team {
+            team_id,
+            actor_user_id: session.user_id,
+        },
+        None => storage::WorkspaceStorageScope::Personal {
+            user_id: session.user_id,
+        },
     }
 }

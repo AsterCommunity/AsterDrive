@@ -83,6 +83,7 @@ async fn restore_version_inner(
     }
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage(&txn, scope).await?;
 
     let previous_blob_id = current_blob.id;
     let target_blob_id = version.blob_id;
@@ -177,6 +178,7 @@ async fn delete_version_inner(
     let blob_id = version.blob_id;
     let size = version.size;
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage(&txn, scope).await?;
     version_repo::delete_by_id(&txn, version_id).await?;
     version_repo::decrement_versions_after(&txn, file_id, version_number).await?;
     if size != 0 {
@@ -470,6 +472,7 @@ pub async fn cleanup_excess(state: &PrimaryAppState, file_id: i64) -> Result<()>
         let oldest = version_repo::find_oldest_by_file_id(db, file_id).await?;
         if let Some(oldest) = oldest {
             let txn = transaction::begin(state.writer_db()).await?;
+            storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
             version_repo::delete_by_id(&txn, oldest.id).await?;
             version_repo::decrement_versions_after(&txn, file_id, oldest.version).await?;
             if oldest.size != 0 {
@@ -528,6 +531,7 @@ pub async fn purge_all_versions(state: &PrimaryAppState, file_id: i64) -> Result
     }
 
     let txn = transaction::begin(state.writer_db()).await?;
+    storage::lock_storage_usage_for_resource_scope(&txn, scope).await?;
     let blob_ids = version_repo::delete_all_by_file_id(&txn, file_id).await?;
     if reclaimed_bytes != 0 {
         storage::update_storage_used_for_resource_scope(&txn, scope, -reclaimed_bytes).await?;

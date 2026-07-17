@@ -94,6 +94,7 @@ pub(crate) async fn finalize_upload_session_file(
     } = params;
     let scope = scope_from_session(session);
     let txn = transaction::begin(state.writer_db()).await?;
+    super::quota::lock_storage_usage(&txn, scope).await?;
 
     let blob =
         file_repo::find_or_create_blob(&txn, file_hash, size, policy_id, storage_path).await?;

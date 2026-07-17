@@ -85,6 +85,7 @@ pub(super) async fn persist_temp_store(
 
     let create_result = async {
         let txn = transaction::begin(state.writer_db()).await?;
+        crate::services::workspace::storage::lock_storage_usage(&txn, scope).await?;
         operation_context.checkpoint()?;
         if storage_delta > 0 {
             check_quota(&txn, scope, storage_delta).await?;
