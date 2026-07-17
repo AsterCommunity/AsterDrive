@@ -381,7 +381,7 @@ async fn list_objects(
         .as_deref()
         .map(|value| master_binding::provider_storage_prefix(&ctx.binding, value))
         .transpose()?;
-    let items = list_driver
+    let mut items = list_driver
         .list_paths(prefix.as_deref())
         .await?
         .into_iter()
@@ -411,7 +411,9 @@ async fn list_objects(
         } else {
             None
         };
-        (items[start..end].to_vec(), next_cursor)
+        items.drain(end..);
+        items.drain(..start);
+        (items, next_cursor)
     } else {
         // Keep the legacy unpaged response for older clients. New clients always send `limit`.
         (items, None)

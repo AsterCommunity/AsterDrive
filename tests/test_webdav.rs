@@ -6531,6 +6531,26 @@ async fn test_webdav_recursive_copy_overwrite_removes_unmatched_destination_memb
             "unexpected overwrite result for {uri}"
         );
     }
+
+    for (uri, expected_body) in [
+        (
+            "/webdav/partial-overwrite-dest/current.txt",
+            "current source member",
+        ),
+        (
+            "/webdav/partial-overwrite-dest/orphan/locked.txt",
+            "locked orphan member",
+        ),
+    ] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200, "{uri} should remain readable");
+        let body = test::read_body(resp).await;
+        assert_eq!(String::from_utf8_lossy(&body), expected_body, "{uri}");
+    }
 }
 
 #[actix_web::test]
@@ -7031,6 +7051,8 @@ async fn test_webdav_recursive_move_continues_unlocked_siblings_after_locked_chi
         200,
         "locked sibling must remain at the source"
     );
+    let body = test::read_body(resp).await;
+    assert_eq!(String::from_utf8_lossy(&body), "locked child");
 }
 
 #[actix_web::test]

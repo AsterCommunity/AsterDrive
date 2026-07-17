@@ -30,7 +30,7 @@ use super::tunnel::server::RemoteTunnelBroker;
 use super::{
     INTERNAL_STORAGE_BASE_PATH, PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY,
     PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY, PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY,
-    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_LIST_PAGE_BODY_LIMIT, REMOTE_LIST_PAGE_SIZE,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, REMOTE_LIST_PAGE_BODY_LIMIT,
     REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY,
 };
 
@@ -45,6 +45,7 @@ const STORAGE_KEY_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'{')
     .add(b'}');
 const STORAGE_TARGET_KEY_ENCODE_SET: &AsciiSet = &STORAGE_KEY_ENCODE_SET.add(b'/');
+const REMOTE_LIST_PAGE_SIZE_QUERY_VALUE: &str = "1000";
 
 #[derive(Clone)]
 pub struct RemoteStorageClient {
@@ -253,12 +254,13 @@ impl RemoteStorageClient {
         loop {
             let mut path = format!("{INTERNAL_STORAGE_BASE_PATH}/objects");
             self.append_storage_target_key(&mut path);
-            let mut query = vec![("limit", REMOTE_LIST_PAGE_SIZE.to_string())];
+            let cursor_text = cursor.map(|cursor| cursor.to_string());
+            let mut query = vec![("limit", REMOTE_LIST_PAGE_SIZE_QUERY_VALUE)];
             if let Some(prefix) = prefix {
-                query.push(("prefix", prefix.to_string()));
+                query.push(("prefix", prefix));
             }
-            if let Some(cursor) = cursor {
-                query.push(("cursor", cursor.to_string()));
+            if let Some(cursor) = cursor_text.as_deref() {
+                query.push(("cursor", cursor));
             }
             append_query_pairs(&mut path, query);
 
@@ -610,14 +612,15 @@ async fn parse_storage_target_response(
     })
 }
 
-fn append_query_pairs(
-    path_and_query: &mut String,
-    pairs: impl IntoIterator<Item = (&'static str, String)>,
-) {
+fn append_query_pairs<T, I>(path_and_query: &mut String, pairs: I)
+where
+    I: IntoIterator<Item = (&'static str, T)>,
+    T: AsRef<str>,
+{
     let mut serializer = url::form_urlencoded::Serializer::new(String::new());
     let mut has_values = false;
     for (key, value) in pairs {
-        serializer.append_pair(key, &value);
+        serializer.append_pair(key, value.as_ref());
         has_values = true;
     }
     if !has_values {
