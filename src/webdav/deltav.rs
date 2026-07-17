@@ -3,10 +3,9 @@
 //! 自研 WebDAV handler 在这里承接 REPORT / VERSION-CONTROL，
 //! 利用已有的 file_versions 表返回最小 DeltaV 能力。
 
-use std::io::Cursor;
-
 use actix_web::HttpResponse;
 use actix_web::http::{StatusCode, Uri};
+use aster_forge_utils::xml::{XmlSafetyError, XmlSafetyPolicy, xml_root_local_name};
 use sea_orm::DatabaseConnection;
 use xmltree::Element;
 
@@ -25,18 +24,20 @@ pub(crate) async fn handle_report(
     prefix: &str,
 ) -> HttpResponse {
     // 解析 XML body，确认是 version-tree 报告
-    if crate::webdav::reject_xml_dtd_or_entity(body_bytes).is_err() {
-        return responses::no_external_entities();
-    }
-    let root = match Element::parse(Cursor::new(body_bytes)) {
-        Ok(el) => el,
-        Err(_) => return error_response(StatusCode::BAD_REQUEST, "Invalid XML body"),
+    let root_name = match xml_root_local_name(body_bytes, XmlSafetyPolicy::untrusted()) {
+        Ok(root_name) => root_name,
+        Err(XmlSafetyError::ExternalEntity) => return responses::no_external_entities(),
+        Err(
+            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+        ) => {
+            return error_response(StatusCode::BAD_REQUEST, "Invalid XML body");
+        }
     };
 
-    if root.name != "version-tree" {
+    if root_name != "version-tree" {
         return error_response(
             StatusCode::NOT_IMPLEMENTED,
-            &format!("Unsupported REPORT type: {}", root.name),
+            &format!("Unsupported REPORT type: {root_name}"),
         );
     }
 

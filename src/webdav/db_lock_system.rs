@@ -2,7 +2,6 @@
 
 use aster_forge_db::transaction;
 use std::collections::HashMap;
-use std::io::Cursor;
 use std::time::{Duration, SystemTime};
 
 use chrono::Utc;
@@ -19,6 +18,7 @@ use crate::types::EntityType;
 use crate::webdav::dav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
 };
+use crate::webdav::parse_webdav_element;
 use crate::webdav::path_resolver::{self, ResolvedNode};
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
@@ -790,7 +790,7 @@ fn serialize_element(elem: &Element) -> String {
 }
 
 fn deserialize_element(xml: &str) -> Option<Element> {
-    Element::parse(Cursor::new(xml.as_bytes())).ok()
+    parse_webdav_element(xml.as_bytes()).ok()
 }
 
 fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {

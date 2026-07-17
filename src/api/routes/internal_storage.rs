@@ -9,10 +9,10 @@ use crate::services::{ops::audit, remote::master_binding, remote::storage_target
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
 use crate::storage::remote_protocol::{
-    INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, RemoteBindingSyncRequest,
-    RemoteCreateStorageTargetRequest, RemoteStorageCapabilities, RemoteStorageCapacityResponse,
-    RemoteStorageComposeRequest, RemoteStorageComposeResponse, RemoteStorageListResponse,
-    RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
+    INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
+    RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
+    RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
+    RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
 };
 use crate::storage::{BlobMetadata, StorageDriver};
 use actix_web::http::{StatusCode, header::HeaderMap};
@@ -97,6 +97,8 @@ struct ObjectQuery {
     offset: Option<u64>,
     length: Option<u64>,
     prefix: Option<String>,
+    cursor: Option<u64>,
+    limit: Option<u64>,
     #[serde(rename = "response-cache-control")]
     response_cache_control: Option<String>,
     #[serde(rename = "response-content-disposition")]
@@ -379,7 +381,7 @@ async fn list_objects(
         .as_deref()
         .map(|value| master_binding::provider_storage_prefix(&ctx.binding, value))
         .transpose()?;
-    let items = list_driver
+    let mut items = list_driver
         .list_paths(prefix.as_deref())
         .await?
         .into_iter()
@@ -387,6 +389,35 @@ async fn list_objects(
             object_key::strip_key_prefix(&ctx.binding.storage_namespace, &path).map(str::to_string)
         })
         .collect::<Vec<_>>();
+    let (items, next_cursor) = if let Some(limit) = query.limit {
+        if limit == 0 {
+            return Err(AsterError::validation_error(
+                "remote storage list limit must be positive",
+            ));
+        }
+        let start = numbers::u64_to_usize(query.cursor.unwrap_or(0), "remote storage list cursor")
+            .map_err(|_| AsterError::validation_error("remote storage list cursor is too large"))?
+            .min(items.len());
+        let limit = numbers::u64_to_usize(limit, "remote storage list limit")
+            .map_err(|_| AsterError::validation_error("remote storage list limit is too large"))?;
+        let end = start
+            .saturating_add(limit.min(REMOTE_LIST_PAGE_SIZE))
+            .min(items.len());
+        let next_cursor = if end < items.len() {
+            Some(numbers::usize_to_u64(
+                end,
+                "remote storage list next cursor",
+            )?)
+        } else {
+            None
+        };
+        items.drain(end..);
+        items.drain(..start);
+        (items, next_cursor)
+    } else {
+        // Keep the legacy unpaged response for older clients. New clients always send `limit`.
+        (items, None)
+    };
     tracing::debug!(
         binding_id = ctx.binding.id,
         prefix = ?query.prefix,
@@ -394,7 +425,12 @@ async fn list_objects(
         "follower objects listed"
     );
 
-    Ok(HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageListResponse { items })))
+    Ok(
+        HttpResponse::Ok().json(ApiResponse::ok(RemoteStorageListResponse {
+            items,
+            next_cursor,
+        })),
+    )
 }
 
 async fn put_object(

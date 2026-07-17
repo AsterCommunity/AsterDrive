@@ -1,10 +1,10 @@
 //! WebDAV LOCK / UNLOCK handlers and lock XML helpers.
 
-use std::io::Cursor;
 use std::time::Duration;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse};
+use aster_forge_utils::xml::XmlSafetyError;
 use xmltree::{Element, XMLNode};
 
 use crate::webdav::dav::{
@@ -14,8 +14,8 @@ use crate::webdav::dav::{
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
     child_elements, dav_element, encode_href, fs, fs_error_response, href_for_dav_path,
-    lock_token_matches_request_uri_response, lock_token_submitted_response, request_origin,
-    request_path, responses, text_element,
+    lock_token_matches_request_uri_response, lock_token_submitted_response, parse_webdav_element,
+    request_origin, request_path, responses, text_element,
 };
 
 const MAX_LOCK_DURATION_SECS: u64 = 604_800;
@@ -84,13 +84,14 @@ pub(crate) async fn handle_lock(
         Err(resp) => return resp,
     };
 
-    if crate::webdav::reject_xml_dtd_or_entity(body).is_err() {
-        return responses::no_external_entities();
-    }
-
-    let tree = match Element::parse(Cursor::new(body)) {
+    let tree = match parse_webdav_element(body) {
         Ok(tree) => tree,
-        Err(_) => return responses::invalid_xml_body(),
+        Err(XmlSafetyError::ExternalEntity) => return responses::no_external_entities(),
+        Err(
+            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+        ) => {
+            return responses::invalid_xml_body();
+        }
     };
     if !is_dav_element(&tree, "lockinfo") {
         return invalid_lock_body();
