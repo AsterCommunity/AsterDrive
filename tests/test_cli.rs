@@ -1106,6 +1106,32 @@ async fn test_root_binary_doctor_redacts_database_url_query_credentials() {
 }
 
 #[tokio::test]
+async fn test_root_binary_doctor_human_output_redacts_database_url_query_credentials() {
+    let database_path = std::env::temp_dir().join(format!(
+        "asterdrive-cli-human-redaction-{}.db",
+        uuid::Uuid::new_v4()
+    ));
+    let database_url = format!(
+        "sqlite://{}?mode=rwc&password=human-secret%2Fvalue&ACCESS_TOKEN=human-token",
+        database_path.display()
+    );
+
+    let output = run_aster_drive(&[
+        "doctor",
+        "--database-url",
+        &database_url,
+        "--output-format",
+        "human",
+    ]);
+    let stdout = String::from_utf8(output.stdout).expect("doctor human stdout should be utf-8");
+    assert!(stdout.contains("Database:"));
+    assert!(stdout.contains("password=***"));
+    assert!(stdout.contains("ACCESS_TOKEN=***"));
+    assert!(!stdout.contains("human-secret%2Fvalue"));
+    assert!(!stdout.contains("human-token"));
+}
+
+#[tokio::test]
 async fn test_root_binary_doctor_human_output_is_readable() {
     let database_url = setup_ready_database_url().await;
 

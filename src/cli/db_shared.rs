@@ -269,6 +269,27 @@ mod tests {
     }
 
     #[test]
+    fn redact_database_url_masks_query_variants_without_authority() {
+        let redacted = redact_database_url(
+            "postgres://db.internal:5432/asterdrive?token=first&password=&client_secret=second&api-key=third&credential_file=fourth&monkey=safe&mode=rwc&token=fifth",
+        );
+
+        assert!(redacted.contains("token=***"));
+        assert!(redacted.contains("password=***"));
+        assert!(redacted.contains("client_secret=***"));
+        assert!(redacted.contains("api-key=***"));
+        assert!(redacted.contains("credential_file=***"));
+        assert!(redacted.contains("monkey=safe"));
+        assert!(redacted.contains("mode=rwc"));
+        assert_eq!(redacted.matches("token=***").count(), 2);
+        assert!(!redacted.contains("first"));
+        assert!(!redacted.contains("second"));
+        assert!(!redacted.contains("third"));
+        assert!(!redacted.contains("fourth"));
+        assert!(!redacted.contains("fifth"));
+    }
+
+    #[test]
     fn redact_database_url_masks_sqlite_paths_but_preserves_filename() {
         assert_eq!(
             redact_database_url(
@@ -297,5 +318,11 @@ mod tests {
             redact_database_url("sqlite::memory:?token=encoded%2Fsecret&mode=memory"),
             "sqlite::memory:?token=***&mode=memory"
         );
+
+        let redacted = redact_database_url("postgres://user:secret@db host/db?token=abc");
+        assert!(redacted.starts_with("postgres://***@db host/db?"));
+        assert!(redacted.contains("token=***"));
+        assert!(!redacted.contains("secret"));
+        assert!(!redacted.contains("abc"));
     }
 }
