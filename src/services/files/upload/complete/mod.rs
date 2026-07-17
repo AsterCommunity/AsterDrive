@@ -1,7 +1,7 @@
 //! 上传完成阶段。
 //!
 //! 这里把各种“临时上传状态”收口成正式文件：
-//! - 本地 chunk 文件组装
+//! - offset staging file 校验，或兼容旧 session 的本地 chunk 文件组装
 //! - presigned 单文件确认
 //! - presigned object multipart 完成
 //! - relay object multipart 完成
@@ -79,7 +79,7 @@ async fn complete_upload_impl_with_hints(
         CompletionPlan::CompleteRelayMultipart => {
             complete_relay_multipart(state, session, hints.actor_username).await
         }
-        CompletionPlan::AssembleChunks => {
+        CompletionPlan::CompleteChunked => {
             complete_chunked_upload_with_actor_username(state, session, hints.actor_username).await
         }
     };
@@ -112,7 +112,7 @@ fn upload_mode_label_from_completion_plan(plan: &CompletionPlan) -> &'static str
         CompletionPlan::CompletePresigned => "presigned",
         CompletionPlan::CompletePresignedMultipart { .. }
         | CompletionPlan::CompleteRelayMultipart => "presigned_multipart",
-        CompletionPlan::AssembleChunks => "chunked",
+        CompletionPlan::CompleteChunked => "chunked",
         CompletionPlan::ReturnCompleted => "completed_retry",
     }
 }

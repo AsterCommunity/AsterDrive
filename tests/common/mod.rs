@@ -899,6 +899,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
+        upload_runtime: base.upload_runtime,
     }
 }
 
@@ -1300,6 +1301,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         background_task_dispatch_wakeup:
             aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         remote_protocol,
+        upload_runtime: aster_drive::runtime::PrimaryAppState::new_upload_runtime(),
     }
 }
 

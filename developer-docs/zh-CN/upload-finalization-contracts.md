@@ -41,6 +41,71 @@
 
 `storage::store_preuploaded_nondedup` 使用本地 `VerifiedPreuploadedNondedupStoreBlob` 覆盖 streaming direct 的最终落账契约，校验 verified size、policy、storage path 和 prepared blob 一致后再进入 DB finalization。
 
+## Local chunked 的 offset-staging 契约
+
+新建的 server-managed chunked session 不再为每个 chunk 保存一份 payload，也不会在 Complete 阶段重新拼写一份完整文件。Init、Chunk PUT 和 Complete 共享以下目录契约：
+
+```text
+<upload_temp_dir>/<upload_id>/
+├── .offset-staging-v1                 # 唯一内容载体，Init 时预分配到 total_size
+├── .chunk_0.lock                      # 同一 chunk 的跨任务/进程排他锁
+└── .chunk_1.lock                      # 其他 lock 文件按需创建
+```
+
+offset-staging 的本地 receipt 存在 `upload_session_parts`：
+
+```text
+part_number = chunk_number + 1
+etag        = aster-drive-offset-staging-receipt-v1
+size        = expected_chunk_size
+```
+
+`.offset-staging-v1` 同时是显式 session 格式标识。Complete 只在该格式专用路径存在时进入 offset-staging 校验；legacy compatibility path 创建的通用 `assembled` 文件不参与判断。这个边界很重要：legacy 首次拼装后如果 storage/DB 阶段出现可重试失败，`assembled` 可能保留到下一次 Complete；若拿它判断格式，就会把 payload-sized `chunk_N` 错当成 offset receipt。
+
+### Chunk PUT 的 durable receipt 顺序
+
+同一 chunk 先取得 `.chunk_N.lock`，不同 chunk 使用不同锁，因此可以并行写各自 offset。取得锁后按下面的顺序提交：
+
+1. 在 `.offset-staging-v1` 的 `chunk_number * chunk_size` 位置完整写入 payload。
+2. 对 staging file 执行 `sync_data`，先保证内容持久化。
+3. 开启只包含数据库 SQL 的短 writer transaction。
+4. 向 `upload_session_parts` insert-only 登记本地 chunk receipt。这里复用 `(upload_id, part_number)` 唯一键；本地 receipt 使用保留的 offset-staging 标识作为 `etag`，object multipart 仍保存 provider ETag。
+5. 只有 receipt 首次插入时才增加 `upload_sessions.received_count`，然后提交 transaction。
+
+收到重复 Chunk PUT 时仍会完整校验 payload 大小。若 receipt 已存在，服务端会 drain/忽略请求 body，校验 receipt 后直接返回当前进度，不覆盖已提交 range，也不重复计数。
+
+### 崩溃与重试矩阵
+
+| 中断位置 | 可见状态 | 重试行为 |
+| --- | --- | --- |
+| staging range 写入完成前 | receipt 缺失，range 可能部分写入 | 在同一 offset 完整覆盖，不计数 |
+| staging `sync_data` 后、DB transaction 前 | durable range 存在，receipt 缺失 | 重新完整覆盖，然后登记 receipt |
+| DB receipt transaction 提交后客户端未收到响应 | receipt 和内容都存在 | 重试校验请求大小，返回当前进度，不重写、不重复计数 |
+| receipt row 缺失但 range 仍完整 | receipt 缺失，received_count 可能滞后 | 重试完整覆盖并补登记，只计一次 |
+| receipt row 损坏 | receipt 存在但 sentinel/size 不匹配 | Chunk PUT 和 Complete 明确报损坏，不静默覆盖 |
+| staging file 被截断 | receipt 可能完整但内容载体长度错误 | Complete 拒绝并保留失败状态，避免把短文件当成完整上传 |
+
+Complete 必须同时校验：
+
+- `upload_session_parts` 中恰好有 `total_chunks` 条本地 receipt，part 序号连续，sentinel 和 size 与每个 chunk 一致；
+- `.offset-staging-v1` 是普通文件；
+- staging file 长度等于 `session.total_size`。
+
+Local completion 直接消费这份 staging file：开启 `content_dedup` 时会先流式计算 SHA-256，再按 content-addressed key promote；关闭 dedup 时把同一 staging file 写入预分配的独立 Blob。两种情况都不会再完整写一份 assembled 文件。需要 generic stream upload 的 connector 从 staging file 串流到目标 driver。S3-compatible、Azure Blob、Tencent COS 等已经协商到 provider relay multipart 的 session 不走这条本地 staging 路径。
+
+### Legacy compatibility path
+
+升级前创建的 session 仍可能采用 payload-per-chunk 目录：
+
+```text
+<upload_temp_dir>/<upload_id>/
+├── chunk_0                            # payload
+├── chunk_1                            # payload
+└── assembled                          # Complete 拼装产物，失败/崩溃后可能保留
+```
+
+这条路径会在 Complete 时取得 `chunk_assembly_to_local_temp_file` limiter，然后拼装或串流 legacy chunk。它只保护 legacy assembly，不限制新 `.offset-staging-v1` session。兼容路径计划在 `0.5.0` 移除；移除前必须保留“已有 assembled 仍按 legacy 重试”的回归测试。
+
 ## 模式矩阵
 
 | 上传模式 / transport | 初始状态和写入位置 | trusted size source | quota precheck / atomic charge | finalize function | cleanup / idempotency |
@@ -48,7 +113,8 @@
 | regular multipart/server path | 不创建 upload session；`upload_with_hints` 读取 `actix_multipart::Multipart` 到 runtime temp file | 服务端读取 multipart body 时累计的 `size`；如有 `declared_size`，必须和累计值相等 | policy resolved by actual `size`；preuploaded non-dedup blob 会在对象写入前 precheck；DB 事务内再次 `check_quota`，再 `update_storage_used` | `store_from_temp_with_hints` -> `store::from_temp` / `persist_temp_store` / `write_file_record_from_temp` | 请求临时文件在 `store_from_temp_with_hints` 返回后删除；preuploaded 对象在 DB 失败时 cleanup；dedup staged 对象只有在确认没有 blob row 引用时回滚，否则交给 orphan GC |
 | local direct | 不创建 upload session；local policy 且有 `declared_size` 时直接写入 local staging path | 写入 local staging file 时累计的 `size`，必须等于 `declared_size`；dedup 时同流计算 hash | 使用已解析 local policy；和 server path 一样通过 `store_from_temp_with_hints` 做 precheck / 事务内 atomic charge | `upload_local_direct` -> `store_from_temp_with_hints` | 写入、大小不匹配、空文件或 store 结束后删除 staging file；重复请求不会通过 session 幂等，只按普通创建语义处理 |
 | streaming direct | 不创建 upload session；relay request body 到 driver 的 prepared non-dedup blob | driver `metadata(storage_path).size`，必须等于 `declared_size`，并再次检查 policy max file size | relay 前先用 `declared_size` 做 quota precheck；metadata 复验后再用 `actual_size` precheck；DB 事务内再次 `check_quota` 并 `update_storage_used` | `upload_streaming_direct` -> `store_preuploaded_nondedup` | storage upload、relay、metadata、size validation、quota validation 或 DB finalize 失败时 cleanup prepared blob；成功后按正式 blob 管理 |
-| local chunked | session status `uploading`；chunk 写入本地 upload temp dir；complete 时拼 assembled temp file | chunk 阶段每块必须等于 `expected_chunk_size_for_upload`；complete 阶段 assembled 文件累计 `size` 是最终落账大小 | 当前路径主要依赖 `finalize_upload_session_blob_with_actor_username` 内的 atomic `update_storage_used`；本地 non-dedup preuploaded blob 没有单独 quota precheck | `complete_chunked_upload_with_actor_username` -> `finalize_chunked_upload_session` -> `persist_assembled_upload` -> `finalize_upload_session_blob_with_actor_username` | 重复 chunk 通过无覆盖发布和 existing chunk size 检查幂等；complete 成功后删除 upload temp dir；preuploaded blob 在 DB 失败时 cleanup；dedup 对象不主动删，避免并发引用误删，交给 orphan GC |
+| local chunked / offset staging | session status `uploading`；Init 预创建 `.offset-staging-v1`，Chunk PUT 按 offset 写 range 并登记 DB receipt | 每块必须等于 `expected_chunk_size_for_upload`；Complete 校验全部 receipt 和 staging file 的 `session.total_size`；dedup 时从 staging 流式计算 SHA-256 | chunk receipt 与 `received_count` 在只含 SQL 的短 writer transaction 内幂等登记；最终 quota 仍由 `finalize_upload_session_blob_with_actor_username` 原子落账 | `complete_chunked_upload_with_actor_username` -> `finalize_chunked_upload_session` -> `load_offset_staging_file` -> `stage_chunked_temp_file` -> `persist_chunked_upload` | staging range 先 `sync_data`；receipt 是唯一 completion index，唯一键避免重试重复计数；Complete 成功后删除 upload temp dir |
+| legacy local chunk files | 升级前 session 的 `chunk_N` 是 payload；Complete 拼写 `assembled`，generic stream connector 则依次读取 chunk | 拼装路径按实际读取字节累计 size；legacy stream 使用 session total size 作为声明值并由下游 storage contract 校验 | 最终 quota 与当前 chunked path 相同；legacy assembly limiter 只限制本地拼装写，不影响 offset staging | `assemble_legacy_local_chunks_to_temp_file` 或 `stream_legacy_local_chunks_into_writer` -> 当前 chunked persist/finalize | `assembled` 可能在 retryable storage/DB 失败后保留，但不能触发 offset-staging 判断；进入兼容路径会 warn，计划在 `0.5.0` 移除 |
 | presigned single | session status `presigned`；客户端 PUT 到 `object_temp_key` | complete 前读取 temp object metadata；copy 到 final key 后再次读取 final object metadata；两者都必须等于 `session.total_size` | complete 阶段没有独立 quota precheck；`finalize_upload_session_file` 在 DB 事务内创建 blob/file、atomic charge、标 completed | `complete_presigned_upload` -> `copy_presigned_object_to_final_key` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | temp object 缺失或大小不匹配会失败，大小不匹配会尝试删除 temp object；DB finalize 失败后删除 copied final object；成功后 best-effort 删除 temp object；completed retry 通过 `find_file_by_session` 返回已有文件 |
 | presigned object multipart | session status `presigned`；客户端直传 object multipart parts，complete 时客户端回传 parts | provider `list_uploaded_part_details` 的 part size 求和，必须等于 `session.total_size`；multipart complete 后再读 object metadata | multipart complete 前先用 part size total `check_quota`；`finalize_upload_session_file` 在 DB 事务内 atomic charge、标 completed | `complete_presigned_multipart` -> `complete_object_multipart_upload_session` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | completed parts 和 provider uploaded parts 必须连续且数量匹配；preflight size/parts/quota 失败会 abort multipart；complete 出现 retryable storage error 且 object 已存在时继续 finalize；multipart object 一旦 complete，`VerifiedUploadedBlob.cleanup = RetainCompletedMultipartObject`，因此 `finalize_upload_session_file`/DB finalize 失败后不删除已完成对象，留给后续重试或 orphan cleanup；completed retry 返回已有文件 |
 | relay object multipart | session status `uploading`；每个 chunk 由服务端 relay 到 object multipart，并把 part metadata 写入 `upload_session_parts` | chunk 阶段按 `expected_chunk_size_for_upload` 验每个 payload；complete 阶段读取服务端 parts 清单，再用 provider part details 求和，必须等于 `session.total_size` | chunk 阶段不 charge；complete multipart 前用 verified part total precheck；`finalize_upload_session_file` 在 DB 事务内 atomic charge、标 completed | `complete_relay_multipart` -> `complete_object_multipart_upload_session` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | part claim 防止同一 part 并发重复上传；upload 或 DB 写 part metadata 失败会 release claim；complete preflight 失败会 abort multipart；multipart object 一旦 complete，`VerifiedUploadedBlob.cleanup = RetainCompletedMultipartObject`，因此 `finalize_upload_session_file`/DB finalize 失败后不删除已完成对象，留给后续重试或 orphan cleanup；completed retry 返回已有文件 |
@@ -62,7 +128,7 @@
 - `presigned` + `object_multipart_id = None` -> `CompletePresigned`。
 - `presigned` + `object_multipart_id = Some` -> `CompletePresignedMultipart`，客户端必须提交 parts。
 - `uploading` + `object_multipart_id = Some` -> `CompleteRelayMultipart`，parts 来自服务端已保存的 `upload_session_parts`。
-- 其他 `uploading` session -> `AssembleChunks`，要求 `received_count == total_chunks`。
+- 其他 `uploading` session -> `CompleteChunked`，要求 `received_count == total_chunks`；随后再由格式专用 `.offset-staging-v1` 路径区分当前 offset staging 与 legacy chunk files。
 
 `run_upload_completion_stage` 会先把 expected status 切到 `assembling`。非 retryable 失败会把 session 标为 `failed`；retryable storage error 会尝试恢复到原状态，允许客户端重试。
 
@@ -74,4 +140,5 @@
 - `store_from_temp` 路径继续使用 `VerifiedTempStoreBlob` 或同等明确的 verified finalization input；新 temp-store 入口必须显式声明 staged dedup/preuploaded cleanup 责任。
 - `store_preuploaded_nondedup` 路径继续使用 `VerifiedPreuploadedNondedupStoreBlob` 或同等明确的 verified finalization input；新 preuploaded store 入口必须显式校验 prepared blob 的 size/policy/storage path 一致性。
 - 每个被迁移路径都要补 quota、size mismatch 和 DB finalize failure cleanup 测试；`completed retry 不重复计费` 只适用于 session complete flow。
+- offset-staging 改动必须覆盖：不同 chunk 确实并行、同一 chunk 确实排他、partial range 覆盖、receipt 缺失、receipt 损坏、staging 截断和 legacy assembled 残留重试。并发测试需要 barrier/failpoint 证明任务进入了关键区，不能只用 `join!` 假设发生过竞争。
 - 保持 public API request/response、session status 语义和现有成功上传行为不变。

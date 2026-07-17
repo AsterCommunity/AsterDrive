@@ -13,7 +13,7 @@ pub(super) enum CompletionPlan {
     CompletePresigned,
     CompletePresignedMultipart { parts: Vec<(i32, String)> },
     CompleteRelayMultipart,
-    AssembleChunks,
+    CompleteChunked,
 }
 
 pub(super) fn determine_completion_plan(
@@ -72,7 +72,7 @@ pub(super) fn determine_completion_plan(
         ));
     }
 
-    Ok(CompletionPlan::AssembleChunks)
+    Ok(CompletionPlan::CompleteChunked)
 }
 
 pub(super) fn completion_plan_label(plan: &CompletionPlan) -> &'static str {
@@ -81,6 +81,6 @@ pub(super) fn completion_plan_label(plan: &CompletionPlan) -> &'static str {
         CompletionPlan::CompletePresigned => "complete_presigned",
         CompletionPlan::CompletePresignedMultipart { .. } => "complete_presigned_multipart",
         CompletionPlan::CompleteRelayMultipart => "complete_relay_multipart",
-        CompletionPlan::AssembleChunks => "assemble_chunks",
+        CompletionPlan::CompleteChunked => "complete_chunked",
     }
 }

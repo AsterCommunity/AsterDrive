@@ -80,11 +80,11 @@ fn determine_completion_plan_marks_incomplete_chunks_with_code() {
 }
 
 #[test]
-fn determine_completion_plan_returns_chunk_assembly_when_all_chunks_arrived() {
+fn determine_completion_plan_returns_chunked_completion_when_all_chunks_arrived() {
     let plan = determine_completion_plan(&mock_session(UploadSessionStatus::Uploading), None)
         .expect("complete session should produce plan");
 
-    assert!(matches!(plan, CompletionPlan::AssembleChunks));
+    assert!(matches!(plan, CompletionPlan::CompleteChunked));
 }
 
 #[test]

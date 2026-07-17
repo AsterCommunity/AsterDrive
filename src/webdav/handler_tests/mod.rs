@@ -150,6 +150,7 @@ async fn build_webdav_test_state(
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        upload_runtime: crate::runtime::PrimaryAppState::new_upload_runtime(),
     };
 
     (state, user, policy, temp_root)

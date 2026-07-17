@@ -392,6 +392,7 @@ async fn log_writes_synchronously_without_global_manager() {
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        upload_runtime: crate::runtime::PrimaryAppState::new_upload_runtime(),
     };
 
     super::log(
@@ -507,6 +508,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
         remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        upload_runtime: crate::runtime::PrimaryAppState::new_upload_runtime(),
     };
     let calls = AtomicUsize::new(0);
 

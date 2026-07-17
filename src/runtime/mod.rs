@@ -9,7 +9,8 @@ pub mod tasks;
 use crate::config::{Config, RuntimeConfig};
 use crate::metrics::SharedMetricsRecorder;
 use crate::services::{
-    events::storage_change::StorageChangeEvent, share::ShareDownloadRollbackQueue,
+    events::storage_change::StorageChangeEvent, files::upload::UploadRuntime,
+    share::ShareDownloadRollbackQueue,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use aster_forge_db::DbHandles;
@@ -37,6 +38,8 @@ pub struct PrimaryAppState {
     pub background_task_dispatch_wakeup: Arc<Notify>,
     /// Remote storage protocol runtime, including reverse tunnel state.
     pub remote_protocol: Arc<RemoteProtocolRuntime>,
+    /// Shared execution resources for upload workflows.
+    pub upload_runtime: Arc<UploadRuntime>,
 }
 
 #[derive(Clone)]
@@ -92,6 +95,10 @@ impl PrimaryAppState {
 
     pub fn new_remote_protocol() -> Arc<RemoteProtocolRuntime> {
         Arc::new(RemoteProtocolRuntime::new())
+    }
+
+    pub fn new_upload_runtime() -> Arc<UploadRuntime> {
+        Arc::new(UploadRuntime::new())
     }
 
     pub fn sqlite_read_write_split(&self) -> bool {
@@ -354,6 +361,7 @@ mod tests {
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+            upload_runtime: crate::runtime::PrimaryAppState::new_upload_runtime(),
         };
         state
             .driver_registry
@@ -408,5 +416,13 @@ mod tests {
         tokio::time::timeout(std::time::Duration::from_secs(1), notified)
             .await
             .expect("background dispatcher wakeup should notify waiters");
+    }
+
+    #[tokio::test]
+    async fn primary_state_clones_share_upload_runtime() {
+        let state = setup_state().await;
+        let cloned = state.clone();
+
+        assert!(Arc::ptr_eq(&state.upload_runtime, &cloned.upload_runtime));
     }
 }

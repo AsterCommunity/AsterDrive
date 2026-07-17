@@ -1,14 +1,22 @@
 //! 分片上传阶段。
 //!
 //! 这里处理两类“已经进入分片模式”的 session：
-//! - 服务端本地暂存 chunk 文件
+//! - 服务端按 offset 写入预分配 staging file，再幂等登记数据库 receipt
 //! - 服务端 relay 到 object-storage multipart，并把 ETag 记入 upload_session_parts
+//!
+//! offset-staging 的提交边界是：先 `sync_data` 内容，再在只包含 SQL 的短 DB 事务中登记
+//! receipt/增加 `received_count`。receipt 是唯一 completion index；重试只需校验旧 receipt，
+//! 不会再次写文件或重复计数。
+//! 没有 `.offset-staging-v1` 的旧 session 继续使用独立 payload-sized chunk 文件。
 
 use aster_forge_db::transaction;
 use bytes::Bytes;
 use chrono::Utc;
 use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
+
+#[cfg(debug_assertions)]
+use std::sync::{LazyLock, Mutex as StdMutex};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
@@ -23,17 +31,74 @@ use crate::services::files::upload::scope::{load_upload_session, personal_scope,
 use crate::services::files::upload::shared::{
     expected_chunk_size_for_upload, upload_session_chunk_unavailable_error,
 };
+use crate::services::files::upload::staging;
 use crate::types::UploadSessionStatus;
 use aster_forge_utils::numbers::{i64_to_u64, usize_to_i64};
 use aster_forge_utils::paths;
 
 const RELAY_STREAM_PIPE_BUFFER_SIZE: usize = 64 * 1024;
 
+#[cfg(debug_assertions)]
+static STAGING_WRITE_TEST_HOOKS: LazyLock<
+    StdMutex<
+        std::collections::HashMap<String, std::sync::Arc<test_support::StagingWriteTestHookState>>,
+    >,
+> = LazyLock::new(|| StdMutex::new(std::collections::HashMap::new()));
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum ExistingLocalChunk {
     Missing,
     Complete,
     RemovedCorrupt,
+}
+
+struct LocalChunkWriteLock {
+    file: std::fs::File,
+}
+
+impl Drop for LocalChunkWriteLock {
+    fn drop(&mut self) {
+        if let Err(error) = fs2::FileExt::unlock(&self.file) {
+            tracing::warn!("failed to unlock local chunk write lock: {error}");
+        }
+    }
+}
+
+async fn acquire_local_chunk_write_lock(
+    chunk_dir: &str,
+    upload_id: &str,
+    chunk_number: i32,
+) -> Result<LocalChunkWriteLock> {
+    let lock_path = paths::temp_file_path(chunk_dir, &format!(".chunk_{chunk_number}.lock"));
+    let upload_id = upload_id.to_string();
+    tokio::task::spawn_blocking(move || {
+        let file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|error| {
+                chunk_upload_error_with_code(
+                    ApiErrorCode::UploadChunkPersistFailed,
+                    format!("open chunk write lock for upload {upload_id}: {error}"),
+                )
+            })?;
+        fs2::FileExt::lock_exclusive(&file).map_err(|error| {
+            chunk_upload_error_with_code(
+                ApiErrorCode::UploadChunkPersistFailed,
+                format!("lock chunk write for upload {upload_id}: {error}"),
+            )
+        })?;
+        Ok(LocalChunkWriteLock { file })
+    })
+    .await
+    .map_err(|error| {
+        chunk_upload_error_with_code(
+            ApiErrorCode::UploadChunkPersistFailed,
+            format!("chunk write lock task failed: {error}"),
+        )
+    })?
 }
 
 async fn increment_session_received_count<C: sea_orm::ConnectionTrait>(
@@ -50,6 +115,68 @@ async fn increment_session_received_count<C: sea_orm::ConnectionTrait>(
         Ok(session) => Err(upload_session_chunk_unavailable_error(&session)),
         Err(error) => Err(error),
     }
+}
+
+async fn record_staged_chunk_receipt<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    upload_id: &str,
+    chunk_number: i32,
+    expected_size: i64,
+) -> Result<bool> {
+    let inserted = upload_session_part_repo::insert_part_if_missing(
+        db,
+        upload_id,
+        chunk_number + 1,
+        staging::chunk_receipt_etag(),
+        expected_size,
+    )
+    .await?;
+
+    if inserted {
+        increment_session_received_count(db, upload_id).await?;
+        return Ok(true);
+    }
+
+    let receipt =
+        upload_session_part_repo::find_by_upload_and_part(db, upload_id, chunk_number + 1)
+            .await?
+            .ok_or_else(|| {
+                chunk_upload_error_with_code(
+                    ApiErrorCode::UploadChunkPersistFailed,
+                    format!("local chunk receipt disappeared for chunk {chunk_number}"),
+                )
+            })?;
+    if receipt.etag != staging::chunk_receipt_etag() || receipt.size != expected_size {
+        return Err(chunk_upload_error_with_code(
+            ApiErrorCode::UploadChunkPersistFailed,
+            format!("local chunk receipt is corrupted for chunk {chunk_number}"),
+        ));
+    }
+    let session = upload_session_repo::find_by_id(db, upload_id).await?;
+    if session.status != UploadSessionStatus::Uploading {
+        return Err(upload_session_chunk_unavailable_error(&session));
+    }
+    Ok(false)
+}
+
+async fn has_staged_chunk_receipt(
+    db: &impl sea_orm::ConnectionTrait,
+    upload_id: &str,
+    chunk_number: i32,
+    expected_size: i64,
+) -> Result<bool> {
+    let Some(receipt) =
+        upload_session_part_repo::find_by_upload_and_part(db, upload_id, chunk_number + 1).await?
+    else {
+        return Ok(false);
+    };
+    if receipt.etag != staging::chunk_receipt_etag() || receipt.size != expected_size {
+        return Err(chunk_upload_error_with_code(
+            ApiErrorCode::UploadChunkPersistFailed,
+            format!("local chunk receipt is corrupted for chunk {chunk_number}"),
+        ));
+    }
+    Ok(true)
 }
 
 async fn remove_local_chunk_file(path: &str, upload_id: &str, chunk_number: i32, reason: &str) {
@@ -145,6 +272,39 @@ async fn write_local_chunk_temp(
     }
 
     write_result
+}
+
+async fn write_chunk_to_staging_file(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+    chunk_number: i32,
+    data: &[u8],
+) -> Result<()> {
+    let mut file = staging::open_for_chunk_write(state, session, chunk_number).await?;
+    file.write_all(data)
+        .await
+        .map_aster_err_ctx("write chunk staging range", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
+        })?;
+    file.sync_data()
+        .await
+        .map_aster_err_ctx("sync chunk staging range", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
+        })?;
+    Ok(())
+}
+
+async fn commit_staged_chunk_receipt(
+    state: &PrimaryAppState,
+    upload_id: &str,
+    chunk_number: i32,
+    expected_size: i64,
+) -> Result<()> {
+    // 文件同步在事务外完成；SQLite writer lock 只覆盖这组短 SQL。
+    let txn = transaction::begin(state.writer_db()).await?;
+    record_staged_chunk_receipt(&txn, upload_id, chunk_number, expected_size).await?;
+    transaction::commit(txn).await?;
+    Ok(())
 }
 
 fn chunk_body_read_failed() -> AsterError {
@@ -272,6 +432,45 @@ async fn write_local_chunk_temp_stream(
     }
 
     write_result
+}
+
+async fn write_chunk_payload_to_staging_file(
+    state: &PrimaryAppState,
+    session: &upload_session::Model,
+    chunk_number: i32,
+    payload: &mut actix_web::web::Payload,
+    expected_size: i64,
+) -> Result<()> {
+    use tokio::io::BufWriter;
+
+    let file = staging::open_for_chunk_write(state, session, chunk_number).await?;
+    let mut file = BufWriter::new(file);
+    let mut size = 0i64;
+
+    while let Some(chunk) = payload.next().await {
+        let chunk = chunk.map_aster_err_with(chunk_body_read_failed)?;
+        size = add_chunk_body_len(size, chunk.len())?;
+        ensure_chunk_body_not_too_large(size, expected_size, chunk_number)?;
+        file.write_all(&chunk)
+            .await
+            .map_aster_err_ctx("write chunk staging range", |message| {
+                chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
+            })?;
+    }
+
+    ensure_chunk_body_exact_size(size, expected_size, chunk_number)?;
+    file.flush()
+        .await
+        .map_aster_err_ctx("flush chunk staging range", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
+        })?;
+    file.get_ref()
+        .sync_data()
+        .await
+        .map_aster_err_ctx("sync chunk staging range", |message| {
+            chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
+        })?;
+    Ok(())
 }
 
 async fn pipe_payload_to_writer(
@@ -589,6 +788,48 @@ async fn upload_chunk_impl(
         upload_id,
         chunk_number,
     );
+    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
+
+    if staging::exists(state, upload_id).await? {
+        let _chunk_write_lock =
+            acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
+        #[cfg(debug_assertions)]
+        let _staging_write_test_guard =
+            test_support::enter_staging_write_critical_section(upload_id).await;
+        if has_staged_chunk_receipt(db, upload_id, chunk_number, expected_size).await? {
+            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+            if updated.status != UploadSessionStatus::Uploading {
+                return Err(upload_session_chunk_unavailable_error(&updated));
+            }
+            tracing::debug!(
+                upload_id,
+                chunk_number,
+                received_count = updated.received_count,
+                total_chunks = updated.total_chunks,
+                "skipping already uploaded staged chunk"
+            );
+            return Ok(ChunkUploadResponse {
+                received_count: updated.received_count,
+                total_chunks: updated.total_chunks,
+            });
+        }
+
+        write_chunk_to_staging_file(state, &session, chunk_number, data.as_ref()).await?;
+        commit_staged_chunk_receipt(state, upload_id, chunk_number, expected_size).await?;
+
+        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+        tracing::debug!(
+            upload_id,
+            chunk_number,
+            received_count = updated.received_count,
+            total_chunks = updated.total_chunks,
+            "stored upload chunk in staging file"
+        );
+        return Ok(ChunkUploadResponse {
+            received_count: updated.received_count,
+            total_chunks: updated.total_chunks,
+        });
+    }
 
     if inspect_existing_local_chunk(&chunk_path, expected_size, upload_id, chunk_number).await?
         == ExistingLocalChunk::Complete
@@ -607,7 +848,6 @@ async fn upload_chunk_impl(
         });
     }
 
-    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
     let temp_chunk_path = paths::temp_file_path(
         &chunk_dir,
         &format!(
@@ -802,6 +1042,56 @@ async fn upload_chunk_payload_impl(
         upload_id,
         chunk_number,
     );
+    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
+
+    if staging::exists(state, upload_id).await? {
+        let _chunk_write_lock =
+            acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
+        #[cfg(debug_assertions)]
+        let _staging_write_test_guard =
+            test_support::enter_staging_write_critical_section(upload_id).await;
+        if has_staged_chunk_receipt(db, upload_id, chunk_number, expected_size).await? {
+            drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
+            let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+            if updated.status != UploadSessionStatus::Uploading {
+                return Err(upload_session_chunk_unavailable_error(&updated));
+            }
+            tracing::debug!(
+                upload_id,
+                chunk_number,
+                received_count = updated.received_count,
+                total_chunks = updated.total_chunks,
+                "skipping already uploaded staged chunk"
+            );
+            return Ok(ChunkUploadResponse {
+                received_count: updated.received_count,
+                total_chunks: updated.total_chunks,
+            });
+        }
+
+        write_chunk_payload_to_staging_file(
+            state,
+            &session,
+            chunk_number,
+            &mut payload,
+            expected_size,
+        )
+        .await?;
+        commit_staged_chunk_receipt(state, upload_id, chunk_number, expected_size).await?;
+
+        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
+        tracing::debug!(
+            upload_id,
+            chunk_number,
+            received_count = updated.received_count,
+            total_chunks = updated.total_chunks,
+            "stored upload chunk stream in staging file"
+        );
+        return Ok(ChunkUploadResponse {
+            received_count: updated.received_count,
+            total_chunks: updated.total_chunks,
+        });
+    }
 
     if inspect_existing_local_chunk(&chunk_path, expected_size, upload_id, chunk_number).await?
         == ExistingLocalChunk::Complete
@@ -821,7 +1111,6 @@ async fn upload_chunk_payload_impl(
         });
     }
 
-    let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
     let temp_chunk_path = paths::temp_file_path(
         &chunk_dir,
         &format!(
@@ -947,6 +1236,166 @@ pub async fn upload_chunk_payload_for_team(
 ) -> Result<ChunkUploadResponse> {
     let session = load_upload_session(state, team_scope(team_id, user_id), upload_id).await?;
     upload_chunk_payload_impl(state, session, chunk_number, payload).await
+}
+
+#[cfg(debug_assertions)]
+pub mod test_support {
+    //! Debug-only synchronization hooks for upload integration tests.
+    //!
+    //! Integration tests compile this crate as a dependency, so `cfg(test)` is not visible here.
+    //! Release builds omit the hooks entirely.
+
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, AtomicUsize, Ordering},
+    };
+    use std::time::Duration;
+
+    use tokio::sync::{Barrier, Notify};
+
+    use super::STAGING_WRITE_TEST_HOOKS;
+
+    pub(super) struct StagingWriteTestHookState {
+        mode: StagingWriteTestHookMode,
+    }
+
+    enum StagingWriteTestHookMode {
+        Rendezvous(Arc<Barrier>),
+        ObserveExclusive(Arc<ExclusiveObservation>),
+    }
+
+    struct ExclusiveObservation {
+        active: AtomicUsize,
+        overlap_observed: AtomicBool,
+        first_entry_wait_pending: AtomicBool,
+        overlap: Notify,
+    }
+
+    pub struct StagingWriteTestHook {
+        upload_id: String,
+        state: Arc<StagingWriteTestHookState>,
+    }
+
+    impl StagingWriteTestHook {
+        pub fn overlap_observed(&self) -> bool {
+            match &self.state.mode {
+                StagingWriteTestHookMode::Rendezvous(_) => false,
+                StagingWriteTestHookMode::ObserveExclusive(observation) => {
+                    observation.overlap_observed.load(Ordering::SeqCst)
+                }
+            }
+        }
+    }
+
+    impl Drop for StagingWriteTestHook {
+        fn drop(&mut self) {
+            let mut hooks = STAGING_WRITE_TEST_HOOKS
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if hooks
+                .get(&self.upload_id)
+                .is_some_and(|registered| Arc::ptr_eq(registered, &self.state))
+            {
+                hooks.remove(&self.upload_id);
+            }
+        }
+    }
+
+    pub fn install_distinct_chunk_rendezvous(
+        upload_id: &str,
+        participants: usize,
+    ) -> StagingWriteTestHook {
+        install_hook(
+            upload_id,
+            StagingWriteTestHookMode::Rendezvous(Arc::new(Barrier::new(participants))),
+        )
+    }
+
+    pub fn install_same_chunk_exclusion_observer(upload_id: &str) -> StagingWriteTestHook {
+        install_hook(
+            upload_id,
+            StagingWriteTestHookMode::ObserveExclusive(Arc::new(ExclusiveObservation {
+                active: AtomicUsize::new(0),
+                overlap_observed: AtomicBool::new(false),
+                first_entry_wait_pending: AtomicBool::new(true),
+                overlap: Notify::new(),
+            })),
+        )
+    }
+
+    fn install_hook(upload_id: &str, mode: StagingWriteTestHookMode) -> StagingWriteTestHook {
+        let state = Arc::new(StagingWriteTestHookState { mode });
+        STAGING_WRITE_TEST_HOOKS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .insert(upload_id.to_string(), Arc::clone(&state));
+        StagingWriteTestHook {
+            upload_id: upload_id.to_string(),
+            state,
+        }
+    }
+
+    pub(super) struct StagingWriteTestGuard {
+        exclusive: Option<Arc<ExclusiveObservation>>,
+    }
+
+    impl Drop for StagingWriteTestGuard {
+        fn drop(&mut self) {
+            if let Some(observation) = &self.exclusive {
+                observation.active.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+    }
+
+    pub(super) async fn enter_staging_write_critical_section(
+        upload_id: &str,
+    ) -> StagingWriteTestGuard {
+        let hook = STAGING_WRITE_TEST_HOOKS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(upload_id)
+            .cloned();
+        let Some(hook) = hook else {
+            return StagingWriteTestGuard { exclusive: None };
+        };
+
+        match &hook.mode {
+            StagingWriteTestHookMode::Rendezvous(barrier) => {
+                barrier.wait().await;
+                StagingWriteTestGuard { exclusive: None }
+            }
+            StagingWriteTestHookMode::ObserveExclusive(observation) => {
+                let previous = observation.active.fetch_add(1, Ordering::SeqCst);
+                if previous > 0 {
+                    observation.overlap_observed.store(true, Ordering::SeqCst);
+                    observation.overlap.notify_waiters();
+                } else if observation
+                    .first_entry_wait_pending
+                    .swap(false, Ordering::SeqCst)
+                {
+                    let _ = tokio::time::timeout(
+                        Duration::from_millis(250),
+                        observation.overlap.notified(),
+                    )
+                    .await;
+                }
+                StagingWriteTestGuard {
+                    exclusive: Some(Arc::clone(observation)),
+                }
+            }
+        }
+    }
+
+    pub fn offset_staging_file_path(upload_temp_dir: &str, upload_id: &str) -> String {
+        crate::services::files::upload::staging::file_path_in_upload_temp_dir(
+            upload_temp_dir,
+            upload_id,
+        )
+    }
+
+    pub fn offset_staging_receipt_etag() -> &'static str {
+        crate::services::files::upload::staging::chunk_receipt_etag()
+    }
 }
 
 #[cfg(test)]
