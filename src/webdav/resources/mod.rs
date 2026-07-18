@@ -4,8 +4,8 @@ use std::collections::HashMap;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_forge_xml::XmlNode as XMLNode;
 use futures::{StreamExt, pin_mut};
-use xmltree::XMLNode;
 
 use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError, ReadDirMeta};
 use crate::webdav::protocol::{self, Depth};

@@ -8,6 +8,8 @@ use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::config::wopi;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
+use crate::storage::http_body::read_reqwest_response_body_limited;
+use aster_forge_xml::XmlSafetyPolicy;
 
 use super::parser::parse_discovery_xml;
 use super::types::{CachedWopiDiscovery, WopiDiscovery};
@@ -82,10 +84,15 @@ pub(super) async fn load_discovery(
         )));
     }
 
-    let body = response.text().await.map_aster_err_ctx(
+    let body = read_reqwest_response_body_limited(
+        response,
         "failed to read WOPI discovery",
+        XmlSafetyPolicy::untrusted().max_input_bytes,
         AsterError::validation_error,
-    )?;
+    )
+    .await?;
+    let body = String::from_utf8(body)
+        .map_err(|_| AsterError::validation_error("WOPI discovery response is not UTF-8"))?;
     let parsed = match parse_discovery_xml(&body) {
         Ok(parsed) => parsed,
         Err(error) => {

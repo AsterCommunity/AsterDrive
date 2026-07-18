@@ -1,17 +1,39 @@
-use xmltree::{Element, XMLNode};
+use aster_forge_xml::{
+    XmlElementEvent, XmlEvent, XmlSafetyPolicy, XmlWalkError, walk_validated_xml,
+};
 
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, Result};
 use crate::services::preview::wopi::proof::{WopiProofKeySet, parse_wopi_proof_key_set};
 
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
 pub(crate) fn parse_discovery_xml(xml: &str) -> Result<WopiDiscovery> {
-    let root = Element::parse(xml.as_bytes())
-        .map_aster_err_ctx("invalid WOPI discovery XML", AsterError::validation_error)?;
+    let mut app_contexts = Vec::new();
     let mut actions = Vec::new();
     let mut proof_keys = None;
-    collect_discovery_proof_keys(&root, &mut proof_keys)?;
-    collect_discovery_actions(&root, None, None, &mut actions);
+
+    walk_validated_xml(xml.as_bytes(), XmlSafetyPolicy::untrusted(), |event| {
+        match event {
+            XmlEvent::Start(element) => {
+                let context =
+                    handle_element(&element, app_contexts.last(), &mut actions, &mut proof_keys)?;
+                app_contexts.push(context);
+            }
+            XmlEvent::Empty(element) => {
+                handle_element(&element, app_contexts.last(), &mut actions, &mut proof_keys)?;
+            }
+            XmlEvent::End { .. } => {
+                app_contexts.pop();
+            }
+            _ => {}
+        }
+        Ok(())
+    })
+    .map_err(|error| match error {
+        XmlWalkError::Xml(_) => AsterError::validation_error("invalid WOPI discovery XML"),
+        XmlWalkError::Visitor(error) => error,
+    })?;
+
     if actions.is_empty() {
         return Err(AsterError::validation_error(
             "WOPI discovery did not expose any actions",
@@ -24,91 +46,93 @@ pub(crate) fn parse_discovery_xml(xml: &str) -> Result<WopiDiscovery> {
     })
 }
 
-fn collect_discovery_proof_keys(
-    element: &Element,
-    out: &mut Option<WopiProofKeySet>,
-) -> Result<()> {
-    if element.name.eq_ignore_ascii_case("proof-key") {
-        let current_modulus = element_attribute(element, "modulus")
+#[derive(Clone, Default)]
+struct AppContext {
+    name: Option<String>,
+    icon_url: Option<String>,
+}
+
+fn handle_element(
+    element: &XmlElementEvent,
+    inherited_app: Option<&AppContext>,
+    actions: &mut Vec<WopiDiscoveryAction>,
+    proof_keys: &mut Option<WopiProofKeySet>,
+) -> Result<AppContext> {
+    let name = element.local_name();
+    let context = if name.eq_ignore_ascii_case("app") {
+        AppContext {
+            name: element
+                .attribute("name")
+                .map(str::to_string)
+                .or_else(|| inherited_app.and_then(|context| context.name.clone())),
+            icon_url: element
+                .attribute("favIconUrl")
+                .map(str::to_string)
+                .or_else(|| inherited_app.and_then(|context| context.icon_url.clone())),
+        }
+    } else {
+        inherited_app.cloned().unwrap_or_default()
+    };
+
+    if name.eq_ignore_ascii_case("proof-key") {
+        let modulus = element
+            .attribute("modulus")
             .ok_or_else(|| AsterError::validation_error("WOPI proof-key is missing modulus"))?;
-        let current_exponent = element_attribute(element, "exponent")
+        let exponent = element
+            .attribute("exponent")
             .ok_or_else(|| AsterError::validation_error("WOPI proof-key is missing exponent"))?;
         let parsed = parse_wopi_proof_key_set(
-            current_modulus,
-            current_exponent,
-            element_attribute(element, "oldmodulus"),
-            element_attribute(element, "oldexponent"),
+            modulus,
+            exponent,
+            element.attribute("oldmodulus"),
+            element.attribute("oldexponent"),
         )?;
-        if out.replace(parsed).is_some() {
+        if proof_keys.replace(parsed).is_some() {
             return Err(AsterError::validation_error(
                 "WOPI discovery contains multiple proof-key elements",
             ));
         }
     }
 
-    for child in &element.children {
-        if let XMLNode::Element(child) = child {
-            collect_discovery_proof_keys(child, out)?;
-        }
-    }
-
-    Ok(())
-}
-
-fn collect_discovery_actions(
-    element: &Element,
-    app_name: Option<&str>,
-    app_icon_url: Option<&str>,
-    out: &mut Vec<WopiDiscoveryAction>,
-) {
-    let (next_app_name, next_app_icon_url) = if element.name.eq_ignore_ascii_case("app") {
-        (
-            element_attribute(element, "name").or(app_name),
-            element_attribute(element, "favIconUrl").or(app_icon_url),
-        )
-    } else {
-        (app_name, app_icon_url)
-    };
-
-    if element.name.eq_ignore_ascii_case("action") {
-        let action =
-            element_attribute(element, "name").map(|value| value.trim().to_ascii_lowercase());
-        let urlsrc = element_attribute(element, "urlsrc").map(|value| value.trim().to_string());
-        if let (Some(action), Some(urlsrc)) = (action, urlsrc)
-            && !action.is_empty()
-            && !urlsrc.is_empty()
-        {
-            let ext = element_attribute(element, "ext")
-                .map(|value| value.trim().trim_start_matches('.').to_ascii_lowercase())
-                .filter(|value| !value.is_empty());
-            let mime = next_app_name
-                .map(str::trim)
-                .filter(|value| value.contains('/'))
-                .map(|value| value.to_ascii_lowercase());
-            out.push(WopiDiscoveryAction {
+    if name.eq_ignore_ascii_case("action") {
+        let action = element
+            .attribute("name")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_ascii_lowercase);
+        let urlsrc = element
+            .attribute("urlsrc")
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        if let (Some(action), Some(urlsrc)) = (action, urlsrc) {
+            actions.push(WopiDiscoveryAction {
                 action,
-                app_icon_url: next_app_icon_url.map(str::trim).map(ToString::to_string),
-                app_name: next_app_name.map(str::trim).map(ToString::to_string),
-                ext,
-                mime,
+                app_icon_url: context
+                    .icon_url
+                    .as_deref()
+                    .map(str::trim)
+                    .map(ToString::to_string),
+                app_name: context
+                    .name
+                    .as_deref()
+                    .map(str::trim)
+                    .map(ToString::to_string),
+                ext: element
+                    .attribute("ext")
+                    .map(str::trim)
+                    .map(|value| value.trim_start_matches('.').to_ascii_lowercase())
+                    .filter(|value| !value.is_empty()),
+                mime: context
+                    .name
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|value| value.contains('/'))
+                    .map(str::to_ascii_lowercase),
                 urlsrc,
             });
         }
     }
 
-    for child in &element.children {
-        if let XMLNode::Element(child) = child {
-            collect_discovery_actions(child, next_app_name, next_app_icon_url, out);
-        }
-    }
-}
-
-fn element_attribute<'a>(element: &'a Element, name: &str) -> Option<&'a str> {
-    element.attributes.iter().find_map(|(key, value)| {
-        if key.eq_ignore_ascii_case(name) {
-            Some(value.as_str())
-        } else {
-            None
-        }
-    })
+    Ok(context)
 }

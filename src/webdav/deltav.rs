@@ -5,9 +5,9 @@
 
 use actix_web::HttpResponse;
 use actix_web::http::{StatusCode, Uri};
-use aster_forge_utils::xml::{XmlSafetyError, XmlSafetyPolicy, xml_root_local_name};
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
+use aster_forge_xml::{XmlSafetyError, XmlSafetyPolicy, xml_root_local_name};
 use sea_orm::DatabaseConnection;
-use xmltree::Element;
 
 use crate::db::repository::{file_repo, user_repo, version_repo};
 use crate::webdav::auth::WebdavAuthResult;
@@ -28,7 +28,13 @@ pub(crate) async fn handle_report(
         Ok(root_name) => root_name,
         Err(XmlSafetyError::ExternalEntity) => return responses::no_external_entities(),
         Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+            XmlSafetyError::TooDeep
+            | XmlSafetyError::Malformed
+            | XmlSafetyError::InvalidPolicy
+            | XmlSafetyError::InputTooLarge
+            | XmlSafetyError::TooManyEvents
+            | XmlSafetyError::TooManyAttributes
+            | XmlSafetyError::TextTooLarge,
         ) => {
             return error_response(StatusCode::BAD_REQUEST, "Invalid XML body");
         }
@@ -109,9 +115,7 @@ pub(crate) async fn handle_report(
         let href = href_for_relative(prefix, &decoded_relative);
         let response =
             build_version_response(&href, "current", blob.size, &file.updated_at, &creator);
-        multistatus
-            .children
-            .push(xmltree::XMLNode::Element(response));
+        multistatus.children.push(XMLNode::Element(response));
     }
 
     // 历史版本
@@ -136,9 +140,7 @@ pub(crate) async fn handle_report(
             &ver.created_at,
             &creator,
         );
-        multistatus
-            .children
-            .push(xmltree::XMLNode::Element(response));
+        multistatus.children.push(XMLNode::Element(response));
     }
 
     xml_response(multistatus, StatusCode::MULTI_STATUS)
@@ -184,10 +186,8 @@ fn build_version_response(
 
     // <D:href>
     let mut href_el = Element::new("D:href");
-    href_el
-        .children
-        .push(xmltree::XMLNode::Text(href.to_string()));
-    response.children.push(xmltree::XMLNode::Element(href_el));
+    href_el.children.push(XMLNode::Text(href.to_string()));
+    response.children.push(XMLNode::Element(href_el));
 
     // <D:propstat>
     let mut propstat = Element::new("D:propstat");
@@ -196,39 +196,35 @@ fn build_version_response(
 
     // <D:version-name>
     let mut vname = Element::new("D:version-name");
-    vname
-        .children
-        .push(xmltree::XMLNode::Text(version_name.to_string()));
-    prop.children.push(xmltree::XMLNode::Element(vname));
+    vname.children.push(XMLNode::Text(version_name.to_string()));
+    prop.children.push(XMLNode::Element(vname));
 
     // <D:creator-displayname>
     let mut cname = Element::new("D:creator-displayname");
-    cname
-        .children
-        .push(xmltree::XMLNode::Text(creator.to_string()));
-    prop.children.push(xmltree::XMLNode::Element(cname));
+    cname.children.push(XMLNode::Text(creator.to_string()));
+    prop.children.push(XMLNode::Element(cname));
 
     // <D:getcontentlength>
     let mut clen = Element::new("D:getcontentlength");
-    clen.children.push(xmltree::XMLNode::Text(size.to_string()));
-    prop.children.push(xmltree::XMLNode::Element(clen));
+    clen.children.push(XMLNode::Text(size.to_string()));
+    prop.children.push(XMLNode::Element(clen));
 
     // <D:getlastmodified>
     let mut lmod = Element::new("D:getlastmodified");
     let rfc2822 = modified.format("%a, %d %b %Y %H:%M:%S GMT").to_string();
-    lmod.children.push(xmltree::XMLNode::Text(rfc2822));
-    prop.children.push(xmltree::XMLNode::Element(lmod));
+    lmod.children.push(XMLNode::Text(rfc2822));
+    prop.children.push(XMLNode::Element(lmod));
 
-    propstat.children.push(xmltree::XMLNode::Element(prop));
+    propstat.children.push(XMLNode::Element(prop));
 
     // <D:status>
     let mut status = Element::new("D:status");
     status
         .children
-        .push(xmltree::XMLNode::Text("HTTP/1.1 200 OK".to_string()));
-    propstat.children.push(xmltree::XMLNode::Element(status));
+        .push(XMLNode::Text("HTTP/1.1 200 OK".to_string()));
+    propstat.children.push(XMLNode::Element(status));
 
-    response.children.push(xmltree::XMLNode::Element(propstat));
+    response.children.push(XMLNode::Element(propstat));
 
     response
 }

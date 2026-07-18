@@ -4,9 +4,9 @@ use aster_forge_db::transaction;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
+use aster_forge_xml::XmlElement as Element;
 use chrono::Utc;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
-use xmltree::Element;
 
 use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};

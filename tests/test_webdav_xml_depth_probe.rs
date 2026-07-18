@@ -1,15 +1,10 @@
-//! WebDAV XML 深度探针。
-//!
-//! 这是一个故意放在 ignored 下的崩溃复现测试：
-//! - 父测试进程拉起同一个测试二进制里的子测试；
-//! - 子测试按 `xmltree::Element::parse` 直接调用，证明底层递归风险仍可复现。
-//! - 如果子进程因栈溢出中止，父测试把它视为“风险已复现”。
+//! WebDAV XML nesting-depth regression coverage.
 
 use std::io::Cursor;
-use std::process::Command;
 
-const PROBE_TEST_NAME: &str = "webdav_xml_deep_nesting_child_probe";
-const PROBE_ENV: &str = "ASTER_WEBDAV_XML_DEPTH_CRASH_PROBE_CHILD";
+use aster_forge_xml::{XmlElement as WebDavXmlFragment, XmlTreeError as WebDavXmlError};
+use aster_forge_xml::{XmlSafetyError, XmlSafetyPolicy, validate_xml_input};
+
 const XML_DEPTH: usize = 30_000;
 const XML_BODY_LIMIT: usize = 1_048_576;
 
@@ -27,43 +22,18 @@ fn nested_propfind(depth: usize) -> Vec<u8> {
 }
 
 #[test]
-#[ignore = "crash probe: spawns a child process that currently stack-overflows in xmltree; run with -- --ignored"]
-fn webdav_xml_deep_nesting_crashes_parser_process() {
-    let executable = std::env::current_exe().expect("current test executable path");
-    let output = Command::new(executable)
-        .args(["--exact", PROBE_TEST_NAME, "--ignored", "--nocapture"])
-        .env(PROBE_ENV, "1")
-        .output()
-        .expect("spawn child probe");
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    eprintln!("child status: {}", output.status);
-    eprintln!("child stderr:\n{stderr}");
-
-    assert!(
-        !output.status.success(),
-        "child parser process unexpectedly survived deep WebDAV XML"
-    );
-    assert!(
-        stderr.contains("overflowed its stack") || stderr.contains("stack overflow"),
-        "child process failed, but stderr did not show a stack overflow"
-    );
-}
-
-#[test]
-#[ignore = "helper test executed only by webdav_xml_deep_nesting_crashes_parser_process"]
-fn webdav_xml_deep_nesting_child_probe() {
-    if std::env::var(PROBE_ENV).as_deref() != Ok("1") {
-        eprintln!("skipping crash probe child without parent-provided gate");
-        return;
-    }
-
+fn webdav_xml_deep_nesting_is_rejected_before_fragment_construction() {
     let body = nested_propfind(XML_DEPTH);
     assert!(
         body.len() < XML_BODY_LIMIT,
-        "probe body must stay below configured WebDAV XML limit"
+        "deep XML regression fixture must remain below the WebDAV body limit"
     );
-    let root = xmltree::Element::parse(Cursor::new(body))
-        .expect("well-formed deep WebDAV XML should parse structurally");
-    assert_eq!(root.name, "propfind");
+    assert_eq!(
+        validate_xml_input(&body, XmlSafetyPolicy::untrusted()),
+        Err(XmlSafetyError::TooDeep)
+    );
+    assert_eq!(
+        WebDavXmlFragment::parse(Cursor::new(body)),
+        Err(WebDavXmlError::TooDeep)
+    );
 }

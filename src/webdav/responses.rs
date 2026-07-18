@@ -2,7 +2,7 @@
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpResponse, HttpResponseBuilder};
-use xmltree::{Element, XMLNode};
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
 
 use crate::webdav::dav::{DavPath, FsError};
 use crate::webdav::{dav_element, href_for_dav_path, text_element};

@@ -7,9 +7,9 @@ use std::time::Instant;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
 use aster_forge_utils::http_validators::format_http_date;
-use aster_forge_utils::xml::XmlSafetyError;
+use aster_forge_xml::XmlSafetyError;
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
 use futures::{StreamExt, pin_mut};
-use xmltree::{Element, XMLNode};
 
 use crate::services::content::property;
 use crate::webdav::dav::{
@@ -355,7 +355,13 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
         Ok(root) => root,
         Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
         Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+            XmlSafetyError::TooDeep
+            | XmlSafetyError::Malformed
+            | XmlSafetyError::InvalidPolicy
+            | XmlSafetyError::InputTooLarge
+            | XmlSafetyError::TooManyEvents
+            | XmlSafetyError::TooManyAttributes
+            | XmlSafetyError::TextTooLarge,
         ) => {
             return Err(responses::invalid_xml_body());
         }
@@ -420,7 +426,13 @@ fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResp
         Ok(root) => root,
         Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
         Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+            XmlSafetyError::TooDeep
+            | XmlSafetyError::Malformed
+            | XmlSafetyError::InvalidPolicy
+            | XmlSafetyError::InputTooLarge
+            | XmlSafetyError::TooManyEvents
+            | XmlSafetyError::TooManyAttributes
+            | XmlSafetyError::TextTooLarge,
         ) => {
             return Err(responses::invalid_xml_body());
         }
@@ -803,6 +815,7 @@ fn standard_prop_element(
 
 fn prop_from_xml(prop: &Element, inherited_lang: Option<&str>) -> DavProp {
     let mut prop = prop.clone();
+    ensure_property_namespace_declarations(&mut prop);
     if let Some(lang) = inherited_lang
         && !lang.is_empty()
     {
@@ -816,6 +829,38 @@ fn prop_from_xml(prop: &Element, inherited_lang: Option<&str>) -> DavProp {
         prefix: prop.prefix.clone(),
         namespace: prop.namespace.clone(),
         xml: xml_bytes(&prop).ok(),
+    }
+}
+
+fn ensure_property_namespace_declarations(prop: &mut Element) {
+    let mut namespaces = Vec::new();
+    collect_property_namespaces(prop, &mut namespaces);
+    for (prefix, namespace) in namespaces {
+        let declaration = if prefix.is_empty() {
+            "xmlns".to_string()
+        } else {
+            format!("xmlns:{prefix}")
+        };
+        prop.attributes.entry(declaration).or_insert(namespace);
+    }
+}
+
+fn collect_property_namespaces(element: &Element, out: &mut Vec<(String, String)>) {
+    if let Some(namespace) = &element.namespace {
+        let prefix = element
+            .prefix
+            .clone()
+            .unwrap_or_else(|| default_prefix(Some(namespace)).to_string());
+        if !out.iter().any(|(known_prefix, known_namespace)| {
+            known_prefix == &prefix && known_namespace == namespace
+        }) {
+            out.push((prefix, namespace.clone()));
+        }
+    }
+    for child in &element.children {
+        if let XMLNode::Element(child) = child {
+            collect_property_namespaces(child, out);
+        }
     }
 }
 
@@ -871,7 +916,7 @@ fn append_stored_property_data(element: &mut Element, prop: &DavProp) {
 
 fn copy_dead_property_attributes(target: &mut Element, stored: &Element) {
     for (key, value) in &stored.attributes {
-        if key.starts_with("xmlns") {
+        if key.starts_with("xmlns") && target.attributes.contains_key(key) {
             continue;
         }
         let key = if key == "lang" {
@@ -956,7 +1001,7 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::http::{Method, StatusCode, header};
     use actix_web::test::TestRequest;
-    use xmltree::Element;
+    use aster_forge_xml::XmlElement as Element;
 
     use super::handle_propfind;
     use crate::types::EntityType;

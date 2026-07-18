@@ -20,10 +20,10 @@ mod transfer;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse, web};
-use aster_forge_utils::xml::{XmlSafetyError, XmlSafetyPolicy, validate_xml_input};
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
+use aster_forge_xml::{XmlSafetyError, XmlSafetyPolicy, validate_xml_input};
 use futures::StreamExt;
 use std::io::Cursor;
-use xmltree::{Element, XMLNode};
 
 use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -536,7 +536,7 @@ mod tests {
     use super::{XmlSafetyError, parse_webdav_element};
 
     #[test]
-    fn parse_webdav_element_rejects_probe_depth_before_xmltree_parse() {
+    fn parse_webdav_element_rejects_probe_depth_before_fragment_parse() {
         const PROBE_DEPTH: usize = 30_000;
 
         let mut body = String::with_capacity(64 + PROBE_DEPTH * 7);

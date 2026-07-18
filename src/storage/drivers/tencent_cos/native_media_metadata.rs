@@ -1,11 +1,12 @@
-use std::io::Cursor;
+use std::collections::BTreeMap;
 
+use aster_forge_xml::{XmlEvent, XmlSafetyPolicy, XmlWalkError, walk_validated_xml};
 use async_trait::async_trait;
 use chrono::Utc;
-use xmltree::{Element, XMLNode};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use crate::storage::http_body::read_reqwest_response_body_limited;
 use crate::storage::traits::extensions::{
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
 };
@@ -68,10 +69,13 @@ impl NativeMediaMetadataStorageDriver for TencentCosDriver {
             ));
         }
 
-        let body = response.bytes().await.map_aster_err_ctx(
+        let body = read_reqwest_response_body_limited(
+            response,
             "COS native media metadata body",
+            XmlSafetyPolicy::untrusted().max_input_bytes,
             AsterError::storage_driver_error,
-        )?;
+        )
+        .await?;
         parse_cos_media_info_xml(&body, request.kind).map(Some)
     }
 }
@@ -89,13 +93,10 @@ fn parse_cos_media_info_xml(
     body: &[u8],
     kind: MediaMetadataKind,
 ) -> Result<NativeMediaMetadataResult> {
-    let root = Element::parse(Cursor::new(body)).map_aster_err_ctx(
-        "parse COS native media metadata XML",
-        AsterError::storage_driver_error,
-    )?;
+    let fields = collect_cos_media_fields(body)?;
     let metadata = match kind {
-        MediaMetadataKind::Video => MediaMetadataPayload::Video(parse_cos_video_metadata(&root)),
-        MediaMetadataKind::Audio => MediaMetadataPayload::Audio(parse_cos_audio_metadata(&root)),
+        MediaMetadataKind::Video => MediaMetadataPayload::Video(parse_cos_video_metadata(&fields)),
+        MediaMetadataKind::Audio => MediaMetadataPayload::Audio(parse_cos_audio_metadata(&fields)),
         MediaMetadataKind::Image => {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -111,10 +112,76 @@ fn parse_cos_media_info_xml(
     })
 }
 
-fn parse_cos_video_metadata(root: &Element) -> VideoMediaMetadata {
-    let video = first_descendant(root, "Video");
-    let audio = first_descendant(root, "Audio");
-    let format = first_descendant(root, "Format");
+#[derive(Default)]
+struct CosMediaFields {
+    video: Option<BTreeMap<String, String>>,
+    audio: Option<BTreeMap<String, String>>,
+    format: Option<BTreeMap<String, String>>,
+    audio_stream_count: u32,
+    subtitle_stream_count: u32,
+}
+
+fn collect_cos_media_fields(body: &[u8]) -> Result<CosMediaFields> {
+    let mut stack = Vec::<String>::new();
+    let mut text = Vec::<String>::new();
+    let mut fields = CosMediaFields::default();
+    walk_validated_xml(body, XmlSafetyPolicy::untrusted(), |event| {
+        match event {
+            XmlEvent::Start(element) => {
+                let name = element.local_name().to_string();
+                if name.eq_ignore_ascii_case("Audio") {
+                    fields.audio_stream_count = fields.audio_stream_count.saturating_add(1);
+                } else if name.eq_ignore_ascii_case("Subtitle") {
+                    fields.subtitle_stream_count = fields.subtitle_stream_count.saturating_add(1);
+                }
+                stack.push(name);
+                text.push(String::new());
+            }
+            XmlEvent::Text(value) | XmlEvent::CData(value) => {
+                if let Some(text) = text.last_mut() {
+                    text.push_str(&value);
+                }
+            }
+            XmlEvent::End { .. } => {
+                let Some(name) = stack.pop() else {
+                    return Err(AsterError::storage_driver_error(
+                        "parse COS native media metadata XML",
+                    ));
+                };
+                let value = text.pop().unwrap_or_default().trim().to_string();
+                let parent = stack.last().map(String::as_str);
+                match parent {
+                    Some("Video") => insert_first_field(&mut fields.video, name, value),
+                    Some("Audio") => insert_first_field(&mut fields.audio, name, value),
+                    Some("Format") => insert_first_field(&mut fields.format, name, value),
+                    _ => {}
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    })
+    .map_err(|error| match error {
+        XmlWalkError::Xml(error) => AsterError::storage_driver_error(error.to_string()),
+        XmlWalkError::Visitor(error) => error,
+    })?;
+    Ok(fields)
+}
+
+fn insert_first_field(target: &mut Option<BTreeMap<String, String>>, name: String, value: String) {
+    if value.is_empty() {
+        return;
+    }
+    target
+        .get_or_insert_with(BTreeMap::new)
+        .entry(name)
+        .or_insert(value);
+}
+
+fn parse_cos_video_metadata(fields: &CosMediaFields) -> VideoMediaMetadata {
+    let video = fields.video.as_ref();
+    let audio = fields.audio.as_ref();
+    let format = fields.format.as_ref();
     let width = video.and_then(|node| child_u32(node, &["Width"]));
     let height = video.and_then(|node| child_u32(node, &["Height"]));
     let rotation_degrees = video.and_then(|node| child_i32(node, &["Rotate", "Rotation"]));
@@ -145,17 +212,17 @@ fn parse_cos_video_metadata(root: &Element) -> VideoMediaMetadata {
         audio_channels: audio.and_then(|node| child_u32(node, &["Channel", "Channels"])),
         audio_sample_rate: audio.and_then(|node| child_u32(node, &["SampleRate"])),
         audio_bitrate: audio.and_then(|node| child_u64(node, &["Bitrate", "BitRate"])),
-        audio_stream_count: descendant_count(root, "Audio"),
-        subtitle_stream_count: descendant_count(root, "Subtitle"),
+        audio_stream_count: fields.audio_stream_count,
+        subtitle_stream_count: fields.subtitle_stream_count,
         creation_time: format
             .and_then(|node| child_string(node, &["CreationTime"]))
             .or_else(|| video.and_then(|node| child_string(node, &["CreationTime"]))),
     }
 }
 
-fn parse_cos_audio_metadata(root: &Element) -> AudioMediaMetadata {
-    let audio = first_descendant(root, "Audio");
-    let format = first_descendant(root, "Format");
+fn parse_cos_audio_metadata(fields: &CosMediaFields) -> AudioMediaMetadata {
+    let audio = fields.audio.as_ref();
+    let format = fields.format.as_ref();
 
     AudioMediaMetadata {
         title: None,
@@ -212,89 +279,54 @@ fn display_dimensions(
     }
 }
 
-fn first_descendant<'a>(element: &'a Element, name: &str) -> Option<&'a Element> {
-    if xml_name_matches(&element.name, name) {
-        return Some(element);
-    }
-    element.children.iter().find_map(|child| match child {
-        XMLNode::Element(child) => first_descendant(child, name),
-        _ => None,
-    })
-}
-
-fn descendant_count(element: &Element, name: &str) -> u32 {
-    let mut count = u32::from(xml_name_matches(&element.name, name));
-    for child in &element.children {
-        if let XMLNode::Element(child) = child {
-            count = count.saturating_add(descendant_count(child, name));
-        }
-    }
-    count
-}
-
-fn child_string(element: &Element, names: &[&str]) -> Option<String> {
+fn child_string(element: &BTreeMap<String, String>, names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| {
-        element
-            .children
-            .iter()
-            .filter_map(|child| match child {
-                XMLNode::Element(child) if xml_name_matches(&child.name, name) => Some(child),
-                _ => None,
-            })
-            .find_map(|child| {
-                child
-                    .get_text()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            })
+        element.iter().find_map(|(field_name, value)| {
+            field_name.eq_ignore_ascii_case(name).then(|| value.clone())
+        })
     })
 }
 
-fn child_u8(element: &Element, names: &[&str]) -> Option<u8> {
+fn child_u8(element: &BTreeMap<String, String>, names: &[&str]) -> Option<u8> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_u32(element: &Element, names: &[&str]) -> Option<u32> {
+fn child_u32(element: &BTreeMap<String, String>, names: &[&str]) -> Option<u32> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_i32(element: &Element, names: &[&str]) -> Option<i32> {
+fn child_i32(element: &BTreeMap<String, String>, names: &[&str]) -> Option<i32> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_u64(element: &Element, names: &[&str]) -> Option<u64> {
+fn child_u64(element: &BTreeMap<String, String>, names: &[&str]) -> Option<u64> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_duration_ms(element: &Element, names: &[&str]) -> Option<u64> {
-    child_string(element, names).and_then(|value| {
-        let seconds = value.parse::<f64>().ok()?;
-        if !seconds.is_finite() || seconds <= 0.0 {
-            return None;
-        }
-        aster_forge_utils::numbers::f64_seconds_to_u64_millis(
-            seconds,
-            "COS native media metadata duration",
-        )
-        .ok()
-    })
+fn child_duration_ms(element: &BTreeMap<String, String>, names: &[&str]) -> Option<u64> {
+    child_string(element, names).and_then(|value| parse_duration_ms(&value))
 }
 
-fn xml_name_matches(actual: &str, expected: &str) -> bool {
-    actual
-        .rsplit_once(':')
-        .map(|(_, local)| local)
-        .unwrap_or(actual)
-        .eq_ignore_ascii_case(expected)
+fn parse_duration_ms(value: &str) -> Option<u64> {
+    let seconds = value.parse::<f64>().ok()?;
+    if !seconds.is_finite() || seconds <= 0.0 {
+        return None;
+    }
+    aster_forge_utils::numbers::f64_seconds_to_u64_millis(
+        seconds,
+        "COS native media metadata duration",
+    )
+    .ok()
 }
 
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
+    use aster_forge_xml::{
+        DEFAULT_XML_MAX_ATTRIBUTES_PER_ELEMENT, DEFAULT_XML_MAX_DEPTH, DEFAULT_XML_MAX_TEXT_BYTES,
+    };
 
-    use super::{child_duration_ms, parse_cos_media_info_xml};
+    use super::{parse_cos_media_info_xml, parse_duration_ms};
     use crate::types::{MediaMetadataKind, MediaMetadataPayload};
-    use xmltree::Element;
 
     #[test]
     fn parses_cos_video_media_info_xml() {
@@ -383,16 +415,60 @@ mod tests {
 
     #[test]
     fn parses_cos_duration_with_checked_rounding_and_rejects_invalid_values() {
-        let rounded = Element::parse(Cursor::new(
-            br#"<Video><Duration>1.2345</Duration></Video>"#.as_slice(),
-        ))
-        .unwrap();
-        assert_eq!(child_duration_ms(&rounded, &["Duration"]), Some(1235));
+        assert_eq!(parse_duration_ms("1.2345"), Some(1235));
 
         for value in ["0", "-1", "NaN", "not-a-number"] {
-            let xml = format!("<Video><Duration>{value}</Duration></Video>");
-            let element = Element::parse(Cursor::new(xml.as_bytes())).unwrap();
-            assert_eq!(child_duration_ms(&element, &["Duration"]), None);
+            assert_eq!(parse_duration_ms(value), None);
         }
+    }
+
+    #[test]
+    fn media_info_parser_covers_xml_safety_boundaries() {
+        for xml in [
+            "<!DOCTYPE Response><Response/>",
+            "junk<Response/>",
+            "<Response/>junk",
+        ] {
+            assert!(parse_cos_media_info_xml(xml.as_bytes(), MediaMetadataKind::Video).is_err());
+        }
+
+        let comment = "x".repeat(DEFAULT_XML_MAX_TEXT_BYTES + 1);
+        assert!(
+            parse_cos_media_info_xml(
+                format!("<Response><!--{comment}--></Response>").as_bytes(),
+                MediaMetadataKind::Video,
+            )
+            .is_err()
+        );
+
+        let mut exact_depth = String::from("<Response>");
+        for _ in 1..DEFAULT_XML_MAX_DEPTH {
+            exact_depth.push_str("<x>");
+        }
+        for _ in 1..DEFAULT_XML_MAX_DEPTH {
+            exact_depth.push_str("</x>");
+        }
+        exact_depth.push_str("</Response>");
+        assert!(parse_cos_media_info_xml(exact_depth.as_bytes(), MediaMetadataKind::Video).is_ok());
+
+        let mut attributes = String::new();
+        for index in 0..DEFAULT_XML_MAX_ATTRIBUTES_PER_ELEMENT {
+            attributes.push_str(&format!("x{index}=\"value\" "));
+        }
+        assert!(
+            parse_cos_media_info_xml(
+                format!("<Response {attributes}/>").as_bytes(),
+                MediaMetadataKind::Video,
+            )
+            .is_ok()
+        );
+        attributes.push_str("overflow=\"value\" ");
+        assert!(
+            parse_cos_media_info_xml(
+                format!("<Response {attributes}/>").as_bytes(),
+                MediaMetadataKind::Video,
+            )
+            .is_err()
+        );
     }
 }

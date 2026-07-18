@@ -6,10 +6,10 @@ use std::io::SeekFrom;
 use std::pin::Pin;
 use std::time::{Duration, SystemTime};
 
+use aster_forge_xml::XmlElement as Element;
 use bytes::{Buf, Bytes};
 use futures::Stream;
 use http::StatusCode;
-use xmltree::Element;
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct DavPath {

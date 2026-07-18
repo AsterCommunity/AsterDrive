@@ -18,6 +18,7 @@ use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, web};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -33,7 +34,6 @@ use std::sync::{
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
-use xmltree::{Element, XMLNode};
 
 async fn build_webdav_test_state(
     driver_type: DriverType,
@@ -213,7 +213,7 @@ impl DavLockSystem for NoopLockSystem {
         &self,
         _path: &crate::webdav::dav::DavPath,
         _principal: Option<&str>,
-        _owner: Option<&xmltree::Element>,
+        _owner: Option<&Element>,
         _timeout: Option<Duration>,
         _shared: bool,
         _deep: bool,
@@ -719,7 +719,7 @@ fn collect_href_text(element: &Element, hrefs: &mut Vec<String>) {
     if (element.name == "href" || element.name == "D:href")
         && let Some(text) = element.get_text()
     {
-        hrefs.push(text.into_owned());
+        hrefs.push(text);
     }
 
     for child in &element.children {

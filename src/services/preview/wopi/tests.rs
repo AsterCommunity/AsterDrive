@@ -20,6 +20,7 @@ use super::types::{
 use crate::services::preview::apps::{
     PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig, PublicPreviewAppDefinition,
 };
+use aster_forge_xml::DEFAULT_XML_MAX_TEXT_BYTES;
 
 fn test_wopi_app() -> PublicPreviewAppDefinition {
     PublicPreviewAppDefinition {
@@ -581,6 +582,69 @@ fn parse_discovery_xml_extracts_proof_keys() {
     .unwrap();
 
     assert!(discovery.proof_keys().is_some());
+}
+
+#[test]
+fn parse_discovery_xml_rejects_xml_safety_boundaries() {
+    assert!(parse_discovery_xml("<!DOCTYPE root><root/>").is_err());
+    assert!(parse_discovery_xml("junk<wopi-discovery><action name=\"view\" urlsrc=\"https://office.example/view?\"/></wopi-discovery>").is_err());
+
+    let mut deep = String::new();
+    for _ in 0..=aster_forge_xml::DEFAULT_XML_MAX_DEPTH {
+        deep.push_str("<x>");
+    }
+    deep.push_str(r#"<action name="view" urlsrc="https://office.example/view?"/>"#);
+    for _ in 0..=aster_forge_xml::DEFAULT_XML_MAX_DEPTH {
+        deep.push_str("</x>");
+    }
+    assert!(parse_discovery_xml(&deep).is_err());
+
+    let comment = "x".repeat(DEFAULT_XML_MAX_TEXT_BYTES + 1);
+    let oversized = format!(
+        "<!--{comment}--><wopi-discovery><action name=\"view\" urlsrc=\"https://office.example/view?\"/></wopi-discovery>"
+    );
+    assert!(parse_discovery_xml(&oversized).is_err());
+}
+
+#[test]
+fn parse_discovery_xml_accepts_exact_attribute_limit_and_rejects_one_more() {
+    let mut attributes =
+        String::from(r#"name="view" urlsrc="https://office.example/view?" ext="docx" "#);
+    for index in 0..61 {
+        attributes.push_str(&format!("x{index}=\"value\" "));
+    }
+    let exact = format!("<wopi-discovery><action {attributes}/></wopi-discovery>");
+    let discovery = parse_discovery_xml(&exact).expect("exact attribute budget should pass");
+    assert_eq!(
+        discovery
+            .find_action_url("view", Some("docx"), "application/octet-stream")
+            .as_deref(),
+        Some("https://office.example/view?")
+    );
+
+    let over = exact.replace("x60=\"value\"", "x60=\"value\" x61=\"value\"");
+    assert!(parse_discovery_xml(&over).is_err());
+}
+
+#[test]
+fn parse_discovery_xml_rejects_duplicate_or_incomplete_proof_keys() {
+    let mut modulus_bytes = vec![0_u8; 256];
+    modulus_bytes[0] = 0x80;
+    modulus_bytes[255] = 1;
+    let modulus = STANDARD.encode(modulus_bytes);
+    let exponent = STANDARD.encode([1_u8, 0, 1]);
+    let duplicate = format!(
+        r#"<wopi-discovery>
+          <proof-key modulus="{modulus}" exponent="{exponent}"/>
+          <proof-key modulus="{modulus}" exponent="{exponent}"/>
+          <action name="view" urlsrc="https://office.example/view?"/>
+        </wopi-discovery>"#
+    );
+    assert!(parse_discovery_xml(&duplicate).is_err());
+    assert!(parse_discovery_xml(
+        r#"<wopi-discovery><proof-key modulus="AQID"/><action name="view" urlsrc="https://office.example/view?"/></wopi-discovery>"#
+    )
+    .is_err());
 }
 
 #[test]

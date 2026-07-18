@@ -4,8 +4,8 @@ use std::time::Duration;
 
 use actix_web::http::{StatusCode, header};
 use actix_web::{HttpRequest, HttpResponse};
-use aster_forge_utils::xml::XmlSafetyError;
-use xmltree::{Element, XMLNode};
+use aster_forge_xml::XmlSafetyError;
+use aster_forge_xml::{XmlElement as Element, XmlNode as XMLNode};
 
 use crate::webdav::dav::{
     DavFileSystem, DavLock, DavLockError, DavLockPreflightError, DavLockSystem, FsError,
@@ -88,7 +88,13 @@ pub(crate) async fn handle_lock(
         Ok(tree) => tree,
         Err(XmlSafetyError::ExternalEntity) => return responses::no_external_entities(),
         Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
+            XmlSafetyError::TooDeep
+            | XmlSafetyError::Malformed
+            | XmlSafetyError::InvalidPolicy
+            | XmlSafetyError::InputTooLarge
+            | XmlSafetyError::TooManyEvents
+            | XmlSafetyError::TooManyAttributes
+            | XmlSafetyError::TextTooLarge,
         ) => {
             return responses::invalid_xml_body();
         }

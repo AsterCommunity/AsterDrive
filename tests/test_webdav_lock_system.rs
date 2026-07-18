@@ -22,7 +22,7 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
     use aster_drive::services::{files::file, files::folder};
     use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
-    use xmltree::Element;
+    use aster_forge_xml::XmlElement as Element;
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "davlocks", "davlocks@example.com", "pass1234")
