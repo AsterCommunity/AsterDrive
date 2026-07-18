@@ -14,7 +14,7 @@
 		"typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json",
 		"build": "bun run typecheck && vite build",
 		"postbuild": "node ./scripts/audit-startup.mjs",
-		"generate-api": "openapi-typescript ./generated/openapi.json -o ./src/services/api.generated.ts",
+		"generate-api": "bunx --package 'typescript@npm:@typescript/typescript6@6.0.2' --package 'openapi-typescript@7.13.0' openapi-typescript ./generated/openapi.json -o ./src/services/api.generated.ts",
 		"check": "bun run typecheck && biome check .",
 		"check:fix": "biome check --write .",
 		"format": "biome format --write .",
