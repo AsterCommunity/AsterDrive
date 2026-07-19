@@ -209,7 +209,7 @@ AsterDrive首次启动时会自动：
 
 - Rust `1.95.0+`
 - Bun
-- Node.js `24+`（Docker 前端构建阶段需要使用）
+- Node.js `24+`（用于 Docker 前端构建阶段）
 
 ### 常用命令
 
