@@ -14,7 +14,8 @@ pub use crate::storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
     StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,
+    StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
+    StoragePolicyExecutableAction,
 };
 pub use groups::{
     create_group, delete_group, ensure_policy_groups_seeded, get_group, list_groups_paginated,

@@ -114,6 +114,7 @@ pub(super) async fn prepare_store_from_temp(
     let blob_plan = build_temp_blob_plan(
         temp_path,
         size,
+        &filename,
         precomputed_hash,
         should_dedup,
         &policy,
@@ -182,6 +183,7 @@ pub(super) async fn prepare_store_from_temp(
 async fn build_temp_blob_plan(
     temp_path: &str,
     size: i64,
+    filename: &str,
     precomputed_hash: Option<&str>,
     should_dedup: bool,
     policy: &storage_policy::Model,
@@ -194,7 +196,9 @@ async fn build_temp_blob_plan(
     }
 
     Ok(TempBlobPlan::Preuploaded(prepare_non_dedup_blob_upload(
-        policy, size,
+        policy,
+        size,
+        Some(filename),
     )?))
 }
 

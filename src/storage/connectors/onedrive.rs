@@ -13,10 +13,11 @@ use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
     StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
-    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    start_authorization_action_descriptor, storage_connector_field,
+    storage_connector_field_with_options, storage_connector_ui_descriptor,
     validate_credential_action_descriptor,
 };
 use crate::storage::drivers::onedrive::{
@@ -82,6 +83,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 storage_native_media_metadata: false,
                 remote_node_binding: false,
                 object_storage_transfer_strategy: false,
+                object_naming: StorageConnectorObjectNamingMode::OriginalFilename,
             },
             upload_workflows: StorageConnectorUploadWorkflows {
                 simple_upload: true,

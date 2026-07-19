@@ -154,40 +154,53 @@ impl StorageDriver for CountingStreamDriver {
 
 impl CountingStreamDriver {
     fn with_presigned(self) -> PresignedCountingStreamDriver {
-        PresignedCountingStreamDriver(self)
+        PresignedCountingStreamDriver {
+            inner: self,
+            returns_url: true,
+        }
+    }
+
+    fn with_unavailable_presigned(self) -> PresignedCountingStreamDriver {
+        PresignedCountingStreamDriver {
+            inner: self,
+            returns_url: false,
+        }
     }
 }
 
 #[derive(Clone)]
-struct PresignedCountingStreamDriver(CountingStreamDriver);
+struct PresignedCountingStreamDriver {
+    inner: CountingStreamDriver,
+    returns_url: bool,
+}
 
 #[async_trait]
 impl StorageDriver for PresignedCountingStreamDriver {
     async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
-        self.0.put(path, data).await
+        self.inner.put(path, data).await
     }
 
     async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
-        self.0.get(path).await
+        self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
     ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.0.get_stream(path).await
+        self.inner.get_stream(path).await
     }
 
     async fn delete(&self, path: &str) -> crate::errors::Result<()> {
-        self.0.delete(path).await
+        self.inner.delete(path).await
     }
 
     async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
-        self.0.exists(path).await
+        self.inner.exists(path).await
     }
 
     async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
-        self.0.metadata(path).await
+        self.inner.metadata(path).await
     }
 
     fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
@@ -206,11 +219,17 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
         _expires: Duration,
         options: PresignedDownloadOptions,
     ) -> crate::errors::Result<Option<String>> {
+        if !self.returns_url {
+            return Ok(None);
+        }
         let mut url = reqwest::Url::parse("https://objects.example.test/download")
             .expect("mock presigned base URL should parse");
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("path", path);
+            if let Some(value) = options.download_name {
+                query.append_pair("download-name", &value);
+            }
             if let Some(value) = options.response_cache_control {
                 query.append_pair("response-cache-control", &value);
             }
@@ -506,6 +525,10 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
         Some("attachment; filename*=UTF-8''download.txt")
     );
     assert_eq!(
+        query.get("download-name").map(String::as_str),
+        Some("download.txt")
+    );
+    assert_eq!(
         query.get("response-content-type").map(String::as_str),
         Some("text/plain")
     );
@@ -680,6 +703,35 @@ async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
             .raw_message()
             .contains("presigned download not supported by driver")
     );
+}
+
+#[actix_web::test]
+async fn onedrive_legacy_uuid_object_falls_back_to_same_origin_streaming() {
+    let payload = b"legacy OneDrive object".to_vec();
+    let base_driver = CountingStreamDriver::new(payload.clone());
+    let get_stream_calls = base_driver.get_stream_calls.clone();
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        base_driver.with_unavailable_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_download_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("legacy OneDrive objects should use the stream fallback");
+
+    assert!(matches!(outcome, DownloadOutcome::Stream(_)));
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 1);
 }
 
 #[actix_web::test]

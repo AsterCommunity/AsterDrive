@@ -176,7 +176,7 @@ pub(crate) async fn create_empty(
         )
         .await?
     } else {
-        let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE)?;
+        let prepared = prepare_non_dedup_blob_upload(&policy, EMPTY_SIZE, Some(&filename))?;
         driver.put(prepared.storage_path(), &[]).await?;
         let retry_on_mysql_deadlock = state.writer_db().get_database_backend() == DbBackend::MySql;
         let transaction_prepared = prepared.clone();

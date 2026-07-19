@@ -10,6 +10,7 @@ use migration::Migrator;
 use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;
+use crate::storage::StorageConnectorObjectNamingMode;
 use crate::types::{
     MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
     ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
@@ -201,6 +202,54 @@ fn descriptors_cover_every_storage_driver() {
             "missing descriptor for {driver_type:?}"
         );
     }
+}
+
+#[test]
+fn object_naming_is_explicitly_declared_by_each_connector() {
+    assert_eq!(
+        descriptor(DriverType::OneDrive).capabilities.object_naming,
+        StorageConnectorObjectNamingMode::OriginalFilename
+    );
+
+    for driver_type in [
+        DriverType::Local,
+        DriverType::S3,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+        DriverType::Sftp,
+    ] {
+        assert_eq!(
+            descriptor(driver_type).capabilities.object_naming,
+            StorageConnectorObjectNamingMode::OpaqueUuid,
+            "{driver_type:?} must explicitly retain opaque UUID object naming"
+        );
+    }
+}
+
+#[test]
+fn object_naming_capability_has_stable_wire_values() {
+    assert_eq!(
+        serde_json::to_value(StorageConnectorObjectNamingMode::OpaqueUuid).unwrap(),
+        serde_json::json!("opaque_uuid")
+    );
+    assert_eq!(
+        serde_json::to_value(StorageConnectorObjectNamingMode::OriginalFilename).unwrap(),
+        serde_json::json!("original_filename")
+    );
+    assert_eq!(
+        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
+            "original_filename"
+        ))
+        .unwrap(),
+        StorageConnectorObjectNamingMode::OriginalFilename
+    );
+    assert!(
+        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
+            "driver_type_guess"
+        ))
+        .is_err()
+    );
 }
 
 #[test]

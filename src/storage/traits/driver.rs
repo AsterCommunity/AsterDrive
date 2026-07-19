@@ -16,6 +16,9 @@ pub struct BlobMetadata {
 
 #[derive(Debug, Clone, Default)]
 pub struct PresignedDownloadOptions {
+    /// Current user-visible file name. Providers whose temporary URL fixes the
+    /// response filename can use this to decide whether direct delivery is safe.
+    pub download_name: Option<String>,
     pub response_cache_control: Option<String>,
     pub response_content_disposition: Option<String>,
     pub response_content_type: Option<String>,

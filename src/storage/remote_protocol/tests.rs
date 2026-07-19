@@ -516,6 +516,7 @@ fn remote_presigned_url_normalizes_base_url_and_rejects_invalid_expiry() {
             "folder/file name.txt",
             Duration::from_secs(60),
             PresignedDownloadOptions {
+                download_name: None,
                 response_cache_control: Some("private".to_string()),
                 response_content_disposition: Some("attachment".to_string()),
                 response_content_type: Some("text/plain".to_string()),

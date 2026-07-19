@@ -16,6 +16,8 @@ The `docs/` tree is reserved for deployment-facing and end-user documentation, s
 - [Backend Service Ownership Boundaries](./backend-service-ownership.md)
 - [External Authentication Module](./external-auth.md)
 - [Storage Descriptor and Field Normalization Contract](./storage-descriptor-normalization-contract.md)
+- [Object Naming and OneDrive Direct Downloads](./storage-object-naming-and-onedrive-direct-download.md)
+- [Upload Finalization Contracts](./upload-finalization-contracts.md)
 - [API Overview](./api/index.md)
 - [Tags API](./api/tags.md)
 - [Testing and Database Backends](./testing.md)

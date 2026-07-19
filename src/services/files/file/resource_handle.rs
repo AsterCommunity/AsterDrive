@@ -186,6 +186,7 @@ async fn presigned_original_url(
             &blob.storage_path,
             Duration::from_secs(PRESIGNED_PREVIEW_TTL_SECS),
             PresignedDownloadOptions {
+                download_name: Some(file.name.clone()),
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(
                     DownloadDisposition::Inline.header_value(&file.name),
@@ -487,6 +488,9 @@ mod tests {
                 let mut query = url.query_pairs_mut();
                 query.append_pair("path", path);
                 query.append_pair("expires", &expires.as_secs().to_string());
+                if let Some(value) = options.download_name {
+                    query.append_pair("download-name", &value);
+                }
                 if let Some(value) = options.response_cache_control {
                     query.append_pair("response-cache-control", &value);
                 }

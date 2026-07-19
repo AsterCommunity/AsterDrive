@@ -104,6 +104,23 @@ struct MicrosoftGraphUploadSessionItem {
     conflict_behavior: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct MicrosoftGraphCreateFolderRequest<'a> {
+    name: &'a str,
+    folder: MicrosoftGraphFolderFacet,
+    #[serde(rename = "@microsoft.graph.conflictBehavior")]
+    conflict_behavior: &'static str,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct MicrosoftGraphFolderFacet {}
+
+#[derive(Debug)]
+pub(super) enum MicrosoftGraphCreateFolderOutcome {
+    Created(MicrosoftGraphDriveItem),
+    AlreadyExists,
+}
+
 #[derive(Debug, Deserialize)]
 struct MicrosoftGraphQuota {
     #[serde(default)]
@@ -323,6 +340,40 @@ impl MicrosoftGraphClient {
         Ok(session)
     }
 
+    pub(super) async fn create_folder(
+        &self,
+        children_path: &str,
+        name: &str,
+    ) -> Result<MicrosoftGraphCreateFolderOutcome> {
+        let url = self.url(children_path)?;
+        let response = self
+            .send_with_auth("create OneDrive folder", |access_token| {
+                self.http
+                    .post(url.clone())
+                    .header(AUTHORIZATION, authorization_header(&access_token))
+                    .json(&MicrosoftGraphCreateFolderRequest {
+                        name,
+                        folder: MicrosoftGraphFolderFacet::default(),
+                        conflict_behavior: "fail",
+                    })
+            })
+            .await?;
+        if response.status() == StatusCode::CONFLICT {
+            return Ok(MicrosoftGraphCreateFolderOutcome::AlreadyExists);
+        }
+        let response = self
+            .ensure_success(response, "create OneDrive folder")
+            .await?;
+        let item = response
+            .json::<MicrosoftGraphDriveItem>()
+            .await
+            .map_aster_err_ctx(
+                "create OneDrive folder: invalid Microsoft Graph JSON",
+                AsterError::storage_driver_error,
+            )?;
+        Ok(MicrosoftGraphCreateFolderOutcome::Created(item))
+    }
+
     pub async fn query_upload_session(
         &self,
         upload_url: &str,
@@ -456,6 +507,9 @@ impl MicrosoftGraphClient {
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
             .await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
         self.ensure_success(response, "delete OneDrive item")
             .await?;
         Ok(())

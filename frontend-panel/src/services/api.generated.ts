@@ -7635,6 +7635,8 @@ export interface components {
             efficient_range: boolean;
             /** @description 是否支持底层对象路径列举。 */
             list: boolean;
+            /** @description 底层对象路径采用 opaque UUID，还是保留原文件名作为 provider item name。 */
+            object_naming: components["schemas"]["StorageConnectorObjectNamingMode"];
             /** @description 是否暴露对象存储 upload/download strategy 选项。 */
             object_storage_transfer_strategy: boolean;
             /** @description 是否支持 presigned download。 */
@@ -7727,6 +7729,8 @@ export interface components {
             /** @description AsterDrive 服务端是否可以 relay 上传 part。 */
             relay_part_upload: boolean;
         };
+        /** @enum {string} */
+        StorageConnectorObjectNamingMode: "opaque_uuid" | "original_filename";
         StorageConnectorProviderResumableUploadCapabilities: {
             /** @description 当前实现是否向上层暴露 provider-native abort。 */
             abort_supported: boolean;

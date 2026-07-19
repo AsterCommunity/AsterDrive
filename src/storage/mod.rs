@@ -21,7 +21,8 @@ pub use connector_descriptor::{
     StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorUploadWorkflows, StoragePolicyExecutableAction,
+    StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
+    StoragePolicyExecutableAction,
 };
 pub use connectors::{
     ExecuteDraftStorageConnectorActionInput, ExecuteSavedStorageConnectorActionInput,

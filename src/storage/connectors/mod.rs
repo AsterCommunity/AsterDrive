@@ -33,7 +33,8 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StoragePolicyExecutableAction,
+    StorageConnectorDescriptorProvider, StorageConnectorObjectNamingMode,
+    StoragePolicyExecutableAction,
 };
 use crate::storage::drivers::{
     azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
@@ -986,6 +987,16 @@ pub fn resolve_policy_upload_transport(
     Ok(connector_for(policy.driver_type)?
         .connector
         .upload_transport(policy))
+}
+
+pub fn resolve_policy_object_naming(
+    policy: &storage_policy::Model,
+) -> Result<StorageConnectorObjectNamingMode> {
+    Ok(connector_for(policy.driver_type)?
+        .connector
+        .descriptor()
+        .capabilities
+        .object_naming)
 }
 
 pub fn presigned_download_enabled(policy: &storage_policy::Model) -> Result<bool> {

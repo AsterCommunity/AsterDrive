@@ -541,6 +541,7 @@ async fn presigned_url_includes_download_response_overrides() {
             "folder/file name.txt",
             Duration::from_secs(60),
             crate::storage::traits::driver::PresignedDownloadOptions {
+                download_name: None,
                 response_cache_control: Some("private, max-age=60".to_string()),
                 response_content_disposition: Some(
                     "attachment; filename=\"file name.txt\"".to_string(),

@@ -12,6 +12,7 @@
 - [外部认证模块](./external-auth.md)
 - [远端存储目标与策略归属](./remote-storage-target-policy-ownership.md)
 - [存储 descriptor 与字段规范化契约](./storage-descriptor-normalization-contract.md)
+- [对象命名与 OneDrive 直接下载](./storage-object-naming-and-onedrive-direct-download.md)
 - [上传完成契约矩阵](./upload-finalization-contracts.md)
 - [API 概览](./api/index.md)
 - [标签 API](./api/tags.md)
