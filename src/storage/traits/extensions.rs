@@ -3,7 +3,7 @@
 //! 将可选能力从核心 StorageDriver 分离，避免每个驱动被迫实现不需要的功能。
 //!
 //! 判断一项能力放哪儿时，先问一句：它是不是“已配置存储上的运行期对象能力”？
-//! 如果是，放在这里并通过 `StorageDriver::as_xxx()` 暴露；如果是管理端字段、
+//! 如果是，放在这里并通过 `StorageDriver::extensions()` 暴露；如果是管理端字段、
 //! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
 use crate::errors::Result;

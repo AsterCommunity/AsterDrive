@@ -901,6 +901,93 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn onedrive_direct_original_handle_uses_cross_origin_resource_contract() {
+        let (state, file, blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            DriverType::OneDrive,
+            StoredStoragePolicyOptions::from(
+                r#"{"provider_download_strategy":"frontend_direct"}"#.to_string(),
+            ),
+            "video.mp4",
+            "video/mp4",
+        )
+        .await;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+        )
+        .await
+        .expect("OneDrive direct original handle should resolve");
+
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Forbidden
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::MayCrossOrigin
+        );
+        assert_eq!(handle.delivery.mime_type.as_deref(), Some("video/mp4"));
+        assert!(
+            handle
+                .request
+                .url
+                .starts_with("https://objects.example.test/")
+        );
+    }
+
+    #[actix_web::test]
+    async fn onedrive_default_original_handle_stays_same_origin() {
+        let (state, file, blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            DriverType::OneDrive,
+            StoredStoragePolicyOptions::empty(),
+            "video.mp4",
+            "video/mp4",
+        )
+        .await;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+        )
+        .await
+        .expect("OneDrive relay original handle should resolve");
+
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Allowed
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+        assert_eq!(
+            handle.request.url,
+            "/files/42/download?existing=1&disposition=inline#frag"
+        );
+    }
+
+    #[actix_web::test]
     async fn sandboxed_original_handle_does_not_use_presigned_url() {
         let (state, file, blob) = build_resource_handle_state(
             PresignedTestDriver,

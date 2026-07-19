@@ -352,6 +352,8 @@ export type ObjectStorageUploadStrategy =
 	components["schemas"]["ObjectStorageUploadStrategy"];
 export type ProviderResumableUploadStrategy =
 	components["schemas"]["ProviderResumableUploadStrategy"];
+export type ProviderDownloadStrategy =
+	components["schemas"]["ProviderDownloadStrategy"];
 export type StoragePolicyOptions =
 	components["schemas"]["StoragePolicyOptions"];
 export type OneDriveAccountMode = components["schemas"]["OneDriveAccountMode"];

@@ -24,8 +24,8 @@ use crate::storage::drivers::onedrive::{
     microsoft_graph_upload_capabilities,
 };
 use crate::types::{
-    DriverType, StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
-    parse_storage_policy_options,
+    DriverType, ProviderDownloadStrategy, StorageCredentialKind, StorageCredentialProvider,
+    StorageCredentialStatus, parse_storage_policy_options,
 };
 
 use super::common::{
@@ -77,7 +77,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 efficient_range: true,
                 capacity: true,
                 list: false,
-                presigned_download: false,
+                presigned_download: true,
                 storage_native_thumbnail: false,
                 storage_native_media_metadata: false,
                 remote_node_binding: false,
@@ -127,6 +127,14 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 ),
                 storage_connector_field_with_options(
                     "provider_resumable_upload_strategy",
+                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldKind::Select,
+                    true,
+                    false,
+                    vec!["server_relay", "frontend_direct"],
+                ),
+                storage_connector_field_with_options(
+                    "provider_download_strategy",
                     StorageConnectorFieldScope::PolicyOptions,
                     StorageConnectorFieldKind::Select,
                     true,
@@ -275,6 +283,11 @@ impl StorageConnector for OneDriveConnector {
         StorageConnectorUploadTransport::ProviderResumable(
             options.effective_provider_resumable_upload_strategy(),
         )
+    }
+
+    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+        let options = parse_storage_policy_options(policy.options.as_ref());
+        options.effective_provider_download_strategy() == ProviderDownloadStrategy::FrontendDirect
     }
 
     fn runtime_credential_requirement() -> Option<StorageConnectorCredentialRequirement> {

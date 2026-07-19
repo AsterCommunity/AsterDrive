@@ -172,6 +172,8 @@ describe("policy form transitions", () => {
 			onedrive_cloud: "china",
 			onedrive_tenant: "tenant-a",
 			object_storage_upload_strategy: "relay_stream",
+			provider_download_strategy: "server_relay",
+			provider_resumable_upload_strategy: "server_relay",
 		});
 		expect(next.application_credentials.microsoft_graph).toMatchObject({
 			cloud: "china",

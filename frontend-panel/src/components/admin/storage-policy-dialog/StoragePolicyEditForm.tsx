@@ -167,6 +167,10 @@ export function StoragePolicyEditForm({
 		storageDriverDescriptor,
 		"provider_resumable_upload_strategy",
 	);
+	const canConfigureDownloadStrategy = descriptorHasPolicyOptionField(
+		storageDriverDescriptor,
+		"provider_download_strategy",
+	);
 	const canUseOneDriveConnection =
 		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
 	const canUseObjectStorageTransferStrategy =
@@ -317,6 +321,7 @@ export function StoragePolicyEditForm({
 								form={form}
 								showApplicationFields={canUseApplicationCredentials}
 								showPolicyOptionFields={canUseOneDrivePolicyOptions}
+								showDownloadStrategy={canConfigureDownloadStrategy}
 								showUploadStrategy={canConfigureUploadStrategy}
 								t={t}
 								onFieldChange={onFieldChange}

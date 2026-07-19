@@ -133,8 +133,8 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     }
 
     // Conditional requests that miss must stay same-origin. Otherwise the
-    // browser can carry If-None-Match through the 302 to presigned object
-    // storage, turning cache revalidation into a CORS preflight dependency.
+    // browser can carry If-None-Match through the 302 to a provider download
+    // URL, turning cache revalidation into a CORS preflight dependency.
     if if_none_match.is_some() {
         return build_stream_outcome_with_disposition_and_range(
             state,
@@ -154,8 +154,8 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
         !requires_sandbox && crate::storage::connectors::presigned_download_enabled(&policy)?;
 
     if should_presign {
-        // Inline previews may redirect to presigned storage only for types that do
-        // not require same-origin CSP sandboxing.
+        // Inline previews may redirect to provider storage only for types that
+        // do not require same-origin CSP sandboxing.
         return build_presigned_redirect_outcome(state, &policy, file, blob, disposition).await;
     }
 
@@ -196,7 +196,7 @@ async fn build_presigned_redirect_outcome(
         policy_id = blob.policy_id,
         ttl_secs = PRESIGNED_DOWNLOAD_TTL_SECS,
         driver_type = ?policy.driver_type,
-        "redirecting file download to presigned storage URL"
+        "redirecting file download to provider storage URL"
     );
 
     Ok(DownloadOutcome::PresignedRedirect { url })

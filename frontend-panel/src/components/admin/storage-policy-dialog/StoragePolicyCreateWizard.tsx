@@ -446,6 +446,10 @@ function ConnectionStep({
 		storageDriverDescriptor,
 		"provider_resumable_upload_strategy",
 	);
+	const canConfigureDownloadStrategy = descriptorHasPolicyOptionField(
+		storageDriverDescriptor,
+		"provider_download_strategy",
+	);
 	const canUseOneDriveConnection =
 		canUseApplicationCredentials || canUseOneDrivePolicyOptions;
 
@@ -523,6 +527,7 @@ function ConnectionStep({
 						showApplicationFields={canUseApplicationCredentials}
 						showCreateValidation
 						showPolicyOptionFields={canUseOneDrivePolicyOptions}
+						showDownloadStrategy={canConfigureDownloadStrategy}
 						showUploadStrategy={canConfigureUploadStrategy}
 						t={t}
 						onFieldChange={onFieldChange}

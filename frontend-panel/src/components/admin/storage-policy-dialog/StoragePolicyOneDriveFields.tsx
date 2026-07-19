@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type {
 	MicrosoftGraphCloud,
 	OneDriveAccountMode,
+	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
 } from "@/types/api";
 import { OneDriveApplicationFields } from "./OneDriveApplicationFields";
@@ -71,6 +72,22 @@ function getUploadStrategyOptions(t: Translate) {
 	}>;
 }
 
+function getDownloadStrategyOptions(t: Translate) {
+	return [
+		{
+			label: t("provider_download_strategy_server_relay"),
+			value: "server_relay",
+		},
+		{
+			label: t("provider_download_strategy_frontend_direct"),
+			value: "frontend_direct",
+		},
+	] satisfies ReadonlyArray<{
+		label: string;
+		value: ProviderDownloadStrategy;
+	}>;
+}
+
 function OneDriveSetupNotice({ t }: { t: Translate }) {
 	return (
 		<div className="flex gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs leading-5 text-muted-foreground">
@@ -98,6 +115,7 @@ export function OneDriveConnectionFields({
 	onFieldChange,
 	showApplicationFields = true,
 	showCreateValidation = false,
+	showDownloadStrategy = false,
 	showPolicyOptionFields = true,
 	showUploadStrategy = false,
 	t,
@@ -107,6 +125,7 @@ export function OneDriveConnectionFields({
 	mode?: "create" | "edit";
 	showApplicationFields?: boolean;
 	showCreateValidation?: boolean;
+	showDownloadStrategy?: boolean;
 	showPolicyOptionFields?: boolean;
 	showUploadStrategy?: boolean;
 }) {
@@ -114,6 +133,7 @@ export function OneDriveConnectionFields({
 	const cloudOptions = getCloudOptions(t);
 	const accountModeOptions = getAccountModeOptions(t, form.onedrive_cloud);
 	const uploadStrategyOptions = getUploadStrategyOptions(t);
+	const downloadStrategyOptions = getDownloadStrategyOptions(t);
 
 	return (
 		<div className="space-y-4">
@@ -189,6 +209,41 @@ export function OneDriveConnectionFields({
 											"frontend_direct"
 											? "provider_resumable_upload_strategy_frontend_direct_desc"
 											: "provider_resumable_upload_strategy_server_relay_desc",
+									)}
+								</p>
+							</div>
+						) : null}
+						{showDownloadStrategy ? (
+							<div className="space-y-2">
+								<Label htmlFor="provider_download_strategy">
+									{t("provider_download_strategy")}
+								</Label>
+								<Select
+									items={downloadStrategyOptions}
+									value={form.provider_download_strategy}
+									onValueChange={(value) =>
+										onFieldChange(
+											"provider_download_strategy",
+											(value ?? "server_relay") as ProviderDownloadStrategy,
+										)
+									}
+								>
+									<SelectTrigger id="provider_download_strategy">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{downloadStrategyOptions.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-xs leading-5 text-muted-foreground">
+									{t(
+										form.provider_download_strategy === "frontend_direct"
+											? "provider_download_strategy_frontend_direct_desc"
+											: "provider_download_strategy_server_relay_desc",
 									)}
 								</p>
 							</div>

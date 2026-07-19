@@ -75,6 +75,18 @@ const labels: Record<string, string> = {
 	onedrive_site_id_desc: "SharePoint site identifier.",
 	onedrive_site_id_placeholder: "site-id",
 	onedrive_validate_action: "Validate",
+	provider_download_strategy: "OneDrive download strategy",
+	provider_download_strategy_frontend_direct: "Direct from Microsoft Graph",
+	provider_download_strategy_frontend_direct_desc: "Download directly.",
+	provider_download_strategy_server_relay: "Server relay download",
+	provider_download_strategy_server_relay_desc: "Download through AsterDrive.",
+	provider_resumable_upload_strategy: "OneDrive upload strategy",
+	provider_resumable_upload_strategy_frontend_direct:
+		"Direct to Microsoft Graph",
+	provider_resumable_upload_strategy_frontend_direct_desc: "Upload directly.",
+	provider_resumable_upload_strategy_server_relay: "Server relay upload",
+	provider_resumable_upload_strategy_server_relay_desc:
+		"Upload through AsterDrive.",
 };
 
 const t: Translate = (key, values) => {
@@ -488,6 +500,28 @@ describe("OneDriveConnectionFields", () => {
 		fireEvent.click(screen.getByRole("button", { name: /Advanced target/ }));
 
 		expect(screen.getByText("Personal")).toBeInTheDocument();
+	});
+
+	it("renders descriptor-enabled upload and download strategy controls", () => {
+		const onFieldChange = renderConnectionFields(emptyForm, vi.fn(), {
+			showDownloadStrategy: true,
+			showUploadStrategy: true,
+		});
+
+		const directOptions = screen.getAllByRole("button", {
+			name: "select-item:frontend_direct",
+		});
+		fireEvent.click(directOptions[0]);
+		fireEvent.click(directOptions[1]);
+
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"provider_resumable_upload_strategy",
+			"frontend_direct",
+		);
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"provider_download_strategy",
+			"frontend_direct",
+		);
 	});
 });
 

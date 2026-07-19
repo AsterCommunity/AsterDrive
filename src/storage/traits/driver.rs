@@ -30,7 +30,7 @@ pub trait StoragePathVisitor: Send {
 /// 设计原则：
 /// - 最小接口：仅包含所有存储类型必须实现的基础操作
 /// - 默认实现：copy_object 提供基于 get+put 的通用实现，驱动可覆盖优化
-/// - 扩展能力：通过 as_xxx() 方法暴露可选 trait，避免强制实现
+/// - 扩展能力：通过 extensions() 返回的可选 trait bundle 暴露，避免强制实现
 ///
 /// 这不是配置层 trait。实现者应该假设 endpoint、bucket、凭据、OAuth token 等
 /// 已经由 connector / registry 准备好；这里负责的是对既定存储空间执行对象操作。
@@ -113,10 +113,11 @@ pub trait StorageDriver: Send + Sync {
     }
 
     // =========================================================================
-    // 扩展能力查询（返回 Option<&dyn Trait>，不支持的驱动返回 None）
+    // 扩展能力查询（返回 StorageDriverExtensions bundle，不支持的字段为 None）
     //
-    // 新能力优先考虑放在独立 extension trait 中，再通过 as_xxx() 暴露。只有当
-    // 所有存储后端都必须支持该能力时，才应该把方法直接加到 StorageDriver。
+    // 新能力优先考虑放在独立 extension trait 中，再挂到 extensions() 返回的
+    // bundle 上。只有当所有存储后端都必须支持该能力时，才应该把方法直接加到
+    // StorageDriver。
     // =========================================================================
 
     /// 获取该驱动的全部可选运行期能力。

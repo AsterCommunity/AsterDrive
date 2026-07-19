@@ -331,6 +331,13 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
     assert!(has_policy_option(&remote, "remote_download_strategy"));
     assert!(has_policy_option(&remote, "remote_upload_strategy"));
 
+    let onedrive = descriptor(DriverType::OneDrive);
+    assert!(has_policy_option(
+        &onedrive,
+        "provider_resumable_upload_strategy"
+    ));
+    assert!(has_policy_option(&onedrive, "provider_download_strategy"));
+
     let sftp = descriptor(DriverType::Sftp);
     assert!(!has_policy_option(&sftp, "object_storage_upload_strategy"));
     assert!(!has_policy_option(
@@ -840,6 +847,31 @@ fn onedrive_options_are_rejected_for_non_onedrive_connector() {
 }
 
 #[test]
+fn provider_transfer_strategies_are_rejected_for_non_onedrive_connectors() {
+    for options in [
+        StoragePolicyOptions {
+            provider_resumable_upload_strategy: Some(
+                ProviderResumableUploadStrategy::FrontendDirect,
+            ),
+            ..Default::default()
+        },
+        StoragePolicyOptions {
+            provider_download_strategy: Some(
+                crate::types::ProviderDownloadStrategy::FrontendDirect,
+            ),
+            ..Default::default()
+        },
+    ] {
+        let error = common::ensure_onedrive_options_absent(&options).unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+        );
+    }
+}
+
+#[test]
 fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
     let options = StoragePolicyOptions {
         sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
@@ -1136,6 +1168,12 @@ fn presigned_download_policy_is_connector_owned() {
         r#"{"object_storage_download_strategy":"relay_stream"}"#,
     );
     let sftp = mock_policy(DriverType::Sftp, 1024, "{}");
+    let onedrive = mock_policy(
+        DriverType::OneDrive,
+        1024,
+        r#"{"provider_download_strategy":"frontend_direct"}"#,
+    );
+    let relay_onedrive = mock_policy(DriverType::OneDrive, 1024, "{}");
 
     assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
     assert!(
@@ -1145,6 +1183,11 @@ fn presigned_download_policy_is_connector_owned() {
         !presigned_download_enabled(&relay_s3).expect("presigned download support should resolve")
     );
     assert!(!presigned_download_enabled(&sftp).expect("presigned download support should resolve"));
+    assert!(presigned_download_enabled(&onedrive).expect("direct download support should resolve"));
+    assert!(
+        !presigned_download_enabled(&relay_onedrive)
+            .expect("relay download support should resolve")
+    );
 }
 
 #[test]

@@ -6,7 +6,7 @@ import type {
 	StoragePolicy,
 	StoragePolicyOptions,
 } from "@/types/api";
-import { emptyForm, type PolicyFormData } from "./formTypes";
+import { emptyForm, getPolicyForm, type PolicyFormData } from "./formTypes";
 import { policyFormHasUnsavedChanges } from "./policyFormComparison";
 
 function field(
@@ -177,6 +177,40 @@ describe("policyFormComparison", () => {
 			policyFormHasUnsavedChanges(
 				form,
 				policy({ driver_type: "one_drive" }),
+				oneDriveDescriptor,
+			),
+		).toBe(true);
+	});
+
+	it("compares descriptor-owned OneDrive transfer strategies", () => {
+		const oneDriveDescriptor = descriptor("one_drive", {
+			fields: [
+				field("account_mode", "policy_options"),
+				field("provider_resumable_upload_strategy", "policy_options"),
+				field("provider_download_strategy", "policy_options"),
+			],
+		});
+		const savedPolicy = policy({
+			driver_type: "one_drive",
+			options: {
+				onedrive_account_mode: "work_or_school",
+				provider_resumable_upload_strategy: "frontend_direct",
+				provider_download_strategy: "frontend_direct",
+			},
+		});
+		const form: PolicyFormData = {
+			...getPolicyForm(savedPolicy),
+			provider_resumable_upload_strategy: "frontend_direct",
+			provider_download_strategy: "frontend_direct",
+		};
+
+		expect(
+			policyFormHasUnsavedChanges(form, savedPolicy, oneDriveDescriptor),
+		).toBe(false);
+		expect(
+			policyFormHasUnsavedChanges(
+				{ ...form, provider_download_strategy: "server_relay" },
+				savedPolicy,
 				oneDriveDescriptor,
 			),
 		).toBe(true);

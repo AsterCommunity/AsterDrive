@@ -12,7 +12,7 @@ use crate::errors::{AsterError, MapAsterErr};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
-    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
+    PresignedStorageDriver, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
     StreamUploadDriver,
 };
@@ -242,6 +242,7 @@ impl StorageDriver for OneDriveDriver {
 
     fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
         crate::storage::traits::StorageDriverExtensions {
+            presigned: Some(self),
             stream_upload: Some(self),
             provider_resumable: Some(self),
             ..Default::default()
@@ -262,6 +263,32 @@ impl StorageDriver for OneDriveDriver {
 
     async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
         self.client.capacity_info(&self.drive_id).await
+    }
+}
+
+#[async_trait]
+impl PresignedStorageDriver for OneDriveDriver {
+    async fn presigned_url(
+        &self,
+        path: &str,
+        _expires: std::time::Duration,
+        _options: crate::storage::traits::driver::PresignedDownloadOptions,
+    ) -> Result<Option<String>> {
+        // Graph owns the response headers of its preauthenticated URL. The
+        // generic options are intentionally not appended because Graph does
+        // not support S3-style response-content-* overrides.
+        self.client
+            .get_download_url(&self.graph_content_path(path)?)
+            .await
+            .map(Some)
+    }
+
+    async fn presigned_put_url(
+        &self,
+        _path: &str,
+        _expires: std::time::Duration,
+    ) -> Result<Option<String>> {
+        Ok(None)
     }
 }
 
@@ -450,5 +477,6 @@ mod tests {
         assert!(capabilities.implicit_completion);
         assert!(capabilities.abort_supported);
         assert!(capabilities.status_query_supported);
+        assert!(driver.extensions().presigned.is_some());
     }
 }

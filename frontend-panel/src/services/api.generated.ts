@@ -7058,6 +7058,11 @@ export interface components {
             endpoint: string;
             target_driver_type: components["schemas"]["DriverType"];
         };
+        /**
+         * @description Provider-native download transfer strategy.
+         * @enum {string}
+         */
+        ProviderDownloadStrategy: "server_relay" | "frontend_direct";
         ProviderResumableUploadResponse: {
             expires_at?: string | null;
             next_expected_ranges: string[];
@@ -7986,6 +7991,7 @@ export interface components {
             onedrive_root_item_id?: string | null;
             onedrive_site_id?: string | null;
             onedrive_tenant?: string | null;
+            provider_download_strategy?: null | components["schemas"]["ProviderDownloadStrategy"];
             provider_resumable_upload_strategy?: null | components["schemas"]["ProviderResumableUploadStrategy"];
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];

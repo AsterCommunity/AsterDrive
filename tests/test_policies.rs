@@ -94,6 +94,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let onedrive = descriptor("one_drive");
     assert_eq!(onedrive["credential_mode"], "oauth_delegated");
     assert_eq!(onedrive["requires_authorization"], true);
+    assert_eq!(onedrive["capabilities"]["presigned_download"], true);
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
     let onedrive_actions = onedrive["actions"].as_array().expect("onedrive actions");
     assert!(!onedrive_actions.iter().any(|action| {
@@ -122,6 +123,11 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
         onedrive["upload_workflows"]["frontend_direct_provider_resumable_upload"],
         true
     );
+    assert!(onedrive["fields"].as_array().is_some_and(|fields| {
+        fields.iter().any(|field| {
+            field["name"] == "provider_download_strategy" && field["scope"] == "policy_options"
+        })
+    }));
     let onedrive_resumable =
         &onedrive["upload_workflows"]["provider_resumable_upload_capabilities"];
     assert_eq!(onedrive_resumable["provider"], "microsoft_graph");
@@ -242,6 +248,98 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let remote = descriptor("remote");
     assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(remote["capabilities"]["remote_node_binding"], true);
+}
+
+#[actix_web::test]
+async fn test_onedrive_provider_download_strategy_create_update_and_driver_isolation() {
+    let state = common::setup().await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+
+    let create = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "OneDrive Direct Download",
+            "driver_type": "one_drive",
+            "base_path": "files",
+            "max_file_size": 0,
+            "is_default": false,
+            "options": {
+                "onedrive_cloud": "global",
+                "onedrive_account_mode": "work_or_school",
+                "onedrive_root_item_id": "root",
+                "provider_download_strategy": "frontend_direct"
+            }
+        }))
+        .to_request();
+    let response = test::call_service(&app, create).await;
+    assert_eq!(response.status(), 201);
+    let body: Value = test::read_body_json(response).await;
+    let policy_id = body["data"]["id"].as_i64().expect("policy id");
+    assert_eq!(
+        body["data"]["options"]["provider_download_strategy"],
+        "frontend_direct"
+    );
+
+    let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
+        .await
+        .expect("created OneDrive policy should be stored");
+    assert!(
+        aster_drive::storage::connectors::presigned_download_enabled(&stored)
+            .expect("OneDrive direct download should resolve")
+    );
+
+    let update = test::TestRequest::patch()
+        .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "options": {
+                "onedrive_cloud": "global",
+                "onedrive_account_mode": "work_or_school",
+                "onedrive_root_item_id": "root",
+                "provider_download_strategy": "server_relay"
+            }
+        }))
+        .to_request();
+    let response = test::call_service(&app, update).await;
+    assert_eq!(response.status(), 200);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(
+        body["data"]["options"]["provider_download_strategy"],
+        "server_relay"
+    );
+
+    let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
+        .await
+        .expect("updated OneDrive policy should be stored");
+    assert!(
+        !aster_drive::storage::connectors::presigned_download_enabled(&stored)
+            .expect("OneDrive relay download should resolve")
+    );
+
+    let invalid = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Invalid Local Provider Download",
+            "driver_type": "local",
+            "base_path": format!("/tmp/invalid-provider-download-{}", uuid::Uuid::new_v4()),
+            "options": {
+                "provider_download_strategy": "frontend_direct"
+            }
+        }))
+        .to_request();
+    let response = test::call_service(&app, invalid).await;
+    assert_eq!(response.status(), 400);
+    let body: Value = test::read_body_json(response).await;
+    assert_eq!(
+        body["code"],
+        ApiErrorCode::PolicyOneDriveOptionsUnsupported.as_str()
+    );
 }
 
 async fn create_personal_folder<S, B>(

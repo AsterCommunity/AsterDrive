@@ -148,6 +148,7 @@ export function applyPolicyDriverTransition(
 			object_storage_upload_strategy: "relay_stream",
 			object_storage_download_strategy: "relay_stream",
 			provider_resumable_upload_strategy: "server_relay",
+			provider_download_strategy: "server_relay",
 		};
 	}
 
@@ -171,6 +172,7 @@ export function applyPolicyDriverTransition(
 		object_storage_upload_strategy: "relay_stream",
 		object_storage_download_strategy: "relay_stream",
 		provider_resumable_upload_strategy: "server_relay",
+		provider_download_strategy: "server_relay",
 	};
 }
 

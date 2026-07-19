@@ -173,7 +173,9 @@ pub(super) fn validate_static_secret_credentials(
 }
 
 fn has_onedrive_options(options: &crate::types::StoragePolicyOptions) -> bool {
-    options.onedrive_cloud.is_some()
+    options.provider_resumable_upload_strategy.is_some()
+        || options.provider_download_strategy.is_some()
+        || options.onedrive_cloud.is_some()
         || options.onedrive_account_mode.is_some()
         || options.onedrive_tenant.is_some()
         || options.onedrive_drive_id.is_some()
