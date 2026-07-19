@@ -335,6 +335,16 @@ pub struct StorageConnectorCapabilities {
     pub remote_node_binding: bool,
     /// 是否暴露对象存储 upload/download strategy 选项。
     pub object_storage_transfer_strategy: bool,
+    /// 底层对象路径采用 opaque UUID，还是保留原文件名作为 provider item name。
+    pub object_naming: StorageConnectorObjectNamingMode,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorObjectNamingMode {
+    OpaqueUuid,
+    OriginalFilename,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -623,6 +633,7 @@ pub(crate) fn object_storage_connector_descriptor(
             storage_native_media_metadata: input.storage_native_processing,
             remote_node_binding: false,
             object_storage_transfer_strategy: true,
+            object_naming: StorageConnectorObjectNamingMode::OpaqueUuid,
         },
         upload_workflows: StorageConnectorUploadWorkflows {
             simple_upload: true,

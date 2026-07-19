@@ -30,9 +30,10 @@ use tokio::sync::{Notify, oneshot};
 
 use super::{
     StorageCancellationCheck, StorageOperationContext, StoreFromTempHints, StoreFromTempParams,
-    StorePreuploadedNondedupParams, WorkspaceStorageScope, prepare_non_dedup_blob_upload,
-    store_from_temp_exact_name_silent_with_hints, store_from_temp_exact_name_with_hints,
-    store_from_temp_with_hints, store_preuploaded_nondedup, upload_temp_file_to_prepared_blob,
+    StorePreuploadedNondedupParams, WorkspaceStorageScope, persist_preuploaded_blob,
+    prepare_non_dedup_blob_upload, store_from_temp_exact_name_silent_with_hints,
+    store_from_temp_exact_name_with_hints, store_from_temp_with_hints, store_preuploaded_nondedup,
+    upload_temp_file_to_prepared_blob,
 };
 
 #[derive(Clone)]
@@ -859,6 +860,31 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
 }
 
 #[tokio::test]
+async fn persist_preuploaded_blob_keeps_prepared_named_storage_path() {
+    let (state, temp_root, policy, _) = build_test_state().await;
+    let prepared = crate::services::workspace::storage::PreparedNonDedupBlobUpload::Opaque {
+        upload_id: "550e8400-e29b-41d4-a716-446655440000".to_string(),
+        hash_prefix: "onedrive",
+        storage_path: "files/550e8400-e29b-41d4-a716-446655440000/report.txt".to_string(),
+        size: 7,
+        policy_id: policy.id,
+    };
+
+    let blob = persist_preuploaded_blob(state.writer_db(), &prepared)
+        .await
+        .expect("prepared blob should persist");
+
+    assert_eq!(blob.hash, "onedrive-550e8400-e29b-41d4-a716-446655440000");
+    assert_eq!(
+        blob.storage_path,
+        "files/550e8400-e29b-41d4-a716-446655440000/report.txt"
+    );
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(&temp_root);
+}
+
+#[tokio::test]
 async fn exact_name_conflict_cleans_preuploaded_local_blob() {
     let (state, temp_root, policy, user) = build_test_state().await;
     let scope = WorkspaceStorageScope::Personal { user_id: user.id };
@@ -1078,7 +1104,7 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let temp_file = temp_root.join("quota-fail-preuploaded.bin");
     tokio::fs::write(&temp_file, payload).await.unwrap();
 
-    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64).unwrap();
+    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64, None).unwrap();
     upload_temp_file_to_prepared_blob(driver.as_ref(), &prepared, &temp_file.to_string_lossy())
         .await
         .unwrap();

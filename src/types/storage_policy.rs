@@ -170,6 +170,28 @@ pub enum ProviderResumableUploadStrategy {
     FrontendDirect,
 }
 
+/// Provider-native download transfer strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderDownloadStrategy {
+    /// AsterDrive follows the provider download URL and relays the response body.
+    ServerRelay,
+    /// AsterDrive redirects the browser to a provider-issued preauthenticated URL.
+    FrontendDirect,
+}
+
+/// Provider-native download filename policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderDownloadFilenameMode {
+    /// Prefer the provider's stored filename so direct downloads remain available.
+    ProviderNative,
+    /// Require the provider filename to match AsterDrive's current filename.
+    StrictCurrent,
+}
+
 /// Microsoft Graph Drive location mode for OneDrive storage policies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -339,6 +361,10 @@ pub struct StoragePolicyOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub provider_resumable_upload_strategy: Option<ProviderResumableUploadStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_download_strategy: Option<ProviderDownloadStrategy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_download_filename_mode: Option<ProviderDownloadFilenameMode>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(custom(function = "validate_storage_policy_thumbnail_processor"))]
     pub thumbnail_processor: Option<MediaProcessorKind>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -409,6 +435,16 @@ impl StoragePolicyOptions {
     pub fn effective_provider_resumable_upload_strategy(&self) -> ProviderResumableUploadStrategy {
         self.provider_resumable_upload_strategy
             .unwrap_or(ProviderResumableUploadStrategy::ServerRelay)
+    }
+
+    pub fn effective_provider_download_strategy(&self) -> ProviderDownloadStrategy {
+        self.provider_download_strategy
+            .unwrap_or(ProviderDownloadStrategy::ServerRelay)
+    }
+
+    pub fn effective_provider_download_filename_mode(&self) -> ProviderDownloadFilenameMode {
+        self.provider_download_filename_mode
+            .unwrap_or(ProviderDownloadFilenameMode::ProviderNative)
     }
 
     pub fn uses_storage_native_thumbnail(&self) -> bool {
@@ -753,8 +789,9 @@ mod tests {
 
     use super::{
         DriverType, MediaProcessorKind, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
-        OneDriveAccountMode, ProviderResumableUploadStrategy, StoragePolicyOptions,
-        parse_storage_policy_options, serialize_storage_policy_options,
+        OneDriveAccountMode, ProviderDownloadFilenameMode, ProviderDownloadStrategy,
+        ProviderResumableUploadStrategy, StoragePolicyOptions, parse_storage_policy_options,
+        serialize_storage_policy_options,
     };
     use std::time::Duration;
 
@@ -1173,6 +1210,57 @@ mod tests {
         assert_eq!(
             direct.effective_provider_resumable_upload_strategy(),
             ProviderResumableUploadStrategy::FrontendDirect
+        );
+    }
+
+    #[test]
+    fn provider_download_strategy_defaults_to_server_relay() {
+        let options = parse_storage_policy_options("{}");
+        assert_eq!(
+            options.effective_provider_download_strategy(),
+            ProviderDownloadStrategy::ServerRelay
+        );
+
+        let direct =
+            parse_storage_policy_options(r#"{"provider_download_strategy":"frontend_direct"}"#);
+        assert_eq!(
+            direct.effective_provider_download_strategy(),
+            ProviderDownloadStrategy::FrontendDirect
+        );
+    }
+
+    #[test]
+    fn provider_download_filename_mode_defaults_to_provider_native() {
+        let options = StoragePolicyOptions::default();
+        assert_eq!(
+            options.effective_provider_download_filename_mode(),
+            ProviderDownloadFilenameMode::ProviderNative
+        );
+    }
+
+    #[test]
+    fn provider_download_filename_mode_parses_strict_current() {
+        let options =
+            parse_storage_policy_options(r#"{"provider_download_filename_mode":"strict_current"}"#);
+        assert_eq!(
+            options.effective_provider_download_filename_mode(),
+            ProviderDownloadFilenameMode::StrictCurrent
+        );
+    }
+
+    #[test]
+    fn provider_download_strategy_serializes_canonical_literal_and_rejects_unknown_values() {
+        let json = serde_json::to_string(&StoragePolicyOptions {
+            provider_download_strategy: Some(ProviderDownloadStrategy::FrontendDirect),
+            ..Default::default()
+        })
+        .unwrap();
+        assert_eq!(json, r#"{"provider_download_strategy":"frontend_direct"}"#);
+
+        let invalid = parse_storage_policy_options(r#"{"provider_download_strategy":"presigned"}"#);
+        assert_eq!(
+            invalid.effective_provider_download_strategy(),
+            ProviderDownloadStrategy::ServerRelay
         );
     }
 

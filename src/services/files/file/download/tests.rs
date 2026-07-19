@@ -29,6 +29,7 @@ use aster_forge_cache::CacheConfig;
 use aster_forge_utils::numbers::usize_to_i64;
 
 use super::build::build_download_outcome_with_disposition_and_range;
+use super::range::ResolvedDownloadRange;
 use super::response::outcome_to_response;
 use super::streaming::AbortAwareStream;
 use super::types::DownloadOutcome;
@@ -153,40 +154,53 @@ impl StorageDriver for CountingStreamDriver {
 
 impl CountingStreamDriver {
     fn with_presigned(self) -> PresignedCountingStreamDriver {
-        PresignedCountingStreamDriver(self)
+        PresignedCountingStreamDriver {
+            inner: self,
+            returns_url: true,
+        }
+    }
+
+    fn with_unavailable_presigned(self) -> PresignedCountingStreamDriver {
+        PresignedCountingStreamDriver {
+            inner: self,
+            returns_url: false,
+        }
     }
 }
 
 #[derive(Clone)]
-struct PresignedCountingStreamDriver(CountingStreamDriver);
+struct PresignedCountingStreamDriver {
+    inner: CountingStreamDriver,
+    returns_url: bool,
+}
 
 #[async_trait]
 impl StorageDriver for PresignedCountingStreamDriver {
     async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
-        self.0.put(path, data).await
+        self.inner.put(path, data).await
     }
 
     async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
-        self.0.get(path).await
+        self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
     ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.0.get_stream(path).await
+        self.inner.get_stream(path).await
     }
 
     async fn delete(&self, path: &str) -> crate::errors::Result<()> {
-        self.0.delete(path).await
+        self.inner.delete(path).await
     }
 
     async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
-        self.0.exists(path).await
+        self.inner.exists(path).await
     }
 
     async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
-        self.0.metadata(path).await
+        self.inner.metadata(path).await
     }
 
     fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
@@ -205,11 +219,20 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
         _expires: Duration,
         options: PresignedDownloadOptions,
     ) -> crate::errors::Result<Option<String>> {
+        if !self.returns_url {
+            return Ok(None);
+        }
         let mut url = reqwest::Url::parse("https://objects.example.test/download")
             .expect("mock presigned base URL should parse");
         {
             let mut query = url.query_pairs_mut();
             query.append_pair("path", path);
+            if let Some(value) = options.download_name {
+                query.append_pair("download-name", &value);
+            }
+            if options.require_download_name_match {
+                query.append_pair("require-download-name-match", "true");
+            }
             if let Some(value) = options.response_cache_control {
                 query.append_pair("response-cache-control", &value);
             }
@@ -459,6 +482,19 @@ fn presigned_download_options() -> StoredStoragePolicyOptions {
     )
 }
 
+fn provider_direct_download_options() -> StoredStoragePolicyOptions {
+    StoredStoragePolicyOptions::from(
+        r#"{"provider_download_strategy":"frontend_direct"}"#.to_string(),
+    )
+}
+
+fn provider_direct_strict_filename_options() -> StoredStoragePolicyOptions {
+    StoredStoragePolicyOptions::from(
+        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#
+            .to_string(),
+    )
+}
+
 #[actix_web::test]
 async fn attachment_download_redirects_to_presigned_url_with_attachment_disposition() {
     let payload = b"presigned attachment".to_vec();
@@ -497,6 +533,10 @@ async fn attachment_download_redirects_to_presigned_url_with_attachment_disposit
             .get("response-content-disposition")
             .map(String::as_str),
         Some("attachment; filename*=UTF-8''download.txt")
+    );
+    assert_eq!(
+        query.get("download-name").map(String::as_str),
+        Some("download.txt")
     );
     assert_eq!(
         query.get("response-content-type").map(String::as_str),
@@ -557,6 +597,220 @@ async fn safe_inline_preview_redirects_to_presigned_url_with_inline_disposition(
         0,
         "presigned inline redirect must not open a backend stream"
     );
+}
+
+#[actix_web::test]
+async fn onedrive_direct_download_redirects_only_when_explicitly_enabled() {
+    let payload = b"provider direct download".to_vec();
+    let direct_base_driver = CountingStreamDriver::new(payload.clone());
+    let direct_stream_calls = direct_base_driver.get_stream_calls.clone();
+    let (direct_state, direct_file, direct_blob, _) = build_download_test_state_with_policy(
+        direct_base_driver.with_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_download_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let direct = build_download_outcome_with_disposition_and_range(
+        &direct_state,
+        &direct_file,
+        &direct_blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("explicit OneDrive direct download should build");
+
+    assert!(matches!(direct, DownloadOutcome::PresignedRedirect { .. }));
+    assert_eq!(direct_stream_calls.load(Ordering::SeqCst), 0);
+
+    let relay_base_driver = CountingStreamDriver::new(payload.clone());
+    let relay_stream_calls = relay_base_driver.get_stream_calls.clone();
+    let (relay_state, relay_file, relay_blob, _) = build_download_test_state_with_policy(
+        relay_base_driver.with_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        StoredStoragePolicyOptions::empty(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let relay = build_download_outcome_with_disposition_and_range(
+        &relay_state,
+        &relay_file,
+        &relay_blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("default OneDrive relay download should build");
+
+    assert!(matches!(relay, DownloadOutcome::Stream(_)));
+    assert_eq!(relay_stream_calls.load(Ordering::SeqCst), 1);
+}
+
+#[actix_web::test]
+async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
+    let payload = b"provider range download".to_vec();
+    let base_driver = CountingStreamDriver::new(payload.clone());
+    let get_stream_calls = base_driver.get_stream_calls.clone();
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        base_driver.with_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_download_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        Some(
+            ResolvedDownloadRange::new(3, 7, payload.len() as u64)
+                .expect("test range should be valid"),
+        ),
+    )
+    .await
+    .expect("OneDrive range download should use provider redirect");
+
+    assert!(matches!(outcome, DownloadOutcome::PresignedRedirect { .. }));
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
+async fn onedrive_strict_filename_mode_requires_provider_name_match() {
+    let payload = b"strict filename download".to_vec();
+    let base_driver = CountingStreamDriver::new(payload.clone());
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        base_driver.with_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_strict_filename_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("strict OneDrive download should build");
+
+    match outcome {
+        DownloadOutcome::PresignedRedirect { url } => {
+            assert!(url.contains("require-download-name-match=true"));
+        }
+        DownloadOutcome::Stream(_) => {
+            panic!("the mock provider should expose the direct-download decision");
+        }
+        DownloadOutcome::NotModified { .. } => {
+            panic!("a fresh strict filename download cannot be not-modified");
+        }
+    }
+}
+
+#[actix_web::test]
+async fn onedrive_direct_download_requires_runtime_temporary_url_capability() {
+    let payload = b"missing provider capability".to_vec();
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        CountingStreamDriver::new(payload.clone()),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_download_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let error = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .unwrap_err();
+
+    assert!(
+        error
+            .raw_message()
+            .contains("presigned download not supported by driver")
+    );
+}
+
+#[actix_web::test]
+async fn onedrive_legacy_uuid_object_falls_back_to_same_origin_streaming() {
+    let payload = b"legacy OneDrive object".to_vec();
+    let base_driver = CountingStreamDriver::new(payload.clone());
+    let get_stream_calls = base_driver.get_stream_calls.clone();
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        base_driver.with_unavailable_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_download_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("legacy OneDrive objects should use the stream fallback");
+
+    assert!(matches!(outcome, DownloadOutcome::Stream(_)));
+    assert_eq!(get_stream_calls.load(Ordering::SeqCst), 1);
+}
+
+#[actix_web::test]
+async fn onedrive_direct_download_falls_back_for_conditional_and_sandboxed_inline_requests() {
+    let payload = b"<script>alert(1)</script>".to_vec();
+    for (mime_type, if_none_match) in [("image/webp", Some("\"stale-etag\"")), ("text/html", None)]
+    {
+        let base_driver = CountingStreamDriver::new(payload.clone());
+        let get_stream_calls = base_driver.get_stream_calls.clone();
+        let (state, file, blob, _) = build_download_test_state_with_policy(
+            base_driver.with_presigned(),
+            payload_len_i64(&payload),
+            DriverType::OneDrive,
+            provider_direct_download_options(),
+            mime_type,
+        )
+        .await;
+
+        let outcome = build_download_outcome_with_disposition_and_range(
+            &state,
+            &file,
+            &blob,
+            DownloadDisposition::Inline,
+            if_none_match,
+            None,
+        )
+        .await
+        .expect("fallback request should stream through AsterDrive");
+
+        assert!(matches!(outcome, DownloadOutcome::Stream(_)));
+        assert_eq!(get_stream_calls.load(Ordering::SeqCst), 1);
+    }
 }
 
 #[actix_web::test]

@@ -120,6 +120,7 @@ Fill in:
 | Client Secret | Microsoft app secret; currently required. Public-client / no-secret flows are not supported by this storage backend. |
 | Drive type | Usually keep the default during creation and let authorization resolve the default drive |
 | OneDrive upload mode | Choose `Server relay` or `Microsoft Graph direct upload` based on bandwidth flow; Graph direct upload needs no additional cross-origin configuration |
+| OneDrive download mode | Choose `Server relay` or `Microsoft Graph direct download` based on bandwidth flow |
 
 After saving the policy, open the policy edit page and start authorization.
 
@@ -210,6 +211,28 @@ Graph direct upload is designed to work out of the box. Microsoft provides the r
 If direct upload fails in a particular network, check browser extensions, the company network, and whether the correct Microsoft cloud is selected. You can also switch back to server relay.
 :::
 
+### Microsoft Graph Direct Download
+
+The download mode is configured separately:
+
+| Download mode | Best fit |
+| --- | --- |
+| Server relay | Compatibility first; the file passes through AsterDrive before reaching the browser |
+| Microsoft Graph direct download | Reduces AsterDrive download bandwidth; the browser fetches the file directly from Microsoft |
+
+When Microsoft Graph direct download is enabled, you can also choose the download filename:
+
+| Download filename | Behavior |
+| --- | --- |
+| Prefer the OneDrive filename | Renamed files still prefer direct download; the downloaded name may remain the name stored in OneDrive |
+| Always use the AsterDrive filename | Use relay streaming when the names differ, so the download uses AsterDrive's current filename |
+
+With direct download, AsterDrive still checks the signed-in user, permissions, sharing rules, and download rules first. It then sends the browser to a short-lived Microsoft download URL. Microsoft transfers the file, so the AsterDrive node does not relay the complete file body.
+
+New files uploaded to OneDrive keep their original filenames. Files with the same name are stored in separate locations and do not overwrite one another. The policy also offers a download filename choice: by default it prefers the filename stored in OneDrive so renamed files can keep using direct download; strict AsterDrive filenames use relay streaming when the names differ.
+
+Direct download needs no additional Microsoft or AsterDrive cross-origin setting. If the browser or company network cannot reach Microsoft, the download falls back to server relay; administrators can also select server relay directly in the policy editor.
+
 ## 7. Create a Test Policy Group
 
 Do not move real users to a new OneDrive policy immediately. Create a test policy group first.
@@ -264,11 +287,13 @@ With a test account, run at least:
 
 1. Upload a small and a larger file with server relay
 2. Switch to Graph direct upload and repeat both uploads
-3. Download a file
-4. Preview an image or trigger thumbnail generation
-5. Delete and restore a file
-6. Confirm on the Microsoft side that objects are written into the target drive
-7. Click `Validate` in the AsterDrive admin console
+3. Download a file once with server relay and once with Microsoft Graph direct download
+4. Upload two files with the same name and confirm that both open and download correctly
+5. Rename one of them, then download it. In `provider_native` mode, the download may retain the older filename stored by OneDrive; switch to `strict_current` before asserting that the download uses AsterDrive's current filename.
+6. Preview an image or trigger thumbnail generation
+7. Delete and restore a file
+8. Confirm on the Microsoft side that objects are written into the target drive
+9. Click `Validate` in the AsterDrive admin console
 
 If the admin console reports that Microsoft Graph authorization has expired, check the credential status on the policy edit page. If the status requires reauthorization, click `Reauthorize`.
 
@@ -313,3 +338,7 @@ The refresh token is usually unavailable or rejected by Microsoft. Check:
 ### Server Relay Works but Microsoft Graph Direct Upload Fails
 
 First confirm that regular upload, download, and the admin `Validate` action work. Then check browser extensions, the company network, and whether the correct Microsoft cloud is selected. AsterDrive has no additional Graph cross-origin setting. This type of problem usually affects only browser-direct upload; switch back to server relay when needed.
+
+### Microsoft Graph Direct Download Is Not Used
+
+First confirm that the OneDrive policy selects `Microsoft Graph direct download`. With `Always use the AsterDrive filename`, renamed files use relay streaming; older objects or browsers that cannot reach Microsoft may also use relay streaming.

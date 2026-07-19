@@ -549,6 +549,9 @@ describe("AdminSharesPage", () => {
 				sort_order: "desc",
 			});
 		});
+		await waitFor(() => {
+			expect(screen.getByTestId("page-size")).toBeInTheDocument();
+		});
 		expect(screen.getByTestId("location-search").textContent).toBe(
 			"?offset=20",
 		);

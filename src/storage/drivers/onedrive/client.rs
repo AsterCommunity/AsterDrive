@@ -104,6 +104,27 @@ struct MicrosoftGraphUploadSessionItem {
     conflict_behavior: &'static str,
 }
 
+#[derive(Debug, Serialize)]
+struct MicrosoftGraphCreateFolderRequest<'a> {
+    name: &'a str,
+    folder: MicrosoftGraphFolderFacet,
+    #[serde(rename = "@microsoft.graph.conflictBehavior")]
+    conflict_behavior: &'static str,
+}
+
+#[derive(Debug, Default, Serialize)]
+struct MicrosoftGraphFolderFacet {}
+
+#[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "folder creation is a short-lived internal result; boxing would add an allocation without changing retained state"
+)]
+pub(super) enum MicrosoftGraphCreateFolderOutcome {
+    Created(MicrosoftGraphDriveItem),
+    AlreadyExists,
+}
+
 #[derive(Debug, Deserialize)]
 struct MicrosoftGraphQuota {
     #[serde(default)]
@@ -323,6 +344,40 @@ impl MicrosoftGraphClient {
         Ok(session)
     }
 
+    pub(super) async fn create_folder(
+        &self,
+        children_path: &str,
+        name: &str,
+    ) -> Result<MicrosoftGraphCreateFolderOutcome> {
+        let url = self.url(children_path)?;
+        let response = self
+            .send_with_auth("create OneDrive folder", |access_token| {
+                self.http
+                    .post(url.clone())
+                    .header(AUTHORIZATION, authorization_header(&access_token))
+                    .json(&MicrosoftGraphCreateFolderRequest {
+                        name,
+                        folder: MicrosoftGraphFolderFacet::default(),
+                        conflict_behavior: "fail",
+                    })
+            })
+            .await?;
+        if response.status() == StatusCode::CONFLICT {
+            return Ok(MicrosoftGraphCreateFolderOutcome::AlreadyExists);
+        }
+        let response = self
+            .ensure_success(response, "create OneDrive folder")
+            .await?;
+        let item = response
+            .json::<MicrosoftGraphDriveItem>()
+            .await
+            .map_aster_err_ctx(
+                "create OneDrive folder: invalid Microsoft Graph JSON",
+                AsterError::storage_driver_error,
+            )?;
+        Ok(MicrosoftGraphCreateFolderOutcome::Created(item))
+    }
+
     pub async fn query_upload_session(
         &self,
         upload_url: &str,
@@ -426,6 +481,27 @@ impl MicrosoftGraphClient {
             .map_err(|err| map_reqwest_error("read OneDrive content", err))
     }
 
+    pub async fn get_download_url(&self, content_path: &str) -> Result<String> {
+        let url = self.url(content_path)?;
+        let response = self
+            .send_with_auth("get OneDrive direct download URL", |access_token| {
+                self.http
+                    .get(url.clone())
+                    .header(AUTHORIZATION, authorization_header(&access_token))
+            })
+            .await?;
+        if !response.status().is_redirection() {
+            self.ensure_success(response, "get OneDrive direct download URL")
+                .await?;
+            return Err(storage_driver_error(
+                StorageErrorKind::Unknown,
+                "Microsoft Graph content response did not provide a download redirect",
+            ));
+        }
+
+        Ok(content_redirect_url(&response)?.to_string())
+    }
+
     pub async fn delete(&self, path: &str) -> Result<()> {
         let url = self.url(path)?;
         let response = self
@@ -435,6 +511,9 @@ impl MicrosoftGraphClient {
                     .header(AUTHORIZATION, authorization_header(&access_token))
             })
             .await?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
         self.ensure_success(response, "delete OneDrive item")
             .await?;
         Ok(())
@@ -519,20 +598,7 @@ impl MicrosoftGraphClient {
             })
             .await?;
         if response.status().is_redirection() {
-            let base_url = response.url().clone();
-            let download_url = response.headers().get(LOCATION).ok_or_else(|| {
-                storage_driver_error(
-                    StorageErrorKind::Unknown,
-                    "Microsoft Graph content response missing redirect location",
-                )
-            })?;
-            let download_url = download_url.to_str().map_err(|_| {
-                storage_driver_error(
-                    StorageErrorKind::Unknown,
-                    "Microsoft Graph content redirect location is invalid UTF-8",
-                )
-            })?;
-            let download_url = base_url.join(download_url).map_err(invalid_graph_url)?;
+            let download_url = content_redirect_url(&response)?;
             let mut request = self.http.get(download_url);
             // Microsoft Graph documents partial downloads as Range on the
             // actual downloadUrl/redirect target, not on the /content request.
@@ -594,6 +660,30 @@ impl MicrosoftGraphClient {
         };
         reqwest::Url::parse(&format!("{base}/v1.0{path}")).map_err(invalid_graph_url)
     }
+}
+
+fn content_redirect_url(response: &reqwest::Response) -> Result<reqwest::Url> {
+    let base_url = response.url();
+    let download_url = response.headers().get(LOCATION).ok_or_else(|| {
+        storage_driver_error(
+            StorageErrorKind::Unknown,
+            "Microsoft Graph content response missing redirect location",
+        )
+    })?;
+    let download_url = download_url.to_str().map_err(|_| {
+        storage_driver_error(
+            StorageErrorKind::Unknown,
+            "Microsoft Graph content redirect location is invalid UTF-8",
+        )
+    })?;
+    let download_url = base_url.join(download_url).map_err(invalid_graph_url)?;
+    if !matches!(download_url.scheme(), "http" | "https") {
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            "Microsoft Graph content redirect must use HTTP or HTTPS",
+        ));
+    }
+    Ok(download_url)
 }
 
 fn authorization_header(access_token: &str) -> String {
@@ -777,6 +867,65 @@ mod tests {
         TestHttpServer {
             base_url,
             ranges,
+            auth_headers,
+            handle,
+            task,
+        }
+    }
+
+    async fn spawn_content_response_server(
+        status: actix_web::http::StatusCode,
+        location: Option<&'static str>,
+        body: &'static str,
+    ) -> TestHttpServer {
+        async fn content(
+            request: HttpRequest,
+            config: web::Data<(
+                actix_web::http::StatusCode,
+                Option<&'static str>,
+                &'static str,
+            )>,
+            auth_headers: web::Data<Arc<Mutex<Vec<Option<String>>>>>,
+        ) -> HttpResponse {
+            let authorization = request
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            auth_headers
+                .lock()
+                .expect("auth header log lock")
+                .push(authorization);
+            let (status, location, body) = config.get_ref();
+            let mut response = HttpResponse::build(*status);
+            if let Some(location) = location {
+                response.append_header(("Location", *location));
+            }
+            response.body(*body)
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let base_url = format!(
+            "http://{}",
+            listener.local_addr().expect("listener addr should exist")
+        );
+        let auth_headers = Arc::new(Mutex::new(Vec::new()));
+        let config = web::Data::new((status, location, body));
+        let auth_headers_data = web::Data::new(auth_headers.clone());
+        let server = HttpServer::new(move || {
+            App::new()
+                .app_data(config.clone())
+                .app_data(auth_headers_data.clone())
+                .route("/v1.0/content", web::get().to(content))
+        })
+        .listen(listener)
+        .expect("server should listen")
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        TestHttpServer {
+            base_url,
+            ranges: Arc::new(Mutex::new(Vec::new())),
             auth_headers,
             handle,
             task,
@@ -995,6 +1144,118 @@ mod tests {
         let ranges = server.ranges.lock().expect("range log lock").clone();
         assert_eq!(ranges, vec![Some("bytes=10-14".to_string())]);
         server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn direct_download_url_returns_graph_redirect_without_fetching_content() {
+        let server = spawn_content_redirect_server().await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "access-token",
+        ))
+        .expect("client should build");
+
+        let url = client
+            .get_download_url("/content")
+            .await
+            .expect("download URL should resolve");
+
+        assert_eq!(url, format!("{}/download", server.base_url));
+        assert!(server.ranges.lock().expect("range log lock").is_empty());
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn direct_download_url_sends_oauth_only_to_graph_and_preserves_query_secret() {
+        let server = spawn_content_response_server(
+            actix_web::http::StatusCode::FOUND,
+            Some("/download?token=temporary-secret"),
+            "",
+        )
+        .await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "access-token",
+        ))
+        .expect("client should build");
+
+        let url = client
+            .get_download_url("/content")
+            .await
+            .expect("download URL should resolve");
+
+        assert_eq!(
+            url,
+            format!("{}/download?token=temporary-secret", server.base_url)
+        );
+        assert_eq!(
+            server
+                .auth_headers
+                .lock()
+                .expect("auth header log lock")
+                .as_slice(),
+            [Some("Bearer access-token".to_string())]
+        );
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn direct_download_url_rejects_missing_location_and_non_http_schemes() {
+        for (location, expected_message) in [
+            (None, "missing redirect location"),
+            (Some("file:///tmp/object"), "must use HTTP or HTTPS"),
+        ] {
+            let server =
+                spawn_content_response_server(actix_web::http::StatusCode::FOUND, location, "")
+                    .await;
+            let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+                &server.base_url,
+                "access-token",
+            ))
+            .expect("client should build");
+
+            let error = client.get_download_url("/content").await.unwrap_err();
+
+            assert!(error.raw_message().contains(expected_message));
+            server.stop().await;
+        }
+    }
+
+    #[tokio::test]
+    async fn direct_download_url_maps_graph_errors_and_rejects_non_redirect_success() {
+        let forbidden = spawn_content_response_server(
+            actix_web::http::StatusCode::FORBIDDEN,
+            None,
+            r#"{"error":{"code":"accessDenied","message":"denied"}}"#,
+        )
+        .await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &forbidden.base_url,
+            "access-token",
+        ))
+        .expect("client should build");
+        let error = client.get_download_url("/content").await.unwrap_err();
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Permission)
+        );
+        forbidden.stop().await;
+
+        let ok =
+            spawn_content_response_server(actix_web::http::StatusCode::OK, None, "content").await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &ok.base_url,
+            "access-token",
+        ))
+        .expect("client should build");
+        let error = client.get_download_url("/content").await.unwrap_err();
+        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Unknown));
+        assert!(
+            error
+                .raw_message()
+                .contains("did not provide a download redirect")
+        );
+        ok.stop().await;
     }
 
     #[tokio::test]

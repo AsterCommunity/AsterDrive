@@ -38,6 +38,36 @@ pub fn normalize_graph_relative_path(path: &str) -> Result<String> {
     sanitize_graph_relative_path(path)
 }
 
+/// Returns the user-visible filename embedded in a provider-resumable object path.
+///
+/// New OneDrive objects use a UUID directory to keep storage paths unique while
+/// retaining the original filename as the Graph item name. Older objects use
+/// `files/{uuid}` and intentionally return `None` here.
+pub fn provider_resumable_filename(path: &str) -> Option<&str> {
+    let mut segments = path.trim_matches('/').split('/');
+    if segments.next()? != "files" {
+        return None;
+    }
+    let upload_id = segments.next()?;
+    if uuid::Uuid::parse_str(upload_id).is_err() {
+        return None;
+    }
+    let filename = segments.next()?;
+    if filename.is_empty() || segments.next().is_some() {
+        return None;
+    }
+    Some(filename)
+}
+
+/// Returns the exclusive UUID directory for a named provider-resumable object.
+pub fn named_object_parent_path(path: &str) -> Option<String> {
+    provider_resumable_filename(path)?;
+    let mut segments = path.trim_matches('/').split('/');
+    let files = segments.next()?;
+    let upload_id = segments.next()?;
+    Some(format!("{files}/{upload_id}"))
+}
+
 pub fn graph_drive_item_path(
     drive_id: &str,
     root_item_id: &str,
@@ -164,5 +194,47 @@ mod tests {
     fn sanitize_rejects_parent_traversal() {
         assert!(normalize_graph_relative_path("../secret").is_err());
         assert!(normalize_graph_relative_path("folder/../../secret").is_err());
+    }
+
+    #[test]
+    fn provider_resumable_filename_distinguishes_named_and_legacy_paths() {
+        let upload_id = "550e8400-e29b-41d4-a716-446655440000";
+        assert_eq!(
+            provider_resumable_filename(&format!("files/{upload_id}/video.mp4")),
+            Some("video.mp4")
+        );
+        assert_eq!(
+            provider_resumable_filename(&format!("files/{upload_id}")),
+            None
+        );
+        assert_eq!(
+            provider_resumable_filename("files/not-a-uuid/video.mp4"),
+            None
+        );
+        assert_eq!(
+            provider_resumable_filename(&format!("files/{upload_id}/nested/video.mp4")),
+            None
+        );
+        assert_eq!(
+            named_object_parent_path(&format!("files/{upload_id}/video.mp4")),
+            Some(format!("files/{upload_id}"))
+        );
+        assert_eq!(
+            named_object_parent_path(&format!("files/{upload_id}")),
+            None
+        );
+    }
+
+    #[test]
+    fn same_filename_in_distinct_uuid_namespaces_has_distinct_parents() {
+        let first = "files/550e8400-e29b-41d4-a716-446655440000/same-name.mp4";
+        let second = "files/6ba7b810-9dad-11d1-80b4-00c04fd430c8/same-name.mp4";
+
+        assert_eq!(provider_resumable_filename(first), Some("same-name.mp4"));
+        assert_eq!(provider_resumable_filename(second), Some("same-name.mp4"));
+        assert_ne!(
+            named_object_parent_path(first),
+            named_object_parent_path(second)
+        );
     }
 }

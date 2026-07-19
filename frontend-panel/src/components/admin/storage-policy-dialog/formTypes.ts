@@ -4,6 +4,8 @@ import type {
 	ObjectStorageDownloadStrategy,
 	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
+	ProviderDownloadFilenameMode,
+	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
@@ -14,6 +16,8 @@ import type { StorageApplicationCredentialForm } from "./applicationCredentials"
 import {
 	getEffectiveObjectStorageDownloadStrategy,
 	getEffectiveObjectStorageUploadStrategy,
+	getEffectiveProviderDownloadFilenameMode,
+	getEffectiveProviderDownloadStrategy,
 	getEffectiveProviderResumableUploadStrategy,
 	getEffectiveRemoteDownloadStrategy,
 	getEffectiveRemoteUploadStrategy,
@@ -47,6 +51,8 @@ export interface PolicyFormData {
 	object_storage_upload_strategy: ObjectStorageUploadStrategy;
 	object_storage_download_strategy: ObjectStorageDownloadStrategy;
 	provider_resumable_upload_strategy: ProviderResumableUploadStrategy;
+	provider_download_strategy: ProviderDownloadStrategy;
+	provider_download_filename_mode: ProviderDownloadFilenameMode;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -94,6 +100,9 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 			getEffectiveObjectStorageDownloadStrategy(options),
 		provider_resumable_upload_strategy:
 			getEffectiveProviderResumableUploadStrategy(options),
+		provider_download_strategy: getEffectiveProviderDownloadStrategy(options),
+		provider_download_filename_mode:
+			getEffectiveProviderDownloadFilenameMode(options),
 		s3_path_style: getEffectiveS3PathStyle(options),
 		onedrive_cloud: options.onedrive_cloud ?? "global",
 		onedrive_account_mode: options.onedrive_account_mode ?? "work_or_school",
@@ -151,6 +160,8 @@ export const emptyForm: PolicyFormData = {
 	object_storage_upload_strategy: "relay_stream",
 	object_storage_download_strategy: "relay_stream",
 	provider_resumable_upload_strategy: "server_relay",
+	provider_download_strategy: "server_relay",
+	provider_download_filename_mode: "provider_native",
 	s3_path_style: true,
 	onedrive_cloud: "global",
 	onedrive_account_mode: "work_or_school",

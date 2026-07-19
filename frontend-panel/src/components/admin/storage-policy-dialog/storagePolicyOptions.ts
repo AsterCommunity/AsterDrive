@@ -4,6 +4,8 @@ import type {
 	ObjectStorageDownloadStrategy,
 	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
+	ProviderDownloadFilenameMode,
+	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
@@ -19,6 +21,8 @@ export interface StoragePolicyOptionsForm {
 	object_storage_upload_strategy: ObjectStorageUploadStrategy;
 	object_storage_download_strategy: ObjectStorageDownloadStrategy;
 	provider_resumable_upload_strategy: ProviderResumableUploadStrategy;
+	provider_download_strategy: ProviderDownloadStrategy;
+	provider_download_filename_mode: ProviderDownloadFilenameMode;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -84,6 +88,18 @@ export function getEffectiveProviderResumableUploadStrategy(
 	return options.provider_resumable_upload_strategy ?? "server_relay";
 }
 
+export function getEffectiveProviderDownloadStrategy(
+	options: StoragePolicyOptions,
+): ProviderDownloadStrategy {
+	return options.provider_download_strategy ?? "server_relay";
+}
+
+export function getEffectiveProviderDownloadFilenameMode(
+	options: StoragePolicyOptions,
+): ProviderDownloadFilenameMode {
+	return options.provider_download_filename_mode ?? "provider_native";
+}
+
 export function buildPolicyOptions(
 	form: StoragePolicyOptionsForm,
 	descriptor?: StorageConnectorDescriptor | null,
@@ -123,6 +139,13 @@ function buildDescriptorPolicyOptions(
 	if (hasOption("provider_resumable_upload_strategy")) {
 		options.provider_resumable_upload_strategy =
 			form.provider_resumable_upload_strategy;
+	}
+	if (hasOption("provider_download_strategy")) {
+		options.provider_download_strategy = form.provider_download_strategy;
+	}
+	if (hasOption("provider_download_filename_mode")) {
+		options.provider_download_filename_mode =
+			form.provider_download_filename_mode;
 	}
 	if (
 		hasOption("object_storage_upload_strategy") ||
@@ -180,6 +203,13 @@ function buildPolicyOptionsFallback(
 	if (form.provider_resumable_upload_strategy !== "server_relay") {
 		options.provider_resumable_upload_strategy =
 			form.provider_resumable_upload_strategy;
+	}
+	if (form.provider_download_strategy !== "server_relay") {
+		options.provider_download_strategy = form.provider_download_strategy;
+	}
+	if (form.provider_download_filename_mode !== "provider_native") {
+		options.provider_download_filename_mode =
+			form.provider_download_filename_mode;
 	}
 	if (form.object_storage_upload_strategy !== "relay_stream") {
 		options.object_storage_upload_strategy =

@@ -43,8 +43,8 @@ pub(crate) use crate::storage::connectors::{
     streaming_direct_upload_eligible,
 };
 pub(crate) use blob_upload::{
-    PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, persist_preuploaded_blob,
-    prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
+    PreparedNonDedupBlobUpload, cleanup_preuploaded_blob_upload, nondedup_storage_path_for_policy,
+    persist_preuploaded_blob, prepare_non_dedup_blob_upload, upload_reader_to_prepared_blob,
     upload_temp_file_to_prepared_blob, upload_temp_file_to_prepared_blob_cancellable,
 };
 pub(crate) use multipart::{WorkspaceUploadHints, upload_with_hints};

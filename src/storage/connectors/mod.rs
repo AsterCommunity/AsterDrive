@@ -33,7 +33,8 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StoragePolicyExecutableAction,
+    StorageConnectorDescriptorProvider, StorageConnectorObjectNamingMode,
+    StoragePolicyExecutableAction,
 };
 use crate::storage::drivers::{
     azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
@@ -229,6 +230,12 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
     ///
     /// descriptor 只说明 connector 是否具备该能力；这里读取具体 policy option。
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+        let _ = policy;
+        false
+    }
+
+    /// Whether provider-native downloads must match AsterDrive's current filename.
+    fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> bool {
         let _ = policy;
         false
     }
@@ -594,6 +601,22 @@ impl BuiltinStorageConnector {
             Self::TencentCos => TencentCosConnector::presigned_download_enabled(policy),
             Self::Remote => RemoteConnector::presigned_download_enabled(policy),
             Self::OneDrive => OneDriveConnector::presigned_download_enabled(policy),
+        }
+    }
+
+    fn presigned_download_requires_filename_match(self, policy: &storage_policy::Model) -> bool {
+        match self {
+            Self::Local => LocalConnector::presigned_download_requires_filename_match(policy),
+            Self::S3 => S3Connector::presigned_download_requires_filename_match(policy),
+            Self::Sftp => SftpConnector::presigned_download_requires_filename_match(policy),
+            Self::AzureBlob => {
+                AzureBlobConnector::presigned_download_requires_filename_match(policy)
+            }
+            Self::TencentCos => {
+                TencentCosConnector::presigned_download_requires_filename_match(policy)
+            }
+            Self::Remote => RemoteConnector::presigned_download_requires_filename_match(policy),
+            Self::OneDrive => OneDriveConnector::presigned_download_requires_filename_match(policy),
         }
     }
 
@@ -988,10 +1011,26 @@ pub fn resolve_policy_upload_transport(
         .upload_transport(policy))
 }
 
+pub fn resolve_policy_object_naming(
+    policy: &storage_policy::Model,
+) -> Result<StorageConnectorObjectNamingMode> {
+    Ok(connector_for(policy.driver_type)?
+        .connector
+        .descriptor()
+        .capabilities
+        .object_naming)
+}
+
 pub fn presigned_download_enabled(policy: &storage_policy::Model) -> Result<bool> {
     Ok(connector_for(policy.driver_type)?
         .connector
         .presigned_download_enabled(policy))
+}
+
+pub fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> Result<bool> {
+    Ok(connector_for(policy.driver_type)?
+        .connector
+        .presigned_download_requires_filename_match(policy))
 }
 
 pub(crate) fn runtime_credential_requirement(

@@ -133,8 +133,8 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
     }
 
     // Conditional requests that miss must stay same-origin. Otherwise the
-    // browser can carry If-None-Match through the 302 to presigned object
-    // storage, turning cache revalidation into a CORS preflight dependency.
+    // browser can carry If-None-Match through the 302 to a provider download
+    // URL, turning cache revalidation into a CORS preflight dependency.
     if if_none_match.is_some() {
         return build_stream_outcome_with_disposition_and_range(
             state,
@@ -154,9 +154,13 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
         !requires_sandbox && crate::storage::connectors::presigned_download_enabled(&policy)?;
 
     if should_presign {
-        // Inline previews may redirect to presigned storage only for types that do
-        // not require same-origin CSP sandboxing.
-        return build_presigned_redirect_outcome(state, &policy, file, blob, disposition).await;
+        // Inline previews may redirect to provider storage only for types that
+        // do not require same-origin CSP sandboxing.
+        if let Some(outcome) =
+            build_presigned_redirect_outcome(state, &policy, file, blob, disposition).await?
+        {
+            return Ok(outcome);
+        }
     }
 
     build_stream_outcome_with_disposition_and_range(state, file, blob, disposition, None, range)
@@ -169,7 +173,7 @@ async fn build_presigned_redirect_outcome(
     file: &file::Model,
     blob: &file_blob::Model,
     disposition: DownloadDisposition,
-) -> Result<DownloadOutcome> {
+) -> Result<Option<DownloadOutcome>> {
     let driver = state.driver_registry().get_driver(policy)?;
     let presigned = driver.extensions().presigned.ok_or_else(|| {
         AsterError::storage_driver_error("presigned download not supported by driver")
@@ -180,15 +184,19 @@ async fn build_presigned_redirect_outcome(
             &blob.storage_path,
             Duration::from_secs(PRESIGNED_DOWNLOAD_TTL_SECS),
             PresignedDownloadOptions {
+                download_name: Some(file.name.clone()),
+                require_download_name_match:
+                    crate::storage::connectors::presigned_download_requires_filename_match(policy)?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(disposition.header_value(&file.name)),
                 response_content_type: Some(file.mime_type.clone()),
             },
         )
-        .await?
-        .ok_or_else(|| {
-            AsterError::storage_driver_error("presigned download not supported by driver")
-        })?;
+        .await?;
+
+    let Some(url) = url else {
+        return Ok(None);
+    };
 
     tracing::debug!(
         file_id = file.id,
@@ -196,10 +204,10 @@ async fn build_presigned_redirect_outcome(
         policy_id = blob.policy_id,
         ttl_secs = PRESIGNED_DOWNLOAD_TTL_SECS,
         driver_type = ?policy.driver_type,
-        "redirecting file download to presigned storage URL"
+        "redirecting file download to provider storage URL"
     );
 
-    Ok(DownloadOutcome::PresignedRedirect { url })
+    Ok(Some(DownloadOutcome::PresignedRedirect { url }))
 }
 
 pub async fn build_stream_outcome_with_disposition(

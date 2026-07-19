@@ -186,6 +186,11 @@ async fn presigned_original_url(
             &blob.storage_path,
             Duration::from_secs(PRESIGNED_PREVIEW_TTL_SECS),
             PresignedDownloadOptions {
+                download_name: Some(file.name.clone()),
+                require_download_name_match:
+                    crate::storage::connectors::presigned_download_requires_filename_match(
+                        &policy,
+                    )?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(
                     DownloadDisposition::Inline.header_value(&file.name),
@@ -487,6 +492,9 @@ mod tests {
                 let mut query = url.query_pairs_mut();
                 query.append_pair("path", path);
                 query.append_pair("expires", &expires.as_secs().to_string());
+                if let Some(value) = options.download_name {
+                    query.append_pair("download-name", &value);
+                }
                 if let Some(value) = options.response_cache_control {
                     query.append_pair("response-cache-control", &value);
                 }
@@ -897,6 +905,93 @@ mod tests {
         assert_eq!(
             query.get("response-content-type").map(String::as_str),
             Some("image/png")
+        );
+    }
+
+    #[actix_web::test]
+    async fn onedrive_direct_original_handle_uses_cross_origin_resource_contract() {
+        let (state, file, blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            DriverType::OneDrive,
+            StoredStoragePolicyOptions::from(
+                r#"{"provider_download_strategy":"frontend_direct"}"#.to_string(),
+            ),
+            "video.mp4",
+            "video/mp4",
+        )
+        .await;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+        )
+        .await
+        .expect("OneDrive direct original handle should resolve");
+
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Omit);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Forbidden
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::MayCrossOrigin
+        );
+        assert_eq!(handle.delivery.mime_type.as_deref(), Some("video/mp4"));
+        assert!(
+            handle
+                .request
+                .url
+                .starts_with("https://objects.example.test/")
+        );
+    }
+
+    #[actix_web::test]
+    async fn onedrive_default_original_handle_stays_same_origin() {
+        let (state, file, blob) = build_resource_handle_state(
+            PresignedTestDriver,
+            DriverType::OneDrive,
+            StoredStoragePolicyOptions::empty(),
+            "video.mp4",
+            "video/mp4",
+        )
+        .await;
+
+        let handle = resolve_file_resource_handle_for_file(
+            &state,
+            &file,
+            &blob,
+            paths(),
+            &request(
+                FileResourcePurpose::Preview,
+                FileResourceDeliveryMode::DirectUrl,
+                FileResourceRepresentation::Original,
+            ),
+            Some("personal"),
+        )
+        .await
+        .expect("OneDrive relay original handle should resolve");
+
+        assert_eq!(handle.request.credentials, FileResourceCredentials::Include);
+        assert_eq!(
+            handle.request.conditional_headers,
+            FileResourceConditionalHeaders::Allowed
+        );
+        assert_eq!(
+            handle.request.redirect_policy,
+            FileResourceRedirectPolicy::SameOriginOnly
+        );
+        assert_eq!(
+            handle.request.url,
+            "/files/42/download?existing=1&disposition=inline#frag"
         );
     }
 

@@ -10,6 +10,7 @@ use migration::Migrator;
 use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;
+use crate::storage::StorageConnectorObjectNamingMode;
 use crate::types::{
     MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
     ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
@@ -204,6 +205,54 @@ fn descriptors_cover_every_storage_driver() {
 }
 
 #[test]
+fn object_naming_is_explicitly_declared_by_each_connector() {
+    assert_eq!(
+        descriptor(DriverType::OneDrive).capabilities.object_naming,
+        StorageConnectorObjectNamingMode::OriginalFilename
+    );
+
+    for driver_type in [
+        DriverType::Local,
+        DriverType::S3,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+        DriverType::Sftp,
+    ] {
+        assert_eq!(
+            descriptor(driver_type).capabilities.object_naming,
+            StorageConnectorObjectNamingMode::OpaqueUuid,
+            "{driver_type:?} must explicitly retain opaque UUID object naming"
+        );
+    }
+}
+
+#[test]
+fn object_naming_capability_has_stable_wire_values() {
+    assert_eq!(
+        serde_json::to_value(StorageConnectorObjectNamingMode::OpaqueUuid).unwrap(),
+        serde_json::json!("opaque_uuid")
+    );
+    assert_eq!(
+        serde_json::to_value(StorageConnectorObjectNamingMode::OriginalFilename).unwrap(),
+        serde_json::json!("original_filename")
+    );
+    assert_eq!(
+        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
+            "original_filename"
+        ))
+        .unwrap(),
+        StorageConnectorObjectNamingMode::OriginalFilename
+    );
+    assert!(
+        serde_json::from_value::<StorageConnectorObjectNamingMode>(serde_json::json!(
+            "driver_type_guess"
+        ))
+        .is_err()
+    );
+}
+
+#[test]
 fn descriptors_expose_connector_owned_ui_metadata() {
     let descriptors = list_storage_driver_descriptors();
 
@@ -330,6 +379,17 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
     let remote = descriptor(DriverType::Remote);
     assert!(has_policy_option(&remote, "remote_download_strategy"));
     assert!(has_policy_option(&remote, "remote_upload_strategy"));
+
+    let onedrive = descriptor(DriverType::OneDrive);
+    assert!(has_policy_option(
+        &onedrive,
+        "provider_resumable_upload_strategy"
+    ));
+    assert!(has_policy_option(&onedrive, "provider_download_strategy"));
+    assert!(has_policy_option(
+        &onedrive,
+        "provider_download_filename_mode"
+    ));
 
     let sftp = descriptor(DriverType::Sftp);
     assert!(!has_policy_option(&sftp, "object_storage_upload_strategy"));
@@ -840,6 +900,31 @@ fn onedrive_options_are_rejected_for_non_onedrive_connector() {
 }
 
 #[test]
+fn provider_transfer_strategies_are_rejected_for_non_onedrive_connectors() {
+    for options in [
+        StoragePolicyOptions {
+            provider_resumable_upload_strategy: Some(
+                ProviderResumableUploadStrategy::FrontendDirect,
+            ),
+            ..Default::default()
+        },
+        StoragePolicyOptions {
+            provider_download_strategy: Some(
+                crate::types::ProviderDownloadStrategy::FrontendDirect,
+            ),
+            ..Default::default()
+        },
+    ] {
+        let error = common::ensure_onedrive_options_absent(&options).unwrap_err();
+
+        assert_eq!(
+            error.api_error_code(),
+            ApiErrorCode::PolicyOneDriveOptionsUnsupported
+        );
+    }
+}
+
+#[test]
 fn sftp_host_key_options_are_rejected_for_non_sftp_connector() {
     let options = StoragePolicyOptions {
         sftp_host_key_fingerprint: Some("SHA256:abc123".to_string()),
@@ -1136,6 +1221,17 @@ fn presigned_download_policy_is_connector_owned() {
         r#"{"object_storage_download_strategy":"relay_stream"}"#,
     );
     let sftp = mock_policy(DriverType::Sftp, 1024, "{}");
+    let onedrive = mock_policy(
+        DriverType::OneDrive,
+        1024,
+        r#"{"provider_download_strategy":"frontend_direct"}"#,
+    );
+    let relay_onedrive = mock_policy(DriverType::OneDrive, 1024, "{}");
+    let strict_onedrive = mock_policy(
+        DriverType::OneDrive,
+        1024,
+        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#,
+    );
 
     assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
     assert!(
@@ -1145,6 +1241,19 @@ fn presigned_download_policy_is_connector_owned() {
         !presigned_download_enabled(&relay_s3).expect("presigned download support should resolve")
     );
     assert!(!presigned_download_enabled(&sftp).expect("presigned download support should resolve"));
+    assert!(presigned_download_enabled(&onedrive).expect("direct download support should resolve"));
+    assert!(
+        !presigned_download_enabled(&relay_onedrive)
+            .expect("relay download support should resolve")
+    );
+    assert!(
+        !presigned_download_requires_filename_match(&onedrive)
+            .expect("default filename mode should resolve")
+    );
+    assert!(
+        presigned_download_requires_filename_match(&strict_onedrive)
+            .expect("strict filename mode should resolve")
+    );
 }
 
 #[test]

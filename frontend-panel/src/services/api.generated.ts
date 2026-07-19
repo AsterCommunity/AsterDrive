@@ -7058,6 +7058,16 @@ export interface components {
             endpoint: string;
             target_driver_type: components["schemas"]["DriverType"];
         };
+        /**
+         * @description Provider-native download filename policy.
+         * @enum {string}
+         */
+        ProviderDownloadFilenameMode: "provider_native" | "strict_current";
+        /**
+         * @description Provider-native download transfer strategy.
+         * @enum {string}
+         */
+        ProviderDownloadStrategy: "server_relay" | "frontend_direct";
         ProviderResumableUploadResponse: {
             expires_at?: string | null;
             next_expected_ranges: string[];
@@ -7630,6 +7640,8 @@ export interface components {
             efficient_range: boolean;
             /** @description 是否支持底层对象路径列举。 */
             list: boolean;
+            /** @description 底层对象路径采用 opaque UUID，还是保留原文件名作为 provider item name。 */
+            object_naming: components["schemas"]["StorageConnectorObjectNamingMode"];
             /** @description 是否暴露对象存储 upload/download strategy 选项。 */
             object_storage_transfer_strategy: boolean;
             /** @description 是否支持 presigned download。 */
@@ -7722,6 +7734,8 @@ export interface components {
             /** @description AsterDrive 服务端是否可以 relay 上传 part。 */
             relay_part_upload: boolean;
         };
+        /** @enum {string} */
+        StorageConnectorObjectNamingMode: "opaque_uuid" | "original_filename";
         StorageConnectorProviderResumableUploadCapabilities: {
             /** @description 当前实现是否向上层暴露 provider-native abort。 */
             abort_supported: boolean;
@@ -7986,6 +8000,8 @@ export interface components {
             onedrive_root_item_id?: string | null;
             onedrive_site_id?: string | null;
             onedrive_tenant?: string | null;
+            provider_download_filename_mode?: null | components["schemas"]["ProviderDownloadFilenameMode"];
+            provider_download_strategy?: null | components["schemas"]["ProviderDownloadStrategy"];
             provider_resumable_upload_strategy?: null | components["schemas"]["ProviderResumableUploadStrategy"];
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];

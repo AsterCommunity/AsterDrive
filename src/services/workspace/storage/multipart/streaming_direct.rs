@@ -43,8 +43,6 @@ pub(super) async fn upload_streaming_direct(
 
     check_quota(state.writer_db(), scope, declared_size).await?;
     let driver = state.driver_registry().get_driver(policy)?;
-    let prepared_upload = prepare_non_dedup_blob_upload(policy, declared_size)?;
-    let storage_path = prepared_upload.storage_path().to_string();
 
     while let Some(field) = payload.next().await {
         let mut field = field.map_aster_err(upload_field_read_failed)?;
@@ -53,12 +51,11 @@ pub(super) async fn upload_streaming_direct(
             .and_then(|content| content.get_filename().map(|name| name.to_string()));
 
         if let Some(name) = is_file {
-            let filename = if relative_path.is_some() {
-                resolved_filename.to_string()
-            } else {
-                name
-            };
-            let filename = aster_forge_validation::filename::normalize_validate_name(&filename)?;
+            let filename =
+                resolve_streaming_direct_filename(relative_path, resolved_filename, &name)?;
+            let prepared_upload =
+                prepare_non_dedup_blob_upload(policy, declared_size, Some(&filename))?;
+            let storage_path = prepared_upload.storage_path().to_string();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
             let upload_driver = driver.clone();
@@ -174,6 +171,19 @@ pub(super) async fn upload_streaming_direct(
     Err(upload_empty_file_error())
 }
 
+fn resolve_streaming_direct_filename(
+    relative_path: Option<&str>,
+    resolved_filename: &str,
+    multipart_filename: &str,
+) -> Result<String> {
+    let filename = if relative_path.is_some() {
+        resolved_filename
+    } else {
+        multipart_filename
+    };
+    aster_forge_validation::filename::normalize_validate_name(filename).map_err(Into::into)
+}
+
 fn validate_streaming_direct_uploaded_size(
     metadata: BlobMetadata,
     declared_size: i64,
@@ -194,7 +204,7 @@ fn validate_streaming_direct_uploaded_size(
 
 #[cfg(test)]
 mod tests {
-    use super::validate_streaming_direct_uploaded_size;
+    use super::{resolve_streaming_direct_filename, validate_streaming_direct_uploaded_size};
     use crate::storage::BlobMetadata;
 
     fn policy_with_max_file_size(max_file_size: i64) -> crate::entities::storage_policy::Model {
@@ -298,5 +308,36 @@ mod tests {
         .expect_err("metadata size outside i64 must be rejected");
 
         assert!(error.message().contains("streaming direct uploaded size"));
+    }
+
+    #[test]
+    fn ordinary_streaming_direct_upload_uses_multipart_filename() {
+        assert_eq!(
+            resolve_streaming_direct_filename(None, "", "video.mp4").unwrap(),
+            "video.mp4"
+        );
+    }
+
+    #[test]
+    fn relative_streaming_direct_upload_uses_resolved_filename() {
+        assert_eq!(
+            resolve_streaming_direct_filename(
+                Some("nested/video.mp4"),
+                "renamed.mp4",
+                "ignored.mp4",
+            )
+            .unwrap(),
+            "renamed.mp4"
+        );
+    }
+
+    #[test]
+    fn streaming_direct_filename_rejects_empty_and_traversal_names() {
+        assert!(resolve_streaming_direct_filename(None, "", "").is_err());
+        assert!(resolve_streaming_direct_filename(None, "", "../video.mp4").is_err());
+        assert!(
+            resolve_streaming_direct_filename(Some("nested/video.mp4"), "../video.mp4", "ok.mp4")
+                .is_err()
+        );
     }
 }

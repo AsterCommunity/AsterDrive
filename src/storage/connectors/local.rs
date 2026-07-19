@@ -7,10 +7,10 @@ use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
     StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_ui_descriptor,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::local::LocalDriver;
 use crate::types::DriverType;
@@ -50,6 +50,7 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 storage_native_media_metadata: false,
                 remote_node_binding: false,
                 object_storage_transfer_strategy: false,
+                object_naming: StorageConnectorObjectNamingMode::OpaqueUuid,
             },
             upload_workflows: StorageConnectorUploadWorkflows {
                 simple_upload: true,

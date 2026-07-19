@@ -379,6 +379,9 @@ describe("storage policy dialog helper modules", () => {
 			remote_upload_strategy: "relay_stream",
 			object_storage_upload_strategy: "relay_stream",
 			object_storage_download_strategy: "relay_stream",
+			provider_resumable_upload_strategy: "server_relay",
+			provider_download_strategy: "server_relay",
+			provider_download_filename_mode: "provider_native",
 			s3_path_style: true,
 			onedrive_cloud: "global",
 			onedrive_account_mode: "work_or_school",
@@ -542,11 +545,24 @@ describe("storage policy dialog helper modules", () => {
 				{ name: "account_mode", scope: "policy_options" },
 			],
 		} as never;
+		const transferDescriptor = {
+			...descriptor,
+			fields: [
+				...descriptor.fields,
+				{
+					name: "provider_resumable_upload_strategy",
+					scope: "policy_options",
+				},
+				{ name: "provider_download_strategy", scope: "policy_options" },
+			],
+		} as never;
 
 		expect(
 			buildCreatePolicyPayload(
 				{
 					...form,
+					provider_resumable_upload_strategy: "frontend_direct",
+					provider_download_strategy: "frontend_direct",
 					application_credentials: {
 						microsoft_graph: {
 							cloud: "china",
@@ -557,7 +573,7 @@ describe("storage policy dialog helper modules", () => {
 						},
 					},
 				},
-				descriptor,
+				transferDescriptor,
 			),
 		).toMatchObject({
 			access_key: "",
@@ -572,6 +588,8 @@ describe("storage policy dialog helper modules", () => {
 				},
 			},
 			options: {
+				provider_resumable_upload_strategy: "frontend_direct",
+				provider_download_strategy: "frontend_direct",
 				onedrive_cloud: "china",
 				onedrive_account_mode: "sharepoint_site",
 				onedrive_tenant: "contoso.partner.onmschina.cn",
@@ -580,6 +598,22 @@ describe("storage policy dialog helper modules", () => {
 				onedrive_site_id: "site-1",
 			},
 		});
+
+		const descriptorWithoutDownloadStrategy = {
+			...transferDescriptor,
+			fields: transferDescriptor.fields.filter(
+				(field) => field.name !== "provider_download_strategy",
+			),
+		} as never;
+		expect(
+			buildUpdatePolicyPayload(
+				{
+					...form,
+					provider_download_strategy: "frontend_direct",
+				},
+				descriptorWithoutDownloadStrategy,
+			).options,
+		).not.toHaveProperty("provider_download_strategy");
 
 		expect(
 			buildUpdatePolicyPayload(

@@ -29,8 +29,9 @@ pub use super::storage_credential::{
 };
 pub use super::storage_policy::{
     DriverType, MediaProcessorKind, OBJECT_MULTIPART_MIN_PART_SIZE, ObjectStorageDownloadStrategy,
-    ObjectStorageUploadStrategy, OneDriveAccountMode, ProviderResumableUploadStrategy,
-    RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy, StoragePolicyOptions,
+    ObjectStorageUploadStrategy, OneDriveAccountMode, ProviderDownloadFilenameMode,
+    ProviderDownloadStrategy, ProviderResumableUploadStrategy, RemoteDownloadStrategy,
+    RemoteNodeTransportMode, RemoteUploadStrategy, StoragePolicyOptions,
     StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadMode, UploadSessionStatus,
     effective_object_multipart_chunk_size, parse_storage_policy_allowed_types,
     parse_storage_policy_options, serialize_storage_policy_allowed_types,

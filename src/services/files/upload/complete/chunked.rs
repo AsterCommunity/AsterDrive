@@ -126,7 +126,7 @@ async fn finalize_chunked_upload_session(
 
     let stage_started_at = Instant::now();
     let staged_size = chunked_temp.size;
-    let verified = stage_chunked_temp_file(driver, policy, chunked_temp).await?;
+    let verified = stage_chunked_temp_file(driver, policy, &session.filename, chunked_temp).await?;
     let stage_elapsed_ms = stage_started_at.elapsed().as_millis();
 
     let persist_started_at = Instant::now();
@@ -275,7 +275,11 @@ async fn finalize_stream_relay_chunked_upload_session(
 
     const CHUNK_RELAY_BUFFER_SIZE: usize = 64 * 1024;
 
-    let prepared = storage::prepare_non_dedup_blob_upload(policy, session.total_size)?;
+    let prepared = storage::prepare_non_dedup_blob_upload(
+        policy,
+        session.total_size,
+        Some(&session.filename),
+    )?;
     let (writer, reader) = tokio::io::duplex(CHUNK_RELAY_BUFFER_SIZE);
     let relay_task = tokio::spawn(stream_legacy_local_chunks_into_writer(
         state.config().server.upload_temp_dir.clone(),
@@ -345,7 +349,11 @@ async fn finalize_offset_staging_stream_relay(
         .map_aster_err_ctx("open chunk staging file for stream upload", |message| {
             upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
         })?;
-    let prepared = storage::prepare_non_dedup_blob_upload(policy, session.total_size)?;
+    let prepared = storage::prepare_non_dedup_blob_upload(
+        policy,
+        session.total_size,
+        Some(&session.filename),
+    )?;
     let upload_started_at = Instant::now();
     if let Err(error) = storage::upload_reader_to_prepared_blob(
         driver,
@@ -515,6 +523,7 @@ async fn assemble_legacy_local_chunks_to_temp_file(
 async fn stage_chunked_temp_file(
     driver: &dyn StorageDriver,
     policy: &storage_policy::Model,
+    filename: &str,
     chunked_temp: ChunkedTempFile,
 ) -> Result<VerifiedUploadedBlob> {
     let ChunkedTempFile {
@@ -543,7 +552,7 @@ async fn stage_chunked_temp_file(
 
     // 不做 dedup 的情况下，先为 blob 预分配最终 key，再把 staging 文件传上去。
     // DB finalize 失败后的清理归属由 VerifiedUploadedBlob 的 cleanup plan 表达。
-    let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size)?;
+    let preuploaded = storage::prepare_non_dedup_blob_upload(policy, size, Some(filename))?;
     storage::upload_temp_file_to_prepared_blob(driver, &preuploaded, &path).await?;
     VerifiedUploadedBlob::preuploaded_non_dedup(preuploaded)
 }

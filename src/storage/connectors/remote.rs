@@ -13,11 +13,11 @@ use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
     StorageConnectorCredentialMode, StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
-    object_multipart_upload_capabilities, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
 use crate::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
 
@@ -61,6 +61,7 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                 storage_native_media_metadata: false,
                 remote_node_binding: true,
                 object_storage_transfer_strategy: false,
+                object_naming: StorageConnectorObjectNamingMode::OpaqueUuid,
             },
             upload_workflows: StorageConnectorUploadWorkflows {
                 simple_upload: true,

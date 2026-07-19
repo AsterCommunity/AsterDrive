@@ -30,7 +30,7 @@ pub enum DownloadOutcome {
         cache_control: &'static str,
         csp: Option<&'static str>,
     },
-    /// 302 presigned redirect（仅 S3 附件下载）。
+    /// 302 redirect to a provider-issued temporary download URL.
     PresignedRedirect { url: String },
 }
 

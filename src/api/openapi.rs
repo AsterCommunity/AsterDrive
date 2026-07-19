@@ -688,6 +688,8 @@ use utoipa::{Modify, OpenApi};
             crate::types::ObjectStorageDownloadStrategy,
             crate::types::ObjectStorageUploadStrategy,
             crate::types::ProviderResumableUploadStrategy,
+            crate::types::ProviderDownloadStrategy,
+            crate::types::ProviderDownloadFilenameMode,
             crate::types::RemoteDownloadStrategy,
             crate::types::StoragePolicyOptions,
             aster_forge_config::ConfigSource,
