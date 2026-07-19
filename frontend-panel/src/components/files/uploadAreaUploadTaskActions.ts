@@ -152,7 +152,7 @@ export async function runQueuedUploadTask(
 							},
 							saved?.completedParts ?? [],
 						);
-					} else {
+					} else if (task.mode === "provider_resumable") {
 						await runProviderResumableUpload(
 							task,
 							{

@@ -55,6 +55,22 @@ function getAccountModeOptions(t: Translate, cloud: MicrosoftGraphCloud) {
 	return accountModeOptions;
 }
 
+function getUploadStrategyOptions(t: Translate) {
+	return [
+		{
+			label: t("provider_resumable_upload_strategy_server_relay"),
+			value: "server_relay",
+		},
+		{
+			label: t("provider_resumable_upload_strategy_frontend_direct"),
+			value: "frontend_direct",
+		},
+	] satisfies ReadonlyArray<{
+		label: string;
+		value: ProviderResumableUploadStrategy;
+	}>;
+}
+
 function OneDriveSetupNotice({ t }: { t: Translate }) {
 	return (
 		<div className="flex gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs leading-5 text-muted-foreground">
@@ -97,19 +113,7 @@ export function OneDriveConnectionFields({
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const cloudOptions = getCloudOptions(t);
 	const accountModeOptions = getAccountModeOptions(t, form.onedrive_cloud);
-	const uploadStrategyOptions = [
-		{
-			label: t("provider_resumable_upload_strategy_server_relay"),
-			value: "server_relay",
-		},
-		{
-			label: t("provider_resumable_upload_strategy_frontend_direct"),
-			value: "frontend_direct",
-		},
-	] satisfies ReadonlyArray<{
-		label: string;
-		value: ProviderResumableUploadStrategy;
-	}>;
+	const uploadStrategyOptions = getUploadStrategyOptions(t);
 
 	return (
 		<div className="space-y-4">

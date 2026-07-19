@@ -247,7 +247,7 @@ export function createResumableUploadShared({
 
 		try {
 			const workers = Array.from(
-				{ length: Math.min(Math.max(1, concurrency), queue.length || 1) },
+				{ length: Math.min(Math.max(1, concurrency), queue.length) },
 				() => uploadOneItem(),
 			);
 			await Promise.all(workers);

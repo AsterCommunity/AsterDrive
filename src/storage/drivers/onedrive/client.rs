@@ -328,12 +328,10 @@ impl MicrosoftGraphClient {
         upload_url: &str,
     ) -> Result<MicrosoftGraphUploadSession> {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(|err| map_reqwest_error("query OneDrive upload session", err))?;
+        let response =
+            self.http.get(url).send().await.map_err(|err| {
+                map_reqwest_error("query OneDrive upload session", err.without_url())
+            })?;
         let response = self
             .ensure_success(response, "query OneDrive upload session")
             .await?;
@@ -348,12 +346,10 @@ impl MicrosoftGraphClient {
 
     pub async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
-        let response = self
-            .http
-            .delete(url)
-            .send()
-            .await
-            .map_err(|err| map_reqwest_error("abort OneDrive upload session", err))?;
+        let response =
+            self.http.delete(url).send().await.map_err(|err| {
+                map_reqwest_error("abort OneDrive upload session", err.without_url())
+            })?;
         if response.status() == StatusCode::NOT_FOUND {
             return Ok(());
         }
@@ -1211,6 +1207,28 @@ mod tests {
             assert_eq!(state.auth_headers, vec![None, None]);
         }
         server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn provider_upload_session_request_errors_redact_upload_url() {
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let unavailable_address = listener.local_addr().expect("listener addr should exist");
+        drop(listener);
+        let upload_url =
+            format!("http://{unavailable_address}/upload-session?tempauth=sensitive-token");
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            "http://127.0.0.1",
+            "server-oauth-token",
+        ))
+        .expect("client should build");
+
+        for error in [
+            client.query_upload_session(&upload_url).await.unwrap_err(),
+            client.abort_upload_session(&upload_url).await.unwrap_err(),
+        ] {
+            assert!(!error.raw_message().contains(&upload_url));
+            assert!(!error.raw_message().contains("sensitive-token"));
+        }
     }
 
     #[test]
