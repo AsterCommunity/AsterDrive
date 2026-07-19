@@ -9,7 +9,7 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::errors::Result;
+use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
@@ -168,6 +168,7 @@ pub(crate) async fn batch_copy_between_scopes_with_audit(
     audit_ctx: &AuditContext,
 ) -> Result<BatchResult> {
     validate_batch_ids(file_ids, folder_ids)?;
+    ensure_cross_workspace_transfer(source_scope, dest_scope)?;
     let result = copy::batch_copy_between_scopes(
         state,
         source_scope,
@@ -198,6 +199,108 @@ pub(crate) async fn batch_copy_between_scopes_with_audit(
     )
     .await;
     Ok(result)
+}
+
+pub(crate) async fn batch_move_between_scopes_with_audit(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+    target_folder_id: Option<i64>,
+    audit_ctx: &AuditContext,
+) -> Result<BatchResult> {
+    validate_batch_ids(file_ids, folder_ids)?;
+    ensure_cross_workspace_transfer(source_scope, dest_scope)?;
+
+    let selection =
+        load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
+    let mut preflight = BatchResult::new();
+    for id in selection.file_ids {
+        if selection
+            .file_map
+            .get(&id)
+            .is_some_and(|file| file.is_locked)
+        {
+            preflight.record_failure(
+                "file",
+                id,
+                AsterError::resource_locked("file is locked").to_string(),
+            );
+        }
+    }
+    for id in selection.folder_ids {
+        if selection
+            .folder_map
+            .get(&id)
+            .is_some_and(|folder| folder.is_locked)
+        {
+            preflight.record_failure(
+                "folder",
+                id,
+                AsterError::resource_locked("folder is locked").to_string(),
+            );
+        }
+    }
+    let result = if preflight.failed > 0 {
+        preflight
+    } else {
+        copy::batch_transfer_between_scopes(
+            state,
+            source_scope,
+            dest_scope,
+            file_ids,
+            folder_ids,
+            target_folder_id,
+            copy::BatchTransferMode::Move,
+        )
+        .await?
+    };
+
+    audit::log_with_details(
+        state,
+        audit_ctx,
+        audit::AuditAction::BatchMove,
+        audit::AuditEntityType::Batch,
+        None,
+        None,
+        || {
+            audit::details(audit::WorkspaceTransferMoveDetails {
+                source_workspace: scope_details(source_scope),
+                destination_workspace: scope_details(dest_scope),
+                file_ids,
+                folder_ids,
+                target_folder_id,
+                succeeded: result.succeeded,
+                failed: result.failed,
+            })
+        },
+    )
+    .await;
+    Ok(result)
+}
+
+fn same_workspace(left: WorkspaceStorageScope, right: WorkspaceStorageScope) -> bool {
+    match (left, right) {
+        (WorkspaceStorageScope::Personal { .. }, WorkspaceStorageScope::Personal { .. }) => true,
+        (
+            WorkspaceStorageScope::Team { team_id: left, .. },
+            WorkspaceStorageScope::Team { team_id: right, .. },
+        ) => left == right,
+        _ => false,
+    }
+}
+
+fn ensure_cross_workspace_transfer(
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+) -> Result<()> {
+    if same_workspace(source_scope, dest_scope) {
+        return Err(AsterError::validation_error(
+            "workspace transfer requires different source and destination workspaces",
+        ));
+    }
+    Ok(())
 }
 
 fn scope_details(scope: WorkspaceStorageScope) -> audit::WorkspaceTransferScopeDetails {

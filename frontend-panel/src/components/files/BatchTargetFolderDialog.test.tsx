@@ -399,13 +399,13 @@ describe("BatchTargetFolderDialog", () => {
 		});
 	});
 
-	it("does not show the workspace picker for move targets", async () => {
+	it("shows the workspace picker for move targets", async () => {
 		mockState.teams = [{ id: 7, name: "Design Team" }];
 		renderDialog({ mode: "move" });
 
 		await screen.findByText("empty");
-		expect(screen.queryByLabelText("target-workspace")).not.toBeInTheDocument();
-		expect(mockState.ensureTeamsLoaded).not.toHaveBeenCalled();
+		expect(screen.getByLabelText("target-workspace")).toBeInTheDocument();
+		expect(mockState.ensureTeamsLoaded).toHaveBeenCalledWith(42);
 	});
 
 	it("blocks descendant targets and lets the user navigate back to a valid parent", async () => {

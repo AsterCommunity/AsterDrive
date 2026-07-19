@@ -1,5 +1,9 @@
 import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
-import { batchService } from "@/services/batchService";
+import {
+	batchService,
+	resolveMoveDispatch,
+	singleOperationResult,
+} from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import {
@@ -61,11 +65,22 @@ export const createCrudSlice: FileStoreSlice<CrudSlice> = (set, get) => ({
 
 	moveToFolder: async (fileIds, folderIds, targetFolderId) => {
 		const revision = get().workspaceRequestRevision;
-		const result = await batchService.batchMove(
+		const workspace = useWorkspaceStore.getState().workspace;
+		const result = await resolveMoveDispatch({
+			currentWorkspace: workspace,
+			targetWorkspace: workspace,
 			fileIds,
 			folderIds,
 			targetFolderId,
-		);
+			dispatcher: {
+				batchMove: batchService.batchMove,
+				singleFileMove: (fileId, folderId) =>
+					singleOperationResult(fileService.moveFile(fileId, folderId)),
+				singleFolderMove: (folderId, parentId) =>
+					singleOperationResult(fileService.moveFolder(folderId, parentId)),
+				moveToWorkspace: batchService.moveToWorkspace,
+			},
+		});
 		get().clearSelection();
 
 		if (get().workspaceRequestRevision !== revision) {

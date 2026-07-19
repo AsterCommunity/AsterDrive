@@ -107,6 +107,30 @@ When you need to handle multiple items at once, select them and batch execute:
 - Batch delete
 - Batch package download
 
+### Copy or move between workspaces
+
+The destination picker can switch workspaces for both copy and move. A typical flow is:
+
+1. Select files or folders in the current workspace.
+2. Click `Copy to` or `Move to`.
+3. Choose the destination workspace, then open the destination folder.
+4. Confirm the action.
+
+Copy keeps the original items. A successful move places the originals in the source workspace's trash. Folders are handled together with their contents.
+
+Copying one file or folder uses the single-item action. Batch copy is used when you select multiple items.
+
+Moving one file or folder uses the single-item action. Batch move is used only when you select multiple items.
+
+Keep these points in mind:
+
+- You need access to both the source and destination workspaces.
+- If the destination does not have enough space, the source items are kept.
+- Locked files or folders cannot be moved between workspaces.
+- If a name already exists at the destination, AsterDrive adds a copy number automatically.
+- For a multi-item operation, check the success and failure counts. When some items fail, refresh both workspaces before trying again.
+- Moving inside the same workspace remains a normal folder move and does not create a new copy.
+
 In the file list and trash, you can use `Ctrl + A` or `Cmd + A` to select all items on the current page.
 
 File or folder "Details" shows name, size, storage used, type, creation time, modification time, lock status, share status, storage policy ID, and other information.

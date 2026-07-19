@@ -63,7 +63,7 @@ export function formatBatchToast(
 	}
 
 	return {
-		variant: "success",
+		variant: operation === "move" ? "error" : "success",
 		title: t(`files:batch_${operation}_partial`, {
 			succeeded: result.succeeded,
 			failed: result.failed,

@@ -19,6 +19,12 @@ use super::{
 
 const BATCH_FOLDER_COPY_CONCURRENCY: usize = 4;
 
+#[derive(Clone, Copy)]
+pub(crate) enum BatchTransferMode {
+    Copy,
+    Move,
+}
+
 pub(crate) async fn batch_copy_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
@@ -36,6 +42,27 @@ pub(crate) async fn batch_copy_between_scopes(
     file_ids: &[i64],
     folder_ids: &[i64],
     target_folder_id: Option<i64>,
+) -> Result<BatchResult> {
+    batch_transfer_between_scopes(
+        state,
+        source_scope,
+        dest_scope,
+        file_ids,
+        folder_ids,
+        target_folder_id,
+        BatchTransferMode::Copy,
+    )
+    .await
+}
+
+pub(crate) async fn batch_transfer_between_scopes(
+    state: &PrimaryAppState,
+    source_scope: WorkspaceStorageScope,
+    dest_scope: WorkspaceStorageScope,
+    file_ids: &[i64],
+    folder_ids: &[i64],
+    target_folder_id: Option<i64>,
+    mode: BatchTransferMode,
 ) -> Result<BatchResult> {
     let mut result = BatchResult::new();
     let NormalizedSelection {
@@ -163,6 +190,16 @@ pub(crate) async fn batch_copy_between_scopes(
         match copy_result {
             Ok(_) => result.record_success(),
             Err(e) => result.record_failure("folder", id, e.to_string()),
+        }
+    }
+
+    if matches!(mode, BatchTransferMode::Move) && result.failed == 0 {
+        let deleted =
+            super::delete::batch_delete_in_scope(state, source_scope, file_ids, folder_ids).await?;
+        if deleted.failed > 0 {
+            result.succeeded = result.succeeded.saturating_sub(deleted.failed);
+            result.failed = result.failed.saturating_add(deleted.failed);
+            result.errors.extend(deleted.errors);
         }
     }
 

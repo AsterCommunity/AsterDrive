@@ -3095,6 +3095,17 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
         .uri(&format!("/api/v1/teams/{team_id}/folders"))
         .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
         .insert_header(common::csrf_header_for(&owner_token))
+        .set_json(serde_json::json!({ "name": "Source Two" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let source_two_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
+        .insert_header(common::csrf_header_for(&owner_token))
         .set_json(serde_json::json!({ "name": "Target" }))
         .to_request();
     let resp = test::call_service(&app, req).await;
@@ -3125,20 +3136,31 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
     let body: Value = test::read_body_json(resp).await;
     let file_id = body["data"]["id"].as_i64().unwrap();
 
+    let req = multipart_request!(
+        &format!("/api/v1/teams/{team_id}/files/upload?folder_id={source_id}"),
+        &owner_token,
+        "batch-team-2.txt",
+        "batch team body 2",
+    );
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let file_id_two = body["data"]["id"].as_i64().unwrap();
+
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/batch/copy"))
         .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
         .insert_header(common::csrf_header_for(&owner_token))
         .set_json(serde_json::json!({
             "file_ids": [],
-            "folder_ids": [source_id],
+            "folder_ids": [source_id, source_two_id],
             "target_folder_id": target_id
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["succeeded"], 2);
     assert_eq!(body["data"]["failed"], 0);
 
     let req = test::TestRequest::get()
@@ -3149,14 +3171,14 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["folders"].as_array().unwrap().len(), 1);
+    assert_eq!(body["data"]["folders"].as_array().unwrap().len(), 2);
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/batch/move"))
         .insert_header(("Cookie", common::access_cookie_header(&owner_token)))
         .insert_header(common::csrf_header_for(&owner_token))
         .set_json(serde_json::json!({
-            "file_ids": [file_id],
+            "file_ids": [file_id, file_id_two],
             "folder_ids": [],
             "target_folder_id": target_id
         }))
@@ -3164,7 +3186,7 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["succeeded"], 1);
+    assert_eq!(body["data"]["succeeded"], 2);
     assert_eq!(body["data"]["failed"], 0);
 
     let req = test::TestRequest::get()
@@ -3185,8 +3207,14 @@ async fn test_team_batch_routes_support_copy_move_and_delete() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["files"].as_array().unwrap().len(), 1);
-    assert_eq!(body["data"]["files"][0]["id"], file_id);
+    let target_files = body["data"]["files"].as_array().unwrap();
+    assert_eq!(target_files.len(), 2);
+    let target_file_ids: Vec<i64> = target_files
+        .iter()
+        .map(|file| file["id"].as_i64().unwrap())
+        .collect();
+    assert!(target_file_ids.contains(&file_id));
+    assert!(target_file_ids.contains(&file_id_two));
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/teams/{team_id}/batch/delete"))

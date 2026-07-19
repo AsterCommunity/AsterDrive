@@ -1,5 +1,6 @@
 export type { FileSelectionToolbarState as FileBrowserSelectionToolbarState } from "@/components/files/FileSelectionToolbar";
 
+import type { Workspace } from "@/lib/workspace";
 import type {
 	FileInfo,
 	FileListItem,
@@ -27,6 +28,7 @@ export interface FileBrowserCopyTarget {
 export interface FileBrowserMoveTarget {
 	fileIds: number[];
 	folderIds: number[];
+	sourceWorkspace: Workspace;
 }
 
 export type FileBrowserArchiveTaskTarget =

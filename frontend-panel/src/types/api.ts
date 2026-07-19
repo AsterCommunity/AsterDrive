@@ -545,6 +545,8 @@ export type BatchResult = components["schemas"]["BatchResult"];
 export type WorkspaceRef = components["schemas"]["WorkspaceRef"];
 export type WorkspaceTransferCopyRequest =
 	components["schemas"]["WorkspaceTransferCopyReq"];
+export type WorkspaceTransferMoveRequest =
+	components["schemas"]["WorkspaceTransferMoveReq"];
 export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type FileQuery = components["schemas"]["FileQuery"];

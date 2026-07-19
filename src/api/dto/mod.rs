@@ -43,6 +43,7 @@ pub use auth::{
 };
 pub use batch::{
     ArchiveCompressReq, ArchiveDownloadReq, BatchCopyReq, BatchDeleteReq, BatchMoveReq,
+    WorkspaceTransferMoveReq,
 };
 pub use files::{
     ChunkPath, CompleteUploadReq, CompletedPartReq, CopyFileReq, CreateEmptyRequest,

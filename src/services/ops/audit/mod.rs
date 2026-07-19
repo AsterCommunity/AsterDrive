@@ -31,7 +31,8 @@ pub use details::{
     TrashPurgeAllAuditDetails, UploadCancelAuditDetails, UserAvatarSourceAuditDetails,
     UserAvatarUploadAuditDetails, UserLoginAuditDetails, UserMfaManageAuditDetails,
     UserPreferencesAuditDetails, UserProfileAuditDetails, UserWopiInfoAuditDetails,
-    WorkspaceTransferCopyDetails, WorkspaceTransferScopeDetails, details,
+    WorkspaceTransferCopyDetails, WorkspaceTransferMoveDetails, WorkspaceTransferScopeDetails,
+    details,
 };
 pub use filters::{AuditLogFilterQuery, AuditLogFilters};
 pub use manager::{

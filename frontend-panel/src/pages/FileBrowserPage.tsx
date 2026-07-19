@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { useParams, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
+import type { BatchTargetFolderSelection } from "@/components/files/BatchTargetFolderDialog";
 import { getImagePreviewNavigation } from "@/components/files/preview/navigation/imagePreviewNavigation";
 import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDialog";
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
@@ -14,6 +15,7 @@ import { handleApiError } from "@/hooks/useApiError";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
+import { formatBatchToast } from "@/lib/formatBatchToast";
 import { runWhenIdle } from "@/lib/idleTask";
 import { workspaceKey } from "@/lib/workspace";
 import { FileBrowserDialogs } from "@/pages/file-browser/FileBrowserDialogs";
@@ -30,7 +32,12 @@ import { useFileBrowserContextValue } from "@/pages/file-browser/useFileBrowserC
 import { useFileBrowserDragAndDrop } from "@/pages/file-browser/useFileBrowserDragAndDrop";
 import { useFileBrowserPageState } from "@/pages/file-browser/useFileBrowserPageState";
 import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
-import { fileService } from "@/services/fileService";
+import {
+	createBatchService,
+	resolveMoveDispatch,
+	singleOperationResult,
+} from "@/services/batchService";
+import { createFileService, fileService } from "@/services/fileService";
 import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
@@ -315,16 +322,51 @@ export default function FileBrowserPage() {
 	});
 
 	const handleMoveConfirm = useCallback(
-		async (targetFolderId: number | null) => {
+		async ({
+			workspace: targetWorkspace,
+			folderId: targetFolderId,
+		}: BatchTargetFolderSelection) => {
 			if (!moveTarget) return;
-			await handleMoveToFolder(
-				moveTarget.fileIds,
-				moveTarget.folderIds,
-				targetFolderId,
-			);
-			setMoveTarget(null);
+			try {
+				const sourceWorkspace = moveTarget.sourceWorkspace;
+				const sourceBatchService = createBatchService(sourceWorkspace);
+				const sourceFileService = createFileService(sourceWorkspace);
+				const result = await resolveMoveDispatch({
+					currentWorkspace: sourceWorkspace,
+					targetWorkspace,
+					fileIds: moveTarget.fileIds,
+					folderIds: moveTarget.folderIds,
+					targetFolderId,
+					dispatcher: {
+						batchMove: sourceBatchService.batchMove,
+						singleFileMove: (fileId, folderId) =>
+							singleOperationResult(
+								sourceFileService.moveFile(fileId, folderId),
+							),
+						singleFolderMove: (folderId, parentId) =>
+							singleOperationResult(
+								sourceFileService.moveFolder(folderId, parentId),
+							),
+						moveToWorkspace: sourceBatchService.moveToWorkspace,
+					},
+				});
+				const batchToast = formatBatchToast(t, "move", result);
+				if (batchToast.variant === "error") {
+					toast.error(batchToast.title, {
+						description: batchToast.description,
+					});
+				} else {
+					toast.success(batchToast.title, {
+						description: batchToast.description,
+					});
+				}
+				setMoveTarget(null);
+				await refresh();
+			} catch (err) {
+				handleApiError(err);
+			}
 		},
-		[handleMoveToFolder, moveTarget, setMoveTarget],
+		[moveTarget, refresh, setMoveTarget, t],
 	);
 	const handleFolderPolicy = useCallback(
 		(folder: FolderListItem) => {

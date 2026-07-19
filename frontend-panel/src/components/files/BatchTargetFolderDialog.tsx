@@ -59,6 +59,7 @@ interface BatchTargetFolderDialogProps {
 	currentFolderId: number | null;
 	initialBreadcrumb: FileBreadcrumbItem[];
 	selectedFolderIds?: number[];
+	sourceWorkspace?: Workspace;
 }
 
 interface WorkspaceOption {
@@ -86,9 +87,11 @@ export function BatchTargetFolderDialog({
 	currentFolderId,
 	initialBreadcrumb,
 	selectedFolderIds = EMPTY_SELECTED_FOLDER_IDS,
+	sourceWorkspace,
 }: BatchTargetFolderDialogProps) {
 	const { t } = useTranslation(["files", "core"]);
-	const currentWorkspace = useWorkspaceStore((state) => state.workspace);
+	const storeWorkspace = useWorkspaceStore((state) => state.workspace);
+	const currentWorkspace = sourceWorkspace ?? storeWorkspace;
 	const user = useAuthStore((state) => state.user);
 	const teams = useTeamStore((state) => state.teams);
 	const teamsLoading = useTeamStore((state) => state.loading);
@@ -215,9 +218,9 @@ export function BatchTargetFolderDialog({
 	]);
 
 	useEffect(() => {
-		if (!open || mode !== "copy") return;
+		if (!open) return;
 		ensureTeamsLoaded(user?.id ?? null).catch(handleApiError);
-	}, [ensureTeamsLoaded, mode, open, user?.id]);
+	}, [ensureTeamsLoaded, open, user?.id]);
 
 	const handleWorkspaceChange = async (value: string | null) => {
 		if (!value) return;
@@ -294,7 +297,7 @@ export function BatchTargetFolderDialog({
 	};
 	const controls = (
 		<div className="space-y-3">
-			{mode === "copy" && (
+			<div>
 				<div className="space-y-1.5">
 					<label
 						htmlFor="batch-target-workspace"
@@ -347,7 +350,7 @@ export function BatchTargetFolderDialog({
 						</SelectContent>
 					</Select>
 				</div>
-			)}
+			</div>
 			<div className="flex items-center justify-between gap-3">
 				<Breadcrumb>
 					<BreadcrumbList>

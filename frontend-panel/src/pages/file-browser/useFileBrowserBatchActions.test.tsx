@@ -15,11 +15,14 @@ const mockState = vi.hoisted(() => ({
 	formatBatchToast: vi.fn(),
 	handleApiError: vi.fn(),
 	moveToFolder: vi.fn(),
+	moveToWorkspace: vi.fn(),
 	refresh: vi.fn(),
 	refreshUser: vi.fn(),
 	selectItems: vi.fn(),
 	selectedFileIds: new Set<number>(),
 	selectedFolderIds: new Set<number>(),
+	singleCopyFile: vi.fn(),
+	singleCopyFolder: vi.fn(),
 	toastError: vi.fn(),
 	toastSuccess: vi.fn(),
 }));
@@ -146,19 +149,31 @@ vi.mock("@/services/batchService", () => ({
 		batchCopy: (...args: unknown[]) => mockState.batchCopy(...args),
 		batchDelete: (...args: unknown[]) => mockState.batchDelete(...args),
 		copyToWorkspace: (...args: unknown[]) => mockState.copyToWorkspace(...args),
+		moveToWorkspace: (...args: unknown[]) => mockState.moveToWorkspace(...args),
 	},
+	createBatchService: () => ({
+		batchMove: (...args: unknown[]) => mockState.moveToFolder(...args),
+		moveToWorkspace: (...args: unknown[]) => mockState.moveToWorkspace(...args),
+	}),
+	singleOperationResult: (promise: Promise<unknown>) =>
+		promise.then(() => ({ succeeded: 1, failed: 0, errors: [] })),
 	resolveCopyDispatch: ({
 		currentWorkspace,
 		fileIds,
 		folderIds,
 		targetFolderId,
 		targetWorkspace,
+		dispatcher,
 	}: {
 		currentWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
 		fileIds: number[];
 		folderIds: number[];
 		targetFolderId: number | null;
 		targetWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		dispatcher: {
+			singleFileCopy: (...args: unknown[]) => unknown;
+			singleFolderCopy: (...args: unknown[]) => unknown;
+		};
 	}) => {
 		const sameWorkspace =
 			currentWorkspace.kind === targetWorkspace.kind &&
@@ -166,15 +181,65 @@ vi.mock("@/services/batchService", () => ({
 				(currentWorkspace.kind === "team" &&
 					targetWorkspace.kind === "team" &&
 					currentWorkspace.teamId === targetWorkspace.teamId));
-		return sameWorkspace
-			? mockState.batchCopy(fileIds, folderIds, targetFolderId)
-			: mockState.copyToWorkspace(
+		if (!sameWorkspace) {
+			return mockState.copyToWorkspace(
+				targetWorkspace,
+				fileIds,
+				folderIds,
+				targetFolderId,
+			);
+		}
+		if (fileIds.length === 1 && folderIds.length === 0) {
+			return dispatcher.singleFileCopy(fileIds[0], targetFolderId);
+		}
+		if (folderIds.length === 1 && fileIds.length === 0) {
+			return dispatcher.singleFolderCopy(folderIds[0], targetFolderId);
+		}
+		return mockState.batchCopy(fileIds, folderIds, targetFolderId);
+	},
+	resolveMoveDispatch: ({
+		currentWorkspace,
+		targetWorkspace,
+		fileIds,
+		folderIds,
+		targetFolderId,
+		dispatcher,
+	}: {
+		currentWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		targetWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		fileIds: number[];
+		folderIds: number[];
+		targetFolderId: number | null;
+		dispatcher: {
+			batchMove: (...args: unknown[]) => unknown;
+			singleFileMove: (...args: unknown[]) => unknown;
+			singleFolderMove: (...args: unknown[]) => unknown;
+			moveToWorkspace: (...args: unknown[]) => unknown;
+		};
+	}) =>
+		currentWorkspace.kind === targetWorkspace.kind &&
+		(currentWorkspace.kind !== "team" ||
+			currentWorkspace.teamId === targetWorkspace.teamId)
+			? fileIds.length === 1 && folderIds.length === 0
+				? dispatcher.singleFileMove(fileIds[0], targetFolderId)
+				: folderIds.length === 1 && fileIds.length === 0
+					? dispatcher.singleFolderMove(folderIds[0], targetFolderId)
+					: dispatcher.batchMove(fileIds, folderIds, targetFolderId)
+			: dispatcher.moveToWorkspace(
 					targetWorkspace,
 					fileIds,
 					folderIds,
 					targetFolderId,
-				);
-	},
+				),
+}));
+
+vi.mock("@/services/fileService", () => ({
+	createFileService: () => ({
+		copyFile: (...args: unknown[]) => mockState.singleCopyFile(...args),
+		copyFolder: (...args: unknown[]) => mockState.singleCopyFolder(...args),
+		moveFile: (...args: unknown[]) => mockState.singleCopyFile(...args),
+		moveFolder: (...args: unknown[]) => mockState.singleCopyFolder(...args),
+	}),
 }));
 
 vi.mock("@/stores/authStore", () => ({
@@ -309,9 +374,12 @@ describe("useFileBrowserBatchActions", () => {
 		mockState.formatBatchToast.mockReset();
 		mockState.handleApiError.mockReset();
 		mockState.moveToFolder.mockReset();
+		mockState.moveToWorkspace.mockReset();
 		mockState.refresh.mockReset();
 		mockState.refreshUser.mockReset();
 		mockState.selectItems.mockReset();
+		mockState.singleCopyFile.mockReset();
+		mockState.singleCopyFolder.mockReset();
 		mockState.toastError.mockReset();
 		mockState.toastSuccess.mockReset();
 		mockState.selectedFileIds = new Set<number>();
@@ -333,6 +401,13 @@ describe("useFileBrowserBatchActions", () => {
 			failed: 0,
 			succeeded: 3,
 		});
+		mockState.moveToWorkspace.mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 3,
+		});
+		mockState.singleCopyFile.mockResolvedValue({ id: 1 });
+		mockState.singleCopyFolder.mockResolvedValue({ id: 5 });
 		mockState.refresh.mockResolvedValue(undefined);
 		mockState.refreshUser.mockResolvedValue(undefined);
 		mockState.formatBatchToast.mockReturnValue({
@@ -562,6 +637,46 @@ describe("useFileBrowserBatchActions", () => {
 		expect(mockState.batchCopy).not.toHaveBeenCalled();
 		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
 		expect(mockState.refresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("moves selected items to a different workspace through workspace transfer", async () => {
+		mockState.selectedFileIds = new Set([1, 2]);
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness />);
+
+		fireEvent.click(screen.getByText("move-selected"));
+		fireEvent.click(screen.getByText("confirm-team-target:move"));
+
+		await waitFor(() => {
+			expect(mockState.moveToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 11 },
+				[1, 2],
+				[5],
+				22,
+			);
+		});
+		expect(mockState.moveToFolder).not.toHaveBeenCalled();
+		expect(mockState.clearSelection).toHaveBeenCalledTimes(1);
+	});
+
+	it("copies one folder through the single-folder endpoint instead of batch copy", async () => {
+		mockState.selectedFileIds = new Set();
+		mockState.selectedFolderIds = new Set([5]);
+		mockStore.selectedFileIds = mockState.selectedFileIds;
+		mockStore.selectedFolderIds = mockState.selectedFolderIds;
+
+		render(<Harness />);
+
+		fireEvent.click(screen.getByText("copy-selected"));
+		fireEvent.click(screen.getByText("confirm-target:copy"));
+
+		await waitFor(() => {
+			expect(mockState.singleCopyFolder).toHaveBeenCalledWith(5, 99);
+		});
+		expect(mockState.batchCopy).not.toHaveBeenCalled();
 	});
 
 	it("moves selected items through a custom handler and handles target failures", async () => {

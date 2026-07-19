@@ -244,8 +244,16 @@ export function useFileBrowserPageState({
 		void BatchTargetFolderDialog.preload();
 		setMoveTarget(
 			type === "file"
-				? { fileIds: [id], folderIds: [] }
-				: { fileIds: [], folderIds: [id] },
+				? {
+						fileIds: [id],
+						folderIds: [],
+						sourceWorkspace: useWorkspaceStore.getState().workspace,
+					}
+				: {
+						fileIds: [],
+						folderIds: [id],
+						sourceWorkspace: useWorkspaceStore.getState().workspace,
+					},
 		);
 	}, []);
 

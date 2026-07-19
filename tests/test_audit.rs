@@ -598,6 +598,7 @@ async fn test_audit_log_recorded_on_batch_actions_after_refactor() {
     let target_folder_id = body["data"]["id"].as_i64().unwrap();
 
     let file_to_copy = upload_test_file_named!(app, token, "copy-me.txt");
+    let file_to_copy_again = upload_test_file_named!(app, token, "copy-me-again.txt");
     let file_to_move = upload_test_file_named!(app, token, "move-me.txt");
     let file_to_delete = upload_test_file_named!(app, token, "delete-me.txt");
 
@@ -606,7 +607,7 @@ async fn test_audit_log_recorded_on_batch_actions_after_refactor() {
         .insert_header(("Cookie", common::access_cookie_header(&token)))
         .insert_header(common::csrf_header_for(&token))
         .set_json(serde_json::json!({
-            "file_ids": [file_to_copy],
+            "file_ids": [file_to_copy, file_to_copy_again],
             "folder_ids": [],
             "target_folder_id": target_folder_id
         }))

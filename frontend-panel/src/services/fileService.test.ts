@@ -90,6 +90,7 @@ describe("fileService", () => {
 		fileService.setFolderLock(7, false);
 		fileService.createEmptyFile("draft.md", 7);
 		fileService.copyFile(8, null);
+		fileService.moveFile(8, 12);
 		fileService.createArchiveExtractTask(8, 7, "bundle");
 		fileService.createOfflineDownloadTask({
 			expected_sha256: "abc123",
@@ -98,6 +99,7 @@ describe("fileService", () => {
 			url: "https://example.com/example.bin",
 		});
 		fileService.copyFolder(7, 3);
+		fileService.moveFolder(7, 4);
 		fileService.listVersions(8);
 		fileService.restoreVersion(8, 2);
 		fileService.deleteVersion(8, 2);
@@ -290,6 +292,22 @@ describe("fileService", () => {
 		expect(teamFileService.imagePreviewPath(8)).toBe(
 			"/teams/9/files/8/image-preview",
 		);
+	});
+
+	it("uses metadata PATCH endpoints for single-item moves", async () => {
+		const { createFileService } = await import("@/services/fileService");
+		const personal = createFileService(PERSONAL_WORKSPACE);
+		const team = createFileService({ kind: "team", teamId: 4 });
+
+		personal.moveFile(8, 12);
+		team.moveFolder(7, null);
+
+		expect(mockState.patch).toHaveBeenNthCalledWith(1, "/files/8", {
+			folder_id: 12,
+		});
+		expect(mockState.patch).toHaveBeenNthCalledWith(2, "/teams/4/folders/7", {
+			parent_id: null,
+		});
 	});
 
 	it("forwards abort signals for folder listing requests", async () => {

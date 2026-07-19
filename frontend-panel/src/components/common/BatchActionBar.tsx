@@ -10,7 +10,14 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
 import type { Workspace } from "@/lib/workspace";
-import { batchService, resolveCopyDispatch } from "@/services/batchService";
+import {
+	batchService,
+	createBatchService,
+	resolveCopyDispatch,
+	resolveMoveDispatch,
+	singleOperationResult,
+} from "@/services/batchService";
+import { createFileService } from "@/services/fileService";
 import type { BreadcrumbItem } from "@/stores/fileStore";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -41,6 +48,8 @@ export function BatchActionBar({
 	const [targetDialogMode, setTargetDialogMode] = useState<
 		"move" | "copy" | null
 	>(null);
+	const [transferSourceWorkspace, setTransferSourceWorkspace] =
+		useState<Workspace | null>(null);
 
 	const fileIds = Array.from(selectedFileIds);
 	const folderIds = Array.from(selectedFolderIds);
@@ -77,10 +86,12 @@ export function BatchActionBar({
 	if (count === 0) return null;
 
 	const handleMove = () => {
+		setTransferSourceWorkspace(useWorkspaceStore.getState().workspace);
 		setTargetDialogMode("move");
 	};
 
 	const handleCopy = () => {
+		setTransferSourceWorkspace(useWorkspaceStore.getState().workspace);
 		setTargetDialogMode("copy");
 	};
 
@@ -113,16 +124,49 @@ export function BatchActionBar({
 		if (!targetDialogMode) return;
 
 		try {
-			const currentWorkspace = useWorkspaceStore.getState().workspace;
+			const currentWorkspace =
+				transferSourceWorkspace ?? useWorkspaceStore.getState().workspace;
+			const sourceBatchService = createBatchService(currentWorkspace);
+			const sourceFileService = createFileService(currentWorkspace);
 			const result =
 				targetDialogMode === "move"
-					? await moveToFolder(fileIds, folderIds, targetFolderId)
+					? await resolveMoveDispatch({
+							currentWorkspace,
+							targetWorkspace,
+							fileIds,
+							folderIds,
+							targetFolderId,
+							dispatcher: {
+								batchMove: moveToFolder,
+								singleFileMove: (fileId, folderId) =>
+									singleOperationResult(
+										sourceFileService.moveFile(fileId, folderId),
+									),
+								singleFolderMove: (folderId, parentId) =>
+									singleOperationResult(
+										sourceFileService.moveFolder(folderId, parentId),
+									),
+								moveToWorkspace: sourceBatchService.moveToWorkspace,
+							},
+						})
 					: await resolveCopyDispatch({
 							currentWorkspace,
 							targetWorkspace,
 							fileIds,
 							folderIds,
 							targetFolderId,
+							dispatcher: {
+								batchCopy: sourceBatchService.batchCopy,
+								copyToWorkspace: sourceBatchService.copyToWorkspace,
+								singleFileCopy: (fileId, folderId) =>
+									singleOperationResult(
+										sourceFileService.copyFile(fileId, folderId),
+									),
+								singleFolderCopy: (folderId, parentId) =>
+									singleOperationResult(
+										sourceFileService.copyFolder(folderId, parentId),
+									),
+							},
 						});
 			const batchToast = formatBatchToast(t, targetDialogMode, result);
 			if (batchToast.variant === "error") {
@@ -132,11 +176,12 @@ export function BatchActionBar({
 					description: batchToast.description,
 				});
 			}
-			if (targetDialogMode === "copy") {
+			if (targetDialogMode === "copy" || targetDialogMode === "move") {
 				clearSelection();
 				await refresh();
 			}
 			setTargetDialogMode(null);
+			setTransferSourceWorkspace(null);
 		} catch (err) {
 			handleApiError(err);
 		}
@@ -194,13 +239,17 @@ export function BatchActionBar({
 			<BatchTargetFolderDialog
 				open={targetDialogMode !== null}
 				onOpenChange={(open) => {
-					if (!open) setTargetDialogMode(null);
+					if (!open) {
+						setTargetDialogMode(null);
+						setTransferSourceWorkspace(null);
+					}
 				}}
 				mode={targetDialogMode ?? "move"}
 				onConfirm={handleTargetConfirm}
 				currentFolderId={currentFolderId}
 				initialBreadcrumb={breadcrumb as BreadcrumbItem[]}
 				selectedFolderIds={folderIds}
+				sourceWorkspace={transferSourceWorkspace ?? undefined}
 			/>
 		</>
 	);

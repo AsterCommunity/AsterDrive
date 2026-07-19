@@ -58,7 +58,7 @@ interface FileBrowserDialogsProps {
 	onFolderPolicyClose: () => void;
 	onFolderPolicyUpdated?: () => void | Promise<void>;
 	onMoveClose: () => void;
-	onMoveConfirm: (targetFolderId: number | null) => Promise<void>;
+	onMoveConfirm: (selection: BatchTargetFolderSelection) => Promise<void>;
 	onOfflineDownloadOpenChange: (open: boolean) => void;
 	onPreviewClose: () => void;
 	onPreviewFileUpdated: () => void | Promise<void>;
@@ -280,10 +280,11 @@ export function FileBrowserDialogs({
 					}}
 					onOpenChangeComplete={handleMoveOpenChangeComplete}
 					mode="move"
-					onConfirm={({ folderId }) => onMoveConfirm(folderId)}
+					onConfirm={onMoveConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={retainedMoveTarget?.folderIds ?? []}
+					sourceWorkspace={retainedMoveTarget?.sourceWorkspace}
 				/>
 			</Suspense>
 

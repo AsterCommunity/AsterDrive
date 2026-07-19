@@ -60,4 +60,19 @@ describe("formatBatchToast", () => {
 				'files:batch_error_detail:{"entityType":"core:file","entityId":1,"error":"denied"}',
 		});
 	});
+
+	it("treats a partial move as an error so a failed source item is not reported as complete", () => {
+		expect(
+			formatBatchToast(t, "move", {
+				succeeded: 1,
+				failed: 1,
+				errors: [{ entity_type: "file", entity_id: 1, error: "denied" }],
+			}),
+		).toEqual({
+			variant: "error",
+			title: 'files:batch_move_partial:{"succeeded":1,"failed":1}',
+			description:
+				'files:batch_error_detail:{"entityType":"core:file","entityId":1,"error":"denied"}',
+		});
+	});
 });
