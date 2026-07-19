@@ -15,6 +15,7 @@ import { cn } from "@/lib/utils";
 import type {
 	MicrosoftGraphCloud,
 	OneDriveAccountMode,
+	ProviderDownloadFilenameMode,
 	ProviderDownloadStrategy,
 	ProviderResumableUploadStrategy,
 } from "@/types/api";
@@ -88,6 +89,22 @@ function getDownloadStrategyOptions(t: Translate) {
 	}>;
 }
 
+function getDownloadFilenameModeOptions(t: Translate) {
+	return [
+		{
+			label: t("provider_download_filename_mode_provider_native"),
+			value: "provider_native",
+		},
+		{
+			label: t("provider_download_filename_mode_strict_current"),
+			value: "strict_current",
+		},
+	] satisfies ReadonlyArray<{
+		label: string;
+		value: ProviderDownloadFilenameMode;
+	}>;
+}
+
 function OneDriveSetupNotice({ t }: { t: Translate }) {
 	return (
 		<div className="flex gap-2 rounded-lg border border-sky-500/25 bg-sky-500/5 p-3 text-xs leading-5 text-muted-foreground">
@@ -134,6 +151,7 @@ export function OneDriveConnectionFields({
 	const accountModeOptions = getAccountModeOptions(t, form.onedrive_cloud);
 	const uploadStrategyOptions = getUploadStrategyOptions(t);
 	const downloadStrategyOptions = getDownloadStrategyOptions(t);
+	const downloadFilenameModeOptions = getDownloadFilenameModeOptions(t);
 
 	return (
 		<div className="space-y-4">
@@ -244,6 +262,42 @@ export function OneDriveConnectionFields({
 										form.provider_download_strategy === "frontend_direct"
 											? "provider_download_strategy_frontend_direct_desc"
 											: "provider_download_strategy_server_relay_desc",
+									)}
+								</p>
+							</div>
+						) : null}
+						{showDownloadStrategy ? (
+							<div className="space-y-2">
+								<Label htmlFor="provider_download_filename_mode">
+									{t("provider_download_filename_mode")}
+								</Label>
+								<Select
+									items={downloadFilenameModeOptions}
+									value={form.provider_download_filename_mode}
+									onValueChange={(value) =>
+										onFieldChange(
+											"provider_download_filename_mode",
+											(value ??
+												"provider_native") as ProviderDownloadFilenameMode,
+										)
+									}
+								>
+									<SelectTrigger id="provider_download_filename_mode">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{downloadFilenameModeOptions.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-xs leading-5 text-muted-foreground">
+									{t(
+										form.provider_download_filename_mode === "strict_current"
+											? "provider_download_filename_mode_strict_current_desc"
+											: "provider_download_filename_mode_provider_native_desc",
 									)}
 								</p>
 							</div>

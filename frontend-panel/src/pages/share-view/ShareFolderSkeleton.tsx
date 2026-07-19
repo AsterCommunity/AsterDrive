@@ -1,21 +1,15 @@
+import { SkeletonFileGrid } from "@/components/common/SkeletonFileGrid";
 import { Skeleton } from "@/components/ui/skeleton";
-import { PAGE_SECTION_PADDING_CLASS } from "@/lib/constants";
+import {
+	Table,
+	TableBody,
+	TableCell,
+	TableHead,
+	TableHeader,
+	TableRow,
+} from "@/components/ui/table";
 import { SharePageShell } from "./ShareViewShell";
 
-const SHARE_GRID_SKELETON_ITEMS = [
-	{ key: "alpha", width: "72%" },
-	{ key: "bravo", width: "54%" },
-	{ key: "charlie", width: "64%" },
-	{ key: "delta", width: "48%" },
-	{ key: "echo", width: "68%" },
-	{ key: "foxtrot", width: "52%" },
-	{ key: "golf", width: "58%" },
-	{ key: "hotel", width: "46%" },
-	{ key: "india", width: "62%" },
-	{ key: "juliet", width: "50%" },
-	{ key: "kilo", width: "66%" },
-	{ key: "lima", width: "56%" },
-];
 const SHARE_TABLE_SKELETON_WIDTHS = [
 	"68%",
 	"52%",
@@ -27,27 +21,75 @@ const SHARE_TABLE_SKELETON_WIDTHS = [
 	"62%",
 ];
 
+function ShareToolbarSkeleton() {
+	return (
+		<div className="border-b border-border/60 bg-card/90 px-3 py-2 shadow-xs dark:bg-card/70 dark:shadow-none sm:px-4 sm:py-2.5">
+			<div className="flex h-9 min-w-0 items-center gap-1.5 rounded-lg bg-background/70 px-2.5 shadow-xs ring-1 ring-border/55 dark:bg-background/25 dark:shadow-none dark:ring-border/60 sm:h-10 sm:gap-2 sm:px-3">
+				<Skeleton className="size-7 shrink-0 rounded-lg sm:size-8" />
+				<div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+					<Skeleton className="h-4 w-28 max-w-[35%]" />
+					<Skeleton className="hidden h-4 w-20 sm:block" />
+				</div>
+				<div className="flex shrink-0 items-center gap-1 border-l border-border/55 pl-1.5 sm:gap-2 sm:pl-2">
+					<Skeleton className="size-7 rounded-lg sm:size-8" />
+					<div className="flex rounded-lg bg-muted/35 p-0.5 ring-1 ring-border/45 dark:bg-muted/25 dark:ring-border/55">
+						<Skeleton className="size-7 rounded-sm sm:size-8" />
+						<Skeleton className="size-7 rounded-sm sm:size-8" />
+					</div>
+				</div>
+			</div>
+		</div>
+	);
+}
+
+function ShareFolderTableSkeleton() {
+	return (
+		<Table>
+			<TableHeader>
+				<TableRow>
+					<TableHead>
+						<Skeleton className="h-4 w-24" />
+					</TableHead>
+					<TableHead className="w-[100px]">
+						<Skeleton className="h-4 w-14" />
+					</TableHead>
+					<TableHead>
+						<Skeleton className="h-4 w-20" />
+					</TableHead>
+					<TableHead className="w-12 pr-3" />
+				</TableRow>
+			</TableHeader>
+			<TableBody>
+				{SHARE_TABLE_SKELETON_WIDTHS.map((width) => (
+					<TableRow key={`share-row-${width}`}>
+						<TableCell>
+							<div className="flex items-center gap-3">
+								<Skeleton className="size-6 shrink-0 rounded-md" />
+								<Skeleton className="h-4" style={{ width }} />
+							</div>
+						</TableCell>
+						<TableCell>
+							<Skeleton className="h-4 w-14" />
+						</TableCell>
+						<TableCell>
+							<Skeleton className="h-4 w-20" />
+						</TableCell>
+						<TableCell className="w-12 pl-0 pr-3" />
+					</TableRow>
+				))}
+			</TableBody>
+		</Table>
+	);
+}
+
 export function ShareLoadingSkeleton() {
 	return (
 		<SharePageShell>
 			<main className="flex min-h-0 flex-1 flex-col overflow-hidden">
-				<div
-					className={`border-b border-border/65 bg-card/55 ${PAGE_SECTION_PADDING_CLASS}`}
-				>
-					<div className="mx-auto flex w-full max-w-7xl items-center gap-3 py-3">
-						<Skeleton className="size-12 rounded-lg" />
-						<div className="min-w-0 flex-1 space-y-2">
-							<Skeleton className="h-5 w-3/5 max-w-lg" />
-							<Skeleton className="h-3 w-72 max-w-full" />
-						</div>
-						<Skeleton className="hidden h-8 w-20 rounded-lg sm:block" />
-					</div>
-				</div>
-				<div className={`min-h-0 flex-1 py-3 ${PAGE_SECTION_PADDING_CLASS}`}>
-					<section className="mx-auto flex h-full w-full max-w-7xl flex-col overflow-hidden rounded-lg border border-border/70 bg-card/65 shadow-xs dark:bg-card/35 dark:shadow-none">
-						<ShareFolderContentSkeleton viewMode="grid" />
-					</section>
-				</div>
+				<ShareToolbarSkeleton />
+				<section className="min-h-0 flex-1 overflow-auto">
+					<ShareFolderContentSkeleton viewMode="grid" />
+				</section>
 			</main>
 		</SharePageShell>
 	);
@@ -58,45 +100,9 @@ export function ShareFolderContentSkeleton({
 }: {
 	viewMode: "grid" | "list";
 }) {
-	if (viewMode === "list") {
-		return (
-			<div className="divide-y divide-border/60">
-				<div className="grid grid-cols-[minmax(0,1fr)_6rem_8rem_2rem] gap-3 px-4 py-3">
-					<Skeleton className="h-4 w-24" />
-					<Skeleton className="h-4 w-14" />
-					<Skeleton className="h-4 w-20" />
-					<Skeleton className="size-4" />
-				</div>
-				{SHARE_TABLE_SKELETON_WIDTHS.map((width) => (
-					<div
-						key={`share-row-${width}`}
-						className="grid grid-cols-[minmax(0,1fr)_6rem_8rem_2rem] items-center gap-3 px-4 py-3"
-					>
-						<div className="flex min-w-0 items-center gap-2">
-							<Skeleton className="size-8 rounded-lg" />
-							<Skeleton className="h-4" style={{ width }} />
-						</div>
-						<Skeleton className="h-4 w-14" />
-						<Skeleton className="h-4 w-20" />
-						<Skeleton className="size-7 rounded-lg" />
-					</div>
-				))}
-			</div>
-		);
-	}
-
-	return (
-		<div className="grid grid-cols-2 gap-3 p-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-			{SHARE_GRID_SKELETON_ITEMS.map((item) => (
-				<div
-					key={`share-grid-${item.key}`}
-					className="rounded-lg border border-border/65 bg-card/70 p-3 shadow-xs dark:bg-card/40 dark:shadow-none"
-				>
-					<Skeleton className="mb-3 aspect-[4/3] w-full rounded-lg" />
-					<Skeleton className="mb-2 h-4" style={{ width: item.width }} />
-					<Skeleton className="h-3 w-1/2" />
-				</div>
-			))}
-		</div>
+	return viewMode === "grid" ? (
+		<SkeletonFileGrid />
+	) : (
+		<ShareFolderTableSkeleton />
 	);
 }

@@ -381,6 +381,7 @@ describe("storage policy dialog helper modules", () => {
 			object_storage_download_strategy: "relay_stream",
 			provider_resumable_upload_strategy: "server_relay",
 			provider_download_strategy: "server_relay",
+			provider_download_filename_mode: "provider_native",
 			s3_path_style: true,
 			onedrive_cloud: "global",
 			onedrive_account_mode: "work_or_school",

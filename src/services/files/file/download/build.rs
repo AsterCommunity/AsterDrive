@@ -185,6 +185,8 @@ async fn build_presigned_redirect_outcome(
             Duration::from_secs(PRESIGNED_DOWNLOAD_TTL_SECS),
             PresignedDownloadOptions {
                 download_name: Some(file.name.clone()),
+                require_download_name_match:
+                    crate::storage::connectors::presigned_download_requires_filename_match(policy)?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),
                 response_content_disposition: Some(disposition.header_value(&file.name)),
                 response_content_type: Some(file.mime_type.clone()),

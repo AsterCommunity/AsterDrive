@@ -25,8 +25,8 @@ use crate::storage::drivers::onedrive::{
     microsoft_graph_upload_capabilities,
 };
 use crate::types::{
-    DriverType, ProviderDownloadStrategy, StorageCredentialKind, StorageCredentialProvider,
-    StorageCredentialStatus, parse_storage_policy_options,
+    DriverType, ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
+    StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
 
 use super::common::{
@@ -142,6 +142,14 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                     true,
                     false,
                     vec!["server_relay", "frontend_direct"],
+                ),
+                storage_connector_field_with_options(
+                    "provider_download_filename_mode",
+                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldKind::Select,
+                    true,
+                    false,
+                    vec!["provider_native", "strict_current"],
                 ),
                 storage_connector_field_with_options(
                     "cloud",
@@ -290,6 +298,12 @@ impl StorageConnector for OneDriveConnector {
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_provider_download_strategy() == ProviderDownloadStrategy::FrontendDirect
+    }
+
+    fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> bool {
+        let options = parse_storage_policy_options(policy.options.as_ref());
+        options.effective_provider_download_filename_mode()
+            == ProviderDownloadFilenameMode::StrictCurrent
     }
 
     fn runtime_credential_requirement() -> Option<StorageConnectorCredentialRequirement> {

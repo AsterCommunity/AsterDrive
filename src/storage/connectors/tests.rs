@@ -386,6 +386,10 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
         "provider_resumable_upload_strategy"
     ));
     assert!(has_policy_option(&onedrive, "provider_download_strategy"));
+    assert!(has_policy_option(
+        &onedrive,
+        "provider_download_filename_mode"
+    ));
 
     let sftp = descriptor(DriverType::Sftp);
     assert!(!has_policy_option(&sftp, "object_storage_upload_strategy"));
@@ -1223,6 +1227,11 @@ fn presigned_download_policy_is_connector_owned() {
         r#"{"provider_download_strategy":"frontend_direct"}"#,
     );
     let relay_onedrive = mock_policy(DriverType::OneDrive, 1024, "{}");
+    let strict_onedrive = mock_policy(
+        DriverType::OneDrive,
+        1024,
+        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#,
+    );
 
     assert!(presigned_download_enabled(&s3).expect("presigned download support should resolve"));
     assert!(
@@ -1236,6 +1245,14 @@ fn presigned_download_policy_is_connector_owned() {
     assert!(
         !presigned_download_enabled(&relay_onedrive)
             .expect("relay download support should resolve")
+    );
+    assert!(
+        !presigned_download_requires_filename_match(&onedrive)
+            .expect("default filename mode should resolve")
+    );
+    assert!(
+        presigned_download_requires_filename_match(&strict_onedrive)
+            .expect("strict filename mode should resolve")
     );
 }
 

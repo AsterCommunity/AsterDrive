@@ -120,21 +120,30 @@ delete files/{upload_uuid}
 
 `PresignedDownloadOptions.download_name` 表示当前逻辑文件名。下载 service 和 file resource handle 都把 `file.name` 传给 presigned driver。
 
-OneDrive driver 只有同时满足下面条件时才返回 Graph 直接下载地址：
+OneDrive 策略还提供 `provider_download_filename_mode`：
+
+| 模式 | 默认值 | 行为 |
+| --- | --- | --- |
+| `provider_native` | 是 | 优先使用 OneDrive 中保存的文件名，尽量保持 Graph 直接下载 |
+| `strict_current` | 否 | 要求远端文件名与 AsterDrive 当前文件名一致，不一致时使用代理流式下载 |
+
+在 `provider_native` 模式下，OneDrive driver 不检查当前文件名是否与远端名称一致。只要 Graph 能为对象返回合法 HTTP(S) 地址，就直接下载；文件重命名后可能仍然返回 OneDrive 中保存的旧文件名，旧的 `files/{uuid}` 对象也可能返回 UUID 文件名。
+
+在 `strict_current` 模式下，OneDrive driver 只有同时满足下面条件时才返回 Graph 直接下载地址：
 
 1. storage path 符合 `files/{uuid}/{filename}`。
 2. path 中的 provider item 文件名等于 `download_name`，或调用方未提供 `download_name`。
 3. Graph 返回合法的 HTTP(S) 下载地址。
 
-以下情况使用 AsterDrive 同源流式下载：
+以下情况使用 AsterDrive 代理流式下载：
 
-- 旧对象 `files/{uuid}`
-- 文件已在 AsterDrive 中重命名
-- 共享 blob 的逻辑文件名与 provider item 文件名不同
+- 严格模式下的旧对象 `files/{uuid}`，因为无法从路径确认远端文件名
+- 严格模式下文件已在 AsterDrive 中重命名
+- 严格模式下共享 blob 的逻辑文件名与 provider item 文件名不同
 - driver 没有 presigned 能力
 - 请求包含需要同源处理的条件请求或 inline sandbox 场景
 
-回退的原因是 Graph 临时地址自己控制响应头。文件重命名后继续返回旧 Graph 地址，会导致浏览器拿到旧文件名或 UUID 文件名；同源流式下载由 AsterDrive 重新设置当前逻辑文件名。
+严格模式回退的原因是 Graph 临时地址自己控制响应头。文件名策略由管理员显式选择，AsterDrive 不会在 `provider_native` 模式下暗中因为旧名称切换下载链路。
 
 ## 旧数据兼容
 
@@ -144,7 +153,7 @@ OneDrive driver 只有同时满足下面条件时才返回 Graph 直接下载地
 files/{upload_uuid}
 ```
 
-路径解析器把这种路径识别为 legacy layout。读取、metadata、stream、range 和删除继续工作；直接下载返回 `None`，由下载 service 走同源流式路径。
+路径解析器把这种路径识别为 legacy layout。读取、metadata、stream、range 和删除继续工作。`provider_native` 模式可以继续请求 Graph 直接下载，`strict_current` 模式因为无法确认远端文件名而使用代理流式下载。
 
 新代码将旧路径继续视为 legacy layout，provider 类型也不承担历史 blob 路径批量改写职责。历史对象迁移需要单独的存储迁移任务和明确的数据库/对象一致性方案。
 
@@ -173,9 +182,11 @@ cargo test --features openapi --test generate_openapi
 - 共享目录已存在时验证目录类型并复用。
 - UUID 目录冲突时不覆盖旧目录。
 - session 创建、small upload、large upload 失败时清理 UUID 目录。
-- 旧扁平路径保持读写兼容，并回退同源下载。
+- 旧扁平路径保持读写兼容；`provider_native` 模式继续使用 Graph 直链，
+  `strict_current` 模式使用代理流式下载。
 - 当前文件名匹配时返回 Graph 直接下载地址。
-- 文件重命名或逻辑文件名不一致时回退同源下载。
+- `provider_native` 模式下文件重命名仍保持 Graph 直接下载。
+- `strict_current` 模式下文件重命名或逻辑文件名不一致时使用代理流式下载。
 - provider session 清理的 abort/delete 四种成功与失败组合都保留结果。
 - OpenAPI schema 与前端生成类型包含 `object_naming`。
 

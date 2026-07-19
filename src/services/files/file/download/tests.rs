@@ -230,6 +230,9 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
             if let Some(value) = options.download_name {
                 query.append_pair("download-name", &value);
             }
+            if options.require_download_name_match {
+                query.append_pair("require-download-name-match", "true");
+            }
             if let Some(value) = options.response_cache_control {
                 query.append_pair("response-cache-control", &value);
             }
@@ -485,6 +488,13 @@ fn provider_direct_download_options() -> StoredStoragePolicyOptions {
     )
 }
 
+fn provider_direct_strict_filename_options() -> StoredStoragePolicyOptions {
+    StoredStoragePolicyOptions::from(
+        r#"{"provider_download_strategy":"frontend_direct","provider_download_filename_mode":"strict_current"}"#
+            .to_string(),
+    )
+}
+
 #[actix_web::test]
 async fn attachment_download_redirects_to_presigned_url_with_attachment_disposition() {
     let payload = b"presigned attachment".to_vec();
@@ -673,6 +683,43 @@ async fn onedrive_direct_download_keeps_range_request_on_redirect_path() {
 
     assert!(matches!(outcome, DownloadOutcome::PresignedRedirect { .. }));
     assert_eq!(get_stream_calls.load(Ordering::SeqCst), 0);
+}
+
+#[actix_web::test]
+async fn onedrive_strict_filename_mode_requires_provider_name_match() {
+    let payload = b"strict filename download".to_vec();
+    let base_driver = CountingStreamDriver::new(payload.clone());
+    let (state, file, blob, _) = build_download_test_state_with_policy(
+        base_driver.with_presigned(),
+        payload_len_i64(&payload),
+        DriverType::OneDrive,
+        provider_direct_strict_filename_options(),
+        "application/octet-stream",
+    )
+    .await;
+
+    let outcome = build_download_outcome_with_disposition_and_range(
+        &state,
+        &file,
+        &blob,
+        DownloadDisposition::Attachment,
+        None,
+        None,
+    )
+    .await
+    .expect("strict OneDrive download should build");
+
+    match outcome {
+        DownloadOutcome::PresignedRedirect { url } => {
+            assert!(url.contains("require-download-name-match=true"));
+        }
+        DownloadOutcome::Stream(_) => {
+            panic!("the mock provider should expose the direct-download decision");
+        }
+        DownloadOutcome::NotModified { .. } => {
+            panic!("a fresh strict filename download cannot be not-modified");
+        }
+    }
 }
 
 #[actix_web::test]

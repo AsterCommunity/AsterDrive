@@ -80,6 +80,15 @@ const labels: Record<string, string> = {
 	provider_download_strategy_frontend_direct_desc: "Download directly.",
 	provider_download_strategy_server_relay: "Server relay download",
 	provider_download_strategy_server_relay_desc: "Download through AsterDrive.",
+	provider_download_filename_mode: "Download filename",
+	provider_download_filename_mode_provider_native:
+		"Prefer the OneDrive filename",
+	provider_download_filename_mode_provider_native_desc:
+		"Prefer direct downloads.",
+	provider_download_filename_mode_strict_current:
+		"Always use the AsterDrive filename",
+	provider_download_filename_mode_strict_current_desc:
+		"Use the current filename.",
 	provider_resumable_upload_strategy: "OneDrive upload strategy",
 	provider_resumable_upload_strategy_frontend_direct:
 		"Direct to Microsoft Graph",
@@ -513,6 +522,9 @@ describe("OneDriveConnectionFields", () => {
 		});
 		fireEvent.click(directOptions[0]);
 		fireEvent.click(directOptions[1]);
+		fireEvent.click(
+			screen.getByRole("button", { name: "select-item:strict_current" }),
+		);
 
 		expect(onFieldChange).toHaveBeenCalledWith(
 			"provider_resumable_upload_strategy",
@@ -521,6 +533,10 @@ describe("OneDriveConnectionFields", () => {
 		expect(onFieldChange).toHaveBeenCalledWith(
 			"provider_download_strategy",
 			"frontend_direct",
+		);
+		expect(onFieldChange).toHaveBeenCalledWith(
+			"provider_download_filename_mode",
+			"strict_current",
 		);
 	});
 });

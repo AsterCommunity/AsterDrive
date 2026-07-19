@@ -120,21 +120,30 @@ Upload-id collision, session encryption failure, database persistence failure, a
 
 `PresignedDownloadOptions.download_name` carries the current logical filename. The download service and file resource handle pass `file.name` to the presigned driver.
 
-The OneDrive driver returns a Graph direct-download URL only when:
+OneDrive policies also expose `provider_download_filename_mode`:
+
+| Mode | Default | Behavior |
+| --- | --- | --- |
+| `provider_native` | Yes | Prefer the filename stored in OneDrive and keep Graph direct downloads available |
+| `strict_current` | No | Require the provider filename to match AsterDrive's current filename; use relay streaming when it does not |
+
+In `provider_native` mode, the OneDrive driver does not compare the current filename with the provider name. Whenever Graph returns a valid HTTP(S) URL, the object is downloaded directly; a renamed file may still use the older OneDrive filename, and a legacy `files/{uuid}` object may expose the UUID filename.
+
+In `strict_current` mode, the OneDrive driver returns a Graph direct-download URL only when:
 
 1. The storage path matches `files/{uuid}/{filename}`.
 2. The provider item filename matches `download_name`, or the caller did not provide a name.
 3. Graph returns a valid HTTP(S) download URL.
 
-The driver returns `None`, and AsterDrive uses same-origin streaming, for:
+The driver returns `None`, and AsterDrive uses relay streaming, for:
 
-- legacy `files/{uuid}` objects
-- files renamed in AsterDrive
-- shared blobs whose logical filename differs from the provider item name
+- legacy `files/{uuid}` objects in strict mode, because the path cannot prove the provider filename
+- files renamed in AsterDrive in strict mode
+- shared blobs whose logical filename differs from the provider item name in strict mode
 - drivers without a presigned capability
 - conditional requests or inline sandbox cases that require same-origin handling
 
-Graph owns the response headers of its temporary URL. After a rename, continuing to return the old Graph URL could expose an old or UUID filename. Same-origin streaming lets AsterDrive apply the current logical filename.
+In strict mode, Graph's temporary URL may expose the old filename because Graph owns its response headers, so AsterDrive uses relay streaming. Filename policy is explicit; `provider_native` mode does not silently switch delivery modes because of a rename.
 
 ## Legacy Compatibility
 
@@ -144,7 +153,7 @@ Existing OneDrive objects may still use:
 files/{upload_uuid}
 ```
 
-The path parser classifies this as the legacy layout. Read, metadata, stream, range, and delete operations remain supported. Direct download returns `None`, so the download service uses the same-origin stream path.
+The path parser classifies this as the legacy layout. Read, metadata, stream, range, and delete operations remain supported. `provider_native` mode can still request a Graph direct download, while `strict_current` mode uses relay streaming because the path cannot prove the provider filename.
 
 New code must not reinterpret a legacy path as `files/{uuid}/{filename}` or bulk-rewrite historical blob paths based only on the provider type. Historical migration requires a separate storage migration task with an explicit database/object consistency plan.
 
@@ -173,9 +182,11 @@ Required behavior coverage:
 - An existing shared folder is verified and reused.
 - A UUID namespace collision does not overwrite the existing folder.
 - Session creation, small upload, and large upload failures clean up the UUID folder.
-- Legacy flat paths remain readable and fall back to same-origin download.
+- Legacy flat paths remain readable. They keep Graph direct download in
+  `provider_native` mode and use relay streaming in `strict_current` mode.
 - Matching named objects return a Graph direct-download URL.
-- Renamed or mismatched logical names fall back to same-origin download.
+- Renamed files remain on Graph direct download in `provider_native` mode.
+- Renamed or mismatched logical names use relay streaming in `strict_current` mode.
 - All four abort/delete cleanup combinations retain the relevant result.
 - OpenAPI and generated frontend types contain `object_naming`.
 

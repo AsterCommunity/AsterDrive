@@ -234,6 +234,12 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         false
     }
 
+    /// Whether provider-native downloads must match AsterDrive's current filename.
+    fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> bool {
+        let _ = policy;
+        false
+    }
+
     /// 对未保存参数执行连接测试。默认实现会先通过 descriptor 检查该 connector 是否支持。
     async fn test_draft_connection<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
         state: &S,
@@ -595,6 +601,22 @@ impl BuiltinStorageConnector {
             Self::TencentCos => TencentCosConnector::presigned_download_enabled(policy),
             Self::Remote => RemoteConnector::presigned_download_enabled(policy),
             Self::OneDrive => OneDriveConnector::presigned_download_enabled(policy),
+        }
+    }
+
+    fn presigned_download_requires_filename_match(self, policy: &storage_policy::Model) -> bool {
+        match self {
+            Self::Local => LocalConnector::presigned_download_requires_filename_match(policy),
+            Self::S3 => S3Connector::presigned_download_requires_filename_match(policy),
+            Self::Sftp => SftpConnector::presigned_download_requires_filename_match(policy),
+            Self::AzureBlob => {
+                AzureBlobConnector::presigned_download_requires_filename_match(policy)
+            }
+            Self::TencentCos => {
+                TencentCosConnector::presigned_download_requires_filename_match(policy)
+            }
+            Self::Remote => RemoteConnector::presigned_download_requires_filename_match(policy),
+            Self::OneDrive => OneDriveConnector::presigned_download_requires_filename_match(policy),
         }
     }
 
@@ -1003,6 +1025,12 @@ pub fn presigned_download_enabled(policy: &storage_policy::Model) -> Result<bool
     Ok(connector_for(policy.driver_type)?
         .connector
         .presigned_download_enabled(policy))
+}
+
+pub fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> Result<bool> {
+    Ok(connector_for(policy.driver_type)?
+        .connector
+        .presigned_download_requires_filename_match(policy))
 }
 
 pub(crate) fn runtime_credential_requirement(

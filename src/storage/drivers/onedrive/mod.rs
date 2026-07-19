@@ -383,24 +383,22 @@ impl PresignedStorageDriver for OneDriveDriver {
         _expires: std::time::Duration,
         options: crate::storage::traits::driver::PresignedDownloadOptions,
     ) -> Result<Option<String>> {
-        let Some(stored_filename) = paths::provider_resumable_filename(path) else {
-            // Legacy OneDrive objects use `files/{uuid}`. Graph controls the
-            // final filename for its download URL, so relay those objects and
-            // let AsterDrive apply the current file name instead.
-            return Ok(None);
-        };
-        if options
-            .download_name
-            .as_deref()
-            .is_some_and(|name| name != stored_filename)
-        {
-            // A file may have been renamed or copied while sharing the same
-            // blob. Relay it so the response keeps the current logical name.
-            return Ok(None);
+        if options.require_download_name_match {
+            let Some(stored_filename) = paths::provider_resumable_filename(path) else {
+                // Legacy objects do not carry a provider filename in their
+                // storage path, so strict filename mode cannot prove a match.
+                return Ok(None);
+            };
+            if options
+                .download_name
+                .as_deref()
+                .is_some_and(|name| name != stored_filename)
+            {
+                return Ok(None);
+            }
         }
         // Graph owns the response headers of its preauthenticated URL. The
-        // generic options are intentionally not appended because Graph does
-        // not support S3-style response-content-* overrides.
+        // generic response-content-* options are intentionally not appended.
         self.client
             .get_download_url(&self.graph_content_path(path)?)
             .await
@@ -767,7 +765,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn legacy_or_renamed_objects_decline_direct_download() {
+    async fn strict_mode_relays_legacy_objects_but_provider_native_mode_uses_graph() {
         let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
             "https://graph.microsoft.com",
             "token",
@@ -776,6 +774,7 @@ mod tests {
         let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
         let options = crate::storage::traits::driver::PresignedDownloadOptions {
             download_name: Some("video.mp4".to_string()),
+            require_download_name_match: true,
             ..Default::default()
         };
 
@@ -790,6 +789,38 @@ mod tests {
                 .expect("legacy path should be classified"),
             None
         );
+
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
+        let driver = lifecycle_driver(&server);
+        let native_options = crate::storage::traits::driver::PresignedDownloadOptions {
+            download_name: Some("video.mp4".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(
+            driver
+                .presigned_url(
+                    "files/550e8400-e29b-41d4-a716-446655440000",
+                    std::time::Duration::from_secs(60),
+                    native_options,
+                )
+                .await
+                .expect("provider-native legacy path should classify")
+                .expect("provider-native filename mode should keep direct download"),
+            "https://download.example/file"
+        );
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn renamed_object_declines_direct_download_when_filename_match_is_required() {
+        let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
+        let driver = lifecycle_driver(&server);
+        let options = crate::storage::traits::driver::PresignedDownloadOptions {
+            download_name: Some("video.mp4".to_string()),
+            require_download_name_match: true,
+            ..Default::default()
+        };
+
         assert_eq!(
             driver
                 .presigned_url(
@@ -798,9 +829,10 @@ mod tests {
                     options,
                 )
                 .await
-                .expect("renamed path should be classified"),
+                .expect("strict filename mode should classify renamed path"),
             None
         );
+        server.stop().await;
     }
 
     #[tokio::test]

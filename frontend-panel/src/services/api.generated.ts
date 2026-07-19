@@ -7059,6 +7059,11 @@ export interface components {
             target_driver_type: components["schemas"]["DriverType"];
         };
         /**
+         * @description Provider-native download filename policy.
+         * @enum {string}
+         */
+        ProviderDownloadFilenameMode: "provider_native" | "strict_current";
+        /**
          * @description Provider-native download transfer strategy.
          * @enum {string}
          */
@@ -7995,6 +8000,7 @@ export interface components {
             onedrive_root_item_id?: string | null;
             onedrive_site_id?: string | null;
             onedrive_tenant?: string | null;
+            provider_download_filename_mode?: null | components["schemas"]["ProviderDownloadFilenameMode"];
             provider_download_strategy?: null | components["schemas"]["ProviderDownloadStrategy"];
             provider_resumable_upload_strategy?: null | components["schemas"]["ProviderResumableUploadStrategy"];
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
