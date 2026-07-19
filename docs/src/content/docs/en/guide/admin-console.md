@@ -19,7 +19,7 @@ After logging in, administrators can enter `Admin` from the user menu in the top
 | Connect another AsterDrive instance as a storage backend | `Admin -> Follower Nodes` | [Follower Nodes](./remote-nodes/) |
 | Connect OIDC / Generic OAuth2 / GitHub / QQ / Google / Microsoft login | `Admin -> External Auth` | This page: [External Auth](#external-auth) |
 | A user lost authenticator and recovery codes | `Admin -> Users -> User Details` | This page: [Users](#users) |
-| Route different users or teams to different storage paths | `Admin -> Policy Groups` | [Storage Policies](/en/config/storage/#how-to-understand-policy-groups) |
+| Route different users or teams to different storage paths | `Admin -> Policy Groups` | [Storage Policies](/en/config/storage/#storage-policies-vs-policy-groups) |
 | Inspect share links or stop abnormal shares | `Admin -> Shares` | This page: [Shares](#shares) |
 | Inspect file records, blob locations, and version references | `Admin -> Files` / `Admin -> File Blob` | This page: [Files and File Blobs](#files-and-file-blobs) |
 | See why background tasks failed | `Admin -> Tasks` | This page: [Tasks](#tasks) |

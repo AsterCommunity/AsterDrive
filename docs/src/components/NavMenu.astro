@@ -1,0 +1,201 @@
+---
+import { getNav, isActiveLink } from '../lib/nav-menu'
+
+const locale = Astro.locals.starlightRoute?.locale
+const nav = getNav(locale)
+const currentPath = Astro.url.pathname
+
+function entryActive(entry: (typeof nav)[number]): boolean {
+	if ('link' in entry) return isActiveLink(currentPath, entry.link)
+	return entry.items.some((item) => isActiveLink(currentPath, item.link))
+}
+---
+
+<nav class="aster-nav" aria-label={locale === 'en' ? 'Sections' : '站点栏目'}>
+	{
+		nav.map((entry) =>
+			'link' in entry ? (
+				<a class:list={['aster-nav-link', { 'is-active': entryActive(entry) }]} href={entry.link}>
+					{entry.label}
+				</a>
+			) : (
+				<div class:list={['aster-nav-dropdown', { 'is-active': entryActive(entry) }]}>
+					<button type="button" class="aster-nav-link aster-nav-trigger" aria-expanded="false">
+						{entry.label}
+						<svg class="aster-nav-caret" width="10" height="6" viewBox="0 0 10 6" aria-hidden="true">
+							<path d="M1 1l4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+						</svg>
+					</button>
+					<ul class="aster-nav-panel">
+						{entry.items.map((item) => (
+							<li>
+								<a class:list={['aster-nav-item', { 'is-active': isActiveLink(currentPath, item.link) }]} href={item.link}>
+									{item.label}
+								</a>
+							</li>
+						))}
+					</ul>
+				</div>
+			)
+		)
+	}
+</nav>
+
+<style>
+	@layer starlight.core {
+		.aster-nav {
+			display: none;
+		}
+
+		@media (min-width: 50rem) {
+			.aster-nav {
+				display: flex;
+				align-items: center;
+				gap: 0.25rem;
+				margin-inline-start: 1rem;
+			}
+
+			.aster-nav-link {
+				display: inline-flex;
+				align-items: center;
+				gap: 0.3rem;
+				padding: 0.3rem 0.55rem;
+				border: 0;
+				border-radius: 0.375rem;
+				background: transparent;
+				color: var(--sl-color-gray-2);
+				font-size: var(--sl-text-sm);
+				font-family: inherit;
+				text-decoration: none;
+				white-space: nowrap;
+				cursor: pointer;
+			}
+
+			.aster-nav-link:hover {
+				color: var(--sl-color-white);
+			}
+
+			.aster-nav-link.is-active,
+			.aster-nav-dropdown.is-active > .aster-nav-trigger {
+				color: var(--sl-color-text-accent);
+				font-weight: 600;
+			}
+
+			.aster-nav-caret {
+				transition: transform 150ms ease;
+			}
+
+			.aster-nav-dropdown {
+				position: relative;
+			}
+
+			.aster-nav-panel {
+				position: absolute;
+				top: 100%;
+				inset-inline-start: 0;
+				z-index: var(--sl-z-index-navbar, 10);
+				min-width: 11rem;
+				margin: 0;
+				padding: 0.4rem;
+				list-style: none;
+				border: 1px solid var(--sl-color-gray-5);
+				border-radius: 0.5rem;
+				background: var(--sl-color-bg-nav);
+				box-shadow: var(--sl-shadow-md);
+				opacity: 0;
+				visibility: hidden;
+				transform: translateY(4px);
+				transition:
+					opacity 150ms ease,
+					transform 150ms ease,
+					visibility 150ms;
+			}
+
+			.aster-nav-dropdown:hover .aster-nav-panel,
+			.aster-nav-dropdown:focus-within .aster-nav-panel,
+			.aster-nav-dropdown[data-open] .aster-nav-panel {
+				opacity: 1;
+				visibility: visible;
+				transform: translateY(0);
+			}
+
+			.aster-nav-dropdown:hover .aster-nav-caret,
+			.aster-nav-dropdown[data-open] .aster-nav-caret {
+				transform: rotate(180deg);
+			}
+
+			.aster-nav-item {
+				display: block;
+				padding: 0.4rem 0.6rem;
+				border-radius: 0.375rem;
+				color: var(--sl-color-gray-2);
+				font-size: var(--sl-text-sm);
+				text-decoration: none;
+				white-space: nowrap;
+			}
+
+			.aster-nav-item:hover {
+				background: var(--sl-color-gray-6);
+				color: var(--sl-color-white);
+			}
+
+			.aster-nav-item.is-active {
+				color: var(--sl-color-text-accent);
+				font-weight: 600;
+			}
+		}
+	}
+</style>
+
+<script>
+	// 触屏设备没有 hover：点击按钮切换下拉，点击外部 / ESC 关闭。
+	// document 级事件委托：view transitions 软导航换掉 header DOM 后依然生效。
+	function setDropdownOpen(dd: HTMLElement, open: boolean) {
+		if (open) {
+			dd.dataset.open = ''
+		} else {
+			delete dd.dataset.open
+		}
+		dd.querySelector('.aster-nav-trigger')?.setAttribute('aria-expanded', String(open))
+	}
+
+	document.addEventListener('click', (event) => {
+		const target = event.target instanceof Element ? event.target : null
+		const trigger = target?.closest('.aster-nav-trigger')
+		const dropdowns = document.querySelectorAll<HTMLElement>('.aster-nav-dropdown')
+
+		if (trigger) {
+			const current = trigger.closest<HTMLElement>('.aster-nav-dropdown')
+			dropdowns.forEach((dd) => setDropdownOpen(dd, dd === current && !dd.dataset.open))
+			return
+		}
+
+		// 点击面板外部时全部收起
+		if (!target?.closest('.aster-nav-dropdown')) {
+			dropdowns.forEach((dd) => setDropdownOpen(dd, false))
+		}
+	})
+
+	document.addEventListener('keydown', (event) => {
+		if (event.key === 'Escape') {
+			document.querySelectorAll<HTMLElement>('.aster-nav-dropdown').forEach((dd) => setDropdownOpen(dd, false))
+		}
+	})
+
+	// header 在软导航间 transition:persist，高亮态由客户端按当前路径同步
+	function syncNavActive() {
+		const normalize = (p: string) => (p.length > 1 ? p.replace(/\/+$/, '') : p)
+		const current = normalize(window.location.pathname)
+
+		document.querySelectorAll<HTMLAnchorElement>('.aster-nav-link[href], .aster-nav-item[href]').forEach((link) => {
+			const active = normalize(link.getAttribute('href') ?? '') === current
+			link.classList.toggle('is-active', active)
+		})
+
+		document.querySelectorAll<HTMLElement>('.aster-nav-dropdown').forEach((dd) => {
+			const active = dd.querySelector('.aster-nav-item.is-active') !== null
+			dd.classList.toggle('is-active', active)
+		})
+	}
+	document.addEventListener('astro:page-load', syncNavActive)
+</script>

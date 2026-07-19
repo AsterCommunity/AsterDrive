@@ -142,7 +142,7 @@ Do not publish aria2 port `6800` to the public internet in production. If host-s
 
 ## Related Pages
 
-- [User Manual: Import from Link](/en/guide/user-guide/#import-from-link)
+- [User Manual: Import Files From Links](/en/guide/user-guide/#import-files-from-links)
 - [Runtime System Settings](/en/config/runtime/)
 - [Docker Deployment](/en/deployment/docker/)
 - [Operations CLI](/en/deployment/ops-cli/)

@@ -10,10 +10,16 @@
     "@astrojs/sitemap": "^3.7.3",
     "@astrojs/starlight": "^0.41.3",
     "astro": "^7.1.1",
-    "sharp": "^0.35.3"
+    "sharp": "^0.35.3",
+    "starlight-announcement": "^1.1.0",
+    "starlight-copy-button": "github:dionysuzx/starlight-copy-button#d570fcab6824127f80076eb419f39fb4fbd9de09",
+    "starlight-links-validator": "^0.25.2",
+    "starlight-llms-txt": "^0.11.0",
+    "starlight-scroll-to-top": "^1.0.1"
   },
   "devDependencies": {
     "@beoe/rehype-mermaid": "^0.4.2",
+    "astro-vtbot": "^3.0.0",
     "mermaid": "^11.16.0",
     "playwright": "^1.61.1"
   },

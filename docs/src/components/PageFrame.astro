@@ -1,0 +1,136 @@
+---
+import MobileMenuToggle from 'virtual:starlight/components/MobileMenuToggle';
+import Sidebar from 'virtual:starlight/components/Sidebar';
+
+const { hasSidebar, entry } = Astro.locals.starlightRoute;
+
+/**
+ * splash 模板（首页）默认 hasSidebar=false，移动端连汉堡按钮都没有。
+ * 这里给 splash 页单独渲染一份仅移动端可见的导航抽屉，桌面端布局不变。
+ */
+const isSplash = entry.data.template === 'splash';
+---
+
+<div class="page sl-flex">
+	<header class="header"><slot name="header" /></header>
+	{
+		hasSidebar && (
+			<nav class="sidebar print:hidden" aria-label={Astro.locals.t('sidebarNav.accessibleLabel')}>
+				<MobileMenuToggle />
+				<div id="starlight__sidebar" class="sidebar-pane">
+					<div class="sidebar-content sl-flex">
+						<slot name="sidebar" />
+					</div>
+				</div>
+			</nav>
+		)
+	}
+	{
+		!hasSidebar && isSplash && (
+			<nav
+				class="sidebar splash-mobile-nav print:hidden"
+				aria-label={Astro.locals.t('sidebarNav.accessibleLabel')}
+			>
+				<MobileMenuToggle />
+				<div id="starlight__sidebar" class="sidebar-pane">
+					<div class="sidebar-content sl-flex">
+						<Sidebar />
+					</div>
+				</div>
+			</nav>
+		)
+	}
+	<div class="main-frame"><slot /></div>
+</div>
+
+<style>
+	@layer starlight.core {
+		.page {
+			flex-direction: column;
+			min-height: 100vh;
+		}
+
+		.header {
+			z-index: var(--sl-z-index-navbar);
+			position: fixed;
+			inset-inline-start: 0;
+			inset-block-start: 0;
+			width: 100%;
+			height: var(--sl-nav-height);
+			border-bottom: 1px solid var(--sl-color-hairline-shade);
+			padding: var(--sl-nav-pad-y) var(--sl-nav-pad-x);
+			padding-inline-end: var(--sl-nav-pad-x);
+			background-color: var(--sl-color-bg-nav);
+		}
+
+		:global([data-has-sidebar]) .header {
+			padding-inline-end: calc(
+				var(--sl-nav-gap) + var(--sl-nav-pad-x) + var(--sl-menu-button-size)
+			);
+		}
+
+		/* splash 页移动端：给汉堡按钮让出右上角空间（默认只对 data-has-sidebar 生效） */
+		.page:has(.splash-mobile-nav) .header {
+			padding-inline-end: calc(
+				var(--sl-nav-gap) + var(--sl-nav-pad-x) + var(--sl-menu-button-size)
+			);
+		}
+
+		.sidebar-pane {
+			visibility: var(--sl-sidebar-visibility, hidden);
+			position: fixed;
+			z-index: var(--sl-z-index-menu);
+			inset-block: var(--sl-nav-height) 0;
+			inset-inline-start: 0;
+			width: 100%;
+			background-color: var(--sl-color-black);
+			overflow-y: auto;
+			scrollbar-gutter: stable;
+		}
+
+		:global([aria-expanded='true']) ~ .sidebar-pane {
+			--sl-sidebar-visibility: visible;
+		}
+
+		.sidebar-content {
+			height: 100%;
+			min-height: max-content;
+			padding: 1rem var(--sl-sidebar-pad-x) 0;
+			flex-direction: column;
+			gap: 1rem;
+		}
+
+		@media (min-width: 50rem) {
+			.sidebar-content::after {
+				content: '';
+				padding-bottom: 1px;
+			}
+
+			/* splash 的移动抽屉在桌面端不显示，布局保持无侧边栏 */
+			.splash-mobile-nav {
+				display: none;
+			}
+
+			.page:has(.splash-mobile-nav) .header {
+				padding-inline-end: var(--sl-nav-pad-x);
+			}
+		}
+
+		.main-frame {
+			padding-top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+			padding-inline-start: var(--sl-content-inline-start);
+		}
+
+		@media (min-width: 50rem) {
+			:global([data-has-sidebar]) .header {
+				padding-inline-end: var(--sl-nav-pad-x);
+			}
+			.sidebar-pane {
+				--sl-sidebar-visibility: visible;
+				width: var(--sl-sidebar-width);
+				background-color: var(--sl-color-bg-sidebar);
+				border-inline-end: 1px solid var(--sl-color-hairline-shade);
+			}
+		}
+	}
+</style>

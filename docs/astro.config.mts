@@ -2,6 +2,11 @@ import { defineConfig } from 'astro/config'
 import starlight from '@astrojs/starlight'
 import sitemap from '@astrojs/sitemap'
 import rehypeMermaid from '@beoe/rehype-mermaid'
+import starlightAnnouncement from 'starlight-announcement'
+import starlightCopyButton from 'starlight-copy-button'
+import starlightLinksValidator from 'starlight-links-validator'
+import starlightLlmsTxt from 'starlight-llms-txt'
+import starlightScrollToTop from 'starlight-scroll-to-top'
 
 const SITE_URL = 'https://drive.astercosm.com'
 const ZH_SITE_DESCRIPTION =
@@ -219,6 +224,68 @@ export default defineConfig({
     starlight({
       title: 'AsterDrive',
       description: ZH_SITE_DESCRIPTION,
+      plugins: [
+        starlightAnnouncement({
+          displayMode: 'first',
+          iconSize: 18,
+          announcements: [
+            {
+              id: 'security-advisory-ghsa-7797-6gjx-hwgh',
+              content: {
+                'zh-CN':
+                  '安全更新：v0.4.0-beta.3 已修复 WebDAV 请求可导致服务进程终止的问题，旧版本实例请尽快升级。',
+                en: 'Security update: v0.4.0-beta.3 fixes a WebDAV request issue that can terminate the server process. Upgrade older instances promptly.'
+              },
+              link: {
+                text: {
+                  'zh-CN': '查看安全公告',
+                  en: 'View advisory'
+                },
+                href: 'https://github.com/AsterCommunity/AsterDrive/security/advisories/GHSA-7797-6gjx-hwgh'
+              },
+              variant: 'caution',
+              dismissible: true,
+              showOn: ['/**']
+            }
+          ]
+        }),
+        {
+          name: 'asterdrive-announcement-zh-cn',
+          hooks: {
+            'config:setup'() {},
+            'i18n:setup'({ injectTranslations }) {
+              injectTranslations({
+                'zh-CN': {
+                  'starlightAnnouncement.dismiss': '关闭',
+                  'starlightAnnouncement.learnMore': '了解更多'
+                }
+              })
+            }
+          }
+        },
+        starlightCopyButton({
+          label: '复制本页 / Copy page',
+          successLabel: '已复制 / Copied',
+          errorLabel: '复制失败 / Copy failed',
+          stateDuration: 1800,
+          iconOnly: true
+        }),
+        starlightLinksValidator({ errorOnRelativeLinks: false }),
+        starlightLlmsTxt(),
+        starlightScrollToTop({
+          position: 'right',
+          tooltipText: {
+            'zh-CN': '返回顶部',
+            en: 'Scroll to top'
+          },
+          smoothScroll: true,
+          threshold: 300,
+          borderRadius: '50',
+          showProgressRing: true,
+          progressRingColor: 'var(--sl-color-accent)',
+          showOnHomepage: true
+        })
+      ],
       logo: {
         light: './src/assets/asterdrive-dark.svg',
         dark: './src/assets/asterdrive-light.svg',
@@ -240,7 +307,9 @@ export default defineConfig({
         themes: ['vitesse-dark', 'vitesse-light']
       },
       components: {
-        Head: './src/components/Head.astro'
+        Head: './src/components/Head.astro',
+        Header: './src/components/Header.astro',
+        PageFrame: './src/components/PageFrame.astro'
       },
       head: [
         { tag: 'meta', attrs: { name: 'theme-color', content: '#0F172A' } },

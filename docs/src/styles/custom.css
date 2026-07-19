@@ -23,6 +23,140 @@ body {
 	text-rendering: optimizeLegibility;
 }
 
+/* 首页 hero：SVG wordmark 替代大标题文字（尺寸对齐原 h1 clamp 字号） */
+
+[data-page-title] .hero-logo {
+	width: auto;
+	height: clamp(3rem, calc(1rem + 8vw), 5.5rem);
+	max-width: 100%;
+	object-fit: contain;
+}
+
+/* 安全公告：保持醒目但克制，避免压过文档导航 */
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] {
+	--sl-announcement-bg: color-mix(in srgb, var(--sl-color-orange) 8%, var(--sl-color-bg-nav));
+	--sl-announcement-border: var(--sl-color-orange);
+	--sl-announcement-accent: var(--sl-color-orange-high);
+	--sl-announcement-icon: var(--sl-color-orange);
+	--sl-announcement-padding-y: 0.45rem;
+	box-shadow: none;
+}
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] .sl-announcement-text {
+	color: var(--sl-color-text);
+}
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] .sl-announcement-link {
+	background: color-mix(in srgb, var(--sl-color-orange) 12%, transparent);
+	color: var(--sl-color-orange-high);
+}
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] .sl-announcement-link:hover {
+	background: color-mix(in srgb, var(--sl-color-orange) 20%, transparent);
+	color: var(--sl-color-orange-high);
+}
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] .sl-announcement-dismiss {
+	color: var(--sl-color-gray-2);
+}
+
+.sl-announcement[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh'] .sl-announcement-dismiss:hover {
+	background: color-mix(in srgb, var(--sl-color-orange) 12%, transparent);
+	color: var(--sl-color-text);
+}
+
+/* 复制本页：与标题同行的低噪声工具按钮 */
+
+.sl-copy-button-row {
+	align-items: center;
+}
+
+.sl-copy-button-controls .sl-copy-button {
+	border-radius: 0.5rem;
+	background: color-mix(in srgb, var(--sl-color-bg-nav) 90%, transparent);
+	color: var(--sl-color-text-accent);
+}
+
+.sl-copy-button-controls .sl-copy-button::before {
+	opacity: 0.28;
+}
+
+/* 返回顶部：覆盖插件偏鲜艳的默认样式，使其融入 Starlight 工具控件 */
+
+html body #scroll-to-top-button.scroll-to-top-button {
+	right: 24px;
+	bottom: 24px;
+	width: 44px;
+	height: 44px;
+	border: 1px solid color-mix(in srgb, var(--sl-color-gray-4) 72%, transparent);
+	background: color-mix(in srgb, var(--sl-color-bg-nav) 88%, transparent);
+	color: var(--sl-color-accent-high);
+	box-shadow:
+		0 1px 2px rgb(15 23 42 / 0.08),
+		0 8px 24px rgb(15 23 42 / 0.12);
+	backdrop-filter: blur(12px) saturate(130%);
+	-webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+
+html body #scroll-to-top-button.scroll-to-top-button:hover {
+	border-color: color-mix(in srgb, var(--sl-color-accent) 52%, var(--sl-color-gray-4));
+	background: color-mix(in srgb, var(--sl-color-bg-nav) 94%, var(--sl-color-accent));
+	color: var(--sl-color-accent);
+	box-shadow:
+		0 2px 4px rgb(15 23 42 / 0.1),
+		0 10px 28px rgb(15 23 42 / 0.16);
+	transform: translateY(-1px) scale(1);
+}
+
+html body #scroll-to-top-button.scroll-to-top-button:active {
+	background: color-mix(in srgb, var(--sl-color-bg-nav) 82%, var(--sl-color-accent));
+	color: var(--sl-color-accent-high);
+	transform: translateY(0) scale(0.96);
+}
+
+html body #scroll-to-top-button.scroll-to-top-button > svg {
+	width: 42px;
+	height: 42px;
+}
+
+html body #scroll-to-top-button.scroll-to-top-button > svg > svg {
+	width: 20px;
+	height: 20px;
+}
+
+html body #scroll-to-top-button .scroll-progress-ring circle {
+	stroke-opacity: 0.58;
+}
+
+:root[data-theme='dark'] body #scroll-to-top-button.scroll-to-top-button {
+	border-color: rgb(148 163 184 / 0.22);
+	background: rgb(15 23 42 / 0.76);
+	color: #bfdbfe;
+	box-shadow:
+		0 1px 2px rgb(0 0 0 / 0.28),
+		0 10px 30px rgb(0 0 0 / 0.34);
+}
+
+:root[data-theme='dark'] body #scroll-to-top-button.scroll-to-top-button:hover {
+	border-color: rgb(96 165 250 / 0.54);
+	background: rgb(23 37 60 / 0.9);
+	color: #dbeafe;
+}
+
+@media (max-width: 768px) {
+	html body #scroll-to-top-button.scroll-to-top-button {
+		right: 16px;
+		bottom: 16px;
+	}
+}
+
+@media (prefers-reduced-motion: reduce) {
+	html body #scroll-to-top-button.scroll-to-top-button {
+		transition: none;
+	}
+}
+
 /* Mermaid 图（@beoe/rehype-mermaid 构建时渲染的 <figure class="beoe mermaid">） */
 
 .sl-markdown-content .beoe.mermaid {

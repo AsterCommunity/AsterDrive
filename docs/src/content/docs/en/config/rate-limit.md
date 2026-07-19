@@ -72,7 +72,7 @@ The same source IP can **send 5 authentication-related requests in a row first**
 
 ## How to Configure It Behind a Reverse Proxy
 
-The default `[network_trust].trusted_proxies = []` is the safest configuration. AsterDrive ignores `X-Forwarded-For` and rate-limits by the actual connection source IP, which prevents forged XFF from bypassing limits. Behind a reverse proxy, however, the server usually sees only the proxy address. See [reverse proxy](/en/deployment/reverse-proxy/#align-these-values-before-going-online) for the full reverse proxy deployment notes.
+The default `[network_trust].trusted_proxies = []` is the safest configuration. AsterDrive ignores `X-Forwarded-For` and rate-limits by the actual connection source IP, which prevents forged XFF from bypassing limits. Behind a reverse proxy, however, the server usually sees only the proxy address. See [reverse proxy](/en/deployment/reverse-proxy/#align-these-values-before-launch) for the full reverse proxy deployment notes.
 
 If your deployment uses:
 

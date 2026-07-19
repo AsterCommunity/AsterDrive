@@ -8,9 +8,9 @@ This page is not a full troubleshooting manual. It routes symptoms to the right 
 
 | Symptom | Read first | Common causes |
 | --- | --- | --- |
-| The service will not start | [Troubleshooting: service will not start](/en/deployment/troubleshooting/#service-will-not-start) | Configuration file path, database connection, port conflict, directory permissions |
+| The service will not start | [Troubleshooting: service will not start](/en/deployment/troubleshooting/#service-does-not-start) | Configuration file path, database connection, port conflict, directory permissions |
 | Health check fails | [First-Start Checklist](/en/deployment/runtime-behavior/) | Database not ready, migrations incomplete, default policy not initialized |
-| You keep getting logged out | [Login and Sessions](/en/config/auth/) / [System Settings](/en/config/runtime/#authentication-and-cookie) | Cookie HTTPS settings, public site URL, reverse proxy Host handling |
+| You keep getting logged out | [Login and Sessions](/en/config/auth/) / [System Settings](/en/config/runtime/#authentication-and-cookies) | Cookie HTTPS settings, public site URL, reverse proxy Host handling |
 | New users cannot log in after registration | [System Settings](/en/config/runtime/#user-management) / [Mail](/en/config/mail/) | Email activation is enabled but mail delivery is not working |
 
 ## Uploads, Downloads, and Storage
@@ -20,14 +20,14 @@ This page is not a full troubleshooting manual. It routes symptoms to the right 
 | Small files upload, large files fail | [Uploads and Large Files](/en/guide/upload-modes/) | Reverse proxy size limit, timeout, chunk size, temporary directory space |
 | Direct-to-object-storage upload fails | [Storage Policies](/en/config/storage/) / [Uploads and Large Files](/en/guide/upload-modes/) | S3 CORS, exposed `ETag`, browser origin not allowed |
 | Follower-node policy upload fails | [Follower Nodes](/en/guide/remote-nodes/) | Transport not reachable, wrong direct URL, default remote storage target not applied |
-| Capacity looks wrong | [Operations CLI: doctor](/en/deployment/ops-cli/#deployment-checks-doctor) | Storage usage counters drifted and need a deep check |
+| Capacity looks wrong | [Operations CLI: doctor](/en/deployment/ops-cli/#deployment-check-doctor) | Storage usage counters drifted and need a deep check |
 
 ## Sharing, WebDAV, and Online Editing
 
 | Symptom | Read first | Common causes |
 | --- | --- | --- |
 | Share link uses the wrong domain | [System Settings: public site URL](/en/config/runtime/#site-configuration) | Public site URL is empty, or the first entry is not the primary public entry point |
-| WebDAV cannot connect | [WebDAV](/en/config/webdav/) / [Reverse Proxy](/en/deployment/reverse-proxy/#what-not-to-miss-when-proxying-webdav) | Proxy does not pass WebDAV methods, path prefix, or upload limit correctly |
+| WebDAV cannot connect | [WebDAV](/en/config/webdav/) / [Reverse Proxy](/en/deployment/reverse-proxy/#do-not-miss-these-when-proxying-webdav) | Proxy does not pass WebDAV methods, path prefix, or upload limit correctly |
 | Office files will not open | [File Editing](/en/guide/editing/) / [System Settings: preview apps](/en/config/runtime/#site-configuration) | WOPI service cannot call back to AsterDrive; public site URL or CORS is wrong |
 | Page looks broken after an upgrade | [Frontend Asset Cache](/en/deployment/frontend-assets/) | Browser, CDN, or proxy cached old assets |
 

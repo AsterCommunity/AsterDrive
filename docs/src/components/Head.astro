@@ -1,8 +1,16 @@
 ---
 import Default from '@astrojs/starlight/components/Head.astro'
+import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro'
 ---
 
-<Default {...Astro.props}><slot /></Default>
+<!--
+  CSR 式软导航：ClientRouter + ReplacementSwap + StarlightConnector。
+  Starlight 官方不支持 view transitions，这里用 astro-vtbot 的封装处理
+  搜索/侧边栏当前页等状态在软导航后的重建。
+-->
+<VtbotStarlight>
+	<Default {...Astro.props}><slot /></Default>
+</VtbotStarlight>
 
 <script>
 	// Mermaid 点击缩放浮层
@@ -50,4 +58,21 @@ import Default from '@astrojs/starlight/components/Head.astro'
 	document.addEventListener('keydown', (event) => {
 		if (event.key === 'Escape') closeDiagramZoom()
 	})
+
+	// 首页（splash，无侧边栏框架）与文档页之间的跳转强制整页加载。
+	// vtbot 的 ReplacementSwap 会保留侧边栏框架，跨过这条边界软导航会导致
+	// 侧边栏不出现 / 不消失。站内其他软导航不受影响。
+	function markBoundaryLinks() {
+		const isSplash = !document.documentElement.hasAttribute('data-has-sidebar')
+		document.querySelectorAll('a[href^="/"]').forEach((link) => {
+			const href = link.getAttribute('href') ?? ''
+			const toHome = href === '/' || href === '/en/' || href === '/en'
+			if (isSplash || toHome) {
+				link.setAttribute('data-astro-reload', '')
+			} else {
+				link.removeAttribute('data-astro-reload')
+			}
+		})
+	}
+	document.addEventListener('astro:page-load', markBoundaryLinks)
 </script>
