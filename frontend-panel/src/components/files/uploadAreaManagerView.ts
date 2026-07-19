@@ -27,6 +27,7 @@ function getModeLabel(task: UploadTask) {
 	if (task.mode === "chunked") return "Chunked";
 	if (task.mode === "presigned") return "Presigned";
 	if (task.mode === "presigned_multipart") return "Presigned Multipart";
+	if (task.mode === "provider_resumable") return "Provider Resumable";
 	if (task.mode === "direct") return "Direct";
 	return "Pending";
 }
@@ -115,7 +116,9 @@ export function buildUploadTaskViews({
 				}))
 			: task.status === "failed"
 				? (task.error ?? t("files:upload_failed"))
-				: (task.mode === "chunked" || task.mode === "presigned_multipart") &&
+				: (task.mode === "chunked" ||
+							task.mode === "presigned_multipart" ||
+							task.mode === "provider_resumable") &&
 						task.status === "uploading"
 					? t("files:upload_chunk_status", {
 							current: task.completedChunks ?? 0,

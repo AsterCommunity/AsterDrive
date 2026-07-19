@@ -61,6 +61,11 @@ type PresignedUploadOptions = {
 	requireEtag?: boolean;
 };
 
+type ProviderResumableUploadOptions = {
+	onCreateXhr?: (xhr: XMLHttpRequest) => void;
+	onProgress?: (loaded: number, total: number) => void;
+};
+
 function isRetryableHttpStatus(status: number): boolean {
 	return status === 408 || status === 429 || status >= 500;
 }
@@ -347,6 +352,72 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						}),
 					);
 				xhr.send(file);
+			});
+		},
+
+		providerResumableUpload: (
+			uploadUrl: string,
+			data: Blob,
+			start: number,
+			totalSize: number,
+			options: ProviderResumableUploadOptions = {},
+		): Promise<void> => {
+			return new Promise((resolve, reject) => {
+				if (data.size === 0) {
+					reject(
+						new UploadRequestError("provider upload chunk cannot be empty", {
+							retryable: false,
+						}),
+					);
+					return;
+				}
+				const xhr = new XMLHttpRequest();
+				options.onCreateXhr?.(xhr);
+				xhr.open("PUT", uploadUrl);
+				xhr.withCredentials = false;
+				xhr.setRequestHeader("Content-Type", "application/octet-stream");
+				const end = start + data.size - 1;
+				xhr.setRequestHeader(
+					"Content-Range",
+					`bytes ${start}-${end}/${totalSize}`,
+				);
+
+				if (options.onProgress) {
+					xhr.upload.onprogress = (event) => {
+						if (event.lengthComputable) {
+							options.onProgress?.(event.loaded, event.total);
+						}
+					};
+				}
+
+				xhr.onload = () => {
+					if (xhr.status >= 200 && xhr.status < 300) {
+						resolve();
+						return;
+					}
+					reject(
+						new UploadRequestError(
+							parseApiMessage(xhr.responseText) ??
+								`Provider upload failed: ${xhr.status}`,
+							{
+								status: xhr.status,
+								retryable:
+									xhr.status === 416 || isRetryableHttpStatus(xhr.status),
+							},
+						),
+					);
+				};
+				xhr.onerror = () =>
+					reject(new UploadRequestError("network error", { retryable: true }));
+				xhr.onabort = () =>
+					reject(
+						new UploadRequestError("upload aborted", {
+							isAborted: true,
+							retryable: false,
+							status: xhr.status,
+						}),
+					);
+				xhr.send(data);
 			});
 		},
 	};

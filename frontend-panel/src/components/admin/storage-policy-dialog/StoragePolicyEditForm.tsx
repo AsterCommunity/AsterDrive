@@ -38,6 +38,7 @@ import type {
 	StoragePolicyCredentialInfo,
 } from "@/types/api";
 import {
+	descriptorHasPolicyOptionField,
 	supportsApplicationCredentials,
 	supportsContentDedupPolicyOption,
 	supportsCredentialValidationAction,
@@ -312,6 +313,10 @@ export function StoragePolicyEditForm({
 								form={form}
 								showApplicationFields={canUseApplicationCredentials}
 								showPolicyOptionFields={canUseOneDrivePolicyOptions}
+								showUploadStrategy={descriptorHasPolicyOptionField(
+									storageDriverDescriptor,
+									"provider_resumable_upload_strategy",
+								)}
 								t={t}
 								onFieldChange={onFieldChange}
 							/>

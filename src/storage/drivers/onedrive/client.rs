@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
 use reqwest::StatusCode;
 use reqwest::header::{AUTHORIZATION, CONTENT_LENGTH, CONTENT_TYPE, LOCATION, RANGE};
@@ -84,9 +84,13 @@ pub struct MicrosoftGraphDrive {
 }
 
 #[derive(Debug, Deserialize)]
-struct MicrosoftGraphUploadSession {
+pub struct MicrosoftGraphUploadSession {
     #[serde(rename = "uploadUrl")]
-    upload_url: String,
+    pub upload_url: String,
+    #[serde(default, rename = "expirationDateTime")]
+    pub expires_at: Option<DateTime<Utc>>,
+    #[serde(default, rename = "nextExpectedRanges")]
+    pub next_expected_ranges: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -283,7 +287,10 @@ impl MicrosoftGraphClient {
         Ok(())
     }
 
-    pub async fn create_upload_session(&self, upload_session_path: &str) -> Result<String> {
+    pub async fn create_upload_session(
+        &self,
+        upload_session_path: &str,
+    ) -> Result<MicrosoftGraphUploadSession> {
         let url = self.url(upload_session_path)?;
         let response = self
             .send_with_auth("create OneDrive upload session", |access_token| {
@@ -313,7 +320,46 @@ impl MicrosoftGraphClient {
                 "Microsoft Graph returned empty uploadUrl",
             ));
         }
-        Ok(session.upload_url)
+        Ok(session)
+    }
+
+    pub async fn query_upload_session(
+        &self,
+        upload_url: &str,
+    ) -> Result<MicrosoftGraphUploadSession> {
+        let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
+        let response = self
+            .http
+            .get(url)
+            .send()
+            .await
+            .map_err(|err| map_reqwest_error("query OneDrive upload session", err))?;
+        let response = self
+            .ensure_success(response, "query OneDrive upload session")
+            .await?;
+        response
+            .json::<MicrosoftGraphUploadSession>()
+            .await
+            .map_aster_err_ctx(
+                "query OneDrive upload session: invalid Microsoft Graph JSON",
+                AsterError::storage_driver_error,
+            )
+    }
+
+    pub async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
+        let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
+        let response = self
+            .http
+            .delete(url)
+            .send()
+            .await
+            .map_err(|err| map_reqwest_error("abort OneDrive upload session", err))?;
+        if response.status() == StatusCode::NOT_FOUND {
+            return Ok(());
+        }
+        self.ensure_success(response, "abort OneDrive upload session")
+            .await?;
+        Ok(())
     }
 
     pub async fn upload_session_fragment(
@@ -593,6 +639,30 @@ mod tests {
     use std::net::TcpListener;
     use std::sync::{Arc, Mutex};
 
+    #[derive(Default)]
+    struct UploadProtocolState {
+        methods: Vec<String>,
+        paths: Vec<String>,
+        auth_headers: Vec<Option<String>>,
+        content_ranges: Vec<Option<String>>,
+        content_lengths: Vec<Option<String>>,
+        bodies: Vec<Vec<u8>>,
+    }
+
+    struct UploadProtocolTestServer {
+        base_url: String,
+        state: Arc<Mutex<UploadProtocolState>>,
+        handle: actix_web::dev::ServerHandle,
+        task: tokio::task::JoinHandle<std::io::Result<()>>,
+    }
+
+    impl UploadProtocolTestServer {
+        async fn stop(self) {
+            self.handle.stop(true).await;
+            let _ = self.task.await;
+        }
+    }
+
     struct TestHttpServer {
         base_url: String,
         ranges: Arc<Mutex<Vec<Option<String>>>>,
@@ -819,6 +889,76 @@ mod tests {
         }
     }
 
+    async fn spawn_upload_protocol_server() -> UploadProtocolTestServer {
+        async fn protocol(
+            req: HttpRequest,
+            body: web::Bytes,
+            state: web::Data<Arc<Mutex<UploadProtocolState>>>,
+        ) -> HttpResponse {
+            let method = req.method().to_string();
+            let path = req.uri().path().to_string();
+            let authorization = req
+                .headers()
+                .get("authorization")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let content_range = req
+                .headers()
+                .get("content-range")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let content_length = req
+                .headers()
+                .get("content-length")
+                .and_then(|value| value.to_str().ok())
+                .map(str::to_string);
+            let host = req.connection_info().host().to_string();
+            let mut state = state.lock().expect("upload protocol state lock");
+            state.methods.push(method.clone());
+            state.paths.push(path);
+            state.auth_headers.push(authorization);
+            state.content_ranges.push(content_range);
+            state.content_lengths.push(content_length);
+            state.bodies.push(body.to_vec());
+            drop(state);
+
+            match method.as_str() {
+                "POST" | "GET" => HttpResponse::Ok().json(serde_json::json!({
+                    "uploadUrl": format!("http://{host}/upload-session"),
+                    "expirationDateTime": "2026-07-20T00:00:00Z",
+                    "nextExpectedRanges": ["655360-"]
+                })),
+                "DELETE" => HttpResponse::NotFound().finish(),
+                "PUT" => HttpResponse::Accepted().finish(),
+                _ => HttpResponse::MethodNotAllowed().finish(),
+            }
+        }
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).expect("listener should bind");
+        let base_url = format!(
+            "http://{}",
+            listener.local_addr().expect("listener addr should exist")
+        );
+        let state = Arc::new(Mutex::new(UploadProtocolState::default()));
+        let state_data = web::Data::new(state.clone());
+        let server = HttpServer::new(move || {
+            App::new()
+                .app_data(state_data.clone())
+                .default_service(web::to(protocol))
+        })
+        .listen(listener)
+        .expect("server should listen")
+        .run();
+        let handle = server.handle();
+        let task = tokio::spawn(server);
+        UploadProtocolTestServer {
+            base_url,
+            state,
+            handle,
+            task,
+        }
+    }
+
     #[tokio::test]
     async fn content_redirect_is_followed_before_reading_bytes() {
         let server = spawn_content_redirect_server().await;
@@ -966,6 +1106,113 @@ mod tests {
         server.stop().await;
     }
 
+    #[tokio::test]
+    async fn create_upload_session_sends_graph_auth_and_replace_conflict_behavior() {
+        let server = spawn_upload_protocol_server().await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "server-oauth-token",
+        ))
+        .expect("client should build");
+
+        let session = client
+            .create_upload_session(
+                "/drives/drive-id/items/root-id:/files/upload-1:/createUploadSession",
+            )
+            .await
+            .expect("upload session should be created");
+
+        assert_eq!(
+            session.upload_url,
+            format!("{}/upload-session", server.base_url)
+        );
+        assert_eq!(session.next_expected_ranges, vec!["655360-".to_string()]);
+        {
+            let state = server.state.lock().expect("upload protocol state lock");
+            assert_eq!(state.methods, vec!["POST"]);
+            assert_eq!(
+                state.paths,
+                vec!["/v1.0/drives/drive-id/items/root-id:/files/upload-1:/createUploadSession"]
+            );
+            assert_eq!(
+                state.auth_headers,
+                vec![Some("Bearer server-oauth-token".to_string())]
+            );
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&state.bodies[0])
+                    .expect("request body should be JSON"),
+                serde_json::json!({
+                    "item": {
+                        "@microsoft.graph.conflictBehavior": "replace"
+                    }
+                })
+            );
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn provider_upload_fragment_uses_range_headers_without_oauth() {
+        let server = spawn_upload_protocol_server().await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "server-oauth-token",
+        ))
+        .expect("client should build");
+
+        client
+            .upload_session_fragment(
+                &format!("{}/upload-session", server.base_url),
+                320 * 1024,
+                1024 * 1024,
+                vec![1, 2, 3, 4],
+            )
+            .await
+            .expect("provider fragment should upload");
+
+        {
+            let state = server.state.lock().expect("upload protocol state lock");
+            assert_eq!(state.methods, vec!["PUT"]);
+            assert_eq!(state.auth_headers, vec![None]);
+            assert_eq!(
+                state.content_ranges,
+                vec![Some("bytes 327680-327683/1048576".to_string())]
+            );
+            assert_eq!(state.content_lengths, vec![Some("4".to_string())]);
+            assert_eq!(state.bodies, vec![vec![1, 2, 3, 4]]);
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
+    async fn provider_upload_session_status_and_not_found_abort_are_supported() {
+        let server = spawn_upload_protocol_server().await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "server-oauth-token",
+        ))
+        .expect("client should build");
+        let upload_url = format!("{}/upload-session", server.base_url);
+
+        let status = client
+            .query_upload_session(&upload_url)
+            .await
+            .expect("provider status should be queryable");
+        assert_eq!(status.next_expected_ranges, vec!["655360-".to_string()]);
+
+        client
+            .abort_upload_session(&upload_url)
+            .await
+            .expect("a missing provider session is already canceled");
+
+        {
+            let state = server.state.lock().expect("upload protocol state lock");
+            assert_eq!(state.methods, vec!["GET", "DELETE"]);
+            assert_eq!(state.auth_headers, vec![None, None]);
+        }
+        server.stop().await;
+    }
+
     #[test]
     fn range_header_formats_bounded_and_open_ranges() {
         assert_eq!(range_header(None, None).unwrap(), None);
@@ -976,6 +1223,46 @@ mod tests {
         assert_eq!(
             range_header(Some(10), None).unwrap().as_deref(),
             Some("bytes=10-")
+        );
+    }
+
+    #[test]
+    fn provider_fragment_rejects_empty_data_and_range_overflow() {
+        let empty = futures::executor::block_on(async {
+            let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+                "https://graph.microsoft.com",
+                "token",
+            ))
+            .expect("client should build");
+            client
+                .upload_session_fragment("https://upload.example/session", 0, 1, Vec::new())
+                .await
+                .unwrap_err()
+        });
+        assert_eq!(
+            empty.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+
+        let overflow = futures::executor::block_on(async {
+            let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+                "https://graph.microsoft.com",
+                "token",
+            ))
+            .expect("client should build");
+            client
+                .upload_session_fragment(
+                    "https://upload.example/session",
+                    u64::MAX,
+                    u64::MAX,
+                    vec![1],
+                )
+                .await
+                .unwrap_err()
+        });
+        assert_eq!(
+            overflow.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
         );
     }
 

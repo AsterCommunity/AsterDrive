@@ -7,6 +7,7 @@ use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::resolve_upload_session_kind;
+use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::files::upload::shared::{
     UploadStorageErrorClass, classify_upload_storage_error, cleanup_upload_temp_dir,
@@ -141,6 +142,7 @@ async fn cleanup_remote_upload_state(
                     | UploadSessionKind::RemoteRelayMultipart
                     | UploadSessionKind::RemotePresignedSingle
                     | UploadSessionKind::RemotePresignedMultipart
+                    | UploadSessionKind::ProviderDirectResumable
             )
         {
             return UploadRemoteCleanupOutcome::Complete;
@@ -172,6 +174,40 @@ async fn cleanup_remote_upload_state(
             return blocked_cleanup_outcome(&error);
         }
     };
+
+    if kind == Some(UploadSessionKind::ProviderDirectResumable) {
+        let secret = match decrypt_provider_session(state, session) {
+            Ok(secret) => secret,
+            Err(error) => {
+                tracing::warn!(
+                    session_id = %session.id,
+                    "failed to decrypt provider upload session for cleanup: {error}"
+                );
+                return UploadRemoteCleanupOutcome::DeferredIntervention;
+            }
+        };
+        let Some(provider) = driver.as_provider_resumable_upload() else {
+            tracing::warn!(
+                session_id = %session.id,
+                "provider resumable driver is unavailable during upload cleanup"
+            );
+            return UploadRemoteCleanupOutcome::DeferredIntervention;
+        };
+        if let Err(error) = provider
+            .abort_frontend_upload_session(&secret.upload_url)
+            .await
+        {
+            let outcome = log_blocked_remote_cleanup(
+                &session.id,
+                Some(temp_key),
+                "failed to abort provider upload session",
+                &error,
+            );
+            if !outcome.is_complete() {
+                return outcome;
+            }
+        }
+    }
 
     if let Some(multipart_id) = session.object_multipart_id.as_deref() {
         if let Some(multipart) = driver.as_multipart()

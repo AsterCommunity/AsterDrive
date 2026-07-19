@@ -4637,6 +4637,7 @@ export interface components {
                 chunk_size: number;
                 chunks_on_disk: number[];
                 filename: string;
+                provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                 /** Format: int32 */
                 received_count: number;
                 status: components["schemas"]["UploadSessionStatus"];
@@ -5850,6 +5851,7 @@ export interface components {
             presigned_require_etag?: boolean | null;
             /** @description Presigned PUT URL（仅 presigned 模式） */
             presigned_url?: string | null;
+            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
             /** Format: int32 */
             total_chunks?: number | null;
             upload_id?: string | null;
@@ -7056,6 +7058,16 @@ export interface components {
             endpoint: string;
             target_driver_type: components["schemas"]["DriverType"];
         };
+        ProviderResumableUploadResponse: {
+            expires_at?: string | null;
+            next_expected_ranges: string[];
+            upload_url: string;
+        };
+        /**
+         * @description Provider-native resumable upload transfer strategy.
+         * @enum {string}
+         */
+        ProviderResumableUploadStrategy: "server_relay" | "frontend_direct";
         PublicBranding: {
             allow_user_registration: boolean;
             description: string;
@@ -7974,6 +7986,7 @@ export interface components {
             onedrive_root_item_id?: string | null;
             onedrive_site_id?: string | null;
             onedrive_tenant?: string | null;
+            provider_resumable_upload_strategy?: null | components["schemas"]["ProviderResumableUploadStrategy"];
             remote_download_strategy?: null | components["schemas"]["RemoteDownloadStrategy"];
             remote_upload_strategy?: null | components["schemas"]["RemoteUploadStrategy"];
             /** Format: int64 */
@@ -8517,12 +8530,13 @@ export interface components {
          * @description 上传模式（不存 DB，仅 API 响应用）
          * @enum {string}
          */
-        UploadMode: "direct" | "chunked" | "presigned" | "presigned_multipart";
+        UploadMode: "direct" | "chunked" | "presigned" | "presigned_multipart" | "provider_resumable";
         UploadProgressResponse: {
             /** Format: int64 */
             chunk_size: number;
             chunks_on_disk: number[];
             filename: string;
+            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
             /** Format: int32 */
             received_count: number;
             status: components["schemas"]["UploadSessionStatus"];
@@ -8557,6 +8571,7 @@ export interface components {
             policy_id: number;
             /** Format: int32 */
             received_count: number;
+            session_kind?: null | components["schemas"]["UploadSessionKind"];
             status: components["schemas"]["UploadSessionStatus"];
             /** Format: int64 */
             team_id?: number | null;
@@ -8568,6 +8583,14 @@ export interface components {
             /** Format: int64 */
             user_id: number;
         };
+        /**
+         * @description Persisted data plane for an upload session.
+         *
+         *     `None` is reserved for sessions created before this column existed. New sessions must always
+         *     persist a kind so lifecycle code does not infer the data plane from nullable provider fields.
+         * @enum {string}
+         */
+        UploadSessionKind: "offset_staging" | "stream_staging" | "provider_relay_multipart" | "provider_presigned_single" | "provider_presigned_multipart" | "remote_relay_multipart" | "remote_presigned_single" | "remote_presigned_multipart" | "provider_direct_resumable" | "legacy_chunk_files";
         /**
          * @description 上传 session 状态
          * @enum {string}
@@ -17087,6 +17110,7 @@ export interface operations {
                             presigned_require_etag?: boolean | null;
                             /** @description Presigned PUT URL（仅 presigned 模式） */
                             presigned_url?: string | null;
+                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
@@ -17135,6 +17159,7 @@ export interface operations {
                             /** Format: int64 */
                             folder_id?: number | null;
                             mode: components["schemas"]["UploadMode"];
+                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];
@@ -22898,6 +22923,7 @@ export interface operations {
                             presigned_require_etag?: boolean | null;
                             /** @description Presigned PUT URL（仅 presigned 模式） */
                             presigned_url?: string | null;
+                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
@@ -22956,6 +22982,7 @@ export interface operations {
                             /** Format: int64 */
                             folder_id?: number | null;
                             mode: components["schemas"]["UploadMode"];
+                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];
@@ -23015,6 +23042,7 @@ export interface operations {
                             chunk_size: number;
                             chunks_on_disk: number[];
                             filename: string;
+                            provider_resumable?: null | components["schemas"]["ProviderResumableUploadResponse"];
                             /** Format: int32 */
                             received_count: number;
                             status: components["schemas"]["UploadSessionStatus"];

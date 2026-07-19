@@ -24,6 +24,13 @@ describe("uploadResume", () => {
 		expect(getResumePlan("presigned_multipart", "failed")).toBe("restart");
 	});
 
+	it("maps provider resumable statuses to sequential resume or completion", () => {
+		expect(getResumePlan("provider_resumable", "uploading")).toBe("upload");
+		expect(getResumePlan("provider_resumable", "assembling")).toBe("complete");
+		expect(getResumePlan("provider_resumable", "completed")).toBe("complete");
+		expect(getResumePlan("provider_resumable", "failed")).toBe("restart");
+	});
+
 	it("maps direct and single-request presigned statuses conservatively", () => {
 		const statuses: UploadSessionStatus[] = [
 			"uploading",
@@ -49,6 +56,9 @@ describe("uploadResume", () => {
 			SERVER_FINALIZE_PROGRESS,
 		);
 		expect(getProcessingProgress("presigned")).toBe(SERVER_FINALIZE_PROGRESS);
+		expect(getProcessingProgress("provider_resumable")).toBe(
+			SERVER_FINALIZE_PROGRESS,
+		);
 		expect(getProcessingProgress("direct")).toBe(SERVER_FINALIZE_PROGRESS);
 		expect(getProcessingProgress(null)).toBe(SERVER_FINALIZE_PROGRESS);
 	});

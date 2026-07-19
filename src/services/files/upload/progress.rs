@@ -12,8 +12,10 @@ use crate::errors::{
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::{mode_for_kind, resolve_upload_session_kind};
+use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::responses::{
-    RecoverableUploadPartResponse, RecoverableUploadSessionResponse, UploadProgressResponse,
+    ProviderResumableUploadResponse, RecoverableUploadPartResponse,
+    RecoverableUploadSessionResponse, UploadProgressResponse,
 };
 use crate::services::files::upload::scope::{
     load_upload_session, load_upload_session_for_read, personal_scope, team_scope,
@@ -21,6 +23,7 @@ use crate::services::files::upload::scope::{
 use crate::services::files::upload::shared::expected_chunk_size_for_upload;
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
+use crate::storage::StorageErrorKind;
 use crate::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::paths;
 use futures::{StreamExt, stream};
@@ -43,18 +46,19 @@ async fn get_progress_impl(
     );
 
     let kind = resolve_upload_session_kind(state, &session).await?;
-    let chunks_on_disk = match kind {
+    let (chunks_on_disk, provider_resumable) = match kind {
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => {
             let (temp_key, multipart_id) = presigned_multipart_fields(&session)?;
             let policy = state
                 .policy_snapshot()
                 .get_policy_or_err(session.policy_id)?;
-            state
+            let chunks = state
                 .driver_registry
                 .get_multipart_driver(&policy)?
                 .list_uploaded_parts(temp_key, multipart_id)
-                .await?
+                .await?;
+            (chunks, None)
         }
         UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
             let part_numbers =
@@ -72,14 +76,67 @@ async fn get_progress_impl(
                 }
                 chunks.push(part_number - 1);
             }
-            chunks
+            (chunks, None)
         }
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
-            list_offset_staging_chunks(state, &session).await?
+            (list_offset_staging_chunks(state, &session).await?, None)
         }
-        UploadSessionKind::LegacyChunkFiles => scan_received_chunks(state, &session.id).await,
+        UploadSessionKind::LegacyChunkFiles => {
+            (scan_received_chunks(state, &session.id).await, None)
+        }
         UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
-            scan_received_chunks(state, &session.id).await
+            (scan_received_chunks(state, &session.id).await, None)
+        }
+        UploadSessionKind::ProviderDirectResumable => {
+            let secret = decrypt_provider_session(state, &session)?;
+            let policy = state
+                .policy_snapshot()
+                .get_policy_or_err(session.policy_id)?;
+            let driver = state.driver_registry().get_driver(&policy)?;
+            let provider = driver.as_provider_resumable_upload().ok_or_else(|| {
+                upload_assembly_error_with_code(
+                    ApiErrorCode::UploadSessionCorrupted,
+                    "provider resumable driver is unavailable",
+                )
+            })?;
+            match provider
+                .query_frontend_upload_session(&secret.upload_url)
+                .await
+            {
+                Ok(status) => {
+                    let chunks = provider_completed_chunks(
+                        &status.next_expected_ranges,
+                        session.chunk_size,
+                        session.total_chunks,
+                    );
+                    (
+                        chunks,
+                        Some(ProviderResumableUploadResponse {
+                            upload_url: secret.upload_url,
+                            expires_at: status.expires_at,
+                            next_expected_ranges: status.next_expected_ranges,
+                        }),
+                    )
+                }
+                Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+                    let committed = match session.object_temp_key.as_deref() {
+                        Some(temp_key) => driver.exists(temp_key).await?,
+                        None => false,
+                    };
+                    if !committed {
+                        return Err(error);
+                    }
+                    (
+                        (0..session.total_chunks).collect(),
+                        Some(ProviderResumableUploadResponse {
+                            upload_url: secret.upload_url,
+                            expires_at: Some(session.expires_at),
+                            next_expected_ranges: Vec::new(),
+                        }),
+                    )
+                }
+                Err(error) => return Err(error),
+            }
         }
     };
 
@@ -91,6 +148,7 @@ async fn get_progress_impl(
         chunk_size: session.chunk_size,
         total_chunks: session.total_chunks,
         filename: session.filename,
+        provider_resumable,
     };
     tracing::debug!(
         upload_id = %progress.upload_id,
@@ -184,9 +242,67 @@ async fn recoverable_session_response(
         folder_id: session.folder_id,
         chunks_on_disk: progress.chunks_on_disk,
         completed_parts,
+        provider_resumable: progress.provider_resumable.clone(),
         expires_at: session.expires_at,
         updated_at: session.updated_at,
     })
+}
+
+fn provider_completed_chunks(ranges: &[String], chunk_size: i64, total_chunks: i32) -> Vec<i32> {
+    let Some(first) = ranges.first() else {
+        return Vec::new();
+    };
+    let start = first
+        .split('-')
+        .next()
+        .and_then(|value| value.parse::<i64>().ok())
+        .unwrap_or(0);
+    if start <= 0 || chunk_size <= 0 || total_chunks <= 0 {
+        return Vec::new();
+    }
+    let count = start
+        .checked_add(chunk_size - 1)
+        .and_then(|value| value.checked_div(chunk_size))
+        .unwrap_or(i64::MAX)
+        .min(i64::from(total_chunks));
+    (0..count)
+        .filter_map(|value| i32::try_from(value).ok())
+        .collect()
+}
+
+#[cfg(test)]
+mod provider_progress_tests {
+    use super::provider_completed_chunks;
+
+    #[test]
+    fn provider_ranges_translate_expected_offset_to_completed_chunks() {
+        assert_eq!(
+            provider_completed_chunks(&["20971520-".to_string()], 10 * 1024 * 1024, 4),
+            vec![0, 1]
+        );
+        assert_eq!(
+            provider_completed_chunks(&["10485760-".to_string()], 10 * 1024 * 1024, 4),
+            vec![0]
+        );
+    }
+
+    #[test]
+    fn provider_ranges_reject_empty_invalid_and_non_positive_inputs() {
+        assert!(provider_completed_chunks(&[], 10, 4).is_empty());
+        assert!(provider_completed_chunks(&["0-".to_string()], 10, 4).is_empty());
+        assert!(provider_completed_chunks(&["invalid".to_string()], 10, 4).is_empty());
+        assert!(provider_completed_chunks(&["10-".to_string()], 0, 4).is_empty());
+        assert!(provider_completed_chunks(&["10-".to_string()], 10, 0).is_empty());
+    }
+
+    #[test]
+    fn provider_ranges_are_clamped_to_session_and_overflow_is_bounded() {
+        assert_eq!(
+            provider_completed_chunks(&["999999999-".to_string()], 10, 3),
+            vec![0, 1, 2]
+        );
+        assert!(provider_completed_chunks(&[i64::MAX.to_string()], 10, 3).len() <= 3);
+    }
 }
 
 async fn list_recoverable_sessions_impl(
@@ -407,6 +523,7 @@ mod tests {
             session_kind: None,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
+            provider_session_ciphertext: None,
             file_id: None,
             created_at: now,
             expires_at: now + chrono::Duration::hours(1),

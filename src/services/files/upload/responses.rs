@@ -10,6 +10,15 @@ use chrono::{DateTime, Utc};
 
 use crate::types::{UploadMode, UploadSessionStatus};
 
+#[derive(Clone, Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct ProviderResumableUploadResponse {
+    pub upload_url: String,
+    #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
+    pub expires_at: Option<DateTime<Utc>>,
+    pub next_expected_ranges: Vec<String>,
+}
+
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct InitUploadResponse {
@@ -25,6 +34,8 @@ pub struct InitUploadResponse {
     /// 浏览器直传完成后是否必须从响应读取 ETag。
     #[serde(skip_serializing_if = "Option::is_none")]
     pub presigned_require_etag: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_resumable: Option<ProviderResumableUploadResponse>,
 }
 
 #[derive(Serialize)]
@@ -44,6 +55,8 @@ pub struct UploadProgressResponse {
     pub chunk_size: i64,
     pub total_chunks: i32,
     pub filename: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_resumable: Option<ProviderResumableUploadResponse>,
 }
 
 #[derive(Serialize)]
@@ -67,6 +80,8 @@ pub struct RecoverableUploadSessionResponse {
     pub folder_id: Option<i64>,
     pub chunks_on_disk: Vec<i32>,
     pub completed_parts: Vec<RecoverableUploadPartResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub provider_resumable: Option<ProviderResumableUploadResponse>,
     pub expires_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

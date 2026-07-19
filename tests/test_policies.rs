@@ -120,7 +120,7 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(
         onedrive["upload_workflows"]["frontend_direct_provider_resumable_upload"],
-        false
+        true
     );
     let onedrive_resumable =
         &onedrive["upload_workflows"]["provider_resumable_upload_capabilities"];
@@ -137,10 +137,10 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     );
     assert_eq!(onedrive_resumable["max_fragment_size"], 50 * 1024 * 1024);
     assert_eq!(onedrive_resumable["max_simple_upload_size"], 250_000_000);
-    assert_eq!(onedrive_resumable["frontend_direct_upload"], false);
+    assert_eq!(onedrive_resumable["frontend_direct_upload"], true);
     assert_eq!(onedrive_resumable["implicit_completion"], true);
-    assert_eq!(onedrive_resumable["abort_supported"], false);
-    assert_eq!(onedrive_resumable["status_query_supported"], false);
+    assert_eq!(onedrive_resumable["abort_supported"], true);
+    assert_eq!(onedrive_resumable["status_query_supported"], true);
     assert_eq!(
         onedrive["upload_workflows"]["simple_upload_capabilities"]["max_provider_single_request_size"],
         250_000_000
@@ -379,6 +379,7 @@ async fn create_policy_upload_session(
             session_kind: Set(None),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(None),
+            provider_session_ciphertext: Set(None),
             file_id: Set(None),
             created_at: Set(now),
             expires_at: Set(spec.expires_at.unwrap_or(now + Duration::hours(1))),

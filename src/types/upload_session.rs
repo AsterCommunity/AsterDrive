@@ -28,6 +28,8 @@ pub enum UploadSessionKind {
     RemotePresignedSingle,
     #[sea_orm(string_value = "remote_presigned_multipart")]
     RemotePresignedMultipart,
+    #[sea_orm(string_value = "provider_direct_resumable")]
+    ProviderDirectResumable,
     #[sea_orm(string_value = "legacy_chunk_files")]
     LegacyChunkFiles,
 }
@@ -43,6 +45,7 @@ impl UploadSessionKind {
             Self::RemoteRelayMultipart => "remote_relay_multipart",
             Self::RemotePresignedSingle => "remote_presigned_single",
             Self::RemotePresignedMultipart => "remote_presigned_multipart",
+            Self::ProviderDirectResumable => "provider_direct_resumable",
             Self::LegacyChunkFiles => "legacy_chunk_files",
         }
     }

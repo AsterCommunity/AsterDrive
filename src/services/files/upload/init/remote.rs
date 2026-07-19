@@ -144,6 +144,7 @@ async fn init_remote_presigned_single_upload(
                 )?,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: None,
+                provider_session_ciphertext: None,
                 expires_at: Utc::now() + Duration::hours(1),
             },
         )
@@ -182,6 +183,7 @@ async fn init_remote_presigned_single_upload(
             presigned_url: Some(presigned_url),
             presigned_headers: Default::default(),
             presigned_require_etag: Some(true),
+            provider_resumable: None,
         }))
     })
     .await

@@ -163,7 +163,7 @@ pub(super) async fn complete_relay_multipart(
     .await
 }
 
-async fn ensure_uploaded_object_size(
+pub(super) async fn ensure_uploaded_object_size(
     driver: &dyn StorageDriver,
     temp_key: &str,
     declared_size: i64,
@@ -206,7 +206,7 @@ async fn ensure_uploaded_object_size(
     Ok(actual_size)
 }
 
-async fn finalize_verified_opaque_upload_session(
+pub(super) async fn finalize_verified_opaque_upload_session(
     state: &PrimaryAppState,
     session: &upload_session::Model,
     driver: &dyn StorageDriver,
@@ -249,7 +249,7 @@ async fn finalize_verified_opaque_upload_session(
     result
 }
 
-fn opaque_upload_file_hash(
+pub(super) fn opaque_upload_file_hash(
     policy: &storage_policy::Model,
     session: &upload_session::Model,
 ) -> Result<String> {
@@ -813,6 +813,7 @@ mod tests {
             session_kind: Some(crate::types::UploadSessionKind::ProviderRelayMultipart),
             object_temp_key: Some("temp".to_string()),
             object_multipart_id: Some("multipart".to_string()),
+            provider_session_ciphertext: None,
             file_id: None,
             created_at: chrono::Utc::now(),
             expires_at: chrono::Utc::now(),

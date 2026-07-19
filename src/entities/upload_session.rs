@@ -34,6 +34,9 @@ pub struct Model {
     pub object_temp_key: Option<String>,
     /// Driver-agnostic multipart upload id; empty for direct/stream upload transports.
     pub object_multipart_id: Option<String>,
+    /// Encrypted provider-native upload session metadata. The upload URL is a temporary secret.
+    #[serde(skip_serializing)]
+    pub provider_session_ciphertext: Option<String>,
     /// 上传完成后关联的文件 ID（用于幂等重试）
     pub file_id: Option<i64>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]

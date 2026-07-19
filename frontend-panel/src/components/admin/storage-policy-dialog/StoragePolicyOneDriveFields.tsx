@@ -12,7 +12,11 @@ import {
 } from "@/components/ui/select";
 import { ADMIN_CONTROL_HEIGHT_CLASS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
-import type { MicrosoftGraphCloud, OneDriveAccountMode } from "@/types/api";
+import type {
+	MicrosoftGraphCloud,
+	OneDriveAccountMode,
+	ProviderResumableUploadStrategy,
+} from "@/types/api";
 import { OneDriveApplicationFields } from "./OneDriveApplicationFields";
 import { OneDriveTargetFields } from "./OneDriveTargetFields";
 import type { SharedFieldProps, Translate } from "./StoragePolicyFieldTypes";
@@ -79,6 +83,7 @@ export function OneDriveConnectionFields({
 	showApplicationFields = true,
 	showCreateValidation = false,
 	showPolicyOptionFields = true,
+	showUploadStrategy = false,
 	t,
 }: SharedFieldProps & {
 	clientIdError?: string | null;
@@ -87,50 +92,103 @@ export function OneDriveConnectionFields({
 	showApplicationFields?: boolean;
 	showCreateValidation?: boolean;
 	showPolicyOptionFields?: boolean;
+	showUploadStrategy?: boolean;
 }) {
 	const [advancedOpen, setAdvancedOpen] = useState(false);
 	const cloudOptions = getCloudOptions(t);
 	const accountModeOptions = getAccountModeOptions(t, form.onedrive_cloud);
+	const uploadStrategyOptions = [
+		{
+			label: t("provider_resumable_upload_strategy_server_relay"),
+			value: "server_relay",
+		},
+		{
+			label: t("provider_resumable_upload_strategy_frontend_direct"),
+			value: "frontend_direct",
+		},
+	] satisfies ReadonlyArray<{
+		label: string;
+		value: ProviderResumableUploadStrategy;
+	}>;
 
 	return (
 		<div className="space-y-4">
 			<div className="grid max-w-xl gap-4">
 				{showPolicyOptionFields ? (
-					<div className="space-y-2">
-						<Label htmlFor="onedrive_cloud">{t("onedrive_cloud")}</Label>
-						<Select
-							items={cloudOptions}
-							value={form.onedrive_cloud}
-							onValueChange={(value) => {
-								const nextCloud = (value ?? "global") as MicrosoftGraphCloud;
-								onFieldChange("onedrive_cloud", nextCloud);
-								onFieldChange(
-									"onedrive_tenant",
-									nextCloud === "china" ? "organizations" : "common",
-								);
-								if (
-									nextCloud === "china" &&
-									form.onedrive_account_mode === "personal"
-								) {
-									onFieldChange("onedrive_account_mode", "work_or_school");
-									onFieldChange("onedrive_tenant", "organizations");
-								}
-							}}
-						>
-							<SelectTrigger id="onedrive_cloud">
-								<SelectValue />
-							</SelectTrigger>
-							<SelectContent>
-								{cloudOptions.map((option) => (
-									<SelectItem key={option.value} value={option.value}>
-										{option.label}
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
-						<p className="text-xs leading-5 text-muted-foreground">
-							{t("onedrive_cloud_desc")}
-						</p>
+					<div className="space-y-4">
+						<div className="space-y-2">
+							<Label htmlFor="onedrive_cloud">{t("onedrive_cloud")}</Label>
+							<Select
+								items={cloudOptions}
+								value={form.onedrive_cloud}
+								onValueChange={(value) => {
+									const nextCloud = (value ?? "global") as MicrosoftGraphCloud;
+									onFieldChange("onedrive_cloud", nextCloud);
+									onFieldChange(
+										"onedrive_tenant",
+										nextCloud === "china" ? "organizations" : "common",
+									);
+									if (
+										nextCloud === "china" &&
+										form.onedrive_account_mode === "personal"
+									) {
+										onFieldChange("onedrive_account_mode", "work_or_school");
+										onFieldChange("onedrive_tenant", "organizations");
+									}
+								}}
+							>
+								<SelectTrigger id="onedrive_cloud">
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									{cloudOptions.map((option) => (
+										<SelectItem key={option.value} value={option.value}>
+											{option.label}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							<p className="text-xs leading-5 text-muted-foreground">
+								{t("onedrive_cloud_desc")}
+							</p>
+						</div>
+						{showUploadStrategy ? (
+							<div className="space-y-2">
+								<Label htmlFor="provider_resumable_upload_strategy">
+									{t("provider_resumable_upload_strategy")}
+								</Label>
+								<Select
+									items={uploadStrategyOptions}
+									value={form.provider_resumable_upload_strategy}
+									onValueChange={(value) =>
+										onFieldChange(
+											"provider_resumable_upload_strategy",
+											(value ??
+												"server_relay") as ProviderResumableUploadStrategy,
+										)
+									}
+								>
+									<SelectTrigger id="provider_resumable_upload_strategy">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{uploadStrategyOptions.map((option) => (
+											<SelectItem key={option.value} value={option.value}>
+												{option.label}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<p className="text-xs leading-5 text-muted-foreground">
+									{t(
+										form.provider_resumable_upload_strategy ===
+											"frontend_direct"
+											? "provider_resumable_upload_strategy_frontend_direct_desc"
+											: "provider_resumable_upload_strategy_server_relay_desc",
+									)}
+								</p>
+							</div>
+						) : null}
 					</div>
 				) : null}
 				{showApplicationFields ? <OneDriveSetupNotice t={t} /> : null}

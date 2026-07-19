@@ -4,6 +4,7 @@ import type {
 	ObjectStorageDownloadStrategy,
 	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
+	ProviderResumableUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
 	StoragePolicy,
@@ -13,6 +14,7 @@ import type { StorageApplicationCredentialForm } from "./applicationCredentials"
 import {
 	getEffectiveObjectStorageDownloadStrategy,
 	getEffectiveObjectStorageUploadStrategy,
+	getEffectiveProviderResumableUploadStrategy,
 	getEffectiveRemoteDownloadStrategy,
 	getEffectiveRemoteUploadStrategy,
 	getEffectiveS3PathStyle,
@@ -44,6 +46,7 @@ export interface PolicyFormData {
 	remote_upload_strategy: RemoteUploadStrategy;
 	object_storage_upload_strategy: ObjectStorageUploadStrategy;
 	object_storage_download_strategy: ObjectStorageDownloadStrategy;
+	provider_resumable_upload_strategy: ProviderResumableUploadStrategy;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -89,6 +92,8 @@ export function getPolicyForm(policy: StoragePolicy): PolicyFormData {
 			getEffectiveObjectStorageUploadStrategy(options),
 		object_storage_download_strategy:
 			getEffectiveObjectStorageDownloadStrategy(options),
+		provider_resumable_upload_strategy:
+			getEffectiveProviderResumableUploadStrategy(options),
 		s3_path_style: getEffectiveS3PathStyle(options),
 		onedrive_cloud: options.onedrive_cloud ?? "global",
 		onedrive_account_mode: options.onedrive_account_mode ?? "work_or_school",
@@ -145,6 +150,7 @@ export const emptyForm: PolicyFormData = {
 	remote_upload_strategy: "relay_stream",
 	object_storage_upload_strategy: "relay_stream",
 	object_storage_download_strategy: "relay_stream",
+	provider_resumable_upload_strategy: "server_relay",
 	s3_path_style: true,
 	onedrive_cloud: "global",
 	onedrive_account_mode: "work_or_school",

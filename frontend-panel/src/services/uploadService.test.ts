@@ -414,6 +414,156 @@ describe("uploadService", () => {
 		expect(xhr.headers["x-ms-blob-type"]).toBeUndefined();
 	});
 
+	it("uploads provider ranges without credentials or authorization headers", async () => {
+		setTestCookie("aster_csrf=csrf-token-should-not-leak; path=/");
+		const { uploadService } = await import("@/services/uploadService");
+		const progress = vi.fn();
+		const onCreateXhr = vi.fn();
+		const blob = new Blob(["hello"]);
+		const promise = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			blob,
+			10,
+			25,
+			{ onCreateXhr, onProgress: progress },
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+
+		xhr.upload.onprogress?.({ lengthComputable: true, loaded: 3, total: 5 });
+		xhr.status = 202;
+		xhr.onload?.();
+
+		await expect(promise).resolves.toBeUndefined();
+		expect(progress).toHaveBeenCalledWith(3, 5);
+		expect(onCreateXhr).toHaveBeenCalledWith(xhr);
+		expect(xhr.method).toBe("PUT");
+		expect(xhr.url).toBe("https://provider.example/upload-session");
+		expect(xhr.withCredentials).toBe(false);
+		expect(xhr.headers["Content-Type"]).toBe("application/octet-stream");
+		expect(xhr.headers["Content-Range"]).toBe("bytes 10-14/25");
+		expect(xhr.headers.Authorization).toBeUndefined();
+		expect(xhr.headers["X-CSRF-Token"]).toBeUndefined();
+		expect(xhr.sentBody).toBe(blob);
+	});
+
+	it("accepts both intermediate and final provider upload responses", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+
+		const intermediate = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part-1"]),
+			0,
+			11,
+		);
+		const intermediateXhr = MockXMLHttpRequest.instances[0];
+		intermediateXhr.status = 202;
+		intermediateXhr.onload?.();
+		await expect(intermediate).resolves.toBeUndefined();
+
+		const final = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part-2"]),
+			6,
+			11,
+		);
+		const finalXhr = MockXMLHttpRequest.instances[1];
+		finalXhr.status = 201;
+		finalXhr.onload?.();
+		await expect(final).resolves.toBeUndefined();
+	});
+
+	it("marks provider range conflicts and transient failures as retryable", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+
+		const rangeConflict = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part"]),
+			0,
+			4,
+		);
+		const rangeXhr = MockXMLHttpRequest.instances[0];
+		rangeXhr.status = 416;
+		rangeXhr.onload?.();
+		await expect(rangeConflict).rejects.toMatchObject({
+			status: 416,
+			retryable: true,
+		});
+
+		const serverFailure = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part"]),
+			0,
+			4,
+		);
+		const serverXhr = MockXMLHttpRequest.instances[1];
+		serverXhr.status = 503;
+		serverXhr.onload?.();
+		await expect(serverFailure).rejects.toMatchObject({
+			status: 503,
+			retryable: true,
+		});
+
+		const forbidden = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part"]),
+			0,
+			4,
+		);
+		const forbiddenXhr = MockXMLHttpRequest.instances[2];
+		forbiddenXhr.status = 403;
+		forbiddenXhr.onload?.();
+		await expect(forbidden).rejects.toMatchObject({
+			status: 403,
+			retryable: false,
+		});
+	});
+
+	it("rejects empty provider chunks before creating a network request", async () => {
+		const { UploadRequestError, uploadService } = await import(
+			"@/services/uploadService"
+		);
+
+		await expect(
+			uploadService.providerResumableUpload(
+				"https://provider.example/upload-session",
+				new Blob(),
+				0,
+				0,
+			),
+		).rejects.toBeInstanceOf(UploadRequestError);
+		await expect(
+			uploadService.providerResumableUpload(
+				"https://provider.example/upload-session",
+				new Blob(),
+				0,
+				0,
+			),
+		).rejects.toMatchObject({
+			message: "provider upload chunk cannot be empty",
+			retryable: false,
+		});
+		expect(MockXMLHttpRequest.instances).toHaveLength(0);
+	});
+
+	it("reports an aborted provider request as a terminal upload error", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.providerResumableUpload(
+			"https://provider.example/upload-session",
+			new Blob(["part"]),
+			0,
+			4,
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+
+		xhr.abort();
+
+		await expect(promise).rejects.toMatchObject({
+			isAborted: true,
+			retryable: false,
+			status: 0,
+		});
+	});
+
 	it("applies provider-required presigned PUT headers", async () => {
 		const { uploadService } = await import("@/services/uploadService");
 

@@ -22,6 +22,7 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         session_kind: None,
         object_temp_key: None,
         object_multipart_id: None,
+        provider_session_ciphertext: None,
         file_id: None,
         created_at: chrono::Utc::now(),
         updated_at: chrono::Utc::now(),

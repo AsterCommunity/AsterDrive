@@ -118,7 +118,9 @@ When configuring it, keep the field names straight: Endpoint is the Blob service
 
 Suitable when files should be written to Microsoft Graph-accessible OneDrive, SharePoint document libraries, or Microsoft 365 group drives.
 
-OneDrive policies require a Microsoft app registration and administrator delegated OAuth authorization. Save the policy and Microsoft Graph application credentials before starting authorization; the authorization request does not carry unsaved Client ID / Secret drafts. The target drive can be resolved automatically after authorization, or specified with a Drive ID, SharePoint site ID, or group ID. See the [OneDrive storage policy tutorial](/en/storage/onedrive) for the full flow.
+OneDrive policies require a Microsoft app registration and administrator delegated OAuth authorization. Save the policy and Microsoft Graph application credentials before starting authorization; the authorization request does not carry unsaved Client ID / Secret drafts. The target drive can be resolved automatically after authorization, or specified with a Drive ID, SharePoint site ID, or group ID.
+
+The upload mode can be `server_relay` or `frontend_direct`. `server_relay` is the default retained for existing-policy compatibility and sends files through AsterDrive. `frontend_direct` lets the browser upload directly to Microsoft Graph, reducing bandwidth on the AsterDrive node. Microsoft provides the cross-origin support required for direct upload, so no additional AsterDrive setting is needed. See the [OneDrive storage policy tutorial](/en/storage/onedrive) for the full flow.
 
 ### `sftp`
 

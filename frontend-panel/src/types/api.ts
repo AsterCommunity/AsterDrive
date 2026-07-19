@@ -350,6 +350,8 @@ export type ResourceLockOwnerInfo =
 	components["schemas"]["ResourceLockOwnerInfo"];
 export type ObjectStorageUploadStrategy =
 	components["schemas"]["ObjectStorageUploadStrategy"];
+export type ProviderResumableUploadStrategy =
+	components["schemas"]["ProviderResumableUploadStrategy"];
 export type StoragePolicyOptions =
 	components["schemas"]["StoragePolicyOptions"];
 export type OneDriveAccountMode = components["schemas"]["OneDriveAccountMode"];
@@ -543,6 +545,8 @@ export type ChunkUploadResponse = components["schemas"]["ChunkUploadResponse"];
 export type CompletedPart = components["schemas"]["CompletedPartReq"];
 export type FileQuery = components["schemas"]["FileQuery"];
 export type InitUploadResponse = components["schemas"]["InitUploadResponse"];
+export type ProviderResumableUploadResponse =
+	components["schemas"]["ProviderResumableUploadResponse"];
 export type RecoverableUploadPart =
 	components["schemas"]["RecoverableUploadPartResponse"];
 export type RecoverableUploadSession = NonNullable<

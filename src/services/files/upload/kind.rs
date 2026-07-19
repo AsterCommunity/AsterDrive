@@ -11,8 +11,8 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
 use crate::types::{
-    ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode, UploadSessionKind,
-    UploadSessionStatus,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
+    UploadSessionKind, UploadSessionStatus,
 };
 
 pub(crate) async fn resolve_upload_session_kind(
@@ -81,9 +81,8 @@ fn compatibility_relay_kind(transport: PolicyUploadTransport) -> Result<UploadSe
 fn compatibility_staging_kind(transport: PolicyUploadTransport) -> Result<UploadSessionKind> {
     match transport {
         PolicyUploadTransport::Local => Ok(UploadSessionKind::OffsetStaging),
-        PolicyUploadTransport::StreamUpload | PolicyUploadTransport::Sftp => {
-            Ok(UploadSessionKind::StreamStaging)
-        }
+        PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
+        | PolicyUploadTransport::Sftp => Ok(UploadSessionKind::StreamStaging),
         PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream)
         | PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream) => {
             Ok(UploadSessionKind::StreamStaging)
@@ -130,10 +129,18 @@ fn validate_persisted_kind(
             | UploadSessionKind::RemoteRelayMultipart
             | UploadSessionKind::RemotePresignedSingle
             | UploadSessionKind::RemotePresignedMultipart
+            | UploadSessionKind::ProviderDirectResumable
     );
     if expects_temp_key != session.object_temp_key.is_some() {
         return Err(corrupted(format!(
             "session kind {} does not match temporary object fields",
+            kind.as_str()
+        )));
+    }
+    let expects_provider_session = kind == UploadSessionKind::ProviderDirectResumable;
+    if expects_provider_session != session.provider_session_ciphertext.is_some() {
+        return Err(corrupted(format!(
+            "session kind {} does not match provider session metadata",
             kind.as_str()
         )));
     }
@@ -151,6 +158,7 @@ pub(crate) fn mode_for_kind(kind: UploadSessionKind) -> UploadMode {
         }
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => UploadMode::PresignedMultipart,
+        UploadSessionKind::ProviderDirectResumable => UploadMode::ProviderResumable,
         _ => UploadMode::Chunked,
     }
 }
@@ -163,7 +171,9 @@ mod tests {
     };
     use crate::entities::upload_session;
     use crate::services::workspace::storage::PolicyUploadTransport;
-    use crate::types::{ObjectStorageUploadStrategy, RemoteUploadStrategy};
+    use crate::types::{
+        ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+    };
     use crate::types::{UploadMode, UploadSessionKind, UploadSessionStatus};
 
     fn session(
@@ -187,6 +197,7 @@ mod tests {
             session_kind: None,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
+            provider_session_ciphertext: None,
             file_id: None,
             created_at: now,
             expires_at: now + chrono::Duration::hours(1),
@@ -238,6 +249,44 @@ mod tests {
             validate_persisted_kind(
                 &session(None, None),
                 UploadSessionKind::ProviderPresignedSingle,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn provider_direct_kind_requires_temp_key_and_encrypted_session_metadata() {
+        let mut valid = session(Some("files/temp"), None);
+        valid.provider_session_ciphertext = Some("encrypted-upload-url".to_string());
+        assert!(
+            validate_persisted_kind(&valid, UploadSessionKind::ProviderDirectResumable).is_ok()
+        );
+
+        let missing_ciphertext = session(Some("files/temp"), None);
+        assert!(
+            validate_persisted_kind(
+                &missing_ciphertext,
+                UploadSessionKind::ProviderDirectResumable,
+            )
+            .is_err()
+        );
+
+        let missing_temp_key = session(None, None);
+        assert!(
+            validate_persisted_kind(
+                &missing_temp_key,
+                UploadSessionKind::ProviderDirectResumable
+            )
+            .is_err()
+        );
+
+        let mut relay_with_provider_metadata = session(Some("files/temp"), None);
+        relay_with_provider_metadata.provider_session_ciphertext =
+            Some("encrypted-upload-url".to_string());
+        assert!(
+            validate_persisted_kind(
+                &relay_with_provider_metadata,
+                UploadSessionKind::StreamStaging,
             )
             .is_err()
         );
@@ -300,7 +349,12 @@ mod tests {
             UploadSessionKind::RemoteRelayMultipart
         );
         assert!(compatibility_relay_kind(PolicyUploadTransport::Local).is_err());
-        assert!(compatibility_relay_kind(PolicyUploadTransport::StreamUpload).is_err());
+        assert!(
+            compatibility_relay_kind(PolicyUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::ServerRelay,
+            ))
+            .is_err()
+        );
     }
 
     #[test]
@@ -310,7 +364,7 @@ mod tests {
             UploadSessionKind::OffsetStaging
         );
         for transport in [
-            PolicyUploadTransport::StreamUpload,
+            PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay),
             PolicyUploadTransport::Sftp,
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
             PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),

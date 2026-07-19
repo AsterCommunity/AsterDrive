@@ -13,6 +13,7 @@ pub(super) enum CompletionPlan {
     CompletePresigned,
     CompletePresignedMultipart { parts: Vec<(i32, String)> },
     CompleteRelayMultipart,
+    CompleteProviderResumable,
     CompleteChunked,
 }
 
@@ -59,6 +60,7 @@ pub(super) fn determine_completion_plan(
         UploadSessionKind::ProviderRelayMultipart | UploadSessionKind::RemoteRelayMultipart => {
             Ok(CompletionPlan::CompleteRelayMultipart)
         }
+        UploadSessionKind::ProviderDirectResumable => Ok(CompletionPlan::CompleteProviderResumable),
         UploadSessionKind::OffsetStaging
         | UploadSessionKind::StreamStaging
         | UploadSessionKind::LegacyChunkFiles => {
@@ -82,6 +84,7 @@ pub(super) fn completion_plan_label(plan: &CompletionPlan) -> &'static str {
         CompletionPlan::CompletePresigned => "complete_presigned",
         CompletionPlan::CompletePresignedMultipart { .. } => "complete_presigned_multipart",
         CompletionPlan::CompleteRelayMultipart => "complete_relay_multipart",
+        CompletionPlan::CompleteProviderResumable => "complete_provider_resumable",
         CompletionPlan::CompleteChunked => "complete_chunked",
     }
 }

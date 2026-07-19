@@ -51,7 +51,8 @@ function recoverableSessionMode(
 	if (
 		mode === "chunked" ||
 		mode === "presigned" ||
-		mode === "presigned_multipart"
+		mode === "presigned_multipart" ||
+		mode === "provider_resumable"
 	) {
 		return mode;
 	}
@@ -134,6 +135,7 @@ function serverSessionToProgress(
 		chunk_size: session.chunk_size,
 		total_chunks: session.total_chunks,
 		filename: session.filename,
+		provider_resumable: session.provider_resumable,
 	};
 }
 
@@ -141,7 +143,7 @@ function restoredCompletedCount(
 	mode: UploadMode,
 	progress: UploadProgressResponse,
 ) {
-	if (mode === "presigned_multipart") {
+	if (mode === "presigned_multipart" || mode === "provider_resumable") {
 		return progress.chunks_on_disk.length;
 	}
 	return progress.received_count;

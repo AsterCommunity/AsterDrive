@@ -687,6 +687,7 @@ use utoipa::{Modify, OpenApi};
             crate::types::DriverType,
             crate::types::ObjectStorageDownloadStrategy,
             crate::types::ObjectStorageUploadStrategy,
+            crate::types::ProviderResumableUploadStrategy,
             crate::types::RemoteDownloadStrategy,
             crate::types::StoragePolicyOptions,
             aster_forge_config::ConfigSource,

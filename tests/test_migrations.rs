@@ -28,6 +28,7 @@ const RUNTIME_LEASES_MIGRATION: &str = "m20260713_000001_runtime_leases";
 const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
     "m20260716_000001_bind_external_auth_login_flows";
 const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_session_kind";
+const ADD_UPLOAD_PROVIDER_SESSION_MIGRATION: &str = "m20260719_000001_add_upload_provider_session";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -95,6 +96,39 @@ async fn upload_session_kind_migration_is_nullable_and_reversible() {
         .expect("upload session kind migration should reapply");
     let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&reapplied_columns, "session_kind"));
+}
+
+#[tokio::test]
+async fn upload_provider_session_migration_is_nullable_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == ADD_UPLOAD_PROVIDER_SESSION_MIGRATION),
+        "upload provider session migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(&current_columns, "provider_session_ciphertext"));
+
+    let rollback_steps = steps_to_roll_back_migration(ADD_UPLOAD_PROVIDER_SESSION_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
+        .await
+        .expect("upload provider session migration should roll back");
+    let rolled_back_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(!has_column(
+        &rolled_back_columns,
+        "provider_session_ciphertext"
+    ));
+
+    CurrentMigrator::up(&db, Some(rollback_steps))
+        .await
+        .expect("upload provider session migration should reapply");
+    let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
+    assert!(has_column(
+        &reapplied_columns,
+        "provider_session_ciphertext"
+    ));
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

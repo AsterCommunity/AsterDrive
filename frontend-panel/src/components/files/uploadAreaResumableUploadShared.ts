@@ -24,6 +24,7 @@ type ResumableUploadSharedContext = Pick<
 >;
 
 interface RunResumableTransferOptions<TItem> {
+	concurrency?: number;
 	completeUpload: () => Promise<unknown>;
 	initialCompleted: number;
 	initialCompletedBytes?: number;
@@ -158,6 +159,7 @@ export function createResumableUploadShared({
 	};
 
 	const runResumableTransfer = async <TItem>({
+		concurrency = CHUNK_CONCURRENT,
 		completeUpload,
 		initialCompleted,
 		initialCompletedBytes,
@@ -245,7 +247,7 @@ export function createResumableUploadShared({
 
 		try {
 			const workers = Array.from(
-				{ length: Math.min(CHUNK_CONCURRENT, queue.length || 1) },
+				{ length: Math.min(Math.max(1, concurrency), queue.length || 1) },
 				() => uploadOneItem(),
 			);
 			await Promise.all(workers);

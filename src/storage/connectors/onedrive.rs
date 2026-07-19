@@ -93,7 +93,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 object_multipart_upload_capabilities: None,
                 provider_resumable_upload: true,
                 presigned_upload: false,
-                frontend_direct_provider_resumable_upload: false,
+                frontend_direct_provider_resumable_upload: true,
                 provider_resumable_upload_capabilities: Some(
                     StorageConnectorProviderResumableUploadCapabilities {
                         provider: upload_capabilities.provider.to_string(),
@@ -124,6 +124,14 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                     StorageConnectorFieldKind::Secret,
                     true,
                     true,
+                ),
+                storage_connector_field_with_options(
+                    "provider_resumable_upload_strategy",
+                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldKind::Select,
+                    true,
+                    false,
+                    vec!["server_relay", "frontend_direct"],
                 ),
                 storage_connector_field_with_options(
                     "cloud",
@@ -188,7 +196,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 saved_connection_test_action_descriptor(true),
             ],
             driver_recommendations: Vec::new(),
-            related_issues: vec![328, 329, 330],
+            related_issues: vec![328, 329, 330, 349],
         }
     }
 }
@@ -263,8 +271,10 @@ impl StorageConnector for OneDriveConnector {
     }
 
     fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
-        let _ = policy;
-        StorageConnectorUploadTransport::StreamUpload
+        let options = parse_storage_policy_options(policy.options.as_ref());
+        StorageConnectorUploadTransport::ProviderResumable(
+            options.effective_provider_resumable_upload_strategy(),
+        )
     }
 
     fn runtime_credential_requirement() -> Option<StorageConnectorCredentialRequirement> {

@@ -100,6 +100,7 @@ pub enum UploadMode {
     Chunked,
     Presigned,
     PresignedMultipart,
+    ProviderResumable,
 }
 
 impl UploadMode {
@@ -109,6 +110,7 @@ impl UploadMode {
             Self::Chunked => "chunked",
             Self::Presigned => "presigned",
             Self::PresignedMultipart => "presigned_multipart",
+            Self::ProviderResumable => "provider_resumable",
         }
     }
 }
@@ -155,6 +157,17 @@ pub enum RemoteUploadStrategy {
     RelayStream,
     /// 浏览器通过 presigned URL 直接把对象写到从节点
     Presigned,
+}
+
+/// Provider-native resumable upload transfer strategy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum ProviderResumableUploadStrategy {
+    /// AsterDrive receives the browser upload and the provider driver owns its resumable session.
+    ServerRelay,
+    /// The browser uploads directly to a provider-issued preauthenticated session URL.
+    FrontendDirect,
 }
 
 /// Microsoft Graph Drive location mode for OneDrive storage policies.
@@ -324,6 +337,8 @@ pub struct StoragePolicyOptions {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_upload_strategy: Option<RemoteUploadStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub provider_resumable_upload_strategy: Option<ProviderResumableUploadStrategy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     #[validate(custom(function = "validate_storage_policy_thumbnail_processor"))]
     pub thumbnail_processor: Option<MediaProcessorKind>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -389,6 +404,11 @@ impl StoragePolicyOptions {
     pub fn effective_remote_upload_strategy(&self) -> RemoteUploadStrategy {
         self.remote_upload_strategy
             .unwrap_or(RemoteUploadStrategy::RelayStream)
+    }
+
+    pub fn effective_provider_resumable_upload_strategy(&self) -> ProviderResumableUploadStrategy {
+        self.provider_resumable_upload_strategy
+            .unwrap_or(ProviderResumableUploadStrategy::ServerRelay)
     }
 
     pub fn uses_storage_native_thumbnail(&self) -> bool {
@@ -733,8 +753,8 @@ mod tests {
 
     use super::{
         DriverType, MediaProcessorKind, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
-        OneDriveAccountMode, StoragePolicyOptions, parse_storage_policy_options,
-        serialize_storage_policy_options,
+        OneDriveAccountMode, ProviderResumableUploadStrategy, StoragePolicyOptions,
+        parse_storage_policy_options, serialize_storage_policy_options,
     };
     use std::time::Duration;
 
@@ -1136,6 +1156,23 @@ mod tests {
         assert_eq!(
             options.effective_remote_upload_strategy(),
             RemoteUploadStrategy::RelayStream
+        );
+    }
+
+    #[test]
+    fn provider_resumable_upload_strategy_defaults_to_server_relay() {
+        let options = parse_storage_policy_options("{}");
+        assert_eq!(
+            options.effective_provider_resumable_upload_strategy(),
+            ProviderResumableUploadStrategy::ServerRelay
+        );
+
+        let direct = parse_storage_policy_options(
+            r#"{"provider_resumable_upload_strategy":"frontend_direct"}"#,
+        );
+        assert_eq!(
+            direct.effective_provider_resumable_upload_strategy(),
+            ProviderResumableUploadStrategy::FrontendDirect
         );
     }
 

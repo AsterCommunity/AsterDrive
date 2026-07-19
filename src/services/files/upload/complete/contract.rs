@@ -49,6 +49,21 @@ impl VerifiedUploadedBlob {
         )
     }
 
+    pub(super) fn precommitted_provider_object(
+        size: i64,
+        policy_id: i64,
+        storage_path: String,
+        file_hash: String,
+    ) -> Result<Self> {
+        Self::new(
+            size,
+            policy_id,
+            storage_path,
+            VerifiedUploadSource::OpaqueObject { file_hash },
+            UploadCleanupPlan::DeleteStorageObjectOnDbFailure,
+        )
+    }
+
     pub(super) fn completed_multipart_object(
         size: i64,
         policy_id: i64,

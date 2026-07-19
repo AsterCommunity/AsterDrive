@@ -11,9 +11,9 @@ use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;
 use crate::types::{
-    MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode, RemoteUploadStrategy,
-    StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UploadMode,
-    parse_storage_policy_options,
+    MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
+    ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
+    StoredStoragePolicyAllowedTypes, UploadMode, parse_storage_policy_options,
 };
 
 const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
@@ -577,7 +577,7 @@ fn onedrive_descriptor_requires_saved_authorized_connection_test() {
     assert!(!descriptor.upload_workflows.object_multipart_upload);
     assert!(descriptor.upload_workflows.provider_resumable_upload);
     assert!(
-        !descriptor
+        descriptor
             .upload_workflows
             .frontend_direct_provider_resumable_upload
     );
@@ -599,10 +599,10 @@ fn onedrive_descriptor_requires_saved_authorized_connection_test() {
         upload_capabilities.max_simple_upload_size,
         Some(ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE)
     );
-    assert!(!upload_capabilities.frontend_direct_upload);
+    assert!(upload_capabilities.frontend_direct_upload);
     assert!(upload_capabilities.implicit_completion);
-    assert!(!upload_capabilities.abort_supported);
-    assert!(!upload_capabilities.status_query_supported);
+    assert!(upload_capabilities.abort_supported);
+    assert!(upload_capabilities.status_query_supported);
 }
 
 #[test]
@@ -1106,7 +1106,9 @@ fn non_local_upload_transports_expose_opaque_blob_hash_prefix() {
         StorageConnectorUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::Presigned),
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
         StorageConnectorUploadTransport::Remote(RemoteUploadStrategy::Presigned),
-        StorageConnectorUploadTransport::StreamUpload,
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        ),
         StorageConnectorUploadTransport::Sftp,
     ] {
         assert!(
@@ -1366,7 +1368,12 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
     let transport =
         resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
 
-    assert_eq!(transport, StorageConnectorUploadTransport::StreamUpload);
+    assert_eq!(
+        transport,
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::ServerRelay,
+        )
+    );
     assert_eq!(
         transport.resolve_init_mode(&policy, 1024),
         UploadMode::Direct
@@ -1383,6 +1390,33 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
         transport.chunked_completion(),
         StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
     );
+}
+
+#[test]
+fn onedrive_frontend_direct_strategy_uses_provider_resumable_mode() {
+    let policy = mock_policy(
+        DriverType::OneDrive,
+        1024,
+        r#"{"provider_resumable_upload_strategy":"frontend_direct"}"#,
+    );
+    let transport =
+        resolve_policy_upload_transport(&policy).expect("upload transport should resolve");
+
+    assert_eq!(
+        transport,
+        StorageConnectorUploadTransport::ProviderResumable(
+            ProviderResumableUploadStrategy::FrontendDirect,
+        )
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1),
+        UploadMode::ProviderResumable
+    );
+    assert_eq!(
+        transport.resolve_init_mode(&policy, 1025),
+        UploadMode::ProviderResumable
+    );
+    assert!(!transport.supports_streaming_direct_upload(&policy, 1));
 }
 
 #[test]
@@ -1494,11 +1528,13 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
         DriverType::OneDrive,
         "{}",
         ExpectedUploadWorkflow {
-            transport: StorageConnectorUploadTransport::StreamUpload,
+            transport: StorageConnectorUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::ServerRelay,
+            ),
             object_multipart: false,
             provider_resumable: true,
             presigned: false,
-            frontend_direct_provider_resumable: false,
+            frontend_direct_provider_resumable: true,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
             chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
@@ -1567,7 +1603,7 @@ fn assert_upload_workflow_alignment(
         StorageConnectorUploadTransport::ObjectStorage(_) => OBJECT_STORAGE_LARGE_UPLOAD_SIZE,
         StorageConnectorUploadTransport::Local
         | StorageConnectorUploadTransport::Remote(_)
-        | StorageConnectorUploadTransport::StreamUpload
+        | StorageConnectorUploadTransport::ProviderResumable(_)
         | StorageConnectorUploadTransport::Sftp => 2048,
     };
     let descriptor = descriptor(driver_type);

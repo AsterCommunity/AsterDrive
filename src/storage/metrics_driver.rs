@@ -327,6 +327,12 @@ impl StorageDriver for MetricsStorageDriver {
         self.inner.as_stream_upload()
     }
 
+    fn as_provider_resumable_upload(
+        &self,
+    ) -> Option<&dyn extensions::ProviderResumableUploadDriver> {
+        self.inner.as_provider_resumable_upload()
+    }
+
     fn as_local_path(&self) -> Option<&dyn extensions::LocalPathStorageDriver> {
         self.inner.as_local_path()
     }
@@ -529,6 +535,80 @@ mod tests {
         }
     }
 
+    struct ProviderResumableDriver;
+
+    #[async_trait]
+    impl StorageDriver for ProviderResumableDriver {
+        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+            panic!("not used")
+        }
+
+        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+            panic!("not used")
+        }
+
+        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+            panic!("not used")
+        }
+
+        async fn delete(&self, _path: &str) -> Result<()> {
+            panic!("not used")
+        }
+
+        async fn exists(&self, _path: &str) -> Result<bool> {
+            panic!("not used")
+        }
+
+        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+            panic!("not used")
+        }
+
+        fn as_provider_resumable_upload(
+            &self,
+        ) -> Option<&dyn extensions::ProviderResumableUploadDriver> {
+            Some(self)
+        }
+    }
+
+    #[async_trait]
+    impl extensions::ProviderResumableUploadDriver for ProviderResumableDriver {
+        fn provider_resumable_upload_capabilities(
+            &self,
+        ) -> extensions::ProviderResumableUploadCapabilities {
+            extensions::ProviderResumableUploadCapabilities {
+                provider: "test_provider",
+                session_label: "test upload session",
+                min_fragment_size: 1,
+                default_fragment_size: 1,
+                max_fragment_size: 1,
+                fragment_alignment: 1,
+                max_simple_upload_size: None,
+                frontend_direct_upload: true,
+                implicit_completion: true,
+                abort_supported: true,
+                status_query_supported: true,
+            }
+        }
+
+        async fn create_frontend_upload_session(
+            &self,
+            _path: &str,
+        ) -> Result<extensions::ProviderResumableUploadSession> {
+            panic!("not used")
+        }
+
+        async fn query_frontend_upload_session(
+            &self,
+            _upload_url: &str,
+        ) -> Result<extensions::ProviderResumableUploadStatus> {
+            panic!("not used")
+        }
+
+        async fn abort_frontend_upload_session(&self, _upload_url: &str) -> Result<()> {
+            panic!("not used")
+        }
+    }
+
     struct ErrorReader;
 
     impl AsyncRead for ErrorReader {
@@ -639,5 +719,25 @@ mod tests {
             metrics.storage_operations.lock().as_slice(),
             &[("readiness_check", "failure", "non_storage")]
         );
+    }
+
+    #[test]
+    fn metrics_wrapper_preserves_provider_resumable_extension() {
+        let driver = MetricsStorageDriver::new(
+            Arc::new(ProviderResumableDriver),
+            DriverType::OneDrive,
+            Arc::new(CapturingMetrics::default()),
+            None,
+        );
+
+        let provider = driver
+            .as_provider_resumable_upload()
+            .expect("metrics wrapper should preserve provider resumable support");
+        let capabilities = provider.provider_resumable_upload_capabilities();
+
+        assert_eq!(capabilities.provider, "test_provider");
+        assert!(capabilities.frontend_direct_upload);
+        assert!(capabilities.abort_supported);
+        assert!(capabilities.status_query_supported);
     }
 }

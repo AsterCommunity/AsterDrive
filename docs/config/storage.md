@@ -118,7 +118,9 @@ AsterDrive 会缓存缩略图和媒体信息等派生结果，避免每次查看
 
 适合把文件写到 Microsoft Graph 可访问的 OneDrive、SharePoint 文档库或 Microsoft 365 group drive。
 
-OneDrive 策略需要 Microsoft 应用注册和管理员 delegated OAuth 授权。先保存策略和 Microsoft Graph 应用凭据，再发起授权；授权请求不会携带未保存的 Client ID / Secret 草稿。目标 drive 可以在授权后自动解析，也可以通过 Drive ID、SharePoint site ID 或 group ID 指定。完整流程见 [OneDrive 存储策略教程](/storage/onedrive)。
+OneDrive 策略需要 Microsoft 应用注册和管理员 delegated OAuth 授权。先保存策略和 Microsoft Graph 应用凭据，再发起授权；授权请求不会携带未保存的 Client ID / Secret 草稿。目标 drive 可以在授权后自动解析，也可以通过 Drive ID、SharePoint site ID 或 group ID 指定。
+
+上传方式可以选择 `server_relay` 或 `frontend_direct`。`server_relay` 是为了兼容已有策略而保留的默认值，文件会经过 AsterDrive；`frontend_direct` 让浏览器直接上传到 Microsoft Graph，可以减少 AsterDrive 节点带宽。直传所需的跨域支持由 Microsoft 提供，不需要在 AsterDrive 中额外配置。完整流程见 [OneDrive 存储策略教程](/storage/onedrive)。
 
 ### `sftp`
 

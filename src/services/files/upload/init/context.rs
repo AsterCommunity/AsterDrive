@@ -12,8 +12,8 @@ use crate::services::files::upload::shared::{
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
 use crate::storage::MultipartStorageDriver;
 use crate::types::{
-    ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode, UploadSessionKind,
-    UploadSessionStatus,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
+    UploadSessionKind, UploadSessionStatus,
 };
 
 #[derive(Debug)]
@@ -45,6 +45,7 @@ pub(super) struct UploadSessionRecordParams<'a> {
     pub(super) session_kind: UploadSessionKind,
     pub(super) object_temp_key: Option<&'a str>,
     pub(super) object_multipart_id: Option<&'a str>,
+    pub(super) provider_session_ciphertext: Option<&'a str>,
     pub(super) expires_at: DateTime<Utc>,
 }
 
@@ -73,9 +74,16 @@ pub(super) fn session_kind_for_transport(
     let kind = match (transport, mode) {
         (PolicyUploadTransport::Local, UploadMode::Chunked) => UploadSessionKind::OffsetStaging,
         (
-            PolicyUploadTransport::StreamUpload | PolicyUploadTransport::Sftp,
+            PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
+            | PolicyUploadTransport::Sftp,
             UploadMode::Chunked,
         ) => UploadSessionKind::StreamStaging,
+        (
+            PolicyUploadTransport::ProviderResumable(
+                ProviderResumableUploadStrategy::FrontendDirect,
+            ),
+            UploadMode::ProviderResumable,
+        ) => UploadSessionKind::ProviderDirectResumable,
         (
             PolicyUploadTransport::ObjectStorage(ObjectStorageUploadStrategy::RelayStream),
             UploadMode::Chunked,
@@ -270,6 +278,7 @@ pub(super) async fn init_multipart_session_with_retry(
                 session_kind,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: Some(&multipart_id),
+                provider_session_ciphertext: None,
                 expires_at: Utc::now() + expires_in,
             },
         )
@@ -346,6 +355,7 @@ fn upload_session_active_model(
         session_kind,
         object_temp_key,
         object_multipart_id,
+        provider_session_ciphertext,
         expires_at,
     } = params;
     let now = Utc::now();
@@ -366,6 +376,7 @@ fn upload_session_active_model(
         session_kind: Set(Some(session_kind)),
         object_temp_key: Set(object_temp_key.map(str::to_string)),
         object_multipart_id: Set(object_multipart_id.map(str::to_string)),
+        provider_session_ciphertext: Set(provider_session_ciphertext.map(str::to_string)),
         file_id: Set(None),
         created_at: Set(now),
         expires_at: Set(expires_at),
@@ -382,6 +393,7 @@ pub(super) fn direct_upload_response() -> InitUploadResponse {
         presigned_url: None,
         presigned_headers: Default::default(),
         presigned_require_etag: None,
+        provider_resumable: None,
     }
 }
 
@@ -399,6 +411,7 @@ pub(super) fn chunked_upload_response(
         presigned_url: None,
         presigned_headers: Default::default(),
         presigned_require_etag: None,
+        provider_resumable: None,
     }
 }
 
@@ -407,7 +420,8 @@ mod tests {
     use super::session_kind_for_transport;
     use crate::services::workspace::storage::PolicyUploadTransport;
     use crate::types::{
-        ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode, UploadSessionKind,
+        ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
+        UploadMode, UploadSessionKind,
     };
 
     #[test]
@@ -419,9 +433,18 @@ mod tests {
                 UploadSessionKind::OffsetStaging,
             ),
             (
-                PolicyUploadTransport::StreamUpload,
+                PolicyUploadTransport::ProviderResumable(
+                    ProviderResumableUploadStrategy::ServerRelay,
+                ),
                 UploadMode::Chunked,
                 UploadSessionKind::StreamStaging,
+            ),
+            (
+                PolicyUploadTransport::ProviderResumable(
+                    ProviderResumableUploadStrategy::FrontendDirect,
+                ),
+                UploadMode::ProviderResumable,
+                UploadSessionKind::ProviderDirectResumable,
             ),
             (
                 PolicyUploadTransport::Sftp,
@@ -479,6 +502,12 @@ mod tests {
             (
                 PolicyUploadTransport::Remote(RemoteUploadStrategy::RelayStream),
                 UploadMode::Presigned,
+            ),
+            (
+                PolicyUploadTransport::ProviderResumable(
+                    ProviderResumableUploadStrategy::FrontendDirect,
+                ),
+                UploadMode::Chunked,
             ),
         ];
         for (transport, mode) in invalid {

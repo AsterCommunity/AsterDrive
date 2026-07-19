@@ -125,7 +125,7 @@ export async function saveResumableSession(
 		baseFolderName: string;
 		chunkSize: number;
 		filename: string;
-		mode: "chunked" | "presigned_multipart";
+		mode: "chunked" | "presigned_multipart" | "provider_resumable";
 		relativePath: string | null;
 		savedAt: number;
 		totalChunks: number;

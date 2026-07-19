@@ -1,6 +1,6 @@
 use crate::entities::storage_policy;
 use crate::types::{
-    ObjectStorageUploadStrategy, RemoteUploadStrategy, UploadMode,
+    ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
     effective_object_multipart_chunk_size,
 };
 
@@ -16,11 +16,9 @@ pub enum StorageConnectorUploadTransport {
     ObjectStorage(ObjectStorageUploadStrategy),
     /// 通过 remote node 代理上传。
     Remote(RemoteUploadStrategy),
-    /// Server-side streaming through `StreamUploadDriver` without exposing a
-    /// provider-native browser upload session. OneDrive uses this today: its
-    /// driver may create Microsoft Graph upload sessions internally, but the
-    /// upload service only sees a generic stream-upload target.
-    StreamUpload,
+    /// Provider-native resumable upload. The strategy decides whether the provider session stays
+    /// inside the driver or is returned to the authenticated browser.
+    ProviderResumable(ProviderResumableUploadStrategy),
     /// SFTP can only be reached by the server. Browsers never receive a
     /// provider-native upload URL; uploads are relayed through StreamUploadDriver.
     Sftp,
@@ -41,7 +39,9 @@ impl StorageConnectorUploadTransport {
     pub fn effective_chunk_size(self, policy: &storage_policy::Model) -> i64 {
         match self {
             Self::ObjectStorage(_) => effective_object_multipart_chunk_size(policy.chunk_size),
-            Self::Local | Self::Remote(_) | Self::StreamUpload | Self::Sftp => policy.chunk_size,
+            Self::Local | Self::Remote(_) | Self::ProviderResumable(_) | Self::Sftp => {
+                policy.chunk_size
+            }
         }
     }
 
@@ -57,6 +57,9 @@ impl StorageConnectorUploadTransport {
             (Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned), false)
             | (Self::Remote(RemoteUploadStrategy::Presigned), false) => {
                 UploadMode::PresignedMultipart
+            }
+            (Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect), _) => {
+                UploadMode::ProviderResumable
             }
             (_, true) => UploadMode::Direct,
             (_, false) => UploadMode::Chunked,
@@ -84,7 +87,8 @@ impl StorageConnectorUploadTransport {
             Self::ObjectStorage(ObjectStorageUploadStrategy::Presigned) => false,
             Self::Remote(RemoteUploadStrategy::RelayStream)
             | Self::Remote(RemoteUploadStrategy::Presigned) => true,
-            Self::StreamUpload => true,
+            Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay) => true,
+            Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => false,
             Self::Sftp => self.fits_single_request(policy, declared_size),
         }
     }
@@ -112,7 +116,7 @@ impl StorageConnectorUploadTransport {
             // Azure Blob and COS.
             Self::ObjectStorage(_) => Some("s3"),
             Self::Remote(_) => Some("remote"),
-            Self::StreamUpload => Some("provider"),
+            Self::ProviderResumable(_) => Some("provider"),
             Self::Sftp => Some("sftp"),
         }
     }
@@ -130,10 +134,12 @@ impl StorageConnectorUploadTransport {
             // full temp file. They can relay stored chunks into the connector's
             // stream-upload implementation, which lets the concrete driver own
             // any provider-native resumable/session behavior internally.
-            Self::Remote(_) | Self::StreamUpload | Self::Sftp => {
-                StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-            }
-            Self::Local | Self::ObjectStorage(_) => {
+            Self::Remote(_)
+            | Self::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
+            | Self::Sftp => StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
+            Self::Local
+            | Self::ObjectStorage(_)
+            | Self::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect) => {
                 StorageConnectorChunkedCompletion::AssembleLocalChunks
             }
         }

@@ -106,6 +106,7 @@ async fn init_presigned_object_storage_single_upload(
                 )?,
                 object_temp_key: Some(&temp_key),
                 object_multipart_id: None,
+                provider_session_ciphertext: None,
                 expires_at: Utc::now() + Duration::hours(1),
             },
         )
@@ -145,6 +146,7 @@ async fn init_presigned_object_storage_single_upload(
             presigned_url: Some(presigned_url),
             presigned_headers,
             presigned_require_etag: Some(presigned_require_etag),
+            provider_resumable: None,
         }))
     })
     .await

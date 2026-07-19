@@ -26,6 +26,8 @@ flowchart TD
   Policy --> Local["local：写入本地存储"]
   Policy --> S3Relay["s3 / tencent_cos + relay_stream：服务端转发到对象存储"]
   Policy --> S3Presigned["s3 / tencent_cos + presigned：浏览器直传对象存储"]
+  Policy --> OneDriveRelay["one_drive + server_relay：服务端转发到 Microsoft Graph"]
+  Policy --> OneDriveDirect["one_drive + frontend_direct：浏览器直传 Microsoft Graph"]
   Policy --> SftpRelay["sftp：服务端流式写入 SFTP"]
   Policy --> RemoteRelay["remote + relay_stream：主控节点转发到从节点"]
   Policy --> RemotePresigned["remote + presigned：浏览器直连从节点 base_url"]
@@ -45,6 +47,7 @@ flowchart TD
 - 服务本地临时目录有没有足够空间
 - 反向代理的上传大小和超时是否足够
 - 如果要直传对象存储，浏览器上传所需的 CORS 是否已经配好
+- 如果使用 OneDrive Graph 直传，确认浏览器和当前网络可以正常访问 Microsoft；直传所需的跨域支持由 Microsoft 提供，不需要在 AsterDrive 里另配
 - 如果用 SFTP，SSH 主机密钥指纹是否已经确认并保存
 - 如果用远程节点，follower 是否已经有已应用的默认远程存储目标
 - 如果用远程节点 `presigned`，远程节点是否使用直连传输、浏览器是否能访问 follower 的 `base_url`，并且 follower 对外暴露了所需的 CORS 响应头
@@ -90,6 +93,17 @@ SFTP 上传和下载都由 AsterDrive 服务端中继。浏览器不会直接连
 - 基础路径可写
 - SSH 主机密钥指纹已经通过可信渠道确认并保存
 
+## 如果你使用 OneDrive
+
+OneDrive 有两条上传路径：
+
+- `server_relay`：浏览器先上传到 AsterDrive，再由 AsterDrive 写入 Microsoft Graph。这是兼容已有策略的默认值，文件流量会经过 AsterDrive 节点。
+- `frontend_direct`：浏览器把文件直接上传到 Microsoft Graph，文件流量不经过 AsterDrive 节点，因此更节省服务器带宽。
+
+Graph 直传按开箱可用设计，不需要额外配置 Microsoft Graph 的跨域规则。Microsoft 凭据仍保存在 AsterDrive 服务端，不会发送给浏览器。
+
+完整配置和安全边界见 [OneDrive 存储策略教程](/storage/onedrive)。
+
 ## 上传失败时，先按这个顺序查
 
 1. 当前工作空间是不是切对了
@@ -97,9 +111,10 @@ SFTP 上传和下载都由 AsterDrive 服务端中继。浏览器不会直接连
 3. 命中的存储策略单文件大小上限是否够
 4. 反向代理的请求体大小和超时时间是否够
 5. 如果走对象存储直传，CORS 配置是否正确
-6. 如果走 SFTP，Endpoint、SSH 凭据、基础路径和主机密钥指纹是否正确
-7. 如果走远程节点，节点是否启用、当前传输方式是否测试通过、协议能力是否兼容、默认远程存储目标是否已应用
-8. 用户或团队配额是不是已经满了
+6. 如果走 OneDrive Graph 直传，检查浏览器扩展或公司网络是否拦截了对 Microsoft 的访问
+7. 如果走 SFTP，Endpoint、SSH 凭据、基础路径和主机密钥指纹是否正确
+8. 如果走远程节点，节点是否启用、当前传输方式是否测试通过、协议能力是否兼容、默认远程存储目标是否已应用
+9. 用户或团队配额是不是已经满了
 
 ## 什么时候应该改配置
 
@@ -110,5 +125,6 @@ SFTP 上传和下载都由 AsterDrive 服务端中继。浏览器不会直接连
 - 服务器本地临时目录的可用空间
 - 反向代理的上传大小和超时
 - 对象存储的浏览器直传放行规则
+- OneDrive 的 `server_relay` / `frontend_direct` 上传方式，以及浏览器和当前网络能否正常访问 Microsoft
 - SFTP 的 endpoint、基础路径和 SSH 主机密钥指纹
 - 远程节点的传输方式、协议能力、默认远程存储目标和网络可达性；如果使用远程 `presigned`，再确认浏览器能访问 follower 的 `base_url`

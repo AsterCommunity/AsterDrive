@@ -1,11 +1,11 @@
 ---
-description: OneDrive storage policy tutorial covering Microsoft app registration, Global / China cloud endpoints, delegated permissions, OAuth authorization, target drive resolution, and the app configuration storage design.
+description: OneDrive storage policy tutorial covering Microsoft app registration, OAuth authorization, target drives, server relay, and Microsoft Graph browser-direct upload.
 ---
 
 # OneDrive Storage Policy Tutorial
 
 ::: tip What this page covers
-This page walks through the complete flow for writing AsterDrive files to Microsoft OneDrive or SharePoint / Microsoft 365 group drives: prepare a Microsoft app, create a OneDrive storage policy, authorize Microsoft Graph, configure policy group rules, bind users or teams, and understand how Client ID / Secret are stored.
+This page walks through the complete flow for writing AsterDrive files to Microsoft OneDrive or SharePoint / Microsoft 365 group drives: prepare a Microsoft app, authorize Microsoft Graph, choose server relay or browser-direct upload, configure policy group rules, bind users or teams, and understand how credentials stay protected.
 :::
 
 ## When to Use It
@@ -120,6 +120,7 @@ Fill in:
 | Client ID | Application (client) ID from the Microsoft app registration |
 | Client Secret | Microsoft app secret; currently required. Public-client / no-secret flows are not supported by this storage backend. |
 | Drive type | Usually keep the default during creation and let authorization resolve the default drive |
+| OneDrive upload mode | Choose `Server relay` or `Microsoft Graph direct upload` based on bandwidth flow; Graph direct upload needs no additional cross-origin configuration |
 
 After saving the policy, open the policy edit page and start authorization.
 
@@ -139,21 +140,12 @@ Admin -> Storage Policies -> target OneDrive policy
 
 In the `Microsoft Graph credential` panel, click `Authorize`.
 
-When the backend starts authorization, the request only needs to identify the provider as Microsoft Graph. Client ID, Client Secret, tenant, and scopes are read from the saved connector application config. The older "authorize while carrying draft credentials" flow has been closed.
+Authorization uses the saved Microsoft application settings and does not read an unsaved Client ID or Client Secret from the page. After authorization succeeds, the browser returns to the AsterDrive admin console and shows the result.
 
-After authorization succeeds, the browser returns to the AsterDrive admin console and shows the result. AsterDrive stores:
-
-- access token ciphertext
-- refresh token ciphertext
-- token expiration time
-- authorization time
-- target drive / root item metadata
-- Microsoft cloud / tenant / app metadata
-
-When background tasks need OneDrive access, AsterDrive refreshes the access token automatically. Successful refresh writes the new token state back to the database. If Microsoft rejects the refresh token, the policy enters reauthorization-required state.
+AsterDrive securely stores the information needed for later OneDrive access and renews authorization when needed. If Microsoft revokes access or the credential expires, the policy page prompts the administrator to authorize again.
 
 ::: tip Temporary cleanup after policy deletion
-When force-deleting a OneDrive policy that still has temporary upload objects, AsterDrive stores the currently available Microsoft Graph token and drive data in the cleanup task snapshot. That cleanup task may refresh the access token in memory from the snapshotted refresh token, but it does not write OAuth audit records or mark the credential as reauthorization-required. This is intentional: by the time the task runs, the original policy or credential row may already be deleted. Cleanup failures are recorded in the background task error output and failed step, and the service also emits a warning log; reauthorization only applies to OneDrive policies that still exist.
+After a policy with temporary upload data is deleted, AsterDrive continues the cleanup in the background. If cleanup fails, the reason is available on the admin task page.
 :::
 
 ## 5. How the Target Drive Is Resolved
@@ -180,7 +172,46 @@ Use advanced fields only when you need a non-default document library or a fixed
 Leave Root item ID empty or set it to `root` to write under the drive root.
 :::
 
-## 6. Create a Test Policy Group
+## 6. Choose the OneDrive Upload Mode
+
+OneDrive policies support two upload modes:
+
+| Upload mode | Data path | Best fit |
+| --- | --- | --- |
+| Server relay (`server_relay`) | Browser -> AsterDrive -> Microsoft Graph | The default retained for compatibility with existing policies; browser traffic always passes through AsterDrive |
+| Microsoft Graph direct upload (`frontend_direct`) | Browser uploads directly to Microsoft Graph | An out-of-the-box bandwidth-saving path for large files or servers with limited bandwidth |
+
+Server relay is the default to preserve existing policy behavior. Administrators can switch the upload mode on the OneDrive policy edit page.
+
+### Server Relay
+
+The browser uploads the file to AsterDrive first, then the server writes it to Microsoft Graph.
+
+This path consumes upload bandwidth on the AsterDrive node, but browsers only need connectivity to AsterDrive. Prefer it when user devices cannot connect reliably to Microsoft.
+
+### Microsoft Graph Direct Upload
+
+AsterDrive confirms the upload, then the browser sends the file directly to Microsoft Graph. The file does not pass through the AsterDrive node, which can substantially reduce server bandwidth use.
+
+```mermaid
+flowchart TD
+  Browser["Browser selects a file"] --> Mode{"OneDrive upload mode"}
+  Mode -->|Server relay| Relay["File passes through AsterDrive"]
+  Relay --> Graph["Microsoft Graph"]
+  Mode -->|Microsoft Graph direct upload| Direct["File bypasses AsterDrive"]
+  Direct --> Graph
+  Graph --> Done["AsterDrive shows upload complete"]
+```
+
+Microsoft access and refresh tokens always stay on the AsterDrive server and are never sent to the browser. Interrupted direct uploads can continue, while canceled or expired uploads are cleaned up automatically.
+
+::: tip Graph direct upload needs no extra cross-origin rules
+Graph direct upload is designed to work out of the box. Microsoft provides the required cross-origin support. There is no corresponding option in AsterDrive, the Microsoft app registration, or the storage policy.
+
+If direct upload fails in a particular network, check browser extensions, the company network, and whether the correct Microsoft cloud is selected. You can also switch back to server relay.
+:::
+
+## 7. Create a Test Policy Group
 
 Do not move real users to a new OneDrive policy immediately. Create a test policy group first.
 
@@ -204,7 +235,7 @@ Add one rule:
 | Priority | Keep the default or make it match first |
 | File size range | Cover all sizes first, which makes testing easier |
 
-## 7. Bind a Test User or Test Team
+## 8. Bind a Test User or Test Team
 
 ### Bind a User
 
@@ -228,50 +259,27 @@ Change the test team's policy group to `OneDrive Test Group`.
 
 Team space uploads follow the team policy group, not the individual user's policy group.
 
-## 8. Run a Real Acceptance Check
+## 9. Run a Real Acceptance Check
 
 With a test account, run at least:
 
-1. Upload a small file
-2. Upload a larger file
+1. Upload a small and a larger file with server relay
+2. Switch to Graph direct upload and repeat both uploads
 3. Download a file
 4. Preview an image or trigger thumbnail generation
 5. Delete and restore a file
 6. Confirm on the Microsoft side that objects are written into the target drive
 7. Click `Validate` in the AsterDrive admin console
 
-If background tasks report Microsoft Graph `401` or token-related errors, check the credential status on the policy edit page. If the status requires reauthorization, click `Reauthorize`.
+If the admin console reports that Microsoft Graph authorization has expired, check the credential status on the policy edit page. If the status requires reauthorization, click `Reauthorize`.
 
-## 9. Current App Configuration Storage Design
+## 10. How Credentials Are Stored
 
-AsterDrive stores the OneDrive Microsoft Graph application settings in a connector application config record instead of keeping them long-term in `storage_policies.access_key` / `storage_policies.secret_key`:
+AsterDrive encrypts the Microsoft Client Secret and authorization information. Plaintext credentials are not returned to the browser, API responses, or audit logs.
 
-| Storage field | OneDrive meaning |
-| --- | --- |
-| `storage_connector_application_configs.client_id` | Microsoft Application (client) ID |
-| `storage_connector_application_configs.client_secret_ciphertext` | Encrypted Microsoft Client Secret |
-| `storage_connector_application_configs.tenant_id` | Microsoft tenant, such as `common` or a tenant ID |
-| `storage_connector_application_configs.scopes` | Microsoft Graph delegated scopes |
+When editing an existing policy, leave Client Secret empty to keep the saved secret. Enter and save a new value only when replacing it.
 
-The Client Secret is encrypted at rest with a key derived from `auth.storage_credential_secret_key`. The plaintext secret entered by an administrator is used only when saving or replacing the application settings; when authorization starts, the backend reads the already saved encrypted secret. If the field is left blank while editing a policy, AsterDrive keeps the existing `client_secret_ciphertext`. API responses and audit logs expose only controlled state such as `client_secret_configured`; they do not return the plaintext secret. For backup and migration notes on this master key, see [Authentication & Session — `storage_credential_secret_key`](/en/config/auth#storage-credential-secret-key).
-
-When a OneDrive policy is created or updated, AsterDrive clears the legacy `storage_policies.access_key` / `storage_policies.secret_key` fields at the storage connector boundary. They are not the long-term storage location for OneDrive Microsoft app credentials.
-
-This is an intentional design trade-off: each OneDrive policy owns its Microsoft Graph app settings, but those settings are still stored outside the generic storage policy connection fields so the model can later move to shared app configs if needed.
-
-Benefits of the current design:
-
-- The plaintext Client Secret is not stored long-term in `storage_policies.secret_key`
-- The create and authorize flow stays direct
-- Connection settings, OAuth tokens, and authorization state have clear table boundaries
-- If multiple policies later need to share one Microsoft app, the schema can migrate to a shared app-config reference model
-
-If a future requirement appears, such as multiple OneDrive policies sharing one Microsoft App, Google Drive using the same OAuth storage-app model, or administrators needing centralized app secret rotation, AsterDrive can migrate to a model like:
-
-```text
-storage_provider_app_configs
-storage_policies.app_config_id -> storage_provider_app_configs.id
-```
+Credential encryption depends on `auth.storage_credential_secret_key`. Preserve this setting when backing up or migrating AsterDrive. See [Authentication & Session - `storage_credential_secret_key`](/en/config/auth#storage-credential-secret-key).
 
 ## FAQ
 
@@ -302,3 +310,7 @@ The refresh token is usually unavailable or rejected by Microsoft. Check:
 - Whether Microsoft organization policy restricts refresh tokens
 - Whether an administrator revoked the grant on the Microsoft side
 - Whether Client Secret was rotated but the AsterDrive policy was not updated
+
+### Server Relay Works but Microsoft Graph Direct Upload Fails
+
+First confirm that regular upload, download, and the admin `Validate` action work. Then check browser extensions, the company network, and whether the correct Microsoft cloud is selected. AsterDrive has no additional Graph cross-origin setting. This type of problem usually affects only browser-direct upload; switch back to server relay when needed.

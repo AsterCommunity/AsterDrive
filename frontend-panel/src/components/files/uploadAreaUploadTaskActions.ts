@@ -54,7 +54,9 @@ function createSavedSession(
 		mode:
 			init.mode === "presigned_multipart"
 				? ("presigned_multipart" as const)
-				: ("chunked" as const),
+				: init.mode === "provider_resumable"
+					? ("provider_resumable" as const)
+					: ("chunked" as const),
 	};
 }
 
@@ -68,6 +70,7 @@ export async function runQueuedUploadTask(
 		runDirectUpload,
 		runMultipartUpload,
 		runPresignedUpload,
+		runProviderResumableUpload,
 		tasksRef,
 		workspace,
 	}: UploadTaskActionsContext,
@@ -87,7 +90,9 @@ export async function runQueuedUploadTask(
 	try {
 		if (
 			task.uploadId &&
-			(task.mode === "chunked" || task.mode === "presigned_multipart")
+			(task.mode === "chunked" ||
+				task.mode === "presigned_multipart" ||
+				task.mode === "provider_resumable")
 		) {
 			try {
 				const progress = await uploadService.getProgress(task.uploadId);
@@ -136,7 +141,7 @@ export async function runQueuedUploadTask(
 							},
 							progress.chunks_on_disk,
 						);
-					} else {
+					} else if (task.mode === "presigned_multipart") {
 						await runMultipartUpload(
 							task,
 							{
@@ -146,6 +151,18 @@ export async function runQueuedUploadTask(
 								total_chunks: progress.total_chunks,
 							},
 							saved?.completedParts ?? [],
+						);
+					} else {
+						await runProviderResumableUpload(
+							task,
+							{
+								mode: "provider_resumable",
+								upload_id: task.uploadId,
+								chunk_size: chunkSize,
+								total_chunks: progress.total_chunks,
+								provider_resumable: progress.provider_resumable,
+							},
+							progress.chunks_on_disk,
 						);
 					}
 					return;
@@ -175,7 +192,9 @@ export async function runQueuedUploadTask(
 		});
 
 		if (
-			(init.mode === "chunked" || init.mode === "presigned_multipart") &&
+			(init.mode === "chunked" ||
+				init.mode === "presigned_multipart" ||
+				init.mode === "provider_resumable") &&
 			init.upload_id
 		) {
 			saveSession(createSavedSession(task, init, workspace));
@@ -187,6 +206,10 @@ export async function runQueuedUploadTask(
 		}
 		if (init.mode === "presigned_multipart") {
 			await runMultipartUpload(task, init);
+			return;
+		}
+		if (init.mode === "provider_resumable") {
+			await runProviderResumableUpload(task, init);
 			return;
 		}
 		if (init.mode === "presigned") {
@@ -243,7 +266,11 @@ export async function cancelUploadTask(
 		return;
 	}
 
-	if (task.mode === "chunked" || task.mode === "presigned_multipart") {
+	if (
+		task.mode === "chunked" ||
+		task.mode === "presigned_multipart" ||
+		task.mode === "provider_resumable"
+	) {
 		await cancelMultipartSession(task);
 		patchTask(taskId, { status: "cancelled", error: null });
 		return;
@@ -288,7 +315,11 @@ export async function retryUploadTask(
 	}
 
 	if (task.uploadId) {
-		if (task.mode === "chunked" || task.mode === "presigned_multipart") {
+		if (
+			task.mode === "chunked" ||
+			task.mode === "presigned_multipart" ||
+			task.mode === "provider_resumable"
+		) {
 			await cancelMultipartSession(task);
 		} else {
 			void uploadService.cancelUpload(task.uploadId).catch(() => undefined);

@@ -13,6 +13,7 @@ mod chunked;
 mod contract;
 mod object_multipart;
 mod plan;
+mod provider_resumable;
 #[cfg(test)]
 mod tests;
 
@@ -36,6 +37,7 @@ use self::object_multipart::{
     complete_presigned_multipart, complete_presigned_upload, complete_relay_multipart,
 };
 use self::plan::{CompletionPlan, completion_plan_label, determine_completion_plan};
+use self::provider_resumable::complete_provider_resumable_upload;
 
 const UNRESOLVED_UPLOAD_ACTOR_USERNAME: &str = "<unresolved>";
 
@@ -96,6 +98,9 @@ async fn complete_upload_impl_with_hints(
         }
         CompletionPlan::CompleteRelayMultipart => {
             complete_relay_multipart(state, session, hints.actor_username).await
+        }
+        CompletionPlan::CompleteProviderResumable => {
+            complete_provider_resumable_upload(state, session, hints.actor_username).await
         }
         CompletionPlan::CompleteChunked => {
             complete_chunked_upload_with_actor_username(

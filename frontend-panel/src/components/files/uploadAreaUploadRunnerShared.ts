@@ -44,6 +44,11 @@ export interface UploadModeRunners {
 		task: UploadTask,
 		init: InitUploadResponse,
 	) => Promise<void>;
+	runProviderResumableUpload: (
+		task: UploadTask,
+		init: InitUploadResponse,
+		alreadyReceived?: number[],
+	) => Promise<void>;
 }
 
 export type UploadRequestRef = MutableRefObject<

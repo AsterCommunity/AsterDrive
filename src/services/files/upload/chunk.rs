@@ -1482,6 +1482,7 @@ mod tests {
             session_kind: None,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
+            provider_session_ciphertext: None,
             file_id: None,
             created_at: now,
             expires_at: now + chrono::Duration::hours(1),

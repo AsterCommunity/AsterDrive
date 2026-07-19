@@ -4,6 +4,7 @@ import type {
 	ObjectStorageDownloadStrategy,
 	ObjectStorageUploadStrategy,
 	OneDriveAccountMode,
+	ProviderResumableUploadStrategy,
 	RemoteDownloadStrategy,
 	RemoteUploadStrategy,
 	StorageConnectorDescriptor,
@@ -17,6 +18,7 @@ export interface StoragePolicyOptionsForm {
 	remote_upload_strategy: RemoteUploadStrategy;
 	object_storage_upload_strategy: ObjectStorageUploadStrategy;
 	object_storage_download_strategy: ObjectStorageDownloadStrategy;
+	provider_resumable_upload_strategy: ProviderResumableUploadStrategy;
 	s3_path_style?: boolean;
 	onedrive_cloud: MicrosoftGraphCloud;
 	onedrive_account_mode: OneDriveAccountMode;
@@ -76,6 +78,12 @@ export function getEffectiveRemoteUploadStrategy(
 	return options.remote_upload_strategy ?? "relay_stream";
 }
 
+export function getEffectiveProviderResumableUploadStrategy(
+	options: StoragePolicyOptions,
+): ProviderResumableUploadStrategy {
+	return options.provider_resumable_upload_strategy ?? "server_relay";
+}
+
 export function buildPolicyOptions(
 	form: StoragePolicyOptionsForm,
 	descriptor?: StorageConnectorDescriptor | null,
@@ -111,6 +119,10 @@ function buildDescriptorPolicyOptions(
 	}
 	if (hasOption("remote_upload_strategy")) {
 		options.remote_upload_strategy = form.remote_upload_strategy;
+	}
+	if (hasOption("provider_resumable_upload_strategy")) {
+		options.provider_resumable_upload_strategy =
+			form.provider_resumable_upload_strategy;
 	}
 	if (
 		hasOption("object_storage_upload_strategy") ||
@@ -164,6 +176,10 @@ function buildPolicyOptionsFallback(
 	}
 	if (form.remote_upload_strategy !== "relay_stream") {
 		options.remote_upload_strategy = form.remote_upload_strategy;
+	}
+	if (form.provider_resumable_upload_strategy !== "server_relay") {
+		options.provider_resumable_upload_strategy =
+			form.provider_resumable_upload_strategy;
 	}
 	if (form.object_storage_upload_strategy !== "relay_stream") {
 		options.object_storage_upload_strategy =

@@ -10,6 +10,7 @@ mod init;
 mod kind;
 mod lifecycle;
 mod progress;
+mod provider_session;
 mod responses;
 mod runtime;
 mod scope;
@@ -47,8 +48,8 @@ pub use progress::{
     list_recoverable_sessions_for_team, presign_parts, presign_parts_for_team,
 };
 pub use responses::{
-    ChunkUploadResponse, InitUploadResponse, RecoverableUploadSessionResponse,
-    UploadProgressResponse,
+    ChunkUploadResponse, InitUploadResponse, ProviderResumableUploadResponse,
+    RecoverableUploadSessionResponse, UploadProgressResponse,
 };
 pub use runtime::UploadRuntime;
 

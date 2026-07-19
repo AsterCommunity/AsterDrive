@@ -12,7 +12,8 @@ use crate::errors::{AsterError, MapAsterErr};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
-    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver, StorageCapacityInfo,
+    ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
     StreamUploadDriver,
 };
 use aster_forge_utils::numbers;
@@ -85,10 +86,10 @@ pub fn microsoft_graph_upload_capabilities() -> ProviderResumableUploadCapabilit
         max_fragment_size: GRAPH_UPLOAD_FRAGMENT_MAX_BYTES,
         fragment_alignment: GRAPH_UPLOAD_FRAGMENT_ALIGNMENT,
         max_simple_upload_size: Some(GRAPH_SIMPLE_UPLOAD_MAX_BYTES as u64),
-        frontend_direct_upload: false,
+        frontend_direct_upload: true,
         implicit_completion: true,
-        abort_supported: false,
-        status_query_supported: false,
+        abort_supported: true,
+        status_query_supported: true,
     }
 }
 
@@ -162,7 +163,7 @@ impl OneDriveDriver {
         }
 
         let upload_session_path = self.graph_upload_session_path(path)?;
-        let upload_url = self
+        let upload_session = self
             .client
             .create_upload_session(&upload_session_path)
             .await?;
@@ -193,7 +194,7 @@ impl OneDriveDriver {
                 ));
             }
             self.client
-                .upload_session_fragment(&upload_url, uploaded, total_size, chunk)
+                .upload_session_fragment(&upload_session.upload_url, uploaded, total_size, chunk)
                 .await?;
             uploaded += numbers::usize_to_u64(read_len, "OneDrive uploaded fragment size")?;
         }
@@ -290,9 +291,40 @@ impl StreamUploadDriver for OneDriveDriver {
     }
 }
 
+#[async_trait]
 impl ProviderResumableUploadDriver for OneDriveDriver {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities {
         microsoft_graph_upload_capabilities()
+    }
+
+    async fn create_frontend_upload_session(
+        &self,
+        path: &str,
+    ) -> Result<ProviderResumableUploadSession> {
+        let session = self
+            .client
+            .create_upload_session(&self.graph_upload_session_path(path)?)
+            .await?;
+        Ok(ProviderResumableUploadSession {
+            upload_url: session.upload_url,
+            expires_at: session.expires_at,
+            next_expected_ranges: session.next_expected_ranges,
+        })
+    }
+
+    async fn query_frontend_upload_session(
+        &self,
+        upload_url: &str,
+    ) -> Result<ProviderResumableUploadStatus> {
+        let session = self.client.query_upload_session(upload_url).await?;
+        Ok(ProviderResumableUploadStatus {
+            expires_at: session.expires_at,
+            next_expected_ranges: session.next_expected_ranges,
+        })
+    }
+
+    async fn abort_frontend_upload_session(&self, upload_url: &str) -> Result<()> {
+        self.client.abort_upload_session(upload_url).await
     }
 }
 
@@ -413,9 +445,9 @@ mod tests {
             capabilities.max_simple_upload_size,
             Some(GRAPH_SIMPLE_UPLOAD_MAX_BYTES as u64)
         );
-        assert!(!capabilities.frontend_direct_upload);
+        assert!(capabilities.frontend_direct_upload);
         assert!(capabilities.implicit_completion);
-        assert!(!capabilities.abort_supported);
-        assert!(!capabilities.status_query_supported);
+        assert!(capabilities.abort_supported);
+        assert!(capabilities.status_query_supported);
     }
 }

@@ -4,7 +4,8 @@ export type UploadMode =
 	| "direct"
 	| "chunked"
 	| "presigned"
-	| "presigned_multipart";
+	| "presigned_multipart"
+	| "provider_resumable";
 
 export type ResumePlan = "upload" | "complete" | "restart";
 
@@ -35,6 +36,12 @@ export function getResumePlan(
 		) {
 			return "complete";
 		}
+		return "restart";
+	}
+
+	if (mode === "provider_resumable") {
+		if (status === "uploading") return "upload";
+		if (status === "assembling" || status === "completed") return "complete";
 		return "restart";
 	}
 

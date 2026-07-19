@@ -66,6 +66,19 @@ pub struct ProviderResumableUploadCapabilities {
     pub status_query_supported: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderResumableUploadSession {
+    pub upload_url: String,
+    pub expires_at: Option<DateTime<Utc>>,
+    pub next_expected_ranges: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderResumableUploadStatus {
+    pub expires_at: Option<DateTime<Utc>>,
+    pub next_expected_ranges: Vec<String>,
+}
+
 /// Provider-native resumable upload support.
 ///
 /// 这个 trait 只描述 provider 自己的 resumable/session 上传能力，不给 upload
@@ -74,8 +87,21 @@ pub struct ProviderResumableUploadCapabilities {
 /// 它故意和 S3-compatible multipart 分开：S3 multipart 是 upload service 可直接
 /// 编排的对象存储契约；Microsoft Graph 这类 provider 的 upload session 由具体
 /// driver 封装，上层通常仍然只通过 `StreamUploadDriver::put_reader()` 写入。
+#[async_trait]
 pub trait ProviderResumableUploadDriver: Send + Sync {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
+
+    async fn create_frontend_upload_session(
+        &self,
+        path: &str,
+    ) -> Result<ProviderResumableUploadSession>;
+
+    async fn query_frontend_upload_session(
+        &self,
+        upload_url: &str,
+    ) -> Result<ProviderResumableUploadStatus>;
+
+    async fn abort_frontend_upload_session(&self, upload_url: &str) -> Result<()>;
 }
 
 impl StorageCapacityInfo {

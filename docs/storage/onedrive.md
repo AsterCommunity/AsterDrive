@@ -1,11 +1,11 @@
 ---
-description: OneDrive 存储策略教程，覆盖 Microsoft 应用注册、Global / China 云端点、delegated permissions、OAuth 授权、目标 drive 解析和应用配置存储设计。
+description: OneDrive 存储策略教程，覆盖 Microsoft 应用注册、OAuth 授权、目标 drive、服务端中继和 Microsoft Graph 浏览器直传。
 ---
 
 # OneDrive 存储策略教程
 
 ::: tip 这一篇覆盖什么
-这一篇按完整流程讲怎么把 AsterDrive 文件写到 Microsoft OneDrive 或 SharePoint / Microsoft 365 group drive：准备 Microsoft 应用、创建 OneDrive 存储策略、完成 Microsoft Graph 授权、配置策略组规则、绑定用户或团队，并说明当前 Client ID / Secret 的存储设计。
+这一篇按完整流程讲怎么把 AsterDrive 文件写到 Microsoft OneDrive 或 SharePoint / Microsoft 365 group drive：准备 Microsoft 应用、完成 Microsoft Graph 授权、选择服务端中继或浏览器直传、配置策略组规则、绑定用户或团队，并说明凭据如何受到保护。
 :::
 
 ## 适合什么时候用
@@ -120,6 +120,7 @@ OneDrive
 | Client ID | Microsoft 应用注册里的 Application (client) ID |
 | Client Secret | Microsoft 应用 secret；当前必填，不支持公共客户端 / 无 secret 授权流程 |
 | Drive 类型 | 新建时通常保持默认，授权后自动解析默认 drive |
+| OneDrive 上传方式 | 按带宽路径选择“服务端流式中继”或“Microsoft Graph 直传”；Graph 直传不需要额外配置跨域规则 |
 
 保存策略后，进入策略编辑页发起授权。
 
@@ -139,21 +140,12 @@ OneDrive 授权请求只会使用已经保存到后端的 Microsoft Graph 应用
 
 在 `Microsoft Graph 凭据` 区域点击 `授权`。
 
-后端启动授权时，请求体只需要说明 provider 是 Microsoft Graph；Client ID、Client Secret、tenant 和 scopes 会从已保存的 connector application config 读取。旧版本里那种“边带草稿凭据边授权”的流程已经收口掉了。
+授权会使用已经保存的 Microsoft 应用配置，不会读取页面上尚未保存的 Client ID 或 Client Secret。授权成功后，浏览器会回到 AsterDrive 管理后台并显示结果。
 
-授权成功后，浏览器会回到 AsterDrive 管理后台，并显示授权结果。AsterDrive 会保存：
-
-- access token ciphertext
-- refresh token ciphertext
-- token 过期时间
-- 授权时间
-- 目标 drive / root item metadata
-- Microsoft cloud / tenant / app metadata
-
-后续后台任务需要访问 OneDrive 时，会自动刷新 access token。刷新成功会写回数据库；如果 Microsoft 拒绝 refresh token，策略会进入需要重新授权状态。
+AsterDrive 会安全保存后续访问 OneDrive 所需的信息，并在需要时自动续期。如果 Microsoft 取消授权或凭据失效，策略页会提示重新授权。
 
 ::: tip 删除策略后的临时清理任务
-强制删除仍有临时上传对象的 OneDrive 策略时，AsterDrive 会把当时可用的 Microsoft Graph token 和 drive 信息写入清理任务快照。这个清理任务使用快照里的 refresh token 在内存中刷新 access token，但不会写 OAuth 审计，也不会把凭据状态改成“需要重新授权”。这是刻意设计：任务运行时原始策略或凭据记录可能已经被删除。清理失败会写入后台任务错误输出和失败步骤，并记录服务端警告日志；管理员需要重新授权的是仍然存在的 OneDrive 策略。
+删除仍有临时上传数据的策略后，AsterDrive 会继续执行清理。清理失败时，可以在后台任务页面查看失败原因。
 :::
 
 ## 5. 目标 drive 如何解析
@@ -180,7 +172,46 @@ OneDrive 授权请求只会使用已经保存到后端的 Microsoft Graph 应用
 Root item ID 留空或填写 `root` 表示写入 drive 根目录。
 :::
 
-## 6. 创建测试策略组
+## 6. 选择 OneDrive 上传方式
+
+OneDrive 策略支持两种上传方式：
+
+| 上传方式 | 数据路径 | 适合场景 |
+| --- | --- | --- |
+| 服务端流式中继（`server_relay`） | 浏览器 -> AsterDrive -> Microsoft Graph | 为了兼容已有策略而保留的默认方式；浏览器流量统一经过 AsterDrive |
+| Microsoft Graph 直传（`frontend_direct`） | 浏览器直接上传到 Microsoft Graph | 开箱可用的省带宽路径；适合大文件或服务器带宽有限的环境 |
+
+服务端流式中继是为了兼容已有策略而保留的默认值。管理员可以在 OneDrive 策略编辑页随时切换上传方式。
+
+### 服务端流式中继
+
+浏览器先把文件上传到 AsterDrive，再由服务端写入 Microsoft Graph。
+
+这条路径会占用 AsterDrive 节点的上传带宽，但浏览器只需要访问 AsterDrive。用户设备无法稳定连接 Microsoft 时，可以优先使用这种方式。
+
+### Microsoft Graph 直传
+
+AsterDrive 确认本次上传后，浏览器会把文件直接上传到 Microsoft Graph。文件不经过 AsterDrive 节点，因此可以明显减少服务器带宽占用。
+
+```mermaid
+flowchart TD
+  Browser["浏览器选择文件"] --> Mode{"OneDrive 上传方式"}
+  Mode -->|服务端流式中继| Relay["文件经过 AsterDrive"]
+  Relay --> Graph["Microsoft Graph"]
+  Mode -->|Microsoft Graph 直传| Direct["文件不经过 AsterDrive"]
+  Direct --> Graph
+  Graph --> Done["AsterDrive 显示上传完成"]
+```
+
+Microsoft access token 和 refresh token 始终保留在 AsterDrive 服务端，不会发送给浏览器。直传中断后可以继续上传，取消或过期的上传也会自动清理。
+
+::: tip Graph 直传不需要额外配置跨域规则
+Graph 直传按开箱可用设计。所需的跨域支持由 Microsoft 提供，AsterDrive、Microsoft 应用注册和存储策略里都没有对应的配置项。
+
+如果某个网络环境下直传失败，先检查浏览器扩展、公司网络，以及所选的 Microsoft 云是否正确。也可以切回服务端流式中继。
+:::
+
+## 7. 创建测试策略组
 
 不要一上来直接把真实用户切到新的 OneDrive 策略。建议先创建测试策略组。
 
@@ -204,7 +235,7 @@ OneDrive Test Group
 | 优先级 | 保持默认或设为最先命中 |
 | 文件大小范围 | 先覆盖所有大小，方便测试 |
 
-## 7. 绑定测试用户或测试团队
+## 8. 绑定测试用户或测试团队
 
 ### 绑定用户
 
@@ -228,50 +259,27 @@ OneDrive Test Group
 
 团队空间上传时会按团队策略组走，不按个人用户策略组走。
 
-## 8. 做一轮真实验收
+## 9. 做一轮真实验收
 
 用测试账号至少跑一遍：
 
-1. 上传小文件
-2. 上传较大的文件
+1. 使用服务端流式中继上传小文件和较大文件
+2. 切换到 Graph 直传后，再次上传小文件和较大文件
 3. 下载文件
 4. 预览图片或触发缩略图生成
 5. 删除和恢复文件
 6. 在 Microsoft 侧确认对象写入目标 drive
 7. 在 AsterDrive 后台点击 `验证`
 
-如果后台任务报 Microsoft Graph `401` 或 token 相关错误，先回到策略编辑页查看凭据状态。状态为需要重新授权时，点击 `重新授权`。
+如果后台提示 Microsoft Graph 授权失效，先回到策略编辑页查看凭据状态。状态为需要重新授权时，点击 `重新授权`。
 
-## 9. 当前应用配置存储设计
+## 10. 凭据如何保存
 
-AsterDrive 把 OneDrive 的 Microsoft Graph 应用配置存放在独立的 connector application config 记录里，而不是长期写入 `storage_policies.access_key` / `storage_policies.secret_key`：
+AsterDrive 会加密保存 Microsoft Client Secret 和授权信息。浏览器、API 响应和审计日志都不会回显这些明文凭据。
 
-| 存储字段 | OneDrive 含义 |
-| --- | --- |
-| `storage_connector_application_configs.client_id` | Microsoft Application (client) ID |
-| `storage_connector_application_configs.client_secret_ciphertext` | 加密后的 Microsoft Client Secret |
-| `storage_connector_application_configs.tenant_id` | Microsoft tenant，例如 `common` 或租户 ID |
-| `storage_connector_application_configs.scopes` | Microsoft Graph delegated scopes |
+编辑已有策略时，如果 Client Secret 留空，AsterDrive 会继续使用已经保存的 secret；只有输入新值并保存时才会替换。
 
-Client Secret 使用 `auth.storage_credential_secret_key` 派生的加密密钥加密后落库。管理员在前端输入的明文 secret 只用于首次保存或主动覆盖；发起授权时，后端会读取已保存并加密保存的 secret。如果编辑策略时留空，AsterDrive 会保留已有的 `client_secret_ciphertext`。API 响应和审计日志只暴露 `client_secret_configured` 这类布尔状态，不回显明文。这把主密钥的备份与迁移注意事项见 [登录与会话 — `storage_credential_secret_key`](/config/auth#storage-credential-secret-key)。
-
-创建或更新 OneDrive 策略时，AsterDrive 会在存储连接边界清空 legacy `storage_policies.access_key` / `storage_policies.secret_key` 字段。它们不作为 OneDrive Microsoft 应用凭据的长期存储位置。
-
-这是刻意的设计折中：每条 OneDrive 策略拥有自己的 Microsoft Graph 应用配置，但应用配置仍然和 storage policy 分表存储，方便后续迁移到共享应用配置模型。
-
-当前设计的好处是：
-
-- 明文 Client Secret 不长期写入 `storage_policies.secret_key`
-- 创建和授权流程更直接
-- 连接配置、OAuth token 和授权状态有清晰的表边界
-- 未来需要多个策略共享一个 Microsoft App 时，可以迁移到共享 app config 引用模型
-
-如果以后出现明确需求，例如多个 OneDrive 策略共享一个 Microsoft App、Google Drive 也接入 OAuth 存储后端、管理员需要统一轮换 app secret，可以迁移到类似下面的模型：
-
-```text
-storage_provider_app_configs
-storage_policies.app_config_id -> storage_provider_app_configs.id
-```
+凭据加密依赖 `auth.storage_credential_secret_key`。备份或迁移 AsterDrive 时，需要同时保留这项配置，详见 [登录与会话 — `storage_credential_secret_key`](/config/auth#storage-credential-secret-key)。
 
 ## 常见问题
 
@@ -302,3 +310,7 @@ storage_policies.app_config_id -> storage_provider_app_configs.id
 - Microsoft 组织策略是否限制 refresh token
 - 管理员是否在 Microsoft 侧撤销了授权
 - Client Secret 是否轮换但 AsterDrive 策略没有更新
+
+### 服务端中继正常，但 Microsoft Graph 直传失败
+
+先确认普通上传、下载和后台“验证”都正常，再检查浏览器扩展、公司网络，以及所选的 Microsoft 云是否正确。AsterDrive 里没有额外的 Graph 跨域配置项。这类情况通常只影响浏览器直传；需要时可以切回“服务端流式中继”。

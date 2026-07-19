@@ -8,6 +8,7 @@
 
 mod context;
 mod object_storage;
+mod provider;
 mod remote;
 
 use chrono::{Duration, Utc};
@@ -99,6 +100,11 @@ async fn init_upload_for_scope(
         return Ok(direct_upload_response());
     }
 
+    if let Some(response) = provider::init_provider_resumable_upload(state, &ctx).await? {
+        record_upload_session_if_created(state, &response);
+        return Ok(response);
+    }
+
     // Object-storage and remote transports have protocol-level upload session
     // setup. Generic stream-upload connectors fall through to direct/chunked
     // modes; any provider-native resumable session stays inside the concrete
@@ -170,6 +176,7 @@ async fn init_chunked_upload_session(
                 session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
                 object_temp_key: None,
                 object_multipart_id: None,
+                provider_session_ciphertext: None,
                 expires_at,
             },
         )

@@ -9,6 +9,7 @@ import { appendCompletedPart, removeSession } from "@/lib/uploadPersistence";
 import {
 	type CompletedPart,
 	type InitUploadResponse,
+	UploadRequestError,
 	uploadService,
 } from "@/services/uploadService";
 import {
@@ -43,6 +44,7 @@ export function createResumableUploadRunners({
 	| "resumeCompletionTask"
 	| "runChunkedUpload"
 	| "runMultipartUpload"
+	| "runProviderResumableUpload"
 > {
 	const {
 		runResumableTransfer,
@@ -364,10 +366,97 @@ export function createResumableUploadRunners({
 		});
 	};
 
+	const runProviderResumableUpload = async (
+		task: UploadTask,
+		init: InitUploadResponse,
+		alreadyReceived: number[] = [],
+	) => {
+		if (!task.file) return;
+
+		const file = task.file;
+		const uploadId = init.upload_id as string;
+		const chunkSize = init.chunk_size as number;
+		const totalChunks = init.total_chunks as number;
+		const uploadUrl = init.provider_resumable?.upload_url;
+		if (!uploadUrl) {
+			throw new Error("missing provider resumable upload URL");
+		}
+		const completedSet = new Set(alreadyReceived);
+		const queue = Array.from(
+			{ length: totalChunks },
+			(_, index) => index,
+		).filter((chunkNumber) => !completedSet.has(chunkNumber));
+		const getChunkSize = (chunkNumber: number) => {
+			const start = chunkNumber * chunkSize;
+			return Math.max(0, Math.min(chunkSize, file.size - start));
+		};
+
+		await runResumableTransfer({
+			concurrency: 1,
+			completeUpload: () => completeWithRetry(uploadId),
+			initialCompleted: completedSet.size,
+			initialCompletedBytes: [...completedSet].reduce(
+				(total, chunkNumber) => total + getChunkSize(chunkNumber),
+				0,
+			),
+			items: queue,
+			getItemSize: getChunkSize,
+			processingProgress: SERVER_FINALIZE_PROGRESS,
+			progressScale: SERVER_FINALIZE_PROGRESS,
+			task,
+			totalItems: totalChunks,
+			totalBytes: file.size,
+			uploadId,
+			uploadItem: async (chunkNumber, reportProgress) => {
+				const start = chunkNumber * chunkSize;
+				const end = Math.min(start + chunkSize, file.size);
+				const blob = file.slice(start, end);
+
+				await runRetryableUploadOperation({
+					run: async () => {
+						try {
+							await withTrackedMultipartRequest(task.id, () =>
+								withTrackedUploadRequest(
+									uploadRequestRef,
+									task.id,
+									(onCreateXhr) =>
+										uploadService.providerResumableUpload(
+											uploadUrl,
+											blob,
+											start,
+											file.size,
+											{ onCreateXhr, onProgress: reportProgress },
+										),
+								),
+							);
+						} catch (error) {
+							if (
+								error instanceof UploadRequestError &&
+								(error.retryable || error.status === 416)
+							) {
+								const progress = await uploadService.getProgress(uploadId);
+								if (progress.chunks_on_disk.includes(chunkNumber)) return;
+							}
+							throw error;
+						}
+					},
+				});
+			},
+			uploadingPatch: {
+				mode: "provider_resumable",
+				status: "uploading",
+				uploadId,
+				totalChunks,
+				completedChunks: completedSet.size,
+			},
+		});
+	};
+
 	return {
 		cancelMultipartSession,
 		resumeCompletionTask,
 		runChunkedUpload,
 		runMultipartUpload,
+		runProviderResumableUpload,
 	};
 }
