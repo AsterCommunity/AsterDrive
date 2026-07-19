@@ -153,7 +153,7 @@ OneDrive 策略还提供 `provider_download_filename_mode`：
 files/{upload_uuid}
 ```
 
-路径解析器把这种路径识别为 legacy layout。读取、metadata、stream、range 和删除继续工作。`provider_native` 模式可以继续请求 Graph 直接下载，`strict_current` 模式因为无法确认远端文件名而使用代理流式下载。
+路径解析器把这种路径识别为 legacy layout。旧对象仅保证读取和删除；metadata、stream 和 range 属于读取链路，继续按原路径工作。`provider_native` 模式可以继续请求 Graph 直接下载，`strict_current` 模式因为无法确认远端文件名而使用代理流式下载。新上传路径由 connector 的 `object_naming` 能力生成，不会复用旧的扁平路径。
 
 新代码将旧路径继续视为 legacy layout，provider 类型也不承担历史 blob 路径批量改写职责。历史对象迁移需要单独的存储迁移任务和明确的数据库/对象一致性方案。
 
@@ -182,8 +182,8 @@ cargo test --features openapi --test generate_openapi
 - 共享目录已存在时验证目录类型并复用。
 - UUID 目录冲突时不覆盖旧目录。
 - session 创建、small upload、large upload 失败时清理 UUID 目录。
-- 旧扁平路径保持读写兼容；`provider_native` 模式继续使用 Graph 直链，
-  `strict_current` 模式使用代理流式下载。
+- 旧扁平路径仅保持读取和删除兼容；`provider_native` 模式继续使用 Graph 直链，
+  `strict_current` 模式使用代理流式下载。新上传路径由 `object_naming` 生成。
 - 当前文件名匹配时返回 Graph 直接下载地址。
 - `provider_native` 模式下文件重命名仍保持 Graph 直接下载。
 - `strict_current` 模式下文件重命名或逻辑文件名不一致时使用代理流式下载。

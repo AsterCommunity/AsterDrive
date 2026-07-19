@@ -116,6 +116,10 @@ struct MicrosoftGraphCreateFolderRequest<'a> {
 struct MicrosoftGraphFolderFacet {}
 
 #[derive(Debug)]
+#[expect(
+    clippy::large_enum_variant,
+    reason = "folder creation is a short-lived internal result; boxing would add an allocation without changing retained state"
+)]
 pub(super) enum MicrosoftGraphCreateFolderOutcome {
     Created(MicrosoftGraphDriveItem),
     AlreadyExists,

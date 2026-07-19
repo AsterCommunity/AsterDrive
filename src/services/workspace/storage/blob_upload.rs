@@ -134,122 +134,6 @@ fn original_filename_storage_path(upload_id: &str, filename: Option<&str>) -> Re
     Ok(format!("files/{upload_id}/{filename}"))
 }
 
-#[cfg(test)]
-mod storage_path_tests {
-    use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
-    use crate::types::DriverType;
-
-    const UPLOAD_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
-
-    fn policy(driver_type: DriverType) -> crate::entities::storage_policy::Model {
-        let now = chrono::Utc::now();
-        crate::entities::storage_policy::Model {
-            id: 1,
-            name: "test".to_string(),
-            driver_type,
-            endpoint: String::new(),
-            bucket: String::new(),
-            access_key: String::new(),
-            secret_key: String::new(),
-            base_path: String::new(),
-            remote_node_id: None,
-            remote_storage_target_key: None,
-            max_file_size: 0,
-            allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: crate::types::StoredStoragePolicyOptions::empty(),
-            is_default: false,
-            chunk_size: 5_242_880,
-            created_at: now,
-            updated_at: now,
-        }
-    }
-
-    #[test]
-    fn original_filename_path_keeps_uuid_namespace_and_filename() {
-        assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, Some("video name.mp4")).unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000/video name.mp4"
-        );
-    }
-
-    #[test]
-    fn original_filename_path_keeps_same_name_uploads_isolated_by_uuid() {
-        let first = original_filename_storage_path(UPLOAD_ID, Some("same-name.mp4")).unwrap();
-        let second = original_filename_storage_path(
-            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
-            Some("same-name.mp4"),
-        )
-        .unwrap();
-
-        assert_ne!(first, second);
-        assert!(first.ends_with("/same-name.mp4"));
-        assert!(second.ends_with("/same-name.mp4"));
-    }
-
-    #[test]
-    fn original_filename_path_supports_legacy_layout_and_rejects_bad_inputs() {
-        assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, None).unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000"
-        );
-        assert!(original_filename_storage_path("../escape", Some("video.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad/name.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad\\name.mp4")).is_err());
-        assert!(original_filename_storage_path(UPLOAD_ID, Some("")).is_err());
-    }
-
-    #[test]
-    fn original_filename_path_normalizes_unicode_filename() {
-        assert_eq!(
-            original_filename_storage_path(UPLOAD_ID, Some("cafe\u{301}.txt")).unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000/caf\u{e9}.txt"
-        );
-    }
-
-    #[test]
-    fn opaque_uuid_path_ignores_provider_filename_layout() {
-        assert_eq!(
-            nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
-                UPLOAD_ID,
-                Some("../../ignored.txt"),
-            )
-            .unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000"
-        );
-        assert!(
-            nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
-                "not-a-uuid",
-                Some("ignored.txt"),
-            )
-            .is_err()
-        );
-    }
-
-    #[test]
-    fn policy_object_naming_capability_selects_path_layout_explicitly() {
-        assert_eq!(
-            nondedup_storage_path_for_policy(
-                &policy(DriverType::OneDrive),
-                UPLOAD_ID,
-                Some("video.mp4"),
-            )
-            .unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000/video.mp4"
-        );
-        assert_eq!(
-            nondedup_storage_path_for_policy(
-                &policy(DriverType::S3),
-                UPLOAD_ID,
-                Some("video.mp4"),
-            )
-            .unwrap(),
-            "files/550e8400-e29b-41d4-a716-446655440000"
-        );
-    }
-}
-
 fn normalize_absolute_cleanup_path(path: &Path) -> Option<PathBuf> {
     if !path.is_absolute() {
         return None;
@@ -626,9 +510,129 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
         PreparedNonDedupBlobUpload::Opaque {
             upload_id,
             hash_prefix,
+            storage_path,
             size,
             policy_id,
             ..
-        } => create_opaque_nondedup_blob(db, *size, *policy_id, hash_prefix, upload_id).await,
+        } => {
+            create_opaque_nondedup_blob(db, *size, *policy_id, hash_prefix, upload_id, storage_path)
+                .await
+        }
+    }
+}
+
+#[cfg(test)]
+mod storage_path_tests {
+    use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
+    use crate::types::DriverType;
+
+    const UPLOAD_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
+
+    fn policy(driver_type: DriverType) -> crate::entities::storage_policy::Model {
+        let now = chrono::Utc::now();
+        crate::entities::storage_policy::Model {
+            id: 1,
+            name: "test".to_string(),
+            driver_type,
+            endpoint: String::new(),
+            bucket: String::new(),
+            access_key: String::new(),
+            secret_key: String::new(),
+            base_path: String::new(),
+            remote_node_id: None,
+            remote_storage_target_key: None,
+            max_file_size: 0,
+            allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
+            options: crate::types::StoredStoragePolicyOptions::empty(),
+            is_default: false,
+            chunk_size: 5_242_880,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    #[test]
+    fn original_filename_path_keeps_uuid_namespace_and_filename() {
+        assert_eq!(
+            original_filename_storage_path(UPLOAD_ID, Some("video name.mp4")).unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000/video name.mp4"
+        );
+    }
+
+    #[test]
+    fn original_filename_path_keeps_same_name_uploads_isolated_by_uuid() {
+        let first = original_filename_storage_path(UPLOAD_ID, Some("same-name.mp4")).unwrap();
+        let second = original_filename_storage_path(
+            "6ba7b810-9dad-11d1-80b4-00c04fd430c8",
+            Some("same-name.mp4"),
+        )
+        .unwrap();
+
+        assert_ne!(first, second);
+        assert!(first.ends_with("/same-name.mp4"));
+        assert!(second.ends_with("/same-name.mp4"));
+    }
+
+    #[test]
+    fn original_filename_path_supports_legacy_layout_and_rejects_bad_inputs() {
+        assert_eq!(
+            original_filename_storage_path(UPLOAD_ID, None).unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert!(original_filename_storage_path("../escape", Some("video.mp4")).is_err());
+        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad/name.mp4")).is_err());
+        assert!(original_filename_storage_path(UPLOAD_ID, Some("bad\\name.mp4")).is_err());
+        assert!(original_filename_storage_path(UPLOAD_ID, Some("")).is_err());
+    }
+
+    #[test]
+    fn original_filename_path_normalizes_unicode_filename() {
+        assert_eq!(
+            original_filename_storage_path(UPLOAD_ID, Some("cafe\u{301}.txt")).unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000/caf\u{e9}.txt"
+        );
+    }
+
+    #[test]
+    fn opaque_uuid_path_ignores_provider_filename_layout() {
+        assert_eq!(
+            nondedup_storage_path_for_policy(
+                &policy(DriverType::S3),
+                UPLOAD_ID,
+                Some("../../ignored.txt"),
+            )
+            .unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000"
+        );
+        assert!(
+            nondedup_storage_path_for_policy(
+                &policy(DriverType::S3),
+                "not-a-uuid",
+                Some("ignored.txt"),
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn policy_object_naming_capability_selects_path_layout_explicitly() {
+        assert_eq!(
+            nondedup_storage_path_for_policy(
+                &policy(DriverType::OneDrive),
+                UPLOAD_ID,
+                Some("video.mp4"),
+            )
+            .unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000/video.mp4"
+        );
+        assert_eq!(
+            nondedup_storage_path_for_policy(
+                &policy(DriverType::S3),
+                UPLOAD_ID,
+                Some("video.mp4"),
+            )
+            .unwrap(),
+            "files/550e8400-e29b-41d4-a716-446655440000"
+        );
     }
 }

@@ -854,15 +854,17 @@ mod tests {
             .expect("matching named object should return Graph download URL");
 
         assert_eq!(url, "https://download.example/file");
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["GET"]);
-        assert_eq!(
-            state.paths,
-            [
-                "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000/video.mp4:/content"
-            ]
-        );
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["GET"]);
+            assert_eq!(
+                state.paths,
+                [
+                    "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000/video.mp4:/content"
+                ]
+            );
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -876,33 +878,35 @@ mod tests {
             .await
             .expect("named upload session should be created");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "POST", "POST"]);
-        assert_eq!(
-            state.paths,
-            [
-                "/v1.0/drives/drive-id/items/root-id/children",
-                "/v1.0/drives/drive-id/items/root-id:/files:/children",
-                "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000/video.mp4:/createUploadSession",
-            ]
-        );
-        assert_eq!(
-            state.bodies[0],
-            serde_json::json!({
-                "name": "files",
-                "folder": {},
-                "@microsoft.graph.conflictBehavior": "fail"
-            })
-        );
-        assert_eq!(
-            state.bodies[1],
-            serde_json::json!({
-                "name": "550e8400-e29b-41d4-a716-446655440000",
-                "folder": {},
-                "@microsoft.graph.conflictBehavior": "fail"
-            })
-        );
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "POST", "POST"]);
+            assert_eq!(
+                state.paths,
+                [
+                    "/v1.0/drives/drive-id/items/root-id/children",
+                    "/v1.0/drives/drive-id/items/root-id:/files:/children",
+                    "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000/video.mp4:/createUploadSession",
+                ]
+            );
+            assert_eq!(
+                state.bodies[0],
+                serde_json::json!({
+                    "name": "files",
+                    "folder": {},
+                    "@microsoft.graph.conflictBehavior": "fail"
+                })
+            );
+            assert_eq!(
+                state.bodies[1],
+                serde_json::json!({
+                    "name": "550e8400-e29b-41d4-a716-446655440000",
+                    "folder": {},
+                    "@microsoft.graph.conflictBehavior": "fail"
+                })
+            );
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -920,10 +924,12 @@ mod tests {
             .await
             .expect("existing shared files folder should be reused");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "GET", "POST", "POST"]);
-        assert_eq!(state.paths[1], "/v1.0/drives/drive-id/items/root-id:/files");
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "GET", "POST", "POST"]);
+            assert_eq!(state.paths[1], "/v1.0/drives/drive-id/items/root-id:/files");
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -945,10 +951,12 @@ mod tests {
             error.storage_error_kind(),
             Some(StorageErrorKind::Precondition)
         );
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "POST"]);
-        assert!(!state.methods.iter().any(|method| method == "DELETE"));
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "POST"]);
+            assert!(!state.methods.iter().any(|method| method == "DELETE"));
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -966,13 +974,15 @@ mod tests {
             .await
             .expect_err("failed provider session should cleanup its namespace");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "POST", "POST", "DELETE"]);
-        assert_eq!(
-            state.paths[3],
-            "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000"
-        );
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "POST", "POST", "DELETE"]);
+            assert_eq!(
+                state.paths[3],
+                "/v1.0/drives/drive-id/items/root-id:/files/550e8400-e29b-41d4-a716-446655440000"
+            );
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -993,9 +1003,11 @@ mod tests {
             .await
             .expect_err("failed large stream session should cleanup its namespace");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "POST", "POST", "DELETE"]);
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "POST", "POST", "DELETE"]);
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -1017,11 +1029,13 @@ mod tests {
             .await
             .expect("deleting an already absent named object should be idempotent");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST", "POST", "PUT", "DELETE", "DELETE"]);
-        assert_eq!(state.paths[3], state.paths[4]);
-        assert!(state.paths[3].ends_with("/files/550e8400-e29b-41d4-a716-446655440000"));
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST", "POST", "PUT", "DELETE", "DELETE"]);
+            assert_eq!(state.paths[3], state.paths[4]);
+            assert!(state.paths[3].ends_with("/files/550e8400-e29b-41d4-a716-446655440000"));
+            drop(state);
+        }
         server.stop().await;
     }
 
@@ -1035,13 +1049,15 @@ mod tests {
             .await
             .expect("legacy flat upload path should remain supported");
 
-        let state = server.state.lock().expect("Graph lifecycle state lock");
-        assert_eq!(state.methods, ["POST"]);
-        assert!(
-            state.paths[0]
-                .ends_with("/files/550e8400-e29b-41d4-a716-446655440000:/createUploadSession")
-        );
-        drop(state);
+        {
+            let state = server.state.lock().expect("Graph lifecycle state lock");
+            assert_eq!(state.methods, ["POST"]);
+            assert!(
+                state.paths[0]
+                    .ends_with("/files/550e8400-e29b-41d4-a716-446655440000:/createUploadSession")
+            );
+            drop(state);
+        }
         server.stop().await;
     }
 }

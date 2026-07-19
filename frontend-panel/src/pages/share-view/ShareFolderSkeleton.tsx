@@ -56,7 +56,7 @@ function ShareFolderTableSkeleton() {
 					<TableHead>
 						<Skeleton className="h-4 w-20" />
 					</TableHead>
-					<TableHead className="w-12 pr-3" />
+					<TableHead className="w-12" />
 				</TableRow>
 			</TableHeader>
 			<TableBody>
@@ -74,7 +74,7 @@ function ShareFolderTableSkeleton() {
 						<TableCell>
 							<Skeleton className="h-4 w-20" />
 						</TableCell>
-						<TableCell className="w-12 pl-0 pr-3" />
+						<TableCell className="w-12" />
 					</TableRow>
 				))}
 			</TableBody>

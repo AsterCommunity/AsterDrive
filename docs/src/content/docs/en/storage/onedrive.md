@@ -289,7 +289,7 @@ With a test account, run at least:
 2. Switch to Graph direct upload and repeat both uploads
 3. Download a file once with server relay and once with Microsoft Graph direct download
 4. Upload two files with the same name and confirm that both open and download correctly
-5. Rename one of them, download it, and confirm that the filename is correct
+5. Rename one of them, then download it. In `provider_native` mode, the download may retain the older filename stored by OneDrive; switch to `strict_current` before asserting that the download uses AsterDrive's current filename.
 6. Preview an image or trigger thumbnail generation
 7. Delete and restore a file
 8. Confirm on the Microsoft side that objects are written into the target drive

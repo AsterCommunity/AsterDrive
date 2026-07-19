@@ -289,7 +289,7 @@ OneDrive Test Group
 2. 切换到 Graph 直传后，再次上传小文件和较大文件
 3. 分别使用服务端流式中继和 Microsoft Graph 直接下载文件
 4. 上传两个同名文件，确认两个文件都能正常打开和下载
-5. 重命名其中一个文件，再下载并确认文件名正确
+5. 重命名其中一个文件，再下载。`provider_native` 模式可能继续使用 OneDrive 保存的旧文件名；如果要确认下载使用 AsterDrive 当前文件名，请先切换到 `strict_current` 模式。
 6. 预览图片或触发缩略图生成
 7. 删除和恢复文件
 8. 在 Microsoft 侧确认对象写入目标 drive

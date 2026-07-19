@@ -46,10 +46,10 @@ pub(crate) async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
     policy_id: i64,
     hash_prefix: &str,
     object_id: &str,
+    storage_path: &str,
 ) -> Result<file_blob::Model> {
     let now = Utc::now();
     let file_hash = format!("{hash_prefix}-{object_id}");
-    let storage_path = format!("files/{object_id}");
 
     file_repo::create_blob(
         db,
@@ -57,7 +57,7 @@ pub(crate) async fn create_opaque_nondedup_blob<C: ConnectionTrait>(
             hash: Set(file_hash),
             size: Set(size),
             policy_id: Set(policy_id),
-            storage_path: Set(storage_path),
+            storage_path: Set(storage_path.to_string()),
             ref_count: Set(1),
             created_at: Set(now),
             updated_at: Set(now),
