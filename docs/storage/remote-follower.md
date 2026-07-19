@@ -47,7 +47,7 @@ flowchart TD
 | remote 存储策略 | 上传时选择哪台远程节点 | `管理 -> 存储策略` |
 | 策略组 | 哪些用户/团队/文件大小命中这条策略 | `管理 -> 策略组` |
 
-当前主控使用内部远程存储协议 `v5`，最低兼容 `v4`。创建 remote 策略和切换策略组前，先让主控测试一次节点连接；测试结果里会带双方的协议版本范围、服务端版本和能力摘要。只要版本范围有交集即可继续，`v2` / `v3` follower 需要先升级。
+创建 remote 策略和切换策略组前，先让主控测试一次节点连接。连接测试会检查主从版本和上传能力是否兼容；提示不兼容时，先升级较旧的节点。
 
 ## 1. 先确认从节点已经 ready
 
@@ -65,8 +65,7 @@ flowchart TD
 - 如果用直连，`base_url` 是主控能访问到的地址
 - 如果用反向通道，通道状态已经在线
 - 点击“测试连接”通过
-- 能力摘要里的内部协议版本范围兼容当前主控；当前主控使用 `v5`，最低兼容 `v4`
-- `/health/ready` 返回正常
+- 后台显示节点健康状态正常
 
 如果 `base_url` 为空，只有 `reverse_tunnel` 或 `auto` 才能承接远程流量；`direct` 节点必须补上主控能访问的 HTTP(S) 地址。生产前先确认“测试连接”按当前传输方式通过。
 
@@ -202,7 +201,7 @@ flowchart LR
 - HTTPS 证书可信
 - 反向代理不会拦截上传/下载路径和必要响应头
 - 从节点远程存储目标已经应用成功
-- 主控测试连接显示 follower 支持 `browser_presigned_cors`
+- 主控连接测试确认当前节点支持浏览器直连
 
 如果主控能访问从节点，但用户浏览器访问不到从节点，就不要用远程 `presigned`。如果远程节点走反向通道，也不要用 `presigned`，改用 `relay_stream`。
 
@@ -212,14 +211,7 @@ flowchart LR
 要让公网用户访问这类文件，要么给 follower 提供公网可达的 HTTPS 地址，要么把远程策略的上传/下载方式改成 `relay_stream`，让主控节点代转流量。不同拓扑的取舍见 [从节点网络部署方式](/deployment/follower-network-topologies)。
 :::
 
-远程 `presigned` 的浏览器 CORS 要求比普通主控中继更严格：
-
-| 方向 | 需要允许的请求头 | 需要暴露的响应头 |
-| --- | --- | --- |
-| 上传 `PUT` | `content-type` | `ETag` |
-| 下载 `GET` / Range | `range` | `Accept-Ranges`、`Content-Range`、`Content-Length` |
-
-follower 默认的内部协议能力会声明 `content-type, range`，并暴露 GET 所需的 `Accept-Ranges`、`Cache-Control`、`Content-Disposition`、`Content-Length`、`Content-Range`、`Content-Type`、`ETag`，以及 PUT 所需的 `ETag`。如果前面有 nginx、Caddy、Traefik 或 CDN，确认它们没有丢这些响应头。
+远程 `presigned` 需要从节点正确允许浏览器跨域访问。AsterDrive 默认会提供所需规则；如果从节点前面还有 nginx、Caddy、Traefik 或 CDN，确认代理没有覆盖 CORS，也没有破坏大文件上传、断点下载和媒体预览。
 
 ## 6. 创建测试策略组
 
@@ -278,7 +270,7 @@ Remote Test Group
 5. 删除文件，再从回收站恢复
 6. 如果启用了预览，打开一次图片或 PDF
 7. 到从节点检查远程存储目标目录或对象存储里是否出现对象
-8. 回主控 `管理 -> 远程节点` 再测一次连接，确认协议版本和能力摘要仍然正常
+8. 回主控 `管理 -> 远程节点` 再测一次连接，确认节点状态仍然正常
 
 如果这些都通过，再考虑把真实用户或团队切到远程策略组。
 
@@ -320,7 +312,7 @@ flowchart TD
 
 - 远程节点测试连接是否成功
 - 如果使用反向通道，通道状态是否在线且最近没有错误
-- 从节点 `/health/ready` 是否正常
+- 后台显示的从节点健康状态是否正常
 - 默认远程存储目标是否仍然已应用
 - 从节点接收根目录磁盘是否充足
 - 从节点如果再写 S3，S3 凭证是否仍然有效
@@ -342,8 +334,8 @@ flowchart TD
 - 从节点服务是否正在运行
 - 从节点是否监听外部可达地址
 - 反向代理或防火墙是否放行
-- `/health/ready` 是否返回正常
-- follower 返回的内部协议版本范围是否兼容当前主控；当前主控使用 `v5`，最低兼容 `v4`
+- 后台显示的节点健康状态是否正常
+- 连接测试是否提示主从版本不兼容
 
 ### remote 策略上传失败
 
@@ -367,8 +359,8 @@ flowchart TD
 - 浏览器能否访问从节点 `base_url`
 - HTTPS 证书是否可信
 - 反向代理是否转发上传/下载路径
-- CORS 是否允许 `content-type` / `range`
-- 响应是否暴露 `ETag`、`Accept-Ranges`、`Content-Range`、`Content-Length`
+- 从节点或反向代理的 CORS 是否正确
+- 反向代理是否影响大文件上传、断点下载或媒体预览
 - 公司网络或浏览器是否拦截从节点域名
 
 ### 已有文件突然找不到

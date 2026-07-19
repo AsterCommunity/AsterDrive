@@ -1,4 +1,3 @@
-import { execSync } from 'node:child_process'
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -52,76 +51,6 @@ function getVersion(): string {
 }
 
 const VERSION = getVersion()
-
-// 归档版本构建时用 VITEPRESS_BASE 指定子路径（如 /v0.3/），根站点构建时是 /。
-const BASE = process.env.VITEPRESS_BASE || '/'
-const BASE_PREFIX = BASE === '/' ? '' : BASE.replace(/\/$/, '')
-
-// 旧版本 / next 版本的提示条。通过 vite define 注入为构建期常量，SSR 和客户端产物都内联，
-// 不会出现 SSR 有横幅、客户端 hydrate 后又拔掉的问题（import.meta.env 自定义变量做不到这点）。
-const VERSION_BANNER = process.env.VITE_VERSION_BANNER || ''
-const VERSION_BANNER_URL = process.env.VITE_VERSION_BANNER_URL || ''
-const VERSION_BANNER_LINK_TEXT = process.env.VITE_VERSION_BANNER_LINK_TEXT || ''
-const VERSION_BANNER_DEFINE = JSON.stringify(
-  VERSION_BANNER ? { text: VERSION_BANNER, url: VERSION_BANNER_URL, linkText: VERSION_BANNER_LINK_TEXT } : null
-)
-
-// 版本清单直接从 git（tag + release/* 分支）解析，不在仓库里维护静态版本表。
-// latest: true 的版本部署在根路径，其余在各自的 /vX.Y/ 子路径。
-type VersionEntry = { version: string; path: string; latest: boolean }
-
-function resolveVersionEntries(): VersionEntry[] {
-  try {
-    const repoRoot = resolve(__dirname, '../..')
-    const output = execSync(`bash "${resolve(__dirname, '../scripts/resolve-versions.sh')}"`, {
-      cwd: repoRoot,
-      encoding: 'utf-8',
-      stdio: ['ignore', 'pipe', 'ignore']
-    })
-    const entries = output
-      .trim()
-      .split('\n')
-      .filter(Boolean)
-      .map((line) => {
-        const [version, path, , latest] = line.split('\t')
-        return { version, path, latest: latest === 'true' }
-      })
-    if (entries.length > 0) {
-      return entries
-    }
-  } catch {
-    // 不在 git 仓库里时退回只含当前版本的清单
-  }
-  const minor = VERSION.match(/^(\d+\.\d+)/)?.[1] ?? VERSION
-  return [{ version: minor, path: '/', latest: true }]
-}
-
-function versionUrl(path: string): string {
-  return new URL(path.replace(/^\//, ''), SITE_URL).href
-}
-
-function versionNavItems(locale: 'zh' | 'en') {
-  const sorted = [...resolveVersionEntries()].sort((a, b) => {
-    if (a.latest) return -1
-    if (b.latest) return 1
-    return -a.version.localeCompare(b.version, undefined, { numeric: true })
-  })
-  const items = sorted.map((entry) => ({
-    text: entry.latest
-      ? locale === 'zh'
-        ? `v${entry.version}（当前）`
-        : `v${entry.version} (current)`
-      : locale === 'zh'
-        ? `v${entry.version}（旧版）`
-        : `v${entry.version} (archive)`,
-    link: versionUrl(entry.path)
-  }))
-  items.splice(1, 0, {
-    text: locale === 'zh' ? '开发版（next）' : 'Next (development)',
-    link: versionUrl('/next/')
-  })
-  return items
-}
 const PAGE_DESCRIPTION_LIMIT = 160
 
 // 参考页从 guide/ 迁到 reference/ 后，旧路径保留自动跳转占位页。
@@ -352,7 +281,6 @@ function buildZhNav() {
     {
       text: `v${VERSION}`,
       items: [
-        ...versionNavItems('zh'),
         { text: '更新日志', link: 'https://github.com/AsterCommunity/AsterDrive/blob/master/CHANGELOG.md' },
         { text: '发布页面', link: 'https://github.com/AsterCommunity/AsterDrive/releases' },
         { text: 'GitHub', link: 'https://github.com/AsterCommunity/AsterDrive' }
@@ -405,7 +333,6 @@ function buildEnNav() {
     {
       text: `v${VERSION}`,
       items: [
-        ...versionNavItems('en'),
         { text: 'Changelog', link: 'https://github.com/AsterCommunity/AsterDrive/blob/master/CHANGELOG.md' },
         { text: 'Releases', link: 'https://github.com/AsterCommunity/AsterDrive/releases' },
         { text: 'GitHub', link: 'https://github.com/AsterCommunity/AsterDrive' }
@@ -722,7 +649,6 @@ function assertUniqueSidebarLinks<T extends SidebarGroup[]>(sidebar: T, locale: 
 }
 
 export default withMermaid(defineConfig({
-  base: BASE,
   lang: 'zh-CN',
   title: 'AsterDrive',
   description: ZH_SITE_DESCRIPTION,
@@ -802,16 +728,8 @@ export default withMermaid(defineConfig({
     ['link', { rel: 'icon', type: 'image/svg+xml', href: '/favicon.svg' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'AsterDrive' }],
-    ['meta', { name: 'twitter:card', content: 'summary' }],
-    // 有横幅时把固定导航整体下移一个横幅高度（滚动时 Layout.vue 会把它平滑收回 0）
-    ...(VERSION_BANNER ? [['style', {}, ':root{--vp-layout-top-height:36px}']] : [])
+    ['meta', { name: 'twitter:card', content: 'summary' }]
   ],
-
-  vite: {
-    define: {
-      __ASTER_VERSION_BANNER__: VERSION_BANNER_DEFINE
-    }
-  },
 
   transformHead(context) {
     if (context.page === '404.md' || LEGACY_REDIRECT_PAGES.has(context.page)) {
@@ -819,9 +737,9 @@ export default withMermaid(defineConfig({
     }
 
     const locale = getLocaleForPage(context.page)
-    const canonicalUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(context.page)}`, SITE_URL).href
-    const rootUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(getLocalizedPage(context.page, 'root'))}`, SITE_URL).href
-    const enUrl = new URL(`${BASE_PREFIX}${toCanonicalPath(getLocalizedPage(context.page, 'en'))}`, SITE_URL).href
+    const canonicalUrl = new URL(toCanonicalPath(context.page), SITE_URL).href
+    const rootUrl = new URL(toCanonicalPath(getLocalizedPage(context.page, 'root')), SITE_URL).href
+    const enUrl = new URL(toCanonicalPath(getLocalizedPage(context.page, 'en')), SITE_URL).href
     const title = context.title || 'AsterDrive'
     const description = context.description || LOCALES[locale].siteDescription
 

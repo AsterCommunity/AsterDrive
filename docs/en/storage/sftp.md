@@ -17,7 +17,7 @@ SFTP is suitable for these scenarios:
 - You do not want browsers to connect directly to the storage backend; uploads and downloads can be relayed by the AsterDrive server
 - You want to route some users, teams, or file sizes to an SFTP backend
 
-If you need browser direct upload, presigned URLs, or object-storage multipart upload, prefer [S3 / MinIO / R2](/en/storage/s3-minio-r2), [Azure Blob Storage](/en/storage/azure-blob), or [Tencent COS](/en/storage/tencent-cos). SFTP is currently a server-side streaming backend and does not provide object-storage-style direct upload.
+If you need browser direct upload, prefer [S3 / MinIO / R2](/en/storage/s3-minio-r2), [Azure Blob Storage](/en/storage/azure-blob), or [Tencent COS](/en/storage/tencent-cos). SFTP uploads and downloads always pass through the AsterDrive server.
 
 ## First, Separate the Layers You Need to Configure
 
@@ -82,8 +82,8 @@ Fill in the connection fields:
 | Field | Example | Notes |
 | --- | --- | --- |
 | Endpoint | `sftp://sftp.example.com:22` | SFTP server address |
-| SSH Username | `asterdrive` | The internal API field is still `access_key`, but the admin UI labels it as SSH Username |
-| SSH Password | `********` | The internal API field is still `secret_key`, but the admin UI labels it as SSH Password |
+| SSH Username | `asterdrive` | Account used to sign in to the SFTP server |
+| SSH Password | `********` | Password for that account |
 | Base path | `/srv/asterdrive` | Remote root used when AsterDrive writes objects |
 | SSH Host Key Fingerprint | `SHA256:...` | Fill this after first-connection confirmation |
 
@@ -111,12 +111,12 @@ Use this flow:
 6. Run the connection test again, then save after it succeeds
 
 ::: warning Do not bypass host key confirmation
-Without SSH host key verification, an attacker could impersonate the SFTP server and capture the password. AsterDrive stores the confirmed fingerprint in `storage_policy.options.sftp_host_key_fingerprint`, and later connections must match it. If the server is reinstalled or rotates its SSH host key, confirm and update the fingerprint again.
+Without SSH host key verification, an attacker could impersonate the SFTP server and capture the password. AsterDrive saves the confirmed fingerprint, and later connections must match it. If the server is reinstalled or changes its SSH host key, confirm and update the fingerprint again.
 :::
 
 ## 4. Troubleshoot Failed Connection Tests
 
-When a connection test fails, the admin console prefers the standard error response's `error.diagnostic.message`. For SFTP, check in this order:
+When a connection test fails, the admin console shows a reason you can use for troubleshooting. Check in this order:
 
 1. Whether the AsterDrive server can reach the Endpoint and port
 2. Whether the Endpoint contains only host and optional port
@@ -161,9 +161,7 @@ You can rotate the SSH password by editing the policy. When editing a saved poli
 | Upload | AsterDrive server streams writes to SFTP |
 | Download | AsterDrive server reads from SFTP and returns data to the browser |
 | Browser direct upload | Not supported |
-| Object-storage multipart | Not supported |
+| Object-storage direct multipart upload | Not supported |
 | Presigned URL | Not supported |
 | Capacity observation | No unified capacity query |
 | Range reads | Efficient range reads are supported |
-
-SFTP connections are reused through a connection pool (default 4 connections, idle connections reclaimed after 60s), reducing repeated handshake overhead; the implementation still prioritizes host key verification and read/write correctness.

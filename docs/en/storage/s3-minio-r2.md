@@ -68,7 +68,7 @@ At minimum, it needs to cover:
 - Reading objects
 - Writing objects
 - Deleting objects
-- Operations related to multipart upload
+- Operations required for large-file uploads
 - Necessary permissions to list or access the target bucket / prefix
 
 Permission names differ across providers. The principle is: do not grant full-account administrator permissions; only grant the permissions AsterDrive needs to operate on the target bucket / prefix.
@@ -198,7 +198,7 @@ Before or after saving, use the admin-console connection test to confirm:
 
 When editing an existing policy, leaving Access Key or Secret Key blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, region, path-style, or prefix changes without pasting the secret every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
 
-When a connection test fails, the admin console prefers the backend diagnostic. Scripts and API clients can read `error.diagnostic.message` from the standard error response. It keeps useful provider context where possible while redacting secrets, SAS values, account keys, and similar credentials.
+When a connection test fails, the admin console shows a useful reason while hiding the Secret Key and other sensitive values.
 
 If the connection test fails, do not move users to this policy. Check in this order first:
 
@@ -344,73 +344,9 @@ https://drive.example.com
 
 Do not include a path, and do not write `https://drive.example.com/` or `https://drive.example.com/api`.
 
-### Presigned Upload Only
+### General Configuration Example
 
-If you only enable `presigned` upload, use this configuration:
-
-```json
-[
-  {
-    "AllowedOrigins": [
-      "https://drive.example.com"
-    ],
-    "AllowedMethods": [
-      "PUT"
-    ],
-    "AllowedHeaders": [
-      "Content-Type",
-      "Content-Length",
-      "x-amz-content-sha256",
-      "x-amz-date",
-      "x-amz-security-token"
-    ],
-    "ExposeHeaders": [
-      "ETag"
-    ],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-If your browser or reverse proxy sends additional request headers, add those headers to `AllowedHeaders`. Provider interfaces differ, but the core items are origin, methods, request headers, and exposed response headers.
-
-### Presigned Download and Preview Only
-
-If you only enable `presigned` download or preview, use this configuration:
-
-```json
-[
-  {
-    "AllowedOrigins": [
-      "https://drive.example.com"
-    ],
-    "AllowedMethods": [
-      "GET",
-      "HEAD"
-    ],
-    "AllowedHeaders": [
-      "Range",
-      "If-None-Match"
-    ],
-    "ExposeHeaders": [
-      "Accept-Ranges",
-      "Content-Disposition",
-      "Content-Length",
-      "Content-Range",
-      "Content-Type",
-      "ETag",
-      "Range"
-    ],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-`Range`, `Content-Range`, and `Accept-Ranges` matter for video, audio, and PDF previews. Without them, small images may still open while seeking, segmented loading, or larger previews fail.
-
-### Presigned Upload and Download
-
-If the same bucket enables both `presigned` upload and download, use a combined rule:
+If the same bucket enables `presigned` upload, download, and preview, start with this rule:
 
 ```json
 [
@@ -446,28 +382,9 @@ If the same bucket enables both `presigned` upload and download, use a combined 
 ]
 ```
 
-### Credentials During Preview
+For upload-only use, keep `PUT` and the upload request headers. For download and preview only, keep `GET`, `HEAD`, `Range`, and the related response headers. Video, audio, and PDF previews depend on Range support, so do not remove those entries.
 
-R2 CORS supports `AllowedOrigins`, `AllowedMethods`, `AllowedHeaders`, `ExposeHeaders`, and `MaxAgeSeconds`; Cloudflare R2 documentation does not define an `AllowedCredentials` field. Other S3-compatible providers may also not return the headers required for credentialed CORS.
-
-For that reason, browser requests to object-storage presigned URLs should not include cookie credentials. AsterDrive preview first creates a short-lived `preview-link` through the authenticated API, then reads object content through that temporary link. The content request does not depend on cookies, so the browser does not require object storage to return:
-
-```http
-Access-Control-Allow-Credentials: true
-```
-
-If the browser console shows an error like:
-
-```text
-The value of the 'Access-Control-Allow-Credentials' header in the response is '' which must be 'true' when the request's credentials mode is 'include'.
-```
-
-Check:
-
-1. Whether the frontend is an old AsterDrive version.
-2. Whether preview still reads `/api/v1/files/{id}/download` through XHR and follows a 302 redirect to object storage.
-3. Whether the object storage response includes `Access-Control-Allow-Origin: https://your-site-origin`.
-4. Whether `AllowedOrigins` exactly matches the origin shown in the browser address bar.
+CORS field names vary across S3-compatible providers. When troubleshooting, first confirm that `AllowedOrigins` exactly matches the site origin shown in the browser address bar and that the current AsterDrive frontend is deployed.
 
 ::: tip How to tell whether it is a CORS issue
 If `relay_stream` succeeds, `presigned` fails, and the browser console shows a cross-origin error, object storage CORS is usually the place to check.
@@ -501,7 +418,7 @@ If it is `presigned`:
 - Check the browser console
 - Check object storage CORS
 - Check whether the user network to object storage is stable
-- Check whether multipart permissions are complete
+- Check whether large-file upload permissions are complete
 
 ### File Cannot Open After Download Redirect
 

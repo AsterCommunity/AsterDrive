@@ -19,23 +19,11 @@ Tencent COS is suitable when:
 
 If you only need generic S3-compatible object storage and do not need Tencent COS CI features, use the [S3 / MinIO / R2 storage policy tutorial](/en/storage/s3-minio-r2) instead.
 
-## Relationship to S3-Compatible Storage
+## Choosing Between COS and Generic S3 Storage
 
-In AsterDrive, `tencent_cos` is an independent storage backend type, but it does not reimplement all object-storage behavior from scratch.
+Tencent COS supports standard object-storage operations and also provides Tencent-specific features such as COS CI. AsterDrive therefore shows it as a separate storage type.
 
-```mermaid
-flowchart TD
-  Driver["TencentCosDriver"] --> Base["Base object reads/writes, multipart upload, and download routing<br/>Reuse the S3-compatible implementation"]
-  Driver --> Tencent["Tencent-specific features<br/>COS endpoint normalization, COS signing, and COS CI processing"]
-```
-
-That means:
-
-- Basic object operations are similar to S3-compatible storage
-- Tencent COS is displayed independently as `tencent_cos` in the backend and frontend
-- Tencent-native features such as COS CI are attached to the `tencent_cos` driver, not the generic `s3` driver
-
-If you want to use COS CI features, choose **Tencent COS** when creating the policy. Do not configure COS as a generic `s3` policy.
+Choose **Tencent COS** when you need Tencent features such as image thumbnails or media information. If you only need generic object storage, also see the [S3 / MinIO / R2 storage policy tutorial](/en/storage/s3-minio-r2).
 
 ## First, Separate the Layers
 
@@ -89,7 +77,7 @@ At minimum, it needs to cover:
 - Reading objects
 - Writing objects
 - Deleting objects
-- Multipart-upload related operations
+- Operations required for large-file uploads
 - Necessary access to the target bucket / prefix
 
 If you enable COS CI, also confirm that the credential can make the corresponding CI processing requests, such as image processing or media-info parsing. Permission names and console entries may change with Tencent Cloud product updates; follow Tencent Cloud's latest documentation and console hints.
@@ -107,6 +95,10 @@ After confirming basic reads and writes work, then consider switching to:
 
 - Upload `presigned`
 - Download `presigned`
+
+::: warning LightCOS requires server relay
+If you use a **[Light Cloud Object Storage (LightCOS)](https://cloud.tencent.com/document/product/1722/112004)** bucket, keep both upload and download modes set to `relay_stream`. LightCOS does not provide bucket-level CORS configuration, so browser `presigned` upload and direct download are not suitable.
+:::
 
 ### How `relay_stream` Works
 
@@ -165,85 +157,19 @@ AsterDrive can execute a storage action for a Tencent COS policy from the admin 
 Admin -> Storage Policies -> target COS policy -> Configure CORS
 ```
 
-The backend action is:
+This feature applies to standard Tencent COS buckets, not LightCOS.
 
-```json
-{
-  "action": "configure_tencent_cos_cors"
-}
-```
-
-The frontend does not send `AllowedOrigin`. The backend reads runtime config `public_site_url` and writes every configured public origin into one COS CORS rule. If no public site URL is configured, the action fails with `policy.action_parameter_required`.
-
-Configure public origins first:
+Before running the action, enter the public site addresses that users actually use to open AsterDrive:
 
 ```text
 Admin -> System Settings -> Site -> Public Site URL
 ```
 
-For example:
+Each address must be a complete HTTP(S) origin such as `https://drive.example.com`. Do not include paths, query strings, or wildcards.
 
-```json
-["https://drive.example.com", "https://panel.example.com"]
-```
+AsterDrive creates or updates its own COS CORS rule from these addresses and preserves unrelated rules. Do not edit CORS for the same bucket in the Tencent Cloud console at the same time, because concurrent changes may overwrite each other.
 
-`public_site_url` accepts exact HTTP(S) origins only. Do not include paths, query strings, wildcards, or `*`. Although the COS CORS action reads this setting, it is not the CORS allowlist for the AsterDrive API itself; API cross-origin access is still controlled by the Network Access runtime settings.
-
-The automatic rule uses this stable ID:
-
-```text
-asterdrive-presigned-access
-```
-
-Rule contents:
-
-| Item | Value |
-| --- | --- |
-| `AllowedOrigin` | All origins in `public_site_url` |
-| `AllowedMethod` | `PUT`, `GET`, `HEAD` |
-| `AllowedHeader` | `*`, `Content-Type`, `Range`, `x-cos-*` |
-| `ExposeHeader` | `ETag`, `Content-Length`, `Content-Range`, `Content-Disposition`, `Accept-Ranges`, `x-cos-request-id`, `x-cos-hash-crc64ecma` |
-| `MaxAgeSeconds` | `600` |
-| `ResponseVary` | `true` |
-
-Tencent COS does not provide an atomic "append one CORS rule" API. AsterDrive uses a read-merge-write flow: read current CORS rules, preserve all rules except AsterDrive's own rule ID, replace or add `asterdrive-presigned-access`, then write the full CORS document back to COS. This means:
-
-- unrelated rules are preserved
-- the previous AsterDrive rule with the same ID is replaced
-- if another operator changes bucket CORS between the read and write, the last writer wins for that interval
-
-The Tencent Cloud credential used by the policy must be allowed to read and write bucket CORS. Writing requires at least `name/cos:PutBucketCORS`; if the CAM policy is fine-grained, also allow reading the current bucket CORS configuration.
-
-::: tip Tencent COS API details
-AsterDrive calls Tencent COS `GET Bucket cors` and `PUT Bucket cors`. `PUT Bucket cors` requires a `Content-MD5` request header, so AsterDrive computes the MD5 of the CORS XML and includes it in the COS signature.
-:::
-
-A successful response returns the origins that were written, the COS request id, and whether an old AsterDrive rule was replaced:
-
-```json
-{
-  "action": "configure_tencent_cos_cors",
-  "tencent_cos_cors": {
-    "rule_id": "asterdrive-presigned-access",
-    "allowed_origins": ["https://drive.example.com", "https://panel.example.com"],
-    "request_id": "...",
-    "preserved_rule_count": 0,
-    "replaced_existing_rule": true,
-    "response_vary": true
-  }
-}
-```
-
-Common failures:
-
-| Symptom | Check first |
-| --- | --- |
-| `policy.action_parameter_required` | Whether `public_site_url` is empty |
-| `policy.action_parameter_invalid` | Whether the `public_site_url` origin format is correct and backend-derived action parameters are valid |
-| `policy.action_unsupported` | Whether the policy is actually `tencent_cos` |
-| `storage.auth_failed` | Whether Access Key / Secret Key are correct |
-| `storage.permission_denied` or `storage.permission` | Whether CAM allows reading and writing bucket CORS |
-| `storage.misconfigured` | Whether bucket, endpoint, region, required headers, or COS XML are being altered by a proxy or gateway |
+The Tencent Cloud credential used by the policy needs permission to read and update bucket CORS. If the action fails, first check the public site address, Access Key / Secret Key, bucket region, and CORS permissions.
 
 ## 5. Create a Tencent COS Storage Policy in AsterDrive
 
@@ -271,11 +197,11 @@ Common fields:
 | Upload mode | Use `relay_stream` for the first setup |
 | Download mode | Use `relay_stream` for the first setup |
 
-AsterDrive normalizes the COS endpoint and bucket, then uses COS virtual-hosted style for the underlying S3-compatible requests. You do not need to tune COS as a generic S3 path-style policy manually.
+Use the COS endpoint shown in the Tencent Cloud console. You do not need to tune it as a generic S3 path-style service.
 
 Before or after saving, click `Test Connection` once. When editing an existing policy, leaving Access Key or Secret Key blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, bucket, base path, upload mode, or COS CI switch changes without pasting the secret every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
 
-When a connection test fails, the admin console prefers the backend diagnostic. Scripts and API clients can read `error.diagnostic.message` from the standard error response. It keeps useful COS context where possible while redacting secrets, SAS values, account keys, and similar credentials.
+When a connection test fails, the admin console shows a useful reason while hiding the Secret Key and other sensitive values.
 
 ## 6. Test the Connection Before Saving
 
@@ -316,7 +242,6 @@ Native thumbnails require all of these conditions:
 - `Enable storage-native processing` is enabled
 - Thumbnail processor is `storage_native`
 - `Native thumbnail extensions` matches the current file name
-- The current driver supports COS-native thumbnails
 
 Suffixes are per-policy. For example:
 
@@ -333,9 +258,8 @@ Native media-info parsing requires all of these conditions:
 - `Enable storage-native processing` is enabled
 - `Enable native media info` is enabled
 - `Native media info extensions` matches the current file name
-- The current driver supports COS-native media info
 
-The suffix list is empty by default. Even if `Enable native media info` is on, an empty list will not trigger COS `GetMediainfo` / `ci-process=videoinfo` requests.
+The suffix list is empty by default. Even if `Enable native media info` is on, an empty list will not call COS CI.
 
 Add only audio/video suffixes you intentionally want COS to parse on each COS policy, for example:
 
@@ -347,9 +271,7 @@ Do not blindly add every possible suffix. AsterDrive caches media information, b
 
 ### Document Preview
 
-AsterDrive currently does not provide COS document HTML preview and does not call COS document-preview APIs from storage policies. This is intentionally kept out of the current implementation because Tencent Cloud's current public pricing pages do not list a free quota for document HTML preview, so a broad suffix configuration could create uncontrolled costs.
-
-If this is added later, it should use its own explicit switch and suffix list instead of being opened only through the current storage-native processing master switch.
+AsterDrive currently does not provide COS document HTML preview. Tencent Cloud's current public pricing pages do not list a free quota for this feature, so check costs carefully before using similar processing features.
 
 ## 8. Free Quotas and Billing Boundaries
 
@@ -360,9 +282,9 @@ Under Tencent Cloud's current public pricing pages:
 | Capability | Free-quota wording | AsterDrive-side note |
 | --- | --- | --- |
 | Basic image processing | 10 TB monthly free quota | Native image thumbnails use this; usage outside the free-quota rules is billed by Tencent Cloud |
-| Video media-info retrieval | 6000 requests / 2 months after first use | Native media-info parsing uses COS `GetMediainfo` / `ci-process=videoinfo` |
-| Video snapshot | 6000 requests / 2 months after first use | If COS video thumbnails are enabled later, evaluate this quota first |
-| Document HTML preview | No free quota | Not currently implemented in AsterDrive; if added later, it needs a separate switch |
+| Video media-info retrieval | 6000 requests / 2 months after first use | Used by native media-info parsing |
+| Video snapshot | 6000 requests / 2 months after first use | Review this quota before using related video processing |
+| Document HTML preview | No free quota | Not currently provided by AsterDrive |
 
 Tencent Cloud pricing, free quotas, expiration rules, and region differences may change. Before production launch, check Tencent Cloud's latest COS / COS CI pricing pages and console prompts.
 
@@ -372,7 +294,6 @@ References:
 - [Tencent Cloud COS CI basic image processing pricing](https://cloud.tencent.com/document/product/460/47483)
 - [Tencent Cloud COS CI media processing pricing](https://cloud.tencent.com/document/product/460/58120)
 - [Tencent Cloud COS CI document processing pricing](https://cloud.tencent.com/document/product/460/58121)
-- [Tencent Cloud COS CI media-info API](https://cloud.tencent.com/document/product/460/49284)
 
 ## 9. Create a Test Policy Group
 

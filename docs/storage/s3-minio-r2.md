@@ -68,7 +68,7 @@ AsterDrive 数据库记录了对象路径。人工移动、重命名或删除 bu
 - 读取对象
 - 写入对象
 - 删除对象
-- multipart upload 相关操作
+- 大文件上传所需操作
 - 列出或访问目标 bucket / prefix 的必要权限
 
 不同服务商的权限名不完全一样。原则是：不要给全账号管理员权限，只给 AsterDrive 操作目标 bucket / prefix 所需的权限。
@@ -198,7 +198,7 @@ AWS S3 的 region 要和 bucket 所在 region 一致。
 
 编辑已有策略时，如果 Access Key 或 Secret Key 字段留空，草稿连接测试会复用这条策略已经保存的凭据。这样轮换 endpoint、region、path-style 或 prefix 时，不需要为了测试连接重新粘贴 secret。新建策略没有可复用凭据，仍然必须把必填凭据填完整。
 
-连接测试失败时，后台会优先展示后端返回的诊断说明。脚本或 API 客户端可以读取标准错误响应里的 `error.diagnostic.message`；这里会尽量保留服务商返回的可排查信息，同时脱敏 secret、SAS、account key 等敏感值。
+连接测试失败时，后台会显示可用于排查的原因，并隐藏 Secret Key 等敏感信息。
 
 如果连接测试失败，不要继续把用户切到这条策略。先按下面顺序查：
 
@@ -344,73 +344,9 @@ https://drive.example.com
 
 不要带路径，也不要写成 `https://drive.example.com/` 或 `https://drive.example.com/api`。
 
-### 只启用 Presigned 上传
+### 一份通用配置示例
 
-只启用 `presigned` 上传时，可以使用这份配置：
-
-```json
-[
-  {
-    "AllowedOrigins": [
-      "https://drive.example.com"
-    ],
-    "AllowedMethods": [
-      "PUT"
-    ],
-    "AllowedHeaders": [
-      "Content-Type",
-      "Content-Length",
-      "x-amz-content-sha256",
-      "x-amz-date",
-      "x-amz-security-token"
-    ],
-    "ExposeHeaders": [
-      "ETag"
-    ],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-如果浏览器或反向代理实际发送了额外请求头，需要把对应请求头加入 `AllowedHeaders`。不同 S3-compatible 服务商界面不一样，但核心都是 origin、method、request headers、exposed response headers 这几项。
-
-### 只启用 Presigned 下载和预览
-
-只启用 `presigned` 下载或预览时，可以使用这份配置：
-
-```json
-[
-  {
-    "AllowedOrigins": [
-      "https://drive.example.com"
-    ],
-    "AllowedMethods": [
-      "GET",
-      "HEAD"
-    ],
-    "AllowedHeaders": [
-      "Range",
-      "If-None-Match"
-    ],
-    "ExposeHeaders": [
-      "Accept-Ranges",
-      "Content-Disposition",
-      "Content-Length",
-      "Content-Range",
-      "Content-Type",
-      "ETag",
-      "Range"
-    ],
-    "MaxAgeSeconds": 3600
-  }
-]
-```
-
-`Range`、`Content-Range` 和 `Accept-Ranges` 对视频、音频、PDF 这类预览很重要。缺少这些配置时，小图片可能能打开，但视频 seek、PDF 分段加载或大文件预览会失败。
-
-### 上传和下载都启用 Presigned
-
-同一个 bucket 同时启用 `presigned` 上传和下载时，可以合并成一份配置：
+同一个 bucket 同时启用 `presigned` 上传、下载和预览时，可以参考：
 
 ```json
 [
@@ -446,28 +382,9 @@ https://drive.example.com
 ]
 ```
 
-### 预览里的 credentials 问题
+只启用上传时，可以只保留 `PUT` 和上传所需请求头；只启用下载和预览时，可以只保留 `GET`、`HEAD`、`Range` 及相关响应头。视频、音频和 PDF 预览依赖 Range 支持，不要把这些项删掉。
 
-R2 的 CORS 配置支持 `AllowedOrigins`、`AllowedMethods`、`AllowedHeaders`、`ExposeHeaders` 和 `MaxAgeSeconds`，Cloudflare R2 文档没有提供 `AllowedCredentials` 字段。其他 S3-compatible 服务商也不一定会返回 credentialed CORS 所需的响应头。
-
-因此，浏览器请求对象存储 presigned URL 时不应该带 cookie credentials。AsterDrive 的预览链路会先通过登录态 API 创建短时效 `preview-link`，再用这个临时链接读取对象内容。读取对象内容时不依赖 cookie，避免浏览器要求对象存储返回：
-
-```http
-Access-Control-Allow-Credentials: true
-```
-
-如果浏览器控制台出现类似错误：
-
-```text
-The value of the 'Access-Control-Allow-Credentials' header in the response is '' which must be 'true' when the request's credentials mode is 'include'.
-```
-
-优先检查：
-
-1. 前端是否在用旧版本 AsterDrive。
-2. 预览请求是否仍通过 XHR 直接读取 `/api/v1/files/{id}/download` 并追随 302 到对象存储。
-3. 对象存储响应是否至少包含 `Access-Control-Allow-Origin: https://你的站点域名`。
-4. `AllowedOrigins` 是否和浏览器地址栏里的 origin 完全一致。
+不同 S3-compatible 服务商的 CORS 配置界面可能使用不同名称。遇到问题时，先确认 `AllowedOrigins` 和浏览器地址栏中的站点来源完全一致，并使用当前版本的 AsterDrive 前端。
 
 ::: tip 判断是不是 CORS 问题
 `relay_stream` 成功，`presigned` 失败，浏览器控制台又出现跨域错误时，基本就该看对象存储 CORS。
@@ -501,7 +418,7 @@ The value of the 'Access-Control-Allow-Credentials' header in the response is ''
 - 看浏览器控制台
 - 看对象存储 CORS
 - 看用户网络到对象存储是否稳定
-- 看 multipart 权限是否完整
+- 看大文件上传权限是否完整
 
 ### 下载重定向后打不开
 

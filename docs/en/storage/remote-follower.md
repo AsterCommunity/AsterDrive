@@ -47,7 +47,7 @@ Each layer is responsible for something different:
 | remote storage policy | Which follower node is selected during upload | `Admin -> Storage Policies` |
 | Policy group | Which users / teams / file sizes match this policy | `Admin -> Policy Groups` |
 
-The current primary uses internal remote storage protocol `v5` and supports followers down to `v4`. Before creating a remote policy or switching policy groups, have the primary node test the connection once; the result includes both sides' supported protocol ranges, server version, and capability summary. The ranges must overlap. Followers limited to `v2` or `v3` must be upgraded first.
+Before creating a remote policy or switching policy groups, test the node connection from the primary. The connection test checks whether the primary and follower versions and upload capabilities are compatible. Upgrade the older node when the test reports an incompatibility.
 
 ## 1. Confirm the Follower Node Is Ready
 
@@ -65,8 +65,7 @@ Confirm that the target node meets these conditions:
 - If using direct transport, `base_url` is an address the primary node can access
 - If using reverse tunnel, the tunnel status is online
 - "Test Connection" succeeds
-- The internal protocol version range in the capability summary is compatible with the current primary; the current primary uses `v5` and supports followers down to `v4`
-- `/health/ready` returns successfully
+- The admin console reports a healthy node state
 
 If `base_url` is empty, only `reverse_tunnel` or `auto` can carry remote traffic. A `direct` node must have an HTTP(S) address reachable by the primary. Before production, confirm that "Test Connection" passes with the current transport mode.
 
@@ -203,7 +202,7 @@ Before using it, confirm:
 - The HTTPS certificate is trusted
 - The reverse proxy does not intercept upload / download paths or required response headers
 - The follower node remote storage target has been applied successfully
-- The primary node connection test shows that the follower supports `browser_presigned_cors`
+- The primary connection test confirms that the node supports browser-direct transfer
 
 If the primary node can access the follower node, but user browsers cannot, do not use remote `presigned`. If the remote node uses reverse tunnel, also avoid `presigned` and use `relay_stream` instead.
 
@@ -213,14 +212,7 @@ If the follower `base_url` is a Tailscale IP, MagicDNS name, or an internal name
 To let public users access these files, either give the follower a public HTTPS address, or set the remote policy upload/download mode to `relay_stream` so the primary relays the traffic. For topology trade-offs, see [Follower Node Network Topologies](/en/deployment/follower-network-topologies).
 :::
 
-Browser CORS requirements for remote `presigned` are stricter than ordinary primary-node relaying:
-
-| Direction | Required request headers | Response headers that must be exposed |
-| --- | --- | --- |
-| Upload `PUT` | `content-type` | `ETag` |
-| Download `GET` / Range | `range` | `Accept-Ranges`, `Content-Range`, `Content-Length` |
-
-The follower's default internal protocol capabilities declare `content-type, range`, and expose the GET headers `Accept-Ranges`, `Cache-Control`, `Content-Disposition`, `Content-Length`, `Content-Range`, `Content-Type`, `ETag`, plus the PUT header `ETag`. If nginx, Caddy, Traefik, or a CDN sits in front, confirm that it does not drop these response headers.
+Remote `presigned` requires the follower to allow browser cross-origin access. AsterDrive provides the required defaults. If nginx, Caddy, Traefik, or a CDN sits in front of the follower, confirm that it does not replace CORS rules or break large uploads, resumed downloads, and media previews.
 
 ## 6. Create a Test Policy Group
 
@@ -279,7 +271,7 @@ Log in as the test user and verify, in order:
 5. Delete the file, then restore it from the trash
 6. If previews are enabled, open an image or PDF once
 7. On the follower node, check whether objects appear in the remote storage target directory or object storage
-8. Return to `Admin -> Follower Nodes` on the primary node and test the connection again, confirming that the protocol version and capability summary are still normal
+8. Return to `Admin -> Follower Nodes` on the primary node and test the connection again, confirming that the node state is still normal
 
 If all of these pass, then consider moving real users or teams to the remote policy group.
 
@@ -321,7 +313,7 @@ Check regularly:
 
 - Whether the remote node connection test succeeds
 - If reverse tunnel is used, whether the tunnel is online and has no recent errors
-- Whether the follower node `/health/ready` is normal
+- Whether the admin console reports a healthy follower state
 - Whether the default remote storage target is still applied
 - Whether the follower local target root directory has enough disk space
 - If the follower writes to S3, whether the S3 credentials are still valid
@@ -344,8 +336,8 @@ Check first:
 - Whether the follower service is running
 - Whether the follower is listening on an externally reachable address
 - Whether the reverse proxy or firewall allows the traffic
-- Whether `/health/ready` returns successfully
-- Whether the protocol version range returned by the follower is compatible with the current primary; the current primary uses `v5` and supports followers down to `v4`
+- Whether the admin console reports a healthy node state
+- Whether the connection test reports incompatible primary and follower versions
 
 ### remote Policy Upload Fails
 
@@ -369,8 +361,8 @@ Check:
 - Whether the browser can access the follower `base_url`
 - Whether the HTTPS certificate is trusted
 - Whether the reverse proxy forwards upload/download paths
-- Whether CORS allows `content-type` / `range`
-- Whether responses expose `ETag`, `Accept-Ranges`, `Content-Range`, and `Content-Length`
+- Whether CORS on the follower or reverse proxy is correct
+- Whether the reverse proxy interferes with large uploads, resumed downloads, or media previews
 - Whether a company network or browser policy blocks the follower domain
 
 ### Existing Files Suddenly Disappear

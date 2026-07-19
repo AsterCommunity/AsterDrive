@@ -5,7 +5,7 @@ description: Azure Blob Storage 存储策略教程，覆盖 Azure Storage accoun
 # Azure Blob Storage 存储策略教程
 
 ::: tip 这一篇覆盖什么
-这一篇按完整流程讲怎么把 AsterDrive 文件写到 Azure Blob Storage：准备 storage account 和 container、创建 `azure_blob` 存储策略、配置策略组规则、绑定用户或团队、验收上传下载，并说明 `presigned` 直传、CORS 和 SAS 协议边界。
+这一篇按完整流程讲怎么把 AsterDrive 文件写到 Azure Blob Storage：准备 storage account 和 container、创建 `azure_blob` 存储策略、配置策略组规则、绑定用户或团队、验收上传下载，并说明怎么选择服务端中继或浏览器直传。
 :::
 
 ## 适合什么时候用
@@ -161,12 +161,6 @@ flowchart LR
 
 好处是减轻 AsterDrive 节点带宽压力。前提是浏览器能访问 Azure Blob endpoint，并且 container CORS 配置正确。
 
-::: tip Azure 单次直传不强制要求浏览器读取 ETag
-Azure Blob 单次 `presigned` PUT 需要请求头 `x-ms-blob-type: BlockBlob`。AsterDrive 会在初始化上传时把这个请求头返回给前端。
-
-S3 / COS 直传通常要求浏览器能从响应里读取 `ETag`；Azure Blob 单次直传由后端显式标记为不强制要求 `ETag`。分片直传仍会使用 Azure block id 作为完成组装所需的 part marker。
-:::
-
 ## 4. 在 AsterDrive 创建 Azure Blob 存储策略
 
 进入：
@@ -209,7 +203,7 @@ Azure Blob
 
 编辑已有策略时，如果存储账户名或账户密钥字段留空，草稿连接测试会复用这条策略已经保存的凭据。这样你可以先测试 endpoint、container、基础路径、上传方式等变更，不必每次重新粘贴 account key。新建策略没有可复用凭据，仍然必须填完整。
 
-连接测试失败时，后台会优先展示后端返回的诊断说明。脚本或 API 客户端可以读取标准错误响应里的 `error.diagnostic.message`；这里会尽量保留 Azure 返回的可排查信息，同时脱敏 SAS、account key 等敏感值。
+连接测试失败时，后台会显示可用于排查的原因，并隐藏账户密钥等敏感信息。
 
 如果连接测试失败，不要继续把用户切到这条策略。先按下面顺序查：
 
@@ -309,15 +303,14 @@ Azure Blob Test Group
 
 1. 把上传方式改成 `presigned`
 2. 上传小文件和大文件
-3. 在浏览器开发者工具里确认请求直接发往 Azure Blob endpoint
-4. 确认请求头包含 `x-ms-blob-type: BlockBlob`
-5. 如果启用 `presigned` 下载，确认下载链接能从浏览器直接访问
+3. 确认浏览器可以直接连接 Azure Blob
+4. 如果启用 `presigned` 下载，确认下载和预览都正常
 
 ## 常见问题
 
 ### 为什么后台还显示 Bucket 字段？
 
-AsterDrive 内部存储策略模型复用了一部分对象存储字段名，所以表单和 API 里仍可能看到 `bucket`。对 Azure Blob 来说，它对应的是 **container**。创建向导和校验提示会尽量用“容器”描述。
+为了和其他对象存储保持一致，部分界面仍会显示 `Bucket`。对 Azure Blob 来说，它对应的是 **container**。
 
 ### 为什么 `presigned` 上传失败但 `relay_stream` 正常？
 
@@ -331,9 +324,9 @@ AsterDrive 内部存储策略模型复用了一部分对象存储字段名，所
 4. Allowed headers 是否包含 `x-ms-blob-type`
 5. SAS URL 是否还在有效期内
 
-### 为什么生产 SAS URL 只允许 HTTPS？
+### 为什么生产环境要求 HTTPS？
 
-生产 endpoint 默认只允许 `https`，避免签出来的 URL 被 HTTP 使用。上线环境应使用 HTTPS Blob service endpoint。
+浏览器直传地址包含短时效授权信息，生产环境应使用 HTTPS Blob service endpoint，避免上传或下载地址通过明文网络传输。
 
 ### 可以直接改已经使用中的 Azure 策略吗？
 

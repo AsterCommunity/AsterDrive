@@ -5,7 +5,7 @@ description: Azure Blob Storage policy tutorial covering Azure Storage accounts,
 # Azure Blob Storage Policy Tutorial
 
 ::: tip What this page covers
-This page walks through the complete flow for writing AsterDrive files to Azure Blob Storage: prepare a storage account and container, create an `azure_blob` storage policy, configure policy group rules, bind users or teams, verify uploads and downloads, and understand `presigned` direct upload, CORS, and SAS boundaries.
+This page walks through the complete flow for writing AsterDrive files to Azure Blob Storage: prepare a storage account and container, create an `azure_blob` storage policy, configure policy group rules, bind users or teams, verify uploads and downloads, and choose between server relay and browser-direct transfer.
 :::
 
 ## When to Use It
@@ -162,12 +162,6 @@ flowchart LR
 
 This reduces bandwidth load on the AsterDrive node. It requires the browser to reach the Azure Blob endpoint, and the container CORS settings must allow the browser origin.
 
-::: tip Azure single direct upload does not require the browser to read ETag
-Azure Blob single `presigned` PUT requires the request header `x-ms-blob-type: BlockBlob`. AsterDrive returns this header to the frontend during upload initialization.
-
-S3 / COS direct upload usually requires the browser to read `ETag` from the response. Azure Blob single direct upload is explicitly marked by the backend as not requiring `ETag`. Multipart direct upload still uses Azure block IDs as the part markers required for completion.
-:::
-
 ## 4. Create the Azure Blob Storage Policy in AsterDrive
 
 Open:
@@ -210,7 +204,7 @@ Before or after saving, use the admin-console connection test to confirm:
 
 When editing an existing policy, leaving the storage account name or account key fields blank lets the draft connection test reuse the credentials already saved for that policy. This lets you test endpoint, container, base path, or upload-mode changes without pasting the account key every time. New policies have no saved credentials to reuse, so required credentials still need to be filled in.
 
-When a connection test fails, the admin console prefers the backend diagnostic. Scripts and API clients can read `error.diagnostic.message` from the standard error response. It keeps useful Azure context where possible while redacting SAS values, account keys, and similar credentials.
+When a connection test fails, the admin console shows a useful reason while hiding account keys and other sensitive values.
 
 If the connection test fails, do not move users to this policy yet. Check in this order:
 
@@ -310,15 +304,14 @@ If you plan to enable `presigned`, test these as well:
 
 1. Change upload mode to `presigned`
 2. Upload small and large files
-3. In browser developer tools, confirm requests go directly to the Azure Blob endpoint
-4. Confirm the upload request includes `x-ms-blob-type: BlockBlob`
-5. If using `presigned` downloads, confirm the download link is reachable from the browser
+3. Confirm the browser can connect directly to Azure Blob
+4. If using `presigned` downloads, confirm downloads and previews work
 
 ## FAQ
 
 ### Why Does the Admin Console Still Show a Bucket Field?
 
-AsterDrive reuses part of the object-storage policy model internally, so the form and API may still show `bucket`. For Azure Blob, it means **container**. The create wizard and validation messages try to use "container" where possible.
+To stay consistent with other object-storage forms, some screens still show `Bucket`. For Azure Blob, it means **container**.
 
 ### Why Does `presigned` Fail While `relay_stream` Works?
 
@@ -332,9 +325,9 @@ Check first:
 4. Do allowed headers include `x-ms-blob-type`?
 5. Is the SAS URL still within its validity window?
 
-### Why Do Production SAS URLs Allow Only HTTPS?
+### Why Is HTTPS Required in Production?
 
-Production endpoints default to HTTPS-only SAS protocol so signed URLs cannot be used over HTTP. Production deployments should use HTTPS Blob service endpoints.
+Browser-direct addresses contain short-lived authorization information. Use an HTTPS Blob service endpoint in production so upload and download addresses are not sent over plaintext connections.
 
 ### Can I Directly Edit an Azure Policy Already in Use?
 

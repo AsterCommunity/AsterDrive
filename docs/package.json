@@ -4,9 +4,7 @@
   "scripts": {
     "docs:dev": "vitepress dev",
     "docs:build": "vitepress build",
-    "docs:preview": "vitepress preview",
-    "docs:build:all": "bash scripts/build-all-versions.sh",
-    "docs:preview:all": "bash scripts/build-all-versions.sh && bun scripts/serve-static.mjs .vitepress/dist-all 4173"
+    "docs:preview": "vitepress preview"
   },
   "devDependencies": {
     "mermaid": "^11.15.0",
