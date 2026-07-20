@@ -24,7 +24,6 @@ import { queuePreferenceSync } from "@/lib/preferenceSync";
 import { getNormalizedDisplayName, getUserDisplayName } from "@/lib/user";
 import { useAuthStore } from "@/stores/authStore";
 import { useThemeStore } from "@/stores/themeStore";
-import { DownloadCenterHeaderButton } from "./DownloadCenterHeaderButton";
 import { MusicPlayerHeaderButton } from "./MusicPlayerHeaderButton";
 
 interface HeaderControlsProps {
@@ -127,7 +126,6 @@ export function HeaderControls({
 				</Button>
 			) : null}
 			<MusicPlayerHeaderButton />
-			<DownloadCenterHeaderButton />
 			<DropdownMenu>
 				<DropdownMenuTrigger
 					render={

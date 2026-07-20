@@ -42,7 +42,10 @@ describe("BottomRightActivityShell", () => {
 			"fixed",
 			"right-4",
 			"bottom-4",
-			"flex-col-reverse",
+			"flex-col",
+			"w-[28rem]",
+			"overflow-hidden",
+			"rounded-lg",
 		);
 		expect((await screen.findByText("upload-surface")).parentElement).toBe(
 			shell,

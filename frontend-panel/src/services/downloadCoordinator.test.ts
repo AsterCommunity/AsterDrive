@@ -31,7 +31,6 @@ vi.mock("@/services/fileService", () => ({
 
 function resetStore() {
 	useDownloadStore.setState({
-		isPanelOpen: false,
 		pendingSelection: null,
 		tasks: [],
 	});

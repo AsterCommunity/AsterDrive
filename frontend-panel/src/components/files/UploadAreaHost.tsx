@@ -1,3 +1,4 @@
+import type { Dispatch, SetStateAction } from "react";
 import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { UploadPanel } from "@/components/files/UploadPanel";
@@ -6,6 +7,10 @@ import { BottomRightActivityPortal } from "@/components/layout/BottomRightActivi
 import type { Workspace } from "@/lib/workspace";
 import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
+import {
+	TRANSFER_ACTIVITY,
+	useTransferActivityStore,
+} from "@/stores/transferActivityStore";
 import {
 	type UploadAreaControls,
 	useUploadAreaControlsStore,
@@ -31,6 +36,16 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 	const fileInputRef = useRef<HTMLInputElement | null>(null);
 	const folderInputRef = useRef<HTMLInputElement | null>(null);
 	const resumeFileInputRef = useRef<HTMLInputElement | null>(null);
+	const uploadPanelOpen = useTransferActivityStore(
+		(state) => state.expandedActivity === TRANSFER_ACTIVITY.upload,
+	);
+	const setActivityOpen = useTransferActivityStore(
+		(state) => state.setActivityOpen,
+	);
+	const setUploadPanelOpen = useCallback<Dispatch<SetStateAction<boolean>>>(
+		(open) => setActivityOpen(TRANSFER_ACTIVITY.upload, open),
+		[setActivityOpen],
+	);
 	const {
 		activeCount,
 		clearCompletedTasks,
@@ -46,14 +61,12 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 		isDragging,
 		overallProgress,
 		retryFailedTasks,
-		setUploadPanelOpen,
 		setUploadAutoClearCompleted,
 		setUploadConcurrency,
 		successCount,
 		totalCount,
 		uploadAutoClearCompleted,
 		uploadConcurrency,
-		uploadPanelOpen,
 		uploadTasks,
 	} = useUploadAreaManager({
 		breadcrumb,
@@ -61,7 +74,9 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 		refresh,
 		refreshUser,
 		resumeFileInputRef,
+		setUploadPanelOpen,
 		storageEventStreamEnabled,
+		uploadPanelOpen,
 		workspace,
 	});
 	const showUploadPanel = hasUploadActivity || uploadTasks.length > 0;

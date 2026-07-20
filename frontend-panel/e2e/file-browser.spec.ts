@@ -368,9 +368,10 @@ test.describe
 			await expect(page.getByText(filename, { exact: true })).toBeVisible({
 				timeout: 30_000,
 			});
-			await expect(page.getByText("Chunked", { exact: true })).toBeVisible();
 			await expect(
-				page.getByText(`Chunk 1/${init.total_chunks}`, { exact: true }),
+				page.getByText(`Chunked · Chunk 1/${init.total_chunks}`, {
+					exact: true,
+				}),
 			).toBeVisible();
 			await page.getByTitle("Select file to resume").first().click();
 			await page.getByTestId("resume-input").setInputFiles({

@@ -1,5 +1,9 @@
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
+import {
+	TransferActivitySection,
+	TransferTaskItem,
+} from "@/components/files/TransferActivitySection";
 import { BottomRightActivityPortal } from "@/components/layout/BottomRightActivityShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,12 +14,10 @@ import {
 	DialogTitle,
 } from "@/components/ui/dialog";
 import { Icon } from "@/components/ui/icon";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { handleApiError } from "@/hooks/useApiError";
 import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { formatBytes, formatBytesPerSecond } from "@/lib/format";
-import { cn } from "@/lib/utils";
 import { createBatchService } from "@/services/batchService";
 import {
 	cancelDownloadTask,
@@ -32,6 +34,12 @@ import {
 	useDownloadStore,
 } from "@/stores/downloadStore";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import {
+	TRANSFER_ACTIVITY,
+	useTransferActivityStore,
+} from "@/stores/transferActivityStore";
+
+const DOWNLOAD_PANEL_EXPANDED_BODY_CLASS = "h-[min(26rem,calc(100dvh-15rem))]";
 
 function taskProgress(task: DownloadTask) {
 	if (task.totalBytes && task.totalBytes > 0) {
@@ -124,7 +132,7 @@ function taskStatusIcon(task: DownloadTask) {
 	}
 }
 
-function DownloadTaskCard({ task }: { task: DownloadTask }) {
+function DownloadTaskItem({ task }: { task: DownloadTask }) {
 	const { t } = useTranslation("files");
 	const progress = taskProgress(task);
 	const isActive =
@@ -135,93 +143,83 @@ function DownloadTaskCard({ task }: { task: DownloadTask }) {
 		!isActive &&
 		(task.status === DOWNLOAD_TASK_STATUS.failed || task.failedItems > 0);
 	const remainingSeconds = estimatedRemainingSeconds(task);
+	const tone =
+		task.status === DOWNLOAD_TASK_STATUS.completed
+			? ("success" as const)
+			: task.status === DOWNLOAD_TASK_STATUS.failed ||
+					task.status === DOWNLOAD_TASK_STATUS.canceled
+				? ("error" as const)
+				: isActive
+					? ("active" as const)
+					: ("default" as const);
+	const detailParts = [t(`download_status_${task.status}`)];
+	if (task.totalItems > 1) {
+		detailParts.push(
+			t("download_items_progress", {
+				completed: task.completedItems,
+				failed: task.failedItems,
+				total: task.totalItems,
+			}),
+		);
+	}
+	if (task.bytesReceived > 0) {
+		detailParts.push(
+			task.totalBytes !== null
+				? `${formatBytes(task.bytesReceived)} / ${formatBytes(task.totalBytes)}`
+				: formatBytes(task.bytesReceived),
+		);
+	}
+	if (task.speedBps) detailParts.push(formatBytesPerSecond(task.speedBps));
+	if (remainingSeconds !== null) {
+		detailParts.push(
+			t("download_estimated_remaining", { seconds: remainingSeconds }),
+		);
+	}
 
 	return (
-		<div className="rounded-lg border border-border/65 bg-card p-3 shadow-xs">
-			<div className="flex items-start gap-3">
-				<span className="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/60 text-muted-foreground">
-					<Icon name={taskStatusIcon(task)} className="size-4" />
-				</span>
-				<div className="min-w-0 flex-1">
-					<div className="flex items-start gap-2">
-						<div className="min-w-0 flex-1">
-							<p className="truncate text-sm font-medium text-foreground">
-								{task.name === "download_to_folder"
-									? t("download_to_folder")
-									: task.name}
-							</p>
-							<p className="mt-0.5 text-xs text-muted-foreground">
-								{t(`download_status_${task.status}`)}
-								{task.totalItems > 1
-									? ` · ${t("download_items_progress", {
-											completed: task.completedItems,
-											failed: task.failedItems,
-											total: task.totalItems,
-										})}`
-									: ""}
-							</p>
-						</div>
-						{isActive ? (
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								onClick={() => cancelDownloadTask(task.id)}
-								aria-label={t("download_cancel")}
-								title={t("download_cancel")}
-							>
-								<Icon name="X" className="size-4" />
-							</Button>
-						) : canRetry ? (
-							<Button
-								type="button"
-								variant="ghost"
-								size="icon-sm"
-								onClick={() => retryDownloadTask(task.id)}
-								aria-label={t("download_retry_failed")}
-								title={t("download_retry_failed")}
-							>
-								<Icon name="ArrowClockwise" className="size-4" />
-							</Button>
-						) : null}
-					</div>
-
-					{progress !== null ? (
-						<Progress value={progress} className="mt-3 gap-0" />
-					) : null}
-					<div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
-						{task.bytesReceived > 0 ? (
-							<span>
-								{formatBytes(task.bytesReceived)}
-								{task.totalBytes !== null
-									? ` / ${formatBytes(task.totalBytes)}`
-									: ""}
-							</span>
-						) : null}
-						{task.speedBps ? (
-							<span>{formatBytesPerSecond(task.speedBps)}</span>
-						) : null}
-						{remainingSeconds !== null ? (
-							<span>
-								{t("download_estimated_remaining", {
-									seconds: remainingSeconds,
-								})}
-							</span>
-						) : null}
-					</div>
-					{task.warning ? (
-						<p className="mt-2 text-xs text-amber-700 dark:text-amber-300">
-							{t(task.warning)}
-						</p>
-					) : null}
-					{task.error ? (
-						<p className="mt-2 break-words text-xs text-destructive">
-							{task.error.startsWith("download_") ? t(task.error) : task.error}
-						</p>
-					) : null}
-				</div>
-			</div>
-		</div>
+		<TransferTaskItem
+			title={
+				task.name === "download_to_folder" ? t("download_to_folder") : task.name
+			}
+			detail={detailParts.join(" · ")}
+			icon={taskStatusIcon(task)}
+			tone={tone}
+			progress={progress}
+			progressLabel={progress !== null ? `${Math.round(progress)}%` : undefined}
+			warning={task.warning ? t(task.warning) : undefined}
+			error={
+				task.error
+					? task.error.startsWith("download_")
+						? t(task.error)
+						: task.error
+					: undefined
+			}
+			actions={
+				isActive ? (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => cancelDownloadTask(task.id)}
+						aria-label={t("download_cancel")}
+						title={t("download_cancel")}
+					>
+						<Icon name="X" className="size-4" />
+					</Button>
+				) : canRetry ? (
+					<Button
+						type="button"
+						variant="ghost"
+						size="icon-xs"
+						onClick={() => retryDownloadTask(task.id)}
+						aria-label={t("download_retry_failed")}
+						title={t("download_retry_failed")}
+					>
+						<Icon name="ArrowClockwise" className="size-4" />
+					</Button>
+				) : null
+			}
+		/>
 	);
 }
 
@@ -232,10 +230,14 @@ export function DownloadCenter() {
 	);
 	const pendingSelection = useDownloadStore((state) => state.pendingSelection);
 	const dismissSelection = useDownloadStore((state) => state.dismissSelection);
-	const isPanelOpen = useDownloadStore((state) => state.isPanelOpen);
-	const setPanelOpen = useDownloadStore((state) => state.setPanelOpen);
 	const tasks = useDownloadStore((state) => state.tasks);
 	const removeCompleted = useDownloadStore((state) => state.removeCompleted);
+	const downloadPanelOpen = useTransferActivityStore(
+		(state) => state.expandedActivity === TRANSFER_ACTIVITY.download,
+	);
+	const setActivityOpen = useTransferActivityStore(
+		(state) => state.setActivityOpen,
+	);
 	const summary = useMemo(() => summarizeDownloadTasks(tasks), [tasks]);
 	const allCompleted =
 		summary.totalCount > 0 &&
@@ -261,66 +263,70 @@ export function DownloadCenter() {
 			? pendingSelection.files[0]
 			: null;
 	const directoryDownloadSupported = supportsDirectoryDownload();
+	const canRemoveCompleted = tasks.some(
+		(task) =>
+			task.status === DOWNLOAD_TASK_STATUS.completed ||
+			task.status === DOWNLOAD_TASK_STATUS.canceled,
+	);
+	const sectionTone =
+		summary.activeCount > 0
+			? ("active" as const)
+			: summary.failedCount > 0
+				? ("error" as const)
+				: allCompleted
+					? ("success" as const)
+					: ("default" as const);
+
+	useEffect(() => {
+		if (tasks.length === 0 && downloadPanelOpen) {
+			setActivityOpen(TRANSFER_ACTIVITY.download, false);
+		}
+	}, [downloadPanelOpen, setActivityOpen, tasks.length]);
 
 	return (
 		<>
 			<BottomRightActivityPortal>
 				{tasks.length > 0 ? (
-					<button
-						type="button"
-						className={cn(
-							"pointer-events-auto w-[22rem] max-w-full rounded-lg border bg-card/95 px-3 py-2.5 text-left shadow-lg shadow-black/10 backdrop-blur transition-[border-color,background-color,box-shadow] duration-200 hover:bg-card dark:shadow-none",
-							summary.activeCount > 0 &&
-								"border-blue-500/70 ring-1 ring-blue-500/20 shadow-blue-950/10 dark:border-blue-400/65 dark:ring-blue-400/20",
-							allCompleted &&
-								"border-emerald-500/55 ring-1 ring-emerald-500/15",
-							summary.failedCount > 0 &&
-								summary.activeCount === 0 &&
-								"border-destructive/55 ring-1 ring-destructive/15",
-						)}
-						onClick={() => setPanelOpen(true)}
-						aria-label={t("download_center")}
+					<TransferActivitySection
+						open={downloadPanelOpen}
+						onToggle={() =>
+							setActivityOpen(TRANSFER_ACTIVITY.download, (open) => !open)
+						}
+						title={
+							allCompleted
+								? t("download_center_completed")
+								: t("download_center")
+						}
+						summary={compactSummary}
+						icon={allCompleted ? "Check" : "Download"}
+						tone={sectionTone}
+						progress={summary.activeCount > 0 ? summary.overallProgress : null}
+						toggleLabel={t("download_center")}
+						expandedBodyClassName={DOWNLOAD_PANEL_EXPANDED_BODY_CLASS}
 					>
-						<span className="flex items-center gap-2.5">
-							<span
-								className={cn(
-									"flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/55 text-muted-foreground",
-									summary.activeCount > 0 &&
-										"bg-blue-500/10 text-blue-600 dark:text-blue-300",
-									allCompleted &&
-										"bg-emerald-500/10 text-emerald-600 dark:text-emerald-300",
-								)}
-							>
-								<Icon
-									name={allCompleted ? "Check" : "Download"}
-									className="size-4"
-								/>
-							</span>
-							<span className="min-w-0 flex-1">
-								<span className="flex items-center justify-between gap-3">
-									<span className="truncate text-sm font-semibold text-foreground">
-										{allCompleted
-											? t("download_center_completed")
-											: t("download_center")}
-									</span>
-									<span className="shrink-0 text-xs font-medium tabular-nums text-muted-foreground">
-										{summary.overallProgress}%
-									</span>
-								</span>
-								<span className="mt-0.5 block truncate text-xs text-muted-foreground">
-									{compactSummary}
-								</span>
-							</span>
-						</span>
-						<Progress
-							value={summary.overallProgress}
-							className={cn(
-								"mt-2.5 gap-0",
-								allCompleted &&
-									"[&_[data-slot=progress-indicator]]:bg-emerald-500",
-							)}
-						/>
-					</button>
+						<div className="flex h-full min-h-0 flex-col">
+							<ScrollArea className="min-h-0 flex-1 bg-background/70 dark:bg-background/20">
+								<div>
+									{tasks.map((task) => (
+										<DownloadTaskItem key={task.id} task={task} />
+									))}
+								</div>
+							</ScrollArea>
+							{canRemoveCompleted ? (
+								<div className="flex shrink-0 justify-end border-t border-border/60 bg-card/80 px-4 py-3 dark:bg-card/65">
+									<Button
+										type="button"
+										variant="outline"
+										size="sm"
+										onClick={removeCompleted}
+									>
+										<Icon name="X" className="size-3.5" />
+										{t("download_clear_completed")}
+									</Button>
+								</div>
+							) : null}
+						</div>
+					</TransferActivitySection>
 				) : null}
 			</BottomRightActivityPortal>
 
@@ -465,44 +471,6 @@ export function DownloadCenter() {
 							</Button>
 						) : null}
 					</div>
-				</DialogContent>
-			</Dialog>
-
-			<Dialog open={isPanelOpen} onOpenChange={setPanelOpen}>
-				<DialogContent className="flex max-h-[min(44rem,calc(100dvh-2rem))] flex-col sm:max-w-xl">
-					<DialogHeader>
-						<div className="flex items-center justify-between gap-3 pr-8">
-							<div>
-								<DialogTitle>{t("download_center")}</DialogTitle>
-								<DialogDescription>
-									{t("download_center_desc")}
-								</DialogDescription>
-							</div>
-							{tasks.length > 0 ? (
-								<Button
-									type="button"
-									variant="ghost"
-									size="sm"
-									onClick={removeCompleted}
-								>
-									{t("download_clear_completed")}
-								</Button>
-							) : null}
-						</div>
-					</DialogHeader>
-					<ScrollArea className="min-h-0 flex-1 pr-3">
-						<div className="space-y-2">
-							{tasks.length === 0 ? (
-								<div className="py-10 text-center text-sm text-muted-foreground">
-									{t("download_center_empty")}
-								</div>
-							) : (
-								tasks.map((task) => (
-									<DownloadTaskCard key={task.id} task={task} />
-								))
-							)}
-						</div>
-					</ScrollArea>
 				</DialogContent>
 			</Dialog>
 		</>

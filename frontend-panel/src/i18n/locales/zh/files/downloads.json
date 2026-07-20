@@ -14,8 +14,6 @@
 	"download_browser_archive_desc": "由后端打包所选内容，再直接交给浏览器下载。",
 	"download_center": "下载中心",
 	"download_center_completed": "下载完成",
-	"download_center_desc": "查看当前页面生命周期内的下载状态。",
-	"download_center_empty": "暂无下载任务",
 	"download_center_progress_summary": "已完成 {{completed}} / {{total}} 项",
 	"download_center_completed_summary": "已完成 {{count}} 项下载",
 	"download_center_failed_summary": "已完成 {{completed}} 项，失败 {{failed}} 项",

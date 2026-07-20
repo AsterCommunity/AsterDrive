@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useTransferActivityStore } from "@/stores/transferActivityStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { MeField } from "@/types/api";
 
@@ -302,6 +303,7 @@ describe("UploadArea", () => {
 			open: false,
 			visible: false,
 		});
+		useTransferActivityStore.setState({ expandedActivity: null });
 		vi.unstubAllEnvs();
 	});
 

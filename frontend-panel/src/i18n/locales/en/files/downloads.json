@@ -14,8 +14,6 @@
 	"download_browser_archive_desc": "Let the backend package the selection and hand the ZIP directly to the browser.",
 	"download_center": "Downloads",
 	"download_center_completed": "Downloads complete",
-	"download_center_desc": "Track downloads during the current page session.",
-	"download_center_empty": "No download tasks",
 	"download_center_progress_summary": "{{completed}} / {{total}} items completed",
 	"download_center_completed_summary": "{{count}} downloads completed",
 	"download_center_failed_summary": "{{completed}} completed, {{failed}} failed",

@@ -7,6 +7,10 @@ import {
 	useDownloadStore,
 } from "@/stores/downloadStore";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import {
+	TRANSFER_ACTIVITY,
+	useTransferActivityStore,
+} from "@/stores/transferActivityStore";
 
 const mocks = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -66,24 +70,27 @@ describe("DownloadCenter", () => {
 		mocks.streamArchiveDownload.mockReset();
 		mocks.streamArchiveDownload.mockResolvedValue(undefined);
 		useDownloadStore.setState({
-			isPanelOpen: false,
 			pendingSelection: null,
 			tasks: [],
 		});
+		useTransferActivityStore.setState({ expandedActivity: null });
 		useFrontendConfigStore.setState({
 			archiveDownloadUserEnabled: true,
 			isLoaded: true,
 		});
 	});
 
-	it("shows an active blue bordered status bar with progress and completed items", () => {
+	it("shows a full-width active download section with progress", () => {
 		useDownloadStore.setState({ tasks: [task()] });
 
 		render(<DownloadCenter />);
 
 		const trigger = screen.getByRole("button", { name: "下载中心" });
-		expect(trigger).toHaveClass("border-blue-500/70", "pointer-events-auto");
-		expect(trigger).not.toHaveClass("fixed");
+		expect(trigger.closest("section")).toHaveClass(
+			"pointer-events-auto",
+			"w-full",
+		);
+		expect(trigger).toHaveAttribute("aria-expanded", "false");
 		expect(trigger).toHaveTextContent("50%");
 		expect(trigger).toHaveTextContent("已完成 2 / 4 项");
 	});
@@ -102,19 +109,33 @@ describe("DownloadCenter", () => {
 		render(<DownloadCenter />);
 
 		const trigger = screen.getByRole("button", { name: "下载中心" });
-		expect(trigger).toHaveClass("border-emerald-500/55");
 		expect(trigger).toHaveTextContent("下载完成");
 		expect(trigger).toHaveTextContent("已完成 4 项下载");
-		expect(trigger).toHaveTextContent("100%");
+		expect(trigger).not.toHaveTextContent("100%");
 	});
 
-	it("does not open the details dialog when a task is added", () => {
+	it("does not expand task details when a task is added", () => {
 		useDownloadStore.getState().upsertTask(task());
 
 		render(<DownloadCenter />);
 
-		expect(useDownloadStore.getState().isPanelOpen).toBe(false);
-		expect(screen.queryByText("download_center_desc")).not.toBeInTheDocument();
+		expect(useTransferActivityStore.getState().expandedActivity).toBeNull();
+		expect(screen.getByRole("button", { name: "下载中心" })).toHaveAttribute(
+			"aria-expanded",
+			"false",
+		);
+	});
+
+	it("expands task details inline in the bottom-right activity shell", () => {
+		useDownloadStore.setState({ tasks: [task()] });
+
+		render(<DownloadCenter />);
+		fireEvent.click(screen.getByRole("button", { name: "下载中心" }));
+
+		expect(useTransferActivityStore.getState().expandedActivity).toBe(
+			TRANSFER_ACTIVITY.download,
+		);
+		expect(screen.getByText(/download_status_downloading/)).toBeInTheDocument();
 	});
 
 	it("offers browser-managed ZIP downloads for multi-selection", async () => {

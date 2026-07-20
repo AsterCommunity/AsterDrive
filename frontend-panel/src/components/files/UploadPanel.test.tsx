@@ -275,7 +275,7 @@ describe("UploadPanel", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Upload canceled")).toBeInTheDocument();
+		expect(screen.getByText(/Upload canceled/)).toBeInTheDocument();
 		expect(screen.getByText("upload_batch_partial_failed")).toBeInTheDocument();
 		expect(screen.queryByText("42%")).not.toBeInTheDocument();
 	});

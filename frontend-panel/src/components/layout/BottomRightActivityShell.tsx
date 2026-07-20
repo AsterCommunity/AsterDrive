@@ -52,7 +52,7 @@ export function BottomRightActivityShell({
 			<div
 				ref={handleContainerRef}
 				data-testid="bottom-right-activity-shell"
-				className="pointer-events-none fixed right-4 bottom-4 z-(--z-fixed) flex w-[28rem] max-w-[calc(100vw-2rem)] flex-col-reverse items-end gap-3"
+				className="pointer-events-none fixed right-4 bottom-4 z-(--z-fixed) flex w-[28rem] max-w-[calc(100vw-2rem)] flex-col divide-y divide-border/60 overflow-hidden rounded-lg bg-card/95 shadow-lg shadow-black/10 ring-1 ring-border/60 backdrop-blur-sm empty:hidden dark:bg-card/85 dark:shadow-none dark:ring-border/70"
 			/>
 		</BottomRightActivityShellContext>
 	);

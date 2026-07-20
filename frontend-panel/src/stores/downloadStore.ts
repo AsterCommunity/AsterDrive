@@ -59,26 +59,19 @@ export interface DownloadTask {
 }
 
 interface DownloadStoreState {
-	isPanelOpen: boolean;
 	pendingSelection: DownloadSelection | null;
 	tasks: DownloadTask[];
-	closePanel: () => void;
 	dismissSelection: () => void;
-	openPanel: () => void;
 	removeCompleted: () => void;
 	requestSelection: (selection: DownloadSelection) => void;
-	setPanelOpen: (open: boolean) => void;
 	upsertTask: (task: DownloadTask) => void;
 	updateTask: (id: string, patch: Partial<DownloadTask>) => void;
 }
 
 export const useDownloadStore = create<DownloadStoreState>((set) => ({
-	isPanelOpen: false,
 	pendingSelection: null,
 	tasks: [],
-	closePanel: () => set({ isPanelOpen: false }),
 	dismissSelection: () => set({ pendingSelection: null }),
-	openPanel: () => set({ isPanelOpen: true }),
 	removeCompleted: () =>
 		set((state) => ({
 			tasks: state.tasks.filter(
@@ -88,7 +81,6 @@ export const useDownloadStore = create<DownloadStoreState>((set) => ({
 			),
 		})),
 	requestSelection: (pendingSelection) => set({ pendingSelection }),
-	setPanelOpen: (isPanelOpen) => set({ isPanelOpen }),
 	upsertTask: (task) =>
 		set((state) => ({
 			tasks: [task, ...state.tasks.filter((item) => item.id !== task.id)],
