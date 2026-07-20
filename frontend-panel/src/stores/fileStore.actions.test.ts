@@ -30,6 +30,8 @@ vi.mock("@/services/fileService", () => ({
 		getFolderAncestors: mockState.getFolderAncestors,
 		listFolder: mockState.listFolder,
 		listRoot: mockState.listRoot,
+		moveFile: vi.fn(),
+		moveFolder: vi.fn(),
 	},
 }));
 
@@ -44,6 +46,21 @@ vi.mock("@/services/batchService", () => ({
 		batchDelete: mockState.batchDelete,
 		batchMove: mockState.batchMove,
 	},
+	singleOperationResult: (promise: Promise<unknown>) =>
+		promise.then(() => ({ succeeded: 1, failed: 0, errors: [] })),
+	resolveMoveDispatch: ({
+		fileIds,
+		folderIds,
+		targetFolderId,
+		dispatcher,
+	}: {
+		fileIds: number[];
+		folderIds: number[];
+		targetFolderId: number | null;
+		dispatcher: {
+			batchMove: (...args: unknown[]) => unknown;
+		};
+	}) => dispatcher.batchMove(fileIds, folderIds, targetFolderId),
 }));
 
 vi.mock("@/stores/authStore", () => ({

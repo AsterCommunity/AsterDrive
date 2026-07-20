@@ -1,4 +1,6 @@
-import { batchService } from "@/services/batchService";
+import { batchService, singleOperationResult } from "@/services/batchService";
+import { fileService } from "@/services/fileService";
+import type { BatchResult } from "@/types/api";
 import {
 	applyWorkspaceRequestState,
 	beginWorkspaceRequest,
@@ -50,18 +52,35 @@ export const createClipboardSlice: FileStoreSlice<ClipboardSlice> = (
 			throw new Error("No clipboard");
 		}
 
-		const result =
-			clipboard.mode === "copy"
-				? await batchService.batchCopy(
-						clipboard.fileIds,
-						clipboard.folderIds,
-						currentFolderId,
-					)
-				: await batchService.batchMove(
-						clipboard.fileIds,
-						clipboard.folderIds,
-						currentFolderId,
-					);
+		const selectedCount = clipboard.fileIds.length + clipboard.folderIds.length;
+		let result: BatchResult;
+		if (selectedCount === 1) {
+			if (clipboard.mode === "copy") {
+				result = await singleOperationResult(
+					clipboard.fileIds.length === 1
+						? fileService.copyFile(clipboard.fileIds[0], currentFolderId)
+						: fileService.copyFolder(clipboard.folderIds[0], currentFolderId),
+				);
+			} else {
+				result = await singleOperationResult(
+					clipboard.fileIds.length === 1
+						? fileService.moveFile(clipboard.fileIds[0], currentFolderId)
+						: fileService.moveFolder(clipboard.folderIds[0], currentFolderId),
+				);
+			}
+		} else if (clipboard.mode === "copy") {
+			result = await batchService.batchCopy(
+				clipboard.fileIds,
+				clipboard.folderIds,
+				currentFolderId,
+			);
+		} else {
+			result = await batchService.batchMove(
+				clipboard.fileIds,
+				clipboard.folderIds,
+				currentFolderId,
+			);
+		}
 
 		const mode = clipboard.mode;
 		if (mode === "cut") {

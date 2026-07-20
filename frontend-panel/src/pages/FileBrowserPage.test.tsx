@@ -23,6 +23,9 @@ const mockState = vi.hoisted(() => ({
 	copyFile: vi.fn(),
 	copyFolder: vi.fn(),
 	getArchivePreview: vi.fn(),
+	moveFile: vi.fn(),
+	moveFolder: vi.fn(),
+	moveToWorkspace: vi.fn(),
 	createPreviewLink: vi.fn(),
 	createWopiSession: vi.fn(),
 	streamArchiveDownload: vi.fn(),
@@ -1020,6 +1023,12 @@ vi.mock("@/services/batchService", () => ({
 		streamArchiveDownload: (...args: unknown[]) =>
 			mockState.streamArchiveDownload(...args),
 	},
+	createBatchService: () => ({
+		batchMove: (...args: unknown[]) => mockState.store.moveToFolder(...args),
+		moveToWorkspace: (...args: unknown[]) => mockState.moveToWorkspace(...args),
+	}),
+	singleOperationResult: (promise: Promise<unknown>) =>
+		promise.then(() => ({ succeeded: 1, failed: 0, errors: [] })),
 	resolveCopyDispatch: ({
 		fileIds,
 		folderIds,
@@ -1037,12 +1046,58 @@ vi.mock("@/services/batchService", () => ({
 			folderIds,
 			targetFolderId,
 		),
+	resolveMoveDispatch: ({
+		currentWorkspace,
+		targetWorkspace,
+		fileIds,
+		folderIds,
+		targetFolderId,
+		dispatcher,
+	}: {
+		currentWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		targetWorkspace: { kind: "personal" } | { kind: "team"; teamId: number };
+		fileIds: number[];
+		folderIds: number[];
+		targetFolderId: number | null;
+		dispatcher: {
+			batchMove: (...args: unknown[]) => unknown;
+			singleFileMove: (...args: unknown[]) => unknown;
+			singleFolderMove: (...args: unknown[]) => unknown;
+			moveToWorkspace: (...args: unknown[]) => unknown;
+		};
+	}) => {
+		const sameWorkspace =
+			currentWorkspace.kind === targetWorkspace.kind &&
+			(currentWorkspace.kind !== "team" ||
+				currentWorkspace.teamId === targetWorkspace.teamId);
+		if (!sameWorkspace) {
+			return dispatcher.moveToWorkspace(
+				targetWorkspace,
+				fileIds,
+				folderIds,
+				targetFolderId,
+			);
+		}
+		if (fileIds.length === 1 && folderIds.length === 0) {
+			return dispatcher.singleFileMove(fileIds[0], targetFolderId);
+		}
+		if (folderIds.length === 1 && fileIds.length === 0) {
+			return dispatcher.singleFolderMove(folderIds[0], targetFolderId);
+		}
+		return dispatcher.batchMove(fileIds, folderIds, targetFolderId);
+	},
 }));
 
 vi.mock("@/services/fileService", () => ({
+	createFileService: () => ({
+		moveFile: (...args: unknown[]) => mockState.moveFile(...args),
+		moveFolder: (...args: unknown[]) => mockState.moveFolder(...args),
+	}),
 	fileService: {
 		copyFile: (...args: unknown[]) => mockState.copyFile(...args),
 		copyFolder: (...args: unknown[]) => mockState.copyFolder(...args),
+		moveFile: (...args: unknown[]) => mockState.moveFile(...args),
+		moveFolder: (...args: unknown[]) => mockState.moveFolder(...args),
 		createArchiveExtractTask: (...args: unknown[]) =>
 			mockState.createArchiveExtractTask(...args),
 		createPreviewLink: (...args: unknown[]) =>
@@ -1193,6 +1248,9 @@ describe("FileBrowserPage", () => {
 		mockState.createArchiveExtractTask.mockReset();
 		mockState.copyFile.mockReset();
 		mockState.copyFolder.mockReset();
+		mockState.moveFile.mockReset();
+		mockState.moveFolder.mockReset();
+		mockState.moveToWorkspace.mockReset();
 		mockState.copyToWorkspace.mockReset();
 		mockState.getArchivePreview.mockReset();
 		mockState.createPreviewLink.mockReset();
@@ -1292,6 +1350,13 @@ describe("FileBrowserPage", () => {
 		});
 		mockState.copyFile.mockResolvedValue(undefined);
 		mockState.copyFolder.mockResolvedValue(undefined);
+		mockState.moveFile.mockResolvedValue(undefined);
+		mockState.moveFolder.mockResolvedValue(undefined);
+		mockState.moveToWorkspace.mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 1,
+		});
 		mockState.copyToWorkspace.mockResolvedValue({
 			errors: [],
 			failed: 0,
@@ -2290,6 +2355,42 @@ describe("FileBrowserPage", () => {
 		await waitFor(() => {
 			expect(mockState.store.refresh).toHaveBeenCalled();
 		});
+	});
+
+	it("dispatches right-click single-file moves to the correct endpoint", async () => {
+		render(<FileBrowserPage />);
+		const context = getFileBrowserContext();
+
+		act(() => context.onMove("file", 3));
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm-batch-dialog" }),
+		);
+		await waitFor(() => {
+			expect(mockState.moveFile).toHaveBeenCalledWith(3, 20);
+		});
+		expect(mockState.store.moveToFolder).not.toHaveBeenCalled();
+		expect(mockState.moveToWorkspace).not.toHaveBeenCalled();
+
+		mockState.moveFile.mockReset();
+		mockState.moveToWorkspace.mockReset().mockResolvedValue({
+			errors: [],
+			failed: 0,
+			succeeded: 1,
+		});
+		act(() => context.onMove("file", 3));
+		fireEvent.click(
+			screen.getByRole("button", { name: "confirm-team-batch-dialog" }),
+		);
+		await waitFor(() => {
+			expect(mockState.moveToWorkspace).toHaveBeenCalledWith(
+				{ kind: "team", teamId: 9 },
+				[3],
+				[],
+				21,
+			);
+		});
+		expect(mockState.moveFile).not.toHaveBeenCalled();
+		expect(mockState.store.moveToFolder).not.toHaveBeenCalled();
 	});
 
 	it("updates open info panels when the backing file or folder changes", async () => {

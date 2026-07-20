@@ -220,6 +220,11 @@ export function createFileService(workspace: Workspace) {
 				folder_id: folderId ?? null,
 			}),
 
+		moveFile: (id: number, folderId?: number | null) =>
+			api.patch<FileInfo>(buildWorkspacePath(workspace, `/files/${id}`), {
+				folder_id: folderId ?? null,
+			}),
+
 		createArchiveExtractTask: (
 			id: number,
 			targetFolderId?: number | null,
@@ -254,6 +259,11 @@ export function createFileService(workspace: Workspace) {
 					parent_id: parentId ?? null,
 				},
 			),
+
+		moveFolder: (id: number, parentId?: number | null) =>
+			api.patch<FolderInfo>(buildWorkspacePath(workspace, `/folders/${id}`), {
+				parent_id: parentId ?? null,
+			}),
 
 		updateContent: async (id: number, content: string, etag?: string) => {
 			const headers: Record<string, string> = {

@@ -68,6 +68,22 @@ pub struct WorkspaceTransferCopyReq {
     pub target_folder_id: Option<i64>,
 }
 
+/// Move files and folders between workspaces.
+#[derive(Deserialize, Validate)]
+#[validate(schema(function = "validate_workspace_transfer_move_req"))]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct WorkspaceTransferMoveReq {
+    pub source_workspace: WorkspaceRef,
+    #[serde(default)]
+    pub file_ids: Vec<i64>,
+    #[serde(default)]
+    pub folder_ids: Vec<i64>,
+    pub destination_workspace: WorkspaceRef,
+    /// Destination folder ID (`None` = destination root directory).
+    #[validate(range(min = 1, message = "target_folder_id must be greater than 0"))]
+    pub target_folder_id: Option<i64>,
+}
+
 /// Request an archive download ticket for the selected files and folders.
 #[derive(Debug, Deserialize, Validate)]
 #[validate(schema(function = "validate_archive_download_req"))]
@@ -99,15 +115,25 @@ fn validate_batch_delete_req(value: &BatchDeleteReq) -> std::result::Result<(), 
 }
 
 fn validate_batch_move_req(value: &BatchMoveReq) -> std::result::Result<(), ValidationError> {
-    validate_batch_selection(&value.file_ids, &value.folder_ids)
+    validate_batch_selection(&value.file_ids, &value.folder_ids)?;
+    validate_multiple_batch_items(&value.file_ids, &value.folder_ids, "move")
 }
 
 fn validate_batch_copy_req(value: &BatchCopyReq) -> std::result::Result<(), ValidationError> {
-    validate_batch_selection(&value.file_ids, &value.folder_ids)
+    validate_batch_selection(&value.file_ids, &value.folder_ids)?;
+    validate_multiple_batch_items(&value.file_ids, &value.folder_ids, "copy")
 }
 
 fn validate_workspace_transfer_copy_req(
     value: &WorkspaceTransferCopyReq,
+) -> std::result::Result<(), ValidationError> {
+    validate_workspace_ref(&value.source_workspace)?;
+    validate_workspace_ref(&value.destination_workspace)?;
+    validate_batch_selection(&value.file_ids, &value.folder_ids)
+}
+
+fn validate_workspace_transfer_move_req(
+    value: &WorkspaceTransferMoveReq,
 ) -> std::result::Result<(), ValidationError> {
     validate_workspace_ref(&value.source_workspace)?;
     validate_workspace_ref(&value.destination_workspace)?;
@@ -145,6 +171,21 @@ fn validate_positive_ids(
     if ids.iter().any(|id| *id <= 0) {
         return Err(crate::api::dto::validation::message_validation_error(
             format!("{field_name} must contain only positive IDs"),
+        ));
+    }
+    Ok(())
+}
+
+fn validate_multiple_batch_items(
+    file_ids: &[i64],
+    folder_ids: &[i64],
+    operation: &str,
+) -> std::result::Result<(), ValidationError> {
+    if file_ids.len() + folder_ids.len() < 2 {
+        return Err(crate::api::dto::validation::message_validation_error(
+            format!(
+                "batch {operation} requires at least two selected items; use the single-item endpoint for one item"
+            ),
         ));
     }
     Ok(())

@@ -13,6 +13,7 @@ import type {
 	TaskInfo,
 	WorkspaceRef,
 	WorkspaceTransferCopyRequest,
+	WorkspaceTransferMoveRequest,
 } from "@/types/api";
 
 export interface StreamTicketInfo {
@@ -56,7 +57,37 @@ interface WorkspaceCopyDispatcher {
 		folderIds: number[],
 		targetFolderId: number | null,
 	) => Promise<BatchResult>;
+	singleFileCopy?: (
+		fileId: number,
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	singleFolderCopy?: (
+		folderId: number,
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
 	copyToWorkspace: (
+		destinationWorkspace: Workspace,
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+}
+
+interface WorkspaceMoveDispatcher {
+	batchMove: (
+		fileIds: number[],
+		folderIds: number[],
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	singleFileMove?: (
+		fileId: number,
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	singleFolderMove?: (
+		folderId: number,
+		targetFolderId: number | null,
+	) => Promise<BatchResult>;
+	moveToWorkspace: (
 		destinationWorkspace: Workspace,
 		fileIds: number[],
 		folderIds: number[],
@@ -81,14 +112,69 @@ export function resolveCopyDispatch({
 	targetFolderId,
 	dispatcher = batchService,
 }: ResolveCopyDispatchInput) {
-	return workspaceEquals(currentWorkspace, targetWorkspace)
-		? dispatcher.batchCopy(fileIds, folderIds, targetFolderId)
-		: dispatcher.copyToWorkspace(
-				targetWorkspace,
-				fileIds,
-				folderIds,
-				targetFolderId,
-			);
+	if (!workspaceEquals(currentWorkspace, targetWorkspace)) {
+		return dispatcher.copyToWorkspace(
+			targetWorkspace,
+			fileIds,
+			folderIds,
+			targetFolderId,
+		);
+	}
+
+	if (fileIds.length + folderIds.length === 1) {
+		if (fileIds.length === 1 && dispatcher.singleFileCopy) {
+			return dispatcher.singleFileCopy(fileIds[0], targetFolderId);
+		}
+		if (folderIds.length === 1 && dispatcher.singleFolderCopy) {
+			return dispatcher.singleFolderCopy(folderIds[0], targetFolderId);
+		}
+		throw new Error("single-item copy dispatcher is required");
+	}
+
+	return dispatcher.batchCopy(fileIds, folderIds, targetFolderId);
+}
+
+export function singleOperationResult(
+	operationPromise: Promise<unknown>,
+): Promise<BatchResult> {
+	return operationPromise.then(() => ({ succeeded: 1, failed: 0, errors: [] }));
+}
+
+export function resolveMoveDispatch({
+	currentWorkspace,
+	targetWorkspace,
+	fileIds,
+	folderIds,
+	targetFolderId,
+	dispatcher = batchService,
+}: {
+	currentWorkspace: Workspace;
+	targetWorkspace: Workspace;
+	fileIds: number[];
+	folderIds: number[];
+	targetFolderId: number | null;
+	dispatcher?: WorkspaceMoveDispatcher;
+}) {
+	if (!workspaceEquals(currentWorkspace, targetWorkspace)) {
+		return dispatcher.moveToWorkspace(
+			targetWorkspace,
+			fileIds,
+			folderIds,
+			targetFolderId,
+		);
+	}
+
+	if (fileIds.length + folderIds.length === 1) {
+		if (fileIds.length === 1 && dispatcher.singleFileMove) {
+			return dispatcher.singleFileMove(fileIds[0], targetFolderId);
+		}
+		if (folderIds.length === 1 && dispatcher.singleFolderMove) {
+			return dispatcher.singleFolderMove(folderIds[0], targetFolderId);
+		}
+		throw new Error("single-item move dispatcher is required");
+	}
+
+	return dispatcher.batchMove(fileIds, folderIds, targetFolderId);
 }
 
 function buildArchiveDownloadUrl(
@@ -149,6 +235,22 @@ export function createBatchService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				target_folder_id: targetFolderId,
 			};
 			return api.post<BatchResult>("/workspace-transfer/copy", payload);
+		},
+
+		moveToWorkspace: (
+			destinationWorkspace: Workspace,
+			fileIds: number[],
+			folderIds: number[],
+			targetFolderId: number | null,
+		) => {
+			const payload: WorkspaceTransferMoveRequest = {
+				source_workspace: workspaceToTransferRef(workspace),
+				file_ids: fileIds,
+				folder_ids: folderIds,
+				destination_workspace: workspaceToTransferRef(destinationWorkspace),
+				target_folder_id: targetFolderId,
+			};
+			return api.post<BatchResult>("/workspace-transfer/move", payload);
 		},
 
 		streamArchiveDownload: (

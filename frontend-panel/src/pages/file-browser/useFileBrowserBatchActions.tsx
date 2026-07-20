@@ -18,7 +18,14 @@ import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { beginLocalStorageDeleteMutation } from "@/lib/storageMutationCoordinator";
 import type { Workspace } from "@/lib/workspace";
-import { batchService, resolveCopyDispatch } from "@/services/batchService";
+import {
+	batchService,
+	createBatchService,
+	resolveCopyDispatch,
+	resolveMoveDispatch,
+	singleOperationResult,
+} from "@/services/batchService";
+import { createFileService } from "@/services/fileService";
 import { useFileStore } from "@/stores/fileStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { BatchResult, FileListItem, FolderListItem } from "@/types/api";
@@ -76,6 +83,8 @@ export function useFileBrowserBatchActions({
 	const [targetDialogMode, setTargetDialogMode] = useState<
 		"move" | "copy" | null
 	>(null);
+	const [transferSourceWorkspace, setTransferSourceWorkspace] =
+		useState<Workspace | null>(null);
 	const [tagManagerOpen, setTagManagerOpen] = useState(false);
 
 	const fileIds = useMemo(() => Array.from(selectedFileIds), [selectedFileIds]);
@@ -110,6 +119,7 @@ export function useFileBrowserBatchActions({
 	useEffect(() => {
 		if (count === 0) {
 			setTargetDialogMode(null);
+			setTransferSourceWorkspace(null);
 			setTagManagerOpen(false);
 		}
 	}, [count]);
@@ -144,10 +154,12 @@ export function useFileBrowserBatchActions({
 	} = useConfirmDialog<true>(handleDelete);
 
 	const handleMove = useCallback(() => {
+		setTransferSourceWorkspace(useWorkspaceStore.getState().workspace);
 		setTargetDialogMode("move");
 	}, []);
 
 	const handleCopy = useCallback(() => {
+		setTransferSourceWorkspace(useWorkspaceStore.getState().workspace);
 		setTargetDialogMode("copy");
 	}, []);
 
@@ -223,22 +235,58 @@ export function useFileBrowserBatchActions({
 			if (!targetDialogMode) return;
 
 			try {
-				const currentWorkspace = useWorkspaceStore.getState().workspace;
+				const currentWorkspace =
+					transferSourceWorkspace ?? useWorkspaceStore.getState().workspace;
 				const customMoveHandler =
 					targetDialogMode === "move" ? onMoveToFolder : undefined;
+				const sourceBatchService = createBatchService(currentWorkspace);
+				const sourceFileService = createFileService(currentWorkspace);
 				const result =
 					targetDialogMode === "move"
-						? await (customMoveHandler ?? moveToFolder)(
+						? await resolveMoveDispatch({
+								currentWorkspace,
+								targetWorkspace,
 								fileIds,
 								folderIds,
 								targetFolderId,
-							)
+								dispatcher: {
+									batchMove: customMoveHandler
+										? async (nextFileIds, nextFolderIds, folderId) =>
+												await customMoveHandler(
+													nextFileIds,
+													nextFolderIds,
+													folderId,
+												)
+										: moveToFolder,
+									singleFileMove: (fileId, folderId) =>
+										singleOperationResult(
+											sourceFileService.moveFile(fileId, folderId),
+										),
+									singleFolderMove: (folderId, parentId) =>
+										singleOperationResult(
+											sourceFileService.moveFolder(folderId, parentId),
+										),
+									moveToWorkspace: sourceBatchService.moveToWorkspace,
+								},
+							})
 						: await resolveCopyDispatch({
 								currentWorkspace,
 								targetWorkspace,
 								fileIds,
 								folderIds,
 								targetFolderId,
+								dispatcher: {
+									batchCopy: batchService.batchCopy,
+									copyToWorkspace: batchService.copyToWorkspace,
+									singleFileCopy: (fileId, folderId) =>
+										singleOperationResult(
+											sourceFileService.copyFile(fileId, folderId),
+										),
+									singleFolderCopy: (folderId, parentId) =>
+										singleOperationResult(
+											sourceFileService.copyFolder(folderId, parentId),
+										),
+								},
 							});
 				const batchToast = formatBatchToast(t, targetDialogMode, result);
 				if (batchToast.variant === "error") {
@@ -250,11 +298,12 @@ export function useFileBrowserBatchActions({
 						description: batchToast.description,
 					});
 				}
-				if (targetDialogMode === "copy" || customMoveHandler) {
+				if (targetDialogMode === "copy" || targetDialogMode === "move") {
 					clearSelection();
 					await refreshVisibleItems();
 				}
 				setTargetDialogMode(null);
+				setTransferSourceWorkspace(null);
 			} catch (err) {
 				handleApiError(err);
 			}
@@ -266,6 +315,7 @@ export function useFileBrowserBatchActions({
 			moveToFolder,
 			onMoveToFolder,
 			refreshVisibleItems,
+			transferSourceWorkspace,
 			t,
 			targetDialogMode,
 		],
@@ -329,13 +379,17 @@ export function useFileBrowserBatchActions({
 				<BatchTargetFolderDialog
 					open={targetDialogMode !== null}
 					onOpenChange={(open) => {
-						if (!open) setTargetDialogMode(null);
+						if (!open) {
+							setTargetDialogMode(null);
+							setTransferSourceWorkspace(null);
+						}
 					}}
 					mode={targetDialogMode ?? "move"}
 					onConfirm={handleTargetConfirm}
 					currentFolderId={currentFolderId}
 					initialBreadcrumb={breadcrumb}
 					selectedFolderIds={folderIds}
+					sourceWorkspace={transferSourceWorkspace ?? undefined}
 				/>
 
 				<TagManagerDialog

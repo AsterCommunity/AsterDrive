@@ -160,6 +160,17 @@ pub struct WorkspaceTransferCopyDetails<'a> {
 }
 
 #[derive(Serialize)]
+pub struct WorkspaceTransferMoveDetails<'a> {
+    pub source_workspace: WorkspaceTransferScopeDetails,
+    pub destination_workspace: WorkspaceTransferScopeDetails,
+    pub file_ids: &'a [i64],
+    pub folder_ids: &'a [i64],
+    pub target_folder_id: Option<i64>,
+    pub succeeded: u32,
+    pub failed: u32,
+}
+
+#[derive(Serialize)]
 pub struct ArchiveSelectionAuditDetails<'a> {
     pub file_ids: &'a [i64],
     pub folder_ids: &'a [i64],

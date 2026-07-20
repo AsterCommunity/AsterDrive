@@ -3,6 +3,7 @@ import {
 	batchService,
 	createBatchService,
 	resolveCopyDispatch,
+	resolveMoveDispatch,
 } from "@/services/batchService";
 
 const apiPost = vi.hoisted(() => vi.fn());
@@ -22,7 +23,7 @@ describe("batchService", () => {
 	it("posts delete, move, and copy batch payloads", () => {
 		batchService.batchDelete([1, 2], [3]);
 		batchService.batchMove([1], [2, 3], 9);
-		batchService.batchCopy([], [4], null);
+		batchService.batchCopy([4, 5], [], null);
 
 		expect(apiPost).toHaveBeenNthCalledWith(1, "/batch/delete", {
 			file_ids: [1, 2],
@@ -34,16 +35,17 @@ describe("batchService", () => {
 			target_folder_id: 9,
 		});
 		expect(apiPost).toHaveBeenNthCalledWith(3, "/batch/copy", {
-			file_ids: [],
-			folder_ids: [4],
+			file_ids: [4, 5],
+			folder_ids: [],
 			target_folder_id: null,
 		});
 
 		const teamBatchService = createBatchService({ kind: "team", teamId: 4 });
 		teamBatchService.batchDelete([1], []);
 		teamBatchService.batchMove([], [2], 8);
-		teamBatchService.batchCopy([3], [], null);
+		teamBatchService.batchCopy([3, 6], [], null);
 		teamBatchService.copyToWorkspace({ kind: "personal" }, [7], [8], null);
+		teamBatchService.moveToWorkspace({ kind: "personal" }, [9], [10], 11);
 
 		expect(apiPost).toHaveBeenNthCalledWith(4, "/teams/4/batch/delete", {
 			file_ids: [1],
@@ -55,7 +57,7 @@ describe("batchService", () => {
 			target_folder_id: 8,
 		});
 		expect(apiPost).toHaveBeenNthCalledWith(6, "/teams/4/batch/copy", {
-			file_ids: [3],
+			file_ids: [3, 6],
 			folder_ids: [],
 			target_folder_id: null,
 		});
@@ -65,6 +67,13 @@ describe("batchService", () => {
 			folder_ids: [8],
 			destination_workspace: { kind: "personal" },
 			target_folder_id: null,
+		});
+		expect(apiPost).toHaveBeenNthCalledWith(8, "/workspace-transfer/move", {
+			source_workspace: { kind: "team", team_id: 4 },
+			file_ids: [9],
+			folder_ids: [10],
+			destination_workspace: { kind: "personal" },
+			target_folder_id: 11,
 		});
 	});
 
@@ -114,6 +123,124 @@ describe("batchService", () => {
 			[4],
 			5,
 		);
+	});
+
+	it("dispatches single same-workspace copies through single-item handlers", async () => {
+		const dispatcher = {
+			batchCopy: vi.fn(),
+			copyToWorkspace: vi.fn(),
+			singleFileCopy: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+			singleFolderCopy: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+		};
+
+		await resolveCopyDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [1],
+			folderIds: [],
+			targetFolderId: 9,
+			dispatcher,
+		});
+		await resolveCopyDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [],
+			folderIds: [2],
+			targetFolderId: 9,
+			dispatcher,
+		});
+
+		expect(dispatcher.singleFileCopy).toHaveBeenCalledWith(1, 9);
+		expect(dispatcher.singleFolderCopy).toHaveBeenCalledWith(2, 9);
+		expect(dispatcher.batchCopy).not.toHaveBeenCalled();
+	});
+
+	it("dispatches move with the source workspace kept separate from the target", async () => {
+		const dispatcher = {
+			batchMove: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+			moveToWorkspace: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+		};
+
+		await resolveMoveDispatch({
+			currentWorkspace: { kind: "team", teamId: 4 },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [7],
+			folderIds: [8],
+			targetFolderId: 9,
+			dispatcher,
+		});
+
+		expect(dispatcher.moveToWorkspace).toHaveBeenCalledWith(
+			{ kind: "personal" },
+			[7],
+			[8],
+			9,
+		);
+		expect(dispatcher.batchMove).not.toHaveBeenCalled();
+	});
+
+	it("dispatches same-workspace move through the workspace-bound batch endpoint", async () => {
+		const dispatcher = {
+			batchMove: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 2 }),
+			moveToWorkspace: vi.fn(),
+		};
+
+		await resolveMoveDispatch({
+			currentWorkspace: { kind: "team", teamId: 4 },
+			targetWorkspace: { kind: "team", teamId: 4 },
+			fileIds: [7, 8],
+			folderIds: [],
+			targetFolderId: 9,
+			dispatcher,
+		});
+
+		expect(dispatcher.batchMove).toHaveBeenCalledWith([7, 8], [], 9);
+		expect(dispatcher.moveToWorkspace).not.toHaveBeenCalled();
+	});
+
+	it("dispatches single same-workspace moves through single-item handlers", async () => {
+		const dispatcher = {
+			batchMove: vi.fn(),
+			singleFileMove: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+			singleFolderMove: vi
+				.fn()
+				.mockResolvedValue({ errors: [], failed: 0, succeeded: 1 }),
+			moveToWorkspace: vi.fn(),
+		};
+
+		await resolveMoveDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [7],
+			folderIds: [],
+			targetFolderId: 9,
+			dispatcher,
+		});
+		await resolveMoveDispatch({
+			currentWorkspace: { kind: "personal" },
+			targetWorkspace: { kind: "personal" },
+			fileIds: [],
+			folderIds: [8],
+			targetFolderId: 9,
+			dispatcher,
+		});
+
+		expect(dispatcher.singleFileMove).toHaveBeenCalledWith(7, 9);
+		expect(dispatcher.singleFolderMove).toHaveBeenCalledWith(8, 9);
+		expect(dispatcher.batchMove).not.toHaveBeenCalled();
+		expect(dispatcher.moveToWorkspace).not.toHaveBeenCalled();
 	});
 
 	it("creates archive download tickets with JSON bodies and triggers iframe downloads", async () => {
