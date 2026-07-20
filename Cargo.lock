@@ -779,7 +779,7 @@ dependencies = [
  "aster_forge_runtime",
  "aster_forge_tasks",
  "aster_forge_test",
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "aster_forge_validation",
  "async-stream",
  "async-trait",
@@ -862,12 +862,12 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_middleware"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "actix-governor",
  "actix-web",
  "aster_forge_metrics",
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "base64 0.22.1",
  "futures",
  "governor",
@@ -881,7 +881,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_observability"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "actix-web",
  "aster_forge_metrics",
@@ -891,7 +891,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_alloc"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "tikv-jemalloc-ctl",
  "tracing",
@@ -900,7 +900,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "chrono",
  "serde",
@@ -911,7 +911,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api_docs_macros"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -921,7 +921,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_audit"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_db",
  "aster_forge_mail",
@@ -933,7 +933,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_cache"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_runtime",
  "async-trait",
@@ -950,8 +950,9 @@ dependencies = [
 [[package]]
 name = "aster_forge_config"
 version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
- "aster_forge_utils 0.1.0",
+ "aster_forge_utils",
  "async-trait",
  "futures",
  "redis",
@@ -968,7 +969,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_crypto"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "argon2 0.5.3",
  "rand_core 0.6.4",
@@ -979,7 +980,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_api",
  "aster_forge_config",
@@ -987,9 +988,9 @@ dependencies = [
  "aster_forge_metrics",
  "aster_forge_runtime",
  "aster_forge_tasks",
+ "aster_forge_utils",
  "async-trait",
  "chrono",
- "rand 0.10.2",
  "sea-orm",
  "thiserror 2.0.19",
  "tokio",
@@ -999,10 +1000,10 @@ dependencies = [
 [[package]]
 name = "aster_forge_external_auth"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_crypto",
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "aster_forge_validation",
  "async-trait",
  "base64 0.22.1",
@@ -1022,7 +1023,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_file_classification"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "sea-orm",
  "serde",
@@ -1033,7 +1034,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_logging"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "serde",
  "tracing-appender",
@@ -1043,11 +1044,11 @@ dependencies = [
 [[package]]
 name = "aster_forge_mail"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_tasks",
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "aster_forge_validation",
  "async-trait",
  "lettre",
@@ -1061,7 +1062,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_metrics"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_alloc",
  "aster_forge_runtime",
@@ -1076,7 +1077,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_panic"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "chrono",
 ]
@@ -1084,9 +1085,9 @@ dependencies = [
 [[package]]
 name = "aster_forge_runtime"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "async-trait",
  "chrono",
  "futures",
@@ -1101,10 +1102,10 @@ dependencies = [
 [[package]]
 name = "aster_forge_tasks"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "aster_forge_runtime",
- "aster_forge_utils 0.1.0 (git+https://github.com/AsterCommunity/AsterForge)",
+ "aster_forge_utils",
  "async-trait",
  "chrono",
  "futures",
@@ -1121,6 +1122,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_test"
 version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "fs2",
  "reqwest 0.13.4",
@@ -1135,6 +1137,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "http 1.4.2",
  "httpdate",
@@ -1151,27 +1154,9 @@ dependencies = [
 ]
 
 [[package]]
-name = "aster_forge_utils"
-version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
-dependencies = [
- "http 1.4.2",
- "httpdate",
- "ipnet",
- "md-5",
- "quick-xml",
- "serde_json",
- "thiserror 2.0.19",
- "tokio",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
 name = "aster_forge_validation"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#71b006d1cbe0d19b6ecc1556348d010beb543a0a"
+source = "git+https://github.com/AsterCommunity/AsterForge#89ff55d0a34d98da091ad3ae1bc092deda34169a"
 dependencies = [
  "thiserror 2.0.19",
  "unicode-normalization",
@@ -2742,15 +2727,16 @@ dependencies = [
 
 [[package]]
 name = "curve25519-dalek"
-version = "5.0.0-rc.1"
+version = "5.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "c906a87e53a36ff795d72e06e8162a83c5436e3ea89e942a9cb9fc083f0a384f"
+checksum = "b5eed333089e2e1c1ac8c6c0398e5e2497b4c9926ca6d0365ed1e099afa5bc23"
 dependencies = [
  "cfg-if",
  "cpufeatures 0.3.0",
  "curve25519-dalek-derive",
  "digest 0.11.3",
  "fiat-crypto 0.3.0",
+ "rand_core 0.10.1",
  "rustc_version",
  "subtle",
  "zeroize",
@@ -3134,11 +3120,11 @@ dependencies = [
 
 [[package]]
 name = "ed25519-dalek"
-version = "3.0.0-rc.1"
+version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1685663e23882cd8517dcbcb1c23a6ebff4433c22dfb681d760219b62cd1b849"
+checksum = "6ebaa1a2bf1290ab3bfe5a7b771d050ebffab2711c19a81691c683a5144a25de"
 dependencies = [
- "curve25519-dalek 5.0.0-rc.1",
+ "curve25519-dalek 5.0.0",
  "ed25519 3.0.0",
  "rand_core 0.10.1",
  "serde",
@@ -3983,9 +3969,9 @@ dependencies = [
 
 [[package]]
 name = "hyper-named-pipe"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "73b7d8abf35697b81a825e386fc151e0d503e8cb5fcb93cc8669c376dfd6f278"
+checksum = "fab3637d6b04a8037af8a266fdf6cf92ea957e8c53981a2bf6136572531025bf"
 dependencies = [
  "hex",
  "hyper",
@@ -3993,7 +3979,6 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tower-service",
- "winapi",
 ]
 
 [[package]]
@@ -4818,7 +4803,7 @@ dependencies = [
  "module-lattice",
  "pkcs8 0.11.0",
  "rand_core 0.10.1",
- "sha3",
+ "sha3 0.11.0",
 ]
 
 [[package]]
@@ -5257,9 +5242,9 @@ dependencies = [
 
 [[package]]
 name = "p256"
-version = "0.14.0-rc.15"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b6bb40a5099e2c38a09dd29321a7a7f045f165a54317679c7cdfb0cbaf8f6b1e"
+checksum = "d2c9239b2dbc807adbbe147e8cf72ea7450c3a0aabe62cb8e75ff4ec22e1f72a"
 dependencies = [
  "ecdsa 0.17.0",
  "elliptic-curve 0.14.1",
@@ -5282,9 +5267,9 @@ dependencies = [
 
 [[package]]
 name = "p384"
-version = "0.14.0-rc.15"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "492f329d7eb11d22dadc988626b9ea1f503b4ab043a8b1e4e2cc4ae45dabdd70"
+checksum = "d17b851e6b3e378ab4ecb07fa2ed23f4d15f075735f8fec9fa1e7bdce5f8301f"
 dependencies = [
  "ecdsa 0.17.0",
  "elliptic-curve 0.14.1",
@@ -5310,9 +5295,9 @@ dependencies = [
 
 [[package]]
 name = "p521"
-version = "0.14.0-rc.15"
+version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ff42e4ace5424e3b6d7cb82514be89866b85af87015f80341e37dcc21a66ce6e"
+checksum = "4ad64cc32c2dc466317c12ee5853e61f159f9eab1fe7efade0395dc2e7b43449"
 dependencies = [
  "base16ct 1.0.0",
  "ecdsa 0.17.0",
@@ -5907,7 +5892,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b570b25f7617e43d59005d0990ccb79e950a423952cea19671b7a876da390adf"
 dependencies = [
  "anyhow",
- "itertools 0.13.0",
+ "itertools 0.14.0",
  "proc-macro2",
  "quote",
  "syn 2.0.119",
@@ -6531,9 +6516,9 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.62.2"
+version = "0.62.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ca6c3c1dd0a9ad3a9915a2f6e907d158f9a7e9ac32ddc772b003faafc027d9a8"
+checksum = "059dd24c0fe20721639f7acad7b82cd51ec3dd3254ed8cf7a0b7df6c20eaff1c"
 dependencies = [
  "aes 0.9.1",
  "aws-lc-rs",
@@ -6545,13 +6530,13 @@ dependencies = [
  "cipher 0.5.2",
  "crypto-bigint 0.7.5",
  "ctr 0.10.1",
- "curve25519-dalek 5.0.0-rc.1",
+ "curve25519-dalek 5.0.0",
  "data-encoding",
  "delegate",
  "der 0.8.1",
  "digest 0.11.3",
  "ecdsa 0.17.0",
- "ed25519-dalek 3.0.0-rc.1",
+ "ed25519-dalek 3.0.0",
  "elliptic-curve 0.14.1",
  "enum_dispatch",
  "flate2",
@@ -6569,9 +6554,9 @@ dependencies = [
  "ml-kem",
  "module-lattice",
  "num-bigint",
- "p256 0.14.0-rc.15",
- "p384 0.14.0-rc.15",
- "p521 0.14.0-rc.15",
+ "p256 0.14.0",
+ "p384 0.14.0",
+ "p521 0.14.0",
  "pageant",
  "pbkdf2 0.13.0",
  "pkcs1 0.8.0-rc.4",
@@ -6588,7 +6573,7 @@ dependencies = [
  "sec1 0.8.1",
  "sha1 0.11.0",
  "sha2 0.11.0",
- "sha3",
+ "sha3 0.12.0",
  "signature 3.0.0",
  "spki 0.8.0",
  "ssh-encoding",
@@ -7397,6 +7382,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "sha3"
+version = "0.12.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bc9bad02c26382724b2d2692c6f179285e4b54eeecd7968f52a50059c3c11759"
+dependencies = [
+ "digest 0.11.3",
+ "keccak",
+ "sponge-cursor",
+]
+
+[[package]]
 name = "sharded-slab"
 version = "0.1.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -7568,6 +7564,12 @@ dependencies = [
  "base64ct",
  "der 0.8.1",
 ]
+
+[[package]]
+name = "sponge-cursor"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a0219bd7d979d58245a4f41f695e1ac9f8befdffadd7f61f1bae9e39abc6620"
 
 [[package]]
 name = "sqlx"
@@ -7798,12 +7800,12 @@ dependencies = [
  "argon2 0.6.0-rc.8",
  "bcrypt-pbkdf",
  "ctutils",
- "ed25519-dalek 3.0.0-rc.1",
+ "ed25519-dalek 3.0.0",
  "hex",
  "hmac 0.13.0",
- "p256 0.14.0-rc.15",
- "p384 0.14.0-rc.15",
- "p521 0.14.0-rc.15",
+ "p256 0.14.0",
+ "p384 0.14.0",
+ "p521 0.14.0",
  "rand_core 0.10.1",
  "rsa 0.10.0-rc.18",
  "sec1 0.8.1",
@@ -8220,9 +8222,9 @@ dependencies = [
 
 [[package]]
 name = "tokio"
-version = "1.53.0"
+version = "1.53.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d988bcd52dbe076d3d46903332f58c912b87a2c49b1428419a5845154762ffee"
+checksum = "202caea871b69668250d242070849eb495be178ed697a3e98aebce5bc81a0bed"
 dependencies = [
  "bytes",
  "libc",
@@ -9486,18 +9488,18 @@ dependencies = [
 
 [[package]]
 name = "zerocopy"
-version = "0.8.54"
+version = "0.8.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b7cbbc0a705a0fd05cc3676525980d2bf5a9bc4adac6d6475209a7887cf59d19"
+checksum = "b5a105cd7b140f6eeec8acff2ea38135d3cab283ada58540f629fe51e46696eb"
 dependencies = [
  "zerocopy-derive",
 ]
 
 [[package]]
 name = "zerocopy-derive"
-version = "0.8.54"
+version = "0.8.55"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e2e817b7b52d0c7358d3246da9d69935ebb18116b2b102b4230dac079b4862f5"
+checksum = "0fe976fb70c78cd64cccfe3a6fc142244e8a77b70959b30faf9d0ac37ee228eb"
 dependencies = [
  "proc-macro2",
  "quote",

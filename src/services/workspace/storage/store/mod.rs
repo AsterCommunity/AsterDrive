@@ -149,7 +149,7 @@ pub(crate) async fn create_empty(
         let policy_id = policy.id;
         aster_forge_db::transaction::with_transaction_retry(
             state.writer_db(),
-            &aster_forge_db::transaction::TransactionRetryConfig::default(),
+            &aster_forge_db::retry::RetryConfig::deadlock(),
             move |txn| {
                 let storage_path = transaction_storage_path.clone();
                 let filename = transaction_filename.clone();
@@ -184,7 +184,7 @@ pub(crate) async fn create_empty(
         let transaction_now = now;
         let result = aster_forge_db::transaction::with_transaction_retry(
             state.writer_db(),
-            &aster_forge_db::transaction::TransactionRetryConfig::default(),
+            &aster_forge_db::retry::RetryConfig::deadlock(),
             move |txn| {
                 let prepared = transaction_prepared.clone();
                 let filename = transaction_filename.clone();
@@ -340,7 +340,7 @@ pub(crate) async fn store_preuploaded_nondedup(
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
-        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
             let verified_blob = transaction_verified_blob.clone();
             let overwrite_ctx = transaction_overwrite_ctx.clone();

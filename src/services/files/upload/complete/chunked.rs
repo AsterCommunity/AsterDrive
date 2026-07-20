@@ -572,7 +572,7 @@ async fn persist_chunked_upload(
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
-        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
             let session = transaction_session.clone();
             let verified = transaction_verified.clone();
@@ -651,7 +651,7 @@ async fn persist_verified_chunked_upload(
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
-        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
             let session = transaction_session.clone();
             let verified = transaction_verified.clone();
