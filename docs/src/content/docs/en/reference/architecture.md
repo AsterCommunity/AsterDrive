@@ -92,6 +92,40 @@ Three boundaries matter most in this diagram:
 - **The follower is a managed storage node**: it does not serve normal user APIs, frontend pages, or user authentication flows.
 - **The database and object storage are separate**: the database is not the file-content store, and storage drivers do not own business permissions.
 
+## Resource Boundaries in a Multi-Primary Deployment
+
+`[deployment].profile = "cluster"` means multiple primaries may accept user requests at the same time. It does not make every runtime object shared automatically. Deployment and incident analysis should separate resources into four classes:
+
+| Resource class | Typical contents | Ownership and consistency |
+| --- | --- | --- |
+| Per-instance runtime resources | HTTP listeners, connection pools, in-memory snapshots, driver registries, SSE connections, process-local broadcast channels, reverse tunnel registries | Owned by one process only; they disappear with that process and cannot be read directly by another primary |
+| Database-coordinated resources | `runtime_leases`, scheduled-task claims, background-task processing tokens and heartbeats, mail-outbox claims, business metadata | Shared PostgreSQL/MySQL provides authoritative state, atomic claims, leases, and fencing |
+| Cross-instance control plane | Redis cache, config-sync Pub/Sub, future storage-event notifications, and a future tunnel-owner directory | Carries small invalidation, refresh, and owner-discovery messages; recovery reconciles from the authoritative database |
+| Cross-instance data plane | S3/Azure/OneDrive/SFTP, direct follower internal APIs, and a future tunnel-owner streaming proxy | Stores or transports file bodies; Redis Pub/Sub and database leases are not file-body transports |
+
+```mermaid
+flowchart LR
+  Client["Client request"] --> LB["Load balancer"]
+  LB --> A["Primary A"]
+  LB --> B["Primary B"]
+  A --> DB["Shared PostgreSQL / MySQL<br/>business state, claims, leases, fencing"]
+  B --> DB
+  A <--> Redis["Redis control plane<br/>cache / config sync / notifications"]
+  B <--> Redis
+  A --> Storage["Shared storage data plane"]
+  B --> Storage
+```
+
+A multi-primary deployment is therefore validated by whether every primary can reach the authoritative state and file content required by a request, not merely by whether two processes can start:
+
+- Scheduler ownership, scheduled tasks, normal background tasks, and the mail outbox use database leases or claims to avoid duplicate execution.
+- Runtime-config mutations publish a reload hint through Redis; every instance still reloads the complete snapshot from the writer database.
+- Storage SSE connections remain per-instance resources. Until the cross-instance notification bus is implemented, a mutation handled by primary B does not automatically wake a client connected to primary A.
+- The reverse tunnel registry also remains a per-instance resource. Cluster deployments currently require remote nodes to use `direct`; cross-primary tunnel routing requires a shared owner directory and an authenticated streaming proxy.
+- Local storage belongs to one machine. Cluster deployments require storage reachable by every primary and must not treat identical local paths with independent contents as a shared data plane.
+
+See [Deployment Profile](/en/config/deployment/) for the deployment contract and startup checks, and [Configuration Synchronization](/en/config/config-sync/) for recovery behavior.
+
 ## Runtime Modes
 
 ### Primary

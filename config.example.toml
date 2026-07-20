@@ -1,3 +1,6 @@
+[deployment]
+profile = "single"  # "single" | "cluster"; cluster requires shared PostgreSQL/MySQL, Redis, and object storage
+
 [server]
 host = "127.0.0.1"
 port = 3000

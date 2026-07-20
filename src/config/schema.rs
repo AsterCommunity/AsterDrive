@@ -10,6 +10,8 @@ use aster_forge_logging::LoggingConfig;
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
+    pub deployment: crate::config::deployment::DeploymentConfig,
+    #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
     pub database: DatabaseConfig,

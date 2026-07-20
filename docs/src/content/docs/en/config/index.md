@@ -82,7 +82,7 @@ If you start the bare binary, the process first reads `.env` in the current work
 
 | Type | Example | When to use |
 | --- | --- | --- |
-| Startup configuration overrides | `ASTER__SERVER__HOST`, `ASTER__DATABASE__URL`, `ASTER__SERVER__START_MODE` | Configuration that must be decided before the service starts; higher priority than `config.toml` |
+| Startup configuration overrides | `ASTER__DEPLOYMENT__PROFILE`, `ASTER__SERVER__HOST`, `ASTER__DATABASE__URL`, `ASTER__SERVER__START_MODE` | Configuration that must be decided before the service starts; higher priority than `config.toml` |
 | First-bootstrap switches | `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES` | Only affects the default value written the first time system settings are initialized; after initialization, change it in admin system settings |
 | Follower node auto-enrollment | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL`, `ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | Automatically enroll a Docker follower on first startup; remove after success |
 | Media processing defaults | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`, `ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI`, `ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI` | Used only when media-processing system settings do not yet exist, to decide initial default processors |
@@ -98,6 +98,7 @@ One-time bootstrap inputs such as enrollment tokens can be removed after success
 
 | Section | Purpose |
 | --- | --- |
+| [deployment](/en/config/deployment/) | Single-instance or multi-primary cluster declaration and shared-dependency checks |
 | [server](/en/config/server/) | Listen address, port, worker count, temporary directories, node mode, follower local target root |
 | [database](/en/config/database/) | Database connection, connection pool, startup retries |
 | [auth](/en/config/auth/) | Login signing secret, MFA encryption key, first plain-HTTP bootstrap |

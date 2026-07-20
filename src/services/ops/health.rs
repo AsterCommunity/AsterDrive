@@ -30,6 +30,8 @@ impl From<SystemHealthReport> for task::RuntimeTaskRunOutcome {
 }
 
 pub async fn check_primary_ready<S: SharedRuntimeState>(state: &S) -> Result<()> {
+    crate::services::ops::deployment::validate_primary_topology(state.reader_db(), state.config())
+        .await?;
     let policy = state
         .policy_snapshot()
         .system_default_policy()

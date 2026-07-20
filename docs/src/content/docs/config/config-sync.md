@@ -104,10 +104,10 @@ ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 
 - `[cache].backend = "redis"` 连接失败时，缓存可以回退到进程内 memory cache
 - `[config_sync].backend = "redis"` 的 backend、endpoint URL 等配置无效，导致通知后端无法构造时，实例启动失败
-- Redis URL 合法但服务暂时不可达时，实例可能完成启动，但订阅 worker 会记录错误并停止，跨实例 reload 随即失效
+- Redis URL 合法但服务暂时不可达时，实例可以完成启动；订阅 supervisor 会记录 `disconnected`，使用有界指数退避和抖动自动重连
 - 管理 API 或 CLI 已完成数据库写入，但随后发布通知失败时，命令会返回错误；本地值已经写入，其他实例可能要等重启或下一条成功通知后才重新加载
 
-如果运行期间 Redis 短暂断开，恢复 Redis 后逐个重启受影响实例，让订阅 worker 重新建立连接，并让每个实例从数据库加载完整 snapshot。
+如果运行期间 Redis 短暂断开，恢复 Redis 后无需重启实例。订阅恢复后每个实例会从权威数据库执行一次完整 snapshot reconcile，补齐 Pub/Sub 断线期间错过的通知。
 
 :::caution[Redis pub/sub 不补发历史消息]
 Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知不会在它恢复后重放；但实例每次启动都会从数据库全量加载，所以重启后会回到权威状态。
@@ -128,9 +128,9 @@ Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知
 
 1. 在实例 A 修改一个不需要重启的系统设置，例如站点标题。
 2. 通过实例 B 刷新对应页面，确认设置及时生效。
-3. 在任一实例日志里确认没有持续出现 `runtime config reload subscription stopped`。
+3. 在任一实例日志和指标里确认订阅连接保持稳定，或在短暂故障后进入 `recovered`。
 4. 用 CLI 修改一个测试用自定义配置，再从另一实例读取。
-5. 暂停 Redis，确认告警和失败行为符合预期；恢复 Redis 后重启实例，再验证下一次修改能继续同步。
+5. 暂停 Redis，确认 `disconnected` / `reconnecting` 观测符合预期；恢复 Redis 后确认出现 `recovered`，并验证下一次修改能继续同步。
 
 上线前也应把 Redis 可用性和所有实例的 topic 一致性加入 [生产上线检查](/deployment/production-checklist/)。
 
@@ -144,7 +144,7 @@ Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知
 - `endpoint` 是否都能从容器或主机内部访问
 - `topic` 是否完全一致
 - 实例是否连接同一份数据库
-- 日志里是否出现订阅停止或 Redis 连接错误
+- 日志和指标里是否出现持续的 `disconnected` / `reconnecting`，以及恢复后的 `recovered`
 
 ### 可以只给 primary 配吗
 

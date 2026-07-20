@@ -92,6 +92,40 @@ flowchart TB
 - **follower 是受管存储节点**：它不提供普通用户 API，不服务前端，也不直接参与用户鉴权。
 - **数据库和对象存储分离**：数据库不是文件内容仓库，存储驱动也不负责业务权限。
 
+## 多 primary 的资源边界
+
+`[deployment].profile = "cluster"` 表示多个 primary 可以同时接收用户请求，但不表示所有运行态都自动变成共享状态。部署和排障时要把资源分成四类：
+
+| 资源类别 | 典型内容 | 所有权和一致性 |
+| --- | --- | --- |
+| 每实例运行资源 | HTTP listener、连接池、内存快照、driver registry、SSE 连接、进程内 broadcast、reverse tunnel registry | 只属于当前进程；实例退出后不保留，其他 primary 不能直接读取 |
+| 数据库协调资源 | `runtime_leases`、scheduled task claim、普通 task processing token/heartbeat、mail outbox claim、业务元数据 | 由共享 PostgreSQL/MySQL 提供权威状态、原子 claim、lease 和 fencing |
+| 跨实例控制面 | Redis cache、config sync Pub/Sub、未来的 storage event notification 和 tunnel owner directory | 只传递失效、刷新、owner discovery 等小消息；断线恢复后回到权威数据库 reconcile |
+| 跨实例数据面 | S3/Azure/OneDrive/SFTP、direct follower internal API、未来的 tunnel owner streaming proxy | 运输或保存文件 body；不能通过 Redis Pub/Sub 或数据库 lease 搬运文件内容 |
+
+```mermaid
+flowchart LR
+  Client["客户端请求"] --> LB["负载均衡器"]
+  LB --> A["Primary A"]
+  LB --> B["Primary B"]
+  A --> DB["共享 PostgreSQL / MySQL<br/>业务状态、claim、lease、fencing"]
+  B --> DB
+  A <--> Redis["Redis 控制面<br/>cache / config sync / notifications"]
+  B <--> Redis
+  A --> Storage["共享存储数据面"]
+  B --> Storage
+```
+
+因此，多 primary 的正确判断不是“两个进程能不能启动”，而是一次请求依赖的权威状态和文件内容是否能从任一 primary 到达：
+
+- scheduler、scheduled task、普通后台任务和 mail outbox 通过数据库 lease/claim 避免重复执行。
+- runtime config 变更通过 Redis 发送 reload 提示；每个实例仍从 writer DB 重新加载完整快照。
+- storage SSE 连接仍是每实例资源。跨实例通知总线落地前，请求落在 B 不会自动唤醒连接在 A 的客户端。
+- reverse tunnel registry 仍是每实例资源。当前 cluster profile 要求 remote node 使用 `direct`；跨 primary owner directory 和 streaming proxy 落地前，不支持把用户请求路由到另一实例持有的 tunnel。
+- local storage 只属于单台机器。cluster profile 使用所有 primary 均可访问的共享存储，不能把路径相同但内容彼此独立的 local root 当成共享数据面。
+
+部署契约和启动检查见[部署模式](/config/deployment/)，故障恢复细节见[配置同步](/config/config-sync/)。
+
 ## 运行模式
 
 ### Primary

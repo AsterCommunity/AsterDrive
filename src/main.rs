@@ -211,6 +211,7 @@ async fn main() -> std::io::Result<()> {
         eprintln!("{message}");
     }
     let cfg = aster_drive::config::get_config();
+    aster_drive::config::deployment::validate_static(cfg.as_ref()).map_err(io_other)?;
     let runtime_mode = aster_drive::config::node_mode::start_mode(cfg.as_ref());
     if let Some(config_path) = bootstrap_config_path.as_ref()
         && runtime_mode != aster_drive::config::node_mode::NodeRuntimeMode::Follower

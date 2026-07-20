@@ -626,7 +626,7 @@ where
         {
             tracing::warn!(
                 error = %error,
-                "runtime config reload subscription stopped"
+                "runtime config reload subscription terminated unexpectedly"
             );
         }
     }

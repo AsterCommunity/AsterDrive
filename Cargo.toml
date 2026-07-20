@@ -192,6 +192,7 @@ zip = { version = "8", default-features = false, features = ["deflate"] }
 lofty = "0.24.0"
 
 [dev-dependencies]
+aster_forge_test = { git = "https://github.com/AsterCommunity/AsterForge", features = ["postgres", "process", "redis", "smtp"] }
 aws-smithy-http-client = { version = "1.2.0", features = ["test-util"] }
 aws-smithy-types = "1.6.1"
 rsa = "0.10.0-rc.18"

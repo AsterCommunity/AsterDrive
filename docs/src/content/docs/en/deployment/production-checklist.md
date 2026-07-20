@@ -195,13 +195,16 @@ If only one AsterDrive process runs, keep `[config_sync].backend = "disabled"`.
 
 For multiple instances, confirm:
 
+- every primary instance explicitly sets `[deployment].profile = "cluster"`
 - every instance connects to the same authoritative database
 - every instance can reach the configured Redis endpoint
 - every instance uses exactly the same `aster_drive.config_reload` topic
+- every storage policy uses shared storage rather than independent `local` roots
+- remote nodes use `direct` transport; reverse tunnels currently belong to the single profile
 - changing a system setting through instance A becomes visible through instance B promptly
 - the Redis outage and recovery procedure has been rehearsed
 
-See [Configuration Synchronization](/en/config/config-sync/) for the complete setup, failure behavior, and verification flow.
+See [Deployment Profile](/en/config/deployment/) for the deployment contract and [Configuration Synchronization](/en/config/config-sync/) for notification failure behavior.
 
 ## 11. Final Acceptance Pass
 

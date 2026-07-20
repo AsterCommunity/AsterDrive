@@ -82,7 +82,7 @@ ASTER__WEBDAV__PREFIX=/dav
 
 | 类型 | 示例 | 什么时候用 |
 | --- | --- | --- |
-| 启动配置覆盖 | `ASTER__SERVER__HOST`、`ASTER__DATABASE__URL`、`ASTER__SERVER__START_MODE` | 服务启动前就要确定的配置；优先级高于 `config.toml` |
+| 启动配置覆盖 | `ASTER__DEPLOYMENT__PROFILE`、`ASTER__SERVER__HOST`、`ASTER__DATABASE__URL`、`ASTER__SERVER__START_MODE` | 服务启动前就要确定的配置；优先级高于 `config.toml` |
 | 首次引导开关 | `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES` | 只影响系统设置第一次写入默认值；初始化完成后，后续请在后台系统设置里改 |
 | 从节点自动接入 | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL`、`ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | Docker follower 首次启动时自动 enroll；成功后建议移除 |
 | 媒体处理默认值 | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI` | 只在媒体处理系统设置还不存在时，用来决定初始默认处理器 |
@@ -98,6 +98,7 @@ ASTER__WEBDAV__PREFIX=/dav
 
 | 分区 | 作用 |
 | --- | --- |
+| [deployment](/config/deployment/) | 单实例或多 primary 集群部署声明，以及共享依赖检查 |
 | [server](/config/server/) | 监听地址、端口、线程数、临时目录、节点模式、follower 接收根目录 |
 | [database](/config/database/) | 数据库连接、连接池、启动重试 |
 | [auth](/config/auth/) | 登录签名密钥、MFA 加密密钥、首次纯 HTTP 引导 |

@@ -21,11 +21,16 @@ pub(super) struct CommonRuntimeParts {
 
 pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntimeParts> {
     let cfg = config::get_config();
+    crate::config::deployment::validate_static(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
     let metrics = crate::metrics::create_metrics_recorder();
 
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
     initialize_database_state(&database, cfg.as_ref(), mode).await?;
+    if matches!(mode, NodeRuntimeMode::Primary) {
+        crate::services::ops::deployment::validate_primary_topology(&database, cfg.as_ref())
+            .await?;
+    }
     let db_handles = db::connect_reader_for_writer_with_metrics(
         &cfg.database,
         database.clone(),
@@ -81,7 +86,7 @@ pub async fn initialize_database_state(
         );
     }
 
-    ensure_default_policy(database).await?;
+    ensure_default_policy(database, cfg.deployment.profile).await?;
     if matches!(mode, NodeRuntimeMode::Primary) {
         crate::services::storage_policy::policy::ensure_policy_groups_seeded(database).await?;
     }
@@ -117,7 +122,10 @@ fn handle_optional_follower_bootstrap<T>(result: Result<T>) {
     }
 }
 
-async fn ensure_default_policy(db: &sea_orm::DatabaseConnection) -> Result<()> {
+async fn ensure_default_policy(
+    db: &sea_orm::DatabaseConnection,
+    deployment_profile: crate::config::DeploymentProfile,
+) -> Result<()> {
     use crate::db::repository::policy_repo;
 
     if policy_repo::find_default(db).await?.is_some() {
@@ -126,6 +134,13 @@ async fn ensure_default_policy(db: &sea_orm::DatabaseConnection) -> Result<()> {
 
     let all = policy_repo::find_all(db).await?;
     if !all.is_empty() {
+        return Ok(());
+    }
+
+    if deployment_profile.is_cluster() {
+        tracing::info!(
+            "cluster deployment has no storage policy; skipping the single-profile local default"
+        );
         return Ok(());
     }
 
@@ -199,7 +214,9 @@ mod tests {
     async fn ensure_default_policy_creates_local_default_when_no_policies_exist() {
         let db = setup_db().await;
 
-        ensure_default_policy(&db).await.unwrap();
+        ensure_default_policy(&db, crate::config::DeploymentProfile::Single)
+            .await
+            .unwrap();
 
         let default = crate::db::repository::policy_repo::find_default(&db)
             .await
@@ -238,13 +255,29 @@ mod tests {
         .await
         .unwrap();
 
-        ensure_default_policy(&db).await.unwrap();
+        ensure_default_policy(&db, crate::config::DeploymentProfile::Single)
+            .await
+            .unwrap();
 
         let policies = crate::db::repository::policy_repo::find_all(&db)
             .await
             .unwrap();
         assert_eq!(policies.len(), 1);
         assert_eq!(policies[0].name, "Existing");
+    }
+
+    #[tokio::test]
+    async fn ensure_default_policy_skips_local_seed_for_cluster_profile() {
+        let db = setup_db().await;
+
+        ensure_default_policy(&db, crate::config::DeploymentProfile::Cluster)
+            .await
+            .unwrap();
+
+        let policies = crate::db::repository::policy_repo::find_all(&db)
+            .await
+            .unwrap();
+        assert!(policies.is_empty());
     }
 
     #[tokio::test]

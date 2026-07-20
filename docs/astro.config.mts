@@ -95,6 +95,7 @@ const sidebar = assertUniqueSidebarLinks([
         translations: { en: 'Startup Configuration' },
         collapsed: false,
         items: [
+          { label: '部署模式', translations: { en: 'Deployment Profile' }, link: '/config/deployment/' },
           { label: '服务器', translations: { en: 'Server' }, link: '/config/server/' },
           { label: '数据库', translations: { en: 'Database' }, link: '/config/database/' },
           { label: 'WebDAV 静态配置', translations: { en: 'WebDAV Static Config' }, link: '/config/webdav/' },

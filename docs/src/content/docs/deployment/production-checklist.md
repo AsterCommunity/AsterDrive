@@ -195,13 +195,16 @@ Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/
 
 如果运行多个实例，确认：
 
+- 所有 primary 实例显式设置 `[deployment].profile = "cluster"`
 - 所有实例连接同一份权威数据库
 - 所有实例都能访问配置的 Redis endpoint
 - 所有实例使用完全相同的 `aster_drive.config_reload` topic
+- 所有 storage policy 使用共享存储，不使用彼此独立的 `local` 根目录
+- remote node 使用 `direct` transport；当前 reverse tunnel 仅用于 single profile
 - 在实例 A 修改系统设置后，实例 B 能及时看到变化
 - Redis 中断和恢复后的处理流程已经演练
 
-完整配置、故障语义和验收步骤见 [配置同步](/config/config-sync/)。
+完整部署契约见 [部署模式](/config/deployment/)，配置通知和故障语义见 [配置同步](/config/config-sync/)。
 
 ## 11. 最后一轮验收
 

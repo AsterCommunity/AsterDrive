@@ -53,6 +53,12 @@ pub fn load() -> Result<LoadedConfig> {
     load_from_dir(&base_dir, env_database_url.as_deref(), true)
 }
 
+pub fn load_read_only() -> Result<Config> {
+    let base_dir = std::env::current_dir()
+        .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
+    load_read_only_from_dir(&base_dir, true)
+}
+
 pub fn ensure_default_config_for_current_dir(default: &Config) -> Result<PathBuf> {
     let base_dir = std::env::current_dir()
         .map_aster_err_ctx("failed to resolve current dir", AsterError::config_error)?;
@@ -108,6 +114,27 @@ fn load_from_dir(
             stable_defaults_added,
         },
     })
+}
+
+fn load_read_only_from_dir(base_dir: &Path, include_env: bool) -> Result<Config> {
+    let config_path = base_dir.join(DEFAULT_CONFIG_PATH);
+    let mut builder =
+        RawConfig::builder().add_source(File::from(config_path.as_path()).required(false));
+    if include_env {
+        builder = builder.add_source(
+            Environment::with_prefix("ASTER")
+                .separator("__")
+                .try_parsing(true),
+        );
+    }
+
+    let mut config = builder
+        .build()
+        .map_aster_err(AsterError::config_error)?
+        .try_deserialize::<Config>()
+        .map_aster_err(AsterError::config_error)?;
+    resolve_loaded_paths(base_dir, &config_path, &mut config)?;
+    Ok(config)
 }
 
 fn ensure_default_config_exists(config_path: &Path, default: &Config) -> Result<bool> {
@@ -223,12 +250,12 @@ fn resolve_loaded_paths(base_dir: &Path, config_path: &Path, cfg: &mut Config) -
 
 #[cfg(test)]
 mod tests {
-    use super::{ensure_default_config_exists, load_from_dir};
+    use super::{ensure_default_config_exists, load_from_dir, load_read_only_from_dir};
     use crate::config::paths::{
         DEFAULT_CONFIG_PATH, DEFAULT_SQLITE_DATABASE_PATH, DEFAULT_SQLITE_DATABASE_URL,
         DEFAULT_TEMP_DIR, DEFAULT_UPLOAD_TEMP_DIR,
     };
-    use crate::config::{Config, node_mode::NodeRuntimeMode};
+    use crate::config::{Config, DeploymentProfile, node_mode::NodeRuntimeMode};
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
 
@@ -319,6 +346,7 @@ mod tests {
         let generated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
         assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.deployment.profile, DeploymentProfile::Single);
         assert_eq!(cfg.server.start_mode, NodeRuntimeMode::Primary);
         assert_eq!(cfg.server.temp_dir, DEFAULT_TEMP_DIR);
         assert_eq!(cfg.server.upload_temp_dir, DEFAULT_UPLOAD_TEMP_DIR);
@@ -329,6 +357,8 @@ mod tests {
         assert!(cfg.network_trust.trusted_proxies.is_empty());
         assert!(dir.join(DEFAULT_CONFIG_PATH).exists());
         assert!(generated.contains("[server]"));
+        assert!(generated.contains("[deployment]"));
+        assert!(generated.contains(r#"profile = "single""#));
         assert!(generated.contains(r#"start_mode = "primary""#));
         assert!(generated.contains(r#"url = "sqlite://asterdrive.db?mode=rwc""#));
         assert!(generated.contains(r#"temp_dir = ".tmp""#));
@@ -355,6 +385,17 @@ mod tests {
                 .any(|message| { message.starts_with("[INFO] Configuration loaded from:") })
         );
 
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn read_only_load_uses_defaults_without_creating_config() {
+        let dir = make_temp_dir("read-only-default");
+
+        let config = load_read_only_from_dir(&dir, false).unwrap();
+
+        assert_eq!(config.deployment.profile, DeploymentProfile::Single);
+        assert!(!dir.join(DEFAULT_CONFIG_PATH).exists());
         let _ = std::fs::remove_dir_all(dir);
     }
 

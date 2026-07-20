@@ -173,6 +173,12 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
     input: CreateRemoteNodeInput,
 ) -> Result<RemoteNodeInfo> {
     let normalized = normalize_create_input(input)?;
+    crate::services::ops::deployment::validate_remote_node_transport(
+        state.config(),
+        normalized.transport_mode,
+        &normalized.base_url,
+        normalized.is_enabled,
+    )?;
     let (access_key, secret_key) = generate_managed_credentials();
     let now = Utc::now();
     let created = managed_follower::ActiveModel {
@@ -211,6 +217,13 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         .as_deref()
         .unwrap_or(existing.base_url.as_str());
     let next_transport_mode = normalized.transport_mode.unwrap_or(existing.transport_mode);
+    let next_is_enabled = normalized.is_enabled.unwrap_or(existing.is_enabled);
+    crate::services::ops::deployment::validate_remote_node_transport(
+        state.config(),
+        next_transport_mode,
+        next_base_url,
+        next_is_enabled,
+    )?;
     ensure_transport_change_keeps_referencing_policies_valid(
         state,
         id,

@@ -349,4 +349,18 @@ mod tests {
         assert_eq!(payload["code"], "storage.policy_not_found");
         assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
     }
+
+    #[actix_web::test]
+    async fn ready_rejects_local_storage_under_cluster_profile() {
+        let driver = ProbeDriver::healthy();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        let mut config = state.config.as_ref().clone();
+        config.deployment.profile = crate::config::DeploymentProfile::Cluster;
+        state.config = Arc::new(config);
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+    }
 }

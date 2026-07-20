@@ -7,6 +7,7 @@ pub mod bool_like;
 pub mod branding;
 pub mod cors;
 pub mod definitions;
+pub mod deployment;
 mod loader;
 pub mod local_email_policy;
 pub mod mail;
@@ -22,6 +23,7 @@ pub mod system_config;
 pub mod webdav;
 pub mod wopi;
 
+pub use deployment::{DeploymentConfig, DeploymentProfile};
 pub use loader::ConfigLoadReport;
 pub use runtime_config::RuntimeConfig;
 pub use schema::{
@@ -46,6 +48,10 @@ pub fn init_config() -> crate::errors::Result<ConfigLoadReport> {
     let loaded = loader::load()?;
     CONFIG.get_or_init(|| Arc::new(loaded.config));
     Ok(loaded.report)
+}
+
+pub fn load_config_read_only() -> crate::errors::Result<Config> {
+    loader::load_read_only()
 }
 
 #[allow(clippy::expect_used)]

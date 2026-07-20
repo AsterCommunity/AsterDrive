@@ -146,6 +146,7 @@ pub async fn create(
         connection,
         &application_config,
     )?;
+    crate::services::ops::deployment::validate_storage_policy_driver(state.config(), driver_type)?;
     let allowed_types = allowed_types.unwrap_or_default();
     let options = options.unwrap_or_default().normalized();
     let serialized_options = serialize_options(&options)?;

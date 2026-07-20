@@ -2,7 +2,9 @@
 
 use std::sync::Arc;
 
-use aster_forge_config::{ConfigReloadObservation, ConfigSyncRuntime};
+use aster_forge_config::{
+    ConfigReloadObservation, ConfigSyncConnectionObservation, ConfigSyncRuntime,
+};
 use tokio_util::sync::CancellationToken;
 
 use crate::errors::{AsterError, Result};
@@ -19,7 +21,7 @@ where
     S: SharedRuntimeState + Send + Sync + 'static,
 {
     let metrics = state.metrics().clone();
-    let observer = move |observation: ConfigReloadObservation| {
+    let reload_observer = move |observation: ConfigReloadObservation| {
         metrics.record_config_reload(
             observation.source,
             observation.decision.as_label(),
@@ -28,10 +30,36 @@ where
             observation.duration_seconds,
         );
     };
+    let connection_metrics = state.metrics().forge_recorder();
+    let connection_observer = move |observation: ConfigSyncConnectionObservation| {
+        connection_metrics.record_application_event(
+            "config_sync",
+            observation.state.as_label(),
+            "ok",
+        );
+    };
+    let reconcile_state = state.clone();
 
     runtime
-        .run_reload_subscription_with_observer(
+        .run_reload_subscription_with_reconcile_and_observers(
             shutdown,
+            move || {
+                let state = reconcile_state.clone();
+                async move {
+                    tracing::debug!(
+                        "reconciling runtime config after config sync subscription connected"
+                    );
+                    state
+                        .runtime_config()
+                        .reload(state.writer_db())
+                        .await
+                        .map_err(|error| {
+                            aster_forge_config::ConfigCoreError::store(error.to_string())
+                        })?;
+                    super::system::invalidate_all_dependent_public_config_caches();
+                    Ok(())
+                }
+            },
             move |message| {
                 let state = state.clone();
                 async move {
@@ -57,7 +85,8 @@ where
                     Ok(())
                 }
             },
-            Some(&observer),
+            Some(&reload_observer),
+            Some(&connection_observer),
         )
         .await
         .map_err(map_config_core_error)
