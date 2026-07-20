@@ -399,6 +399,16 @@ mod tests {
             invalidates_for(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY),
             [ConfigInvalidationTarget::FrontendConfig]
         );
+
+        let unrelated = schema
+            .iter()
+            .find(|item| item.key == MAIL_SMTP_HOST_KEY)
+            .expect("mail config should be in schema");
+        assert!(
+            !unrelated
+                .invalidates
+                .contains(&ConfigInvalidationTarget::FrontendConfig)
+        );
         assert_eq!(
             invalidates_for(PREVIEW_APPS_CONFIG_KEY),
             [ConfigInvalidationTarget::PreviewApps]

@@ -207,6 +207,11 @@ async function streamResponse(
 			await sink.write(chunk);
 			bytesReceived = chunk.byteLength;
 			onProgress({ bytesReceived, totalBytes, speedBps: null });
+			if (totalBytes !== null && bytesReceived !== totalBytes) {
+				throw new Error(
+					`Download size mismatch: expected ${totalBytes}, received ${bytesReceived}`,
+				);
+			}
 			await sink.close();
 			return;
 		}
@@ -216,6 +221,8 @@ async function streamResponse(
 			if (signal.aborted)
 				throw new DOMException("Download canceled", "AbortError");
 			const { done, value } = await reader.read();
+			if (signal.aborted)
+				throw new DOMException("Download canceled", "AbortError");
 			if (done) break;
 			await sink.write(value);
 			bytesReceived += value.byteLength;

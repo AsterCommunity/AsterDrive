@@ -31,7 +31,7 @@ async fn test_public_frontend_config_returns_default_bootstrap_config() {
     );
 
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["version"], 1);
+    assert_eq!(body["data"]["version"], 2);
     assert_eq!(body["data"]["branding"]["title"], "AsterDrive");
     assert_eq!(body["data"]["branding"]["allow_user_registration"], true);
     assert_eq!(body["data"]["branding"]["passkey_login_enabled"], true);
@@ -39,7 +39,53 @@ async fn test_public_frontend_config_returns_default_bootstrap_config() {
         body["data"]["media"]["image_preview_preference"],
         "original_first"
     );
+    assert_eq!(
+        body["data"]["downloads"]["archive_download_user_enabled"],
+        true
+    );
+    assert_eq!(
+        body["data"]["downloads"]["archive_download_share_enabled"],
+        true
+    );
     assert!(body["data"].get("image_preview").is_none());
+}
+
+#[actix_web::test]
+async fn test_public_frontend_config_uses_admin_updated_archive_download_capabilities() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (key, value) in [
+        ("archive_download_user_enabled", "false"),
+        ("archive_download_share_enabled", "false"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(&format!("/api/v1/admin/config/{key}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({ "value": value }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200, "setting {key} should succeed");
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/public/frontend-config")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["version"], 2);
+    assert_eq!(
+        body["data"]["downloads"]["archive_download_user_enabled"],
+        false
+    );
+    assert_eq!(
+        body["data"]["downloads"]["archive_download_share_enabled"],
+        false
+    );
 }
 
 #[actix_web::test]

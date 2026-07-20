@@ -313,6 +313,24 @@ describe("HeaderControls", () => {
 		expect(mockState.music.togglePanel).toHaveBeenCalledTimes(1);
 	});
 
+	it("does not restore the removed download-center header entry", () => {
+		mockState.music.queue = [{ id: "track-1" }];
+
+		render(<HeaderControls />);
+
+		expect(
+			screen.getAllByRole("button", {
+				name: "translated:files:music_player_open",
+			}),
+		).not.toHaveLength(0);
+		expect(
+			screen.queryByRole("button", {
+				name: /download_center|download center|下载中心/i,
+			}),
+		).not.toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "alice" })).toBeInTheDocument();
+	});
+
 	it("prefers display_name when rendering the account trigger and menu card", () => {
 		mockState.auth.user.profile.display_name = "Alice Chen";
 

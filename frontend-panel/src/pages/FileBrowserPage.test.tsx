@@ -255,9 +255,11 @@ vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
 				<button type="button" onClick={() => void onArchiveCompress([3], [])}>
 					batch-archive-compress
 				</button>
-				<button type="button" onClick={() => void onArchiveDownload([], [])}>
-					batch-archive-empty
-				</button>
+				{onArchiveDownload ? (
+					<button type="button" onClick={() => void onArchiveDownload([], [])}>
+						batch-archive-empty
+					</button>
+				) : null}
 			</div>
 		),
 	}),
@@ -482,9 +484,11 @@ vi.mock("@/components/files/FileGrid", () => ({
 				>
 					move-selection
 				</button>
-				<button type="button" onClick={() => context?.onArchiveDownload(5)}>
-					archive-folder
-				</button>
+				{context?.onArchiveDownload ? (
+					<button type="button" onClick={() => context.onArchiveDownload?.(5)}>
+						archive-folder
+					</button>
+				) : null}
 			</div>
 		);
 	},
@@ -2056,6 +2060,33 @@ describe("FileBrowserPage", () => {
 			folders: [{ id: 5, name: "Docs" }],
 		});
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("hides archive entry points before config loads or when user ZIP is disabled", () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: false,
+		});
+		const unloaded = render(<FileBrowserPage />);
+		expect(
+			screen.queryByRole("button", { name: "archive-folder" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "batch-archive-empty" }),
+		).not.toBeInTheDocument();
+
+		unloaded.unmount();
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		render(<FileBrowserPage />);
+		expect(
+			screen.queryByRole("button", { name: "archive-folder" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "batch-archive-empty" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("opens a naming dialog for batch archive compress and clears selection after task creation", async () => {

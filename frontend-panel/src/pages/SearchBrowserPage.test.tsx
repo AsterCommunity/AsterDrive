@@ -9,6 +9,10 @@ import type { FileListItem, FolderListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	beginLocalStorageDeleteMutation: vi.fn(),
+	batchActionOptions: null as null | {
+		onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
+		onDownload: (fileId: number, fileName: string) => void;
+	},
 	clearSelection: vi.fn(),
 	deleteFile: vi.fn(),
 	deleteFolder: vi.fn(),
@@ -122,22 +126,27 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
-	useFileBrowserBatchActions: () => ({
-		dialogs: null,
-		selectionToolbar: {
-			allDisplayedSelected: false,
-			count: 2,
-			downloadAction: undefined,
-			hasDisplayedItems: true,
-			onArchiveCompress: undefined,
-			onClearSelection: vi.fn(),
-			onCopy: undefined,
-			onDelete: vi.fn(),
-			onManageTags: vi.fn(),
-			onMove: undefined,
-			onToggleDisplayedSelection: vi.fn(),
-		},
-	}),
+	useFileBrowserBatchActions: (
+		options: NonNullable<typeof mockState.batchActionOptions>,
+	) => {
+		mockState.batchActionOptions = options;
+		return {
+			dialogs: null,
+			selectionToolbar: {
+				allDisplayedSelected: false,
+				count: 2,
+				downloadAction: undefined,
+				hasDisplayedItems: true,
+				onArchiveCompress: undefined,
+				onClearSelection: vi.fn(),
+				onCopy: undefined,
+				onDelete: vi.fn(),
+				onManageTags: vi.fn(),
+				onMove: undefined,
+				onToggleDisplayedSelection: vi.fn(),
+			},
+		};
+	},
 }));
 
 vi.mock("@/services/searchService", () => ({
@@ -314,6 +323,7 @@ function folderItem(id: number, name: string): FolderListItem {
 describe("SearchBrowserPage", () => {
 	beforeEach(() => {
 		mockState.beginLocalStorageDeleteMutation.mockReset();
+		mockState.batchActionOptions = null;
 		mockState.beginLocalStorageDeleteMutation.mockReturnValue({
 			rollback: vi.fn(),
 		});
@@ -348,6 +358,35 @@ describe("SearchBrowserPage", () => {
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({
 			open: false,
 			visible: false,
+		});
+	});
+
+	it("gates search archive downloads while preserving direct single-file selection", async () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		expect(mockState.batchActionOptions?.onArchiveDownload).toBeUndefined();
+		mockState.batchActionOptions?.onDownload(1, "report.txt");
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [{ id: 1, name: "report.txt", size: 1024 }],
+			folders: [],
+		});
+	});
+
+	it("maps enabled search archive selections across files and folders", async () => {
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		mockState.batchActionOptions?.onArchiveDownload?.([1], [2]);
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [{ id: 1, name: "report.txt", size: 1024 }],
+			folders: [{ id: 2, name: "Reports" }],
 		});
 	});
 

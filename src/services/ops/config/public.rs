@@ -354,13 +354,31 @@ mod tests {
     }
 
     #[test]
-    fn public_frontend_download_config_maps_user_and_share_flags() {
-        let runtime_config = RuntimeConfig::new();
-        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_USER_ENABLED_KEY, "false"));
-        runtime_config.apply(config_model(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, "true"));
+    fn public_frontend_download_config_defaults_to_both_archive_capabilities() {
+        let downloads = public_frontend_download_config(&RuntimeConfig::new());
 
-        let downloads = public_frontend_download_config(&runtime_config);
-        assert!(!downloads.archive_download_user_enabled);
+        assert!(downloads.archive_download_user_enabled);
         assert!(downloads.archive_download_share_enabled);
+    }
+
+    #[test]
+    fn public_frontend_download_config_maps_every_user_and_share_flag_combination() {
+        for (user_enabled, share_enabled) in
+            [(true, true), (true, false), (false, true), (false, false)]
+        {
+            let runtime_config = RuntimeConfig::new();
+            runtime_config.apply(config_model(
+                ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
+                if user_enabled { "true" } else { "false" },
+            ));
+            runtime_config.apply(config_model(
+                ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
+                if share_enabled { "true" } else { "false" },
+            ));
+
+            let downloads = public_frontend_download_config(&runtime_config);
+            assert_eq!(downloads.archive_download_user_enabled, user_enabled);
+            assert_eq!(downloads.archive_download_share_enabled, share_enabled);
+        }
     }
 }

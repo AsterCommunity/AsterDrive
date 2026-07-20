@@ -15,6 +15,14 @@ import type {
 } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
+	archiveDownload: vi.fn(),
+	batchOptions: null as null | {
+		onArchiveDownload?: (
+			fileIds: number[],
+			folderIds: number[],
+		) => Promise<void>;
+		onDownload: (fileId: number) => void;
+	},
 	capturedContextValues: [] as FileBrowserContextValue[],
 	translate: (key: string, opts?: Record<string, unknown>) => {
 		if (key === "core:selected_count") return `selected:${opts?.count}`;
@@ -156,10 +164,18 @@ vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
 	useFileBrowserBatchActions: ({
 		displayFiles,
 		displayFolders,
+		onArchiveDownload,
+		onDownload,
 	}: {
 		displayFiles: FileListItem[];
 		displayFolders: FolderListItem[];
+		onArchiveDownload?: (
+			fileIds: number[],
+			folderIds: number[],
+		) => Promise<void>;
+		onDownload: (fileId: number) => void;
 	}) => {
+		mockState.batchOptions = { onArchiveDownload, onDownload };
 		const selectedFileIds = useFileStore((s) => s.selectedFileIds);
 		const selectedFolderIds = useFileStore((s) => s.selectedFolderIds);
 		const clearSelection = useFileStore((s) => s.clearSelection);
@@ -168,7 +184,21 @@ vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
 			count > 0
 				? {
 						count,
-						downloadAction: { kind: "archive", onClick: vi.fn() },
+						downloadAction: onArchiveDownload
+							? {
+									kind: "archive",
+									onClick: () =>
+										onArchiveDownload(
+											[...selectedFileIds],
+											[...selectedFolderIds],
+										),
+								}
+							: selectedFileIds.size === 1 && selectedFolderIds.size === 0
+								? {
+										kind: "file",
+										onClick: () => onDownload([...selectedFileIds][0] ?? 0),
+									}
+								: undefined,
 					}
 				: null;
 
@@ -191,7 +221,8 @@ vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
 
 vi.mock("@/services/shareService", () => ({
 	shareService: {
-		streamArchiveDownload: vi.fn(),
+		streamArchiveDownload: (...args: unknown[]) =>
+			mockState.archiveDownload(...args),
 	},
 }));
 
@@ -310,6 +341,9 @@ function createStableProps({
 
 describe("ShareFolderView", () => {
 	beforeEach(() => {
+		mockState.archiveDownload.mockReset();
+		mockState.archiveDownload.mockResolvedValue(undefined);
+		mockState.batchOptions = null;
 		mockState.capturedContextValues = [];
 		useFileStore.setState({
 			selectedFileIds: new Set(),
@@ -366,6 +400,72 @@ describe("ShareFolderView", () => {
 					?.downloadAction,
 			).toBeUndefined();
 		});
+	});
+
+	it("uses the share capability for folder and multi-selection archive downloads", async () => {
+		const contents = createContents([createFile(1), createFile(2)]);
+		contents.folders = [
+			{
+				id: 3,
+				name: "docs",
+				is_locked: false,
+				is_shared: false,
+			} as FolderListItem,
+		];
+		renderFolderView({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+			folderContents: contents,
+		});
+		await screen.findByTestId("file-grid");
+
+		mockState.capturedContextValues.at(-1)?.onArchiveDownload?.(3);
+		expect(mockState.archiveDownload).toHaveBeenCalledWith(
+			"share-token",
+			[],
+			[3],
+		);
+
+		useFileStore.getState().selectItems([1, 2], [3]);
+		await waitFor(() =>
+			expect(
+				mockState.capturedContextValues.at(-1)?.batchSelectionActions
+					?.downloadAction,
+			).toBeDefined(),
+		);
+		await mockState.capturedContextValues
+			.at(-1)
+			?.batchSelectionActions?.downloadAction?.onClick();
+		expect(mockState.archiveDownload).toHaveBeenLastCalledWith(
+			"share-token",
+			[1, 2],
+			[3],
+		);
+	});
+
+	it("keeps single-file download when share archive downloads are disabled", async () => {
+		const onFileDownload = vi.fn();
+		useFrontendConfigStore.setState({
+			archiveDownloadShareEnabled: false,
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
+		render(
+			<ShareFolderView
+				{...createStableProps({
+					breadcrumb: [{ id: null, name: "Shared Root" }],
+				})}
+				onFileDownload={onFileDownload}
+			/>,
+		);
+		await screen.findByTestId("file-grid");
+
+		mockState.capturedContextValues.at(-1)?.onDownload(1, "file-1.txt");
+		expect(onFileDownload).toHaveBeenCalledWith(
+			expect.objectContaining({ id: 1, name: "file-1.txt" }),
+		);
+		expect(mockState.capturedContextValues.at(-1)?.onArchiveDownload).toBe(
+			undefined,
+		);
 	});
 
 	it("uses the shared navigation toolbar for refresh, sorting, and view changes", () => {

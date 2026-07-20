@@ -46,4 +46,52 @@ describe("useBottomOverlayOffset", () => {
 		const { result } = renderHook(() => useBottomOverlayOffset(true));
 		expect(result.current).toBe("expanded");
 	});
+
+	it.each([
+		{ selectionVisible: false, visible: false, expected: "none" },
+		{ selectionVisible: true, visible: false, expected: "selection-compact" },
+		{ selectionVisible: false, visible: true, expected: "upload-compact" },
+		{ selectionVisible: true, visible: true, expected: "upload-compact" },
+	] as const)(
+		"returns $expected for selection=$selectionVisible and collapsed upload=$visible",
+		({ selectionVisible, visible, expected }) => {
+			useUploadAreaControlsStore.getState().setUploadPanelPresence({
+				open: false,
+				visible,
+			});
+
+			const { result } = renderHook(() =>
+				useBottomOverlayOffset(selectionVisible),
+			);
+			expect(result.current).toBe(expected);
+		},
+	);
+
+	it("prioritizes expanded upload over download activity and selection", () => {
+		useDownloadStore.setState({
+			tasks: [
+				{
+					id: "download-1",
+					kind: "file",
+					name: "file.txt",
+					status: DOWNLOAD_TASK_STATUS.downloading,
+					createdAt: 1,
+					bytesReceived: 0,
+					totalBytes: null,
+					speedBps: null,
+					completedItems: 0,
+					failedItems: 0,
+					totalItems: 1,
+					items: [],
+				},
+			],
+		});
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: true,
+			visible: true,
+		});
+
+		const { result } = renderHook(() => useBottomOverlayOffset(true));
+		expect(result.current).toBe("expanded");
+	});
 });

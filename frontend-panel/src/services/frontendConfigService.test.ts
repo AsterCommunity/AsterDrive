@@ -61,6 +61,16 @@ describe("frontendConfigService", () => {
 		});
 	});
 
+	it("preserves a zero cache-bust value instead of treating it as absent", async () => {
+		apiGet.mockResolvedValue(frontendConfig);
+
+		await frontendConfigService.get({ cacheBust: 0 });
+
+		expect(apiGet).toHaveBeenCalledWith("/public/frontend-config", {
+			params: { _: 0 },
+		});
+	});
+
 	it("propagates non-success http responses as client rejections", async () => {
 		const error = new Error("Forbidden");
 		apiGet.mockRejectedValue(error);
