@@ -60,7 +60,6 @@ interface UseUploadAreaManagerOptions {
 	resumeFileInputRef: RefObject<HTMLInputElement | null>;
 	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
 	storageEventStreamEnabled: boolean;
-	uploadPanelOpen: boolean;
 	workspace: Workspace;
 }
 
@@ -72,7 +71,6 @@ export function useUploadAreaManager({
 	resumeFileInputRef,
 	setUploadPanelOpen,
 	storageEventStreamEnabled,
-	uploadPanelOpen,
 	workspace,
 }: UseUploadAreaManagerOptions) {
 	const { t } = useTranslation(["core", "files"]);
@@ -528,7 +526,6 @@ export function useUploadAreaManager({
 		totalCount,
 		uploadAutoClearCompleted: uploadSettings.autoClearCompleted,
 		uploadConcurrency: uploadSettings.concurrency,
-		uploadPanelOpen,
 		uploadTasks,
 	};
 }

@@ -38,6 +38,7 @@ import type {
 } from "@/pages/file-browser/types";
 import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
 import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
+import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
 import { requestDownloadSelection } from "@/stores/downloadStore";
@@ -396,15 +397,24 @@ export default function SearchBrowserPage() {
 	);
 
 	const handleArchiveDownload = useCallback(
-		(fileIds: number[], folderIds: number[]) => {
+		async (fileIds: number[], folderIds: number[]) => {
+			const selectedFiles = files
+				.filter((file) => fileIds.includes(file.id))
+				.map((file) => ({ id: file.id, name: file.name, size: file.size }));
+			const selectedFolders = folders
+				.filter((folder) => folderIds.includes(folder.id))
+				.map((folder) => ({ id: folder.id, name: folder.name }));
+			if (
+				selectedFiles.length + selectedFolders.length !==
+				fileIds.length + folderIds.length
+			) {
+				await batchService.streamArchiveDownload(fileIds, folderIds);
+				return;
+			}
 			requestDownloadSelection({
 				workspace,
-				files: files
-					.filter((file) => fileIds.includes(file.id))
-					.map((file) => ({ id: file.id, name: file.name, size: file.size })),
-				folders: folders
-					.filter((folder) => folderIds.includes(folder.id))
-					.map((folder) => ({ id: folder.id, name: folder.name })),
+				files: selectedFiles,
+				folders: selectedFolders,
 			});
 		},
 		[files, folders, workspace],

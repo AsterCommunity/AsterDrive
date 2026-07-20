@@ -16,13 +16,12 @@ const mocks = vi.hoisted(() => ({
 	cancelDownloadTask: vi.fn(),
 	handleApiError: vi.fn(),
 	retryDownloadTask: vi.fn(),
-	startAuthenticatedDownload: vi.fn(),
+	startAuthenticatedFileDownload: vi.fn(),
 	startDirectoryDownload: vi.fn(),
 	startProxyArchiveDownload: vi.fn(),
 	startProxyFileDownload: vi.fn(),
 	streamArchiveDownload: vi.fn(),
 	supportsDirectoryDownload: vi.fn(),
-	downloadPath: vi.fn(),
 }));
 
 vi.mock("@/hooks/useApiError", () => ({
@@ -38,18 +37,11 @@ vi.mock("@/services/batchService", () => ({
 vi.mock("@/services/downloadCoordinator", () => ({
 	cancelDownloadTask: mocks.cancelDownloadTask,
 	retryDownloadTask: mocks.retryDownloadTask,
+	startAuthenticatedFileDownload: mocks.startAuthenticatedFileDownload,
 	startDirectoryDownload: mocks.startDirectoryDownload,
 	startProxyArchiveDownload: mocks.startProxyArchiveDownload,
 	startProxyFileDownload: mocks.startProxyFileDownload,
 	supportsDirectoryDownload: mocks.supportsDirectoryDownload,
-}));
-
-vi.mock("@/lib/authenticatedDownload", () => ({
-	startAuthenticatedDownload: mocks.startAuthenticatedDownload,
-}));
-
-vi.mock("@/services/fileService", () => ({
-	createFileService: () => ({ downloadPath: mocks.downloadPath }),
 }));
 
 vi.mock("react-i18next", async (importOriginal) => {
@@ -94,7 +86,7 @@ describe("DownloadCenter", () => {
 		mocks.cancelDownloadTask.mockReset();
 		mocks.handleApiError.mockReset();
 		mocks.retryDownloadTask.mockReset();
-		mocks.startAuthenticatedDownload.mockReset();
+		mocks.startAuthenticatedFileDownload.mockReset();
 		mocks.startDirectoryDownload.mockReset();
 		mocks.startProxyArchiveDownload.mockReset();
 		mocks.startProxyFileDownload.mockReset();
@@ -102,8 +94,6 @@ describe("DownloadCenter", () => {
 		mocks.streamArchiveDownload.mockResolvedValue(undefined);
 		mocks.supportsDirectoryDownload.mockReset();
 		mocks.supportsDirectoryDownload.mockReturnValue(false);
-		mocks.downloadPath.mockReset();
-		mocks.downloadPath.mockReturnValue("/files/1/download");
 		useDownloadStore.setState({
 			pendingSelection: null,
 			tasks: [],
@@ -292,9 +282,9 @@ describe("DownloadCenter", () => {
 		fireEvent.click(
 			screen.getByRole("button", { name: /download_browser_default/ }),
 		);
-		expect(mocks.downloadPath).toHaveBeenCalledWith(1);
-		expect(mocks.startAuthenticatedDownload).toHaveBeenCalledWith(
-			"/files/1/download",
+		expect(mocks.startAuthenticatedFileDownload).toHaveBeenCalledWith(
+			pendingSelection.workspace,
+			1,
 		);
 	});
 

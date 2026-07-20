@@ -350,7 +350,7 @@ describe("SearchBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
-		useDownloadStore.setState({ tasks: [] });
+		useDownloadStore.setState({ pendingSelection: null, tasks: [] });
 		useFrontendConfigStore.setState({
 			archiveDownloadUserEnabled: true,
 			isLoaded: true,
@@ -388,6 +388,19 @@ describe("SearchBrowserPage", () => {
 			files: [{ id: 1, name: "report.txt", size: 1024 }],
 			folders: [{ id: 2, name: "Reports" }],
 		});
+	});
+
+	it("falls back to backend archive download when search result ids expired", async () => {
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		await mockState.batchActionOptions?.onArchiveDownload?.([1, 99], [2, 88]);
+
+		expect(mockState.streamArchiveDownload).toHaveBeenCalledWith(
+			[1, 99],
+			[2, 88],
+		);
+		expect(useDownloadStore.getState().pendingSelection).toBeNull();
 	});
 
 	it("loads search results through the file-browser surface", async () => {

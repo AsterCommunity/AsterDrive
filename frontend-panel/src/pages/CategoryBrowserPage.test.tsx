@@ -353,7 +353,7 @@ describe("CategoryBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
-		useDownloadStore.setState({ tasks: [] });
+		useDownloadStore.setState({ pendingSelection: null, tasks: [] });
 		useFrontendConfigStore.setState({
 			archiveDownloadUserEnabled: true,
 			isLoaded: true,
@@ -400,6 +400,16 @@ describe("CategoryBrowserPage", () => {
 			],
 			folders: [],
 		});
+	});
+
+	it("falls back to backend archive download when selected file ids expired", async () => {
+		render(<CategoryBrowserPage />);
+		await screen.findByText("photo.jpg");
+
+		await mockState.batchActionOptions?.onArchiveDownload?.([1, 99], []);
+
+		expect(mockState.streamArchiveDownload).toHaveBeenCalledWith([1, 99], []);
+		expect(useDownloadStore.getState().pendingSelection).toBeNull();
 	});
 
 	it("loads image category files without copy or move actions", async () => {

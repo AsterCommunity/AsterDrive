@@ -76,7 +76,6 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 		resumeFileInputRef,
 		setUploadPanelOpen,
 		storageEventStreamEnabled,
-		uploadPanelOpen,
 		workspace,
 	});
 	const showUploadPanel = hasUploadActivity || uploadTasks.length > 0;

@@ -16,18 +16,17 @@ import {
 import { Icon } from "@/components/ui/icon";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { handleApiError } from "@/hooks/useApiError";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { formatBytes, formatBytesPerSecond } from "@/lib/format";
 import { createBatchService } from "@/services/batchService";
 import {
 	cancelDownloadTask,
 	retryDownloadTask,
+	startAuthenticatedFileDownload,
 	startDirectoryDownload,
 	startProxyArchiveDownload,
 	startProxyFileDownload,
 	supportsDirectoryDownload,
 } from "@/services/downloadCoordinator";
-import { createFileService } from "@/services/fileService";
 import {
 	DOWNLOAD_TASK_STATUS,
 	type DownloadTask,
@@ -452,10 +451,9 @@ export function DownloadCenter() {
 								className="h-auto justify-start gap-3 p-3 text-left"
 								onClick={() => {
 									dismissSelection();
-									void startAuthenticatedDownload(
-										createFileService(pendingSelection.workspace).downloadPath(
-											singleFile.id,
-										),
+									void startAuthenticatedFileDownload(
+										pendingSelection.workspace,
+										singleFile.id,
 									);
 								}}
 							>

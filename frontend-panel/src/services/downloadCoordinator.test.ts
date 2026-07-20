@@ -3,6 +3,7 @@ import {
 	cancelDownloadTask,
 	filenameFromContentDisposition,
 	retryDownloadTask,
+	startAuthenticatedFileDownload,
 	startDirectoryDownload,
 	startProxyArchiveDownload,
 	startProxyFileDownload,
@@ -13,8 +14,10 @@ import { DOWNLOAD_TASK_STATUS, useDownloadStore } from "@/stores/downloadStore";
 const mocks = vi.hoisted(() => ({
 	archiveDownloadUrl: vi.fn(),
 	createArchiveDownloadTicket: vi.fn(),
+	downloadPath: vi.fn(),
 	listFolder: vi.fn(),
 	resolveResourceHandle: vi.fn(),
+	startAuthenticatedDownload: vi.fn(),
 }));
 
 vi.mock("@/services/batchService", () => ({
@@ -26,9 +29,15 @@ vi.mock("@/services/batchService", () => ({
 
 vi.mock("@/services/fileService", () => ({
 	createFileService: () => ({
+		downloadPath: mocks.downloadPath,
 		listFolder: mocks.listFolder,
 		resolveResourceHandle: mocks.resolveResourceHandle,
 	}),
+}));
+
+vi.mock("@/lib/authenticatedDownload", () => ({
+	startAuthenticatedDownload: (...args: unknown[]) =>
+		mocks.startAuthenticatedDownload(...args),
 }));
 
 function resetStore() {
@@ -112,8 +121,10 @@ describe("downloadCoordinator", () => {
 		resetStore();
 		mocks.archiveDownloadUrl.mockReset();
 		mocks.createArchiveDownloadTicket.mockReset();
+		mocks.downloadPath.mockReset();
 		mocks.listFolder.mockReset();
 		mocks.resolveResourceHandle.mockReset();
+		mocks.startAuthenticatedDownload.mockReset();
 		vi.unstubAllGlobals();
 		Object.defineProperty(window, "showSaveFilePicker", {
 			configurable: true,
@@ -126,6 +137,18 @@ describe("downloadCoordinator", () => {
 		vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {});
 		vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:download");
 		vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+	});
+
+	it("routes browser-managed file downloads through the workspace file service", async () => {
+		mocks.downloadPath.mockReturnValue("/teams/9/files/7/download");
+		mocks.startAuthenticatedDownload.mockResolvedValue(undefined);
+
+		await startAuthenticatedFileDownload({ kind: "team", teamId: 9 }, 7);
+
+		expect(mocks.downloadPath).toHaveBeenCalledWith(7);
+		expect(mocks.startAuthenticatedDownload).toHaveBeenCalledWith(
+			"/teams/9/files/7/download",
+		);
 	});
 
 	it("uses the backend resource handle credentials and reports streaming progress", async () => {
@@ -837,6 +860,41 @@ describe("downloadCoordinator", () => {
 		expect(mocks.resolveResourceHandle).not.toHaveBeenCalled();
 		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
 			status: "completed",
+			totalItems: 0,
+		});
+	});
+
+	it("stops file pagination when an empty page returns a stale cursor", async () => {
+		mocks.listFolder
+			.mockResolvedValueOnce({
+				folders: [],
+				files: [],
+				folders_total: 0,
+				files_total: 0,
+				next_file_cursor: null,
+			})
+			.mockResolvedValueOnce({
+				folders: [],
+				files: [],
+				folders_total: 0,
+				files_total: 1,
+				next_file_cursor: { id: 99, value: "stale" },
+			});
+		const fixture = createDirectoryFixture();
+		Object.defineProperty(window, "showDirectoryPicker", {
+			configurable: true,
+			value: vi.fn().mockResolvedValue(fixture.directory),
+		});
+
+		await startDirectoryDownload({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 30, name: "empty" }],
+		});
+
+		expect(mocks.listFolder).toHaveBeenCalledTimes(2);
+		expect(useDownloadStore.getState().tasks[0]).toMatchObject({
+			status: DOWNLOAD_TASK_STATUS.completed,
 			totalItems: 0,
 		});
 	});

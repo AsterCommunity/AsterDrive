@@ -2,6 +2,7 @@ import {
 	resolveApiResourceUrl,
 	shouldSendResourceCredentials,
 } from "@/lib/apiUrl";
+import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { ensureZipExtension } from "@/lib/downloadFilenames";
 import type { Workspace } from "@/lib/workspace";
 import { createBatchService } from "@/services/batchService";
@@ -494,6 +495,7 @@ async function listAllFolderContents(
 	}
 
 	let cursor: FolderContents["next_file_cursor"] = null;
+	let pageHasFiles = true;
 	do {
 		const page = await service.listFolder(folderId, {
 			folder_limit: 0,
@@ -505,7 +507,8 @@ async function listAllFolderContents(
 		});
 		files.push(...page.files);
 		cursor = page.next_file_cursor;
-	} while (cursor);
+		pageHasFiles = page.files.length > 0;
+	} while (cursor && pageHasFiles);
 
 	return {
 		folders,
@@ -866,4 +869,13 @@ export function retryDownloadTask(id: string) {
 
 export function supportsDirectoryDownload() {
 	return typeof (window as FilePickerWindow).showDirectoryPicker === "function";
+}
+
+export function startAuthenticatedFileDownload(
+	workspace: Workspace,
+	fileId: number,
+) {
+	return startAuthenticatedDownload(
+		createFileService(workspace).downloadPath(fileId),
+	);
 }

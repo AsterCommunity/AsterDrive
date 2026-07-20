@@ -41,6 +41,7 @@ import type {
 } from "@/pages/file-browser/types";
 import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
 import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
+import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
 import { requestDownloadSelection } from "@/stores/downloadStore";
@@ -302,12 +303,17 @@ export default function CategoryBrowserPage() {
 	);
 
 	const handleArchiveDownload = useCallback(
-		(fileIds: number[], _folderIds: number[]) => {
+		async (fileIds: number[], _folderIds: number[]) => {
+			const selectedFiles = files
+				.filter((file) => fileIds.includes(file.id))
+				.map((file) => ({ id: file.id, name: file.name, size: file.size }));
+			if (selectedFiles.length !== fileIds.length) {
+				await batchService.streamArchiveDownload(fileIds, []);
+				return;
+			}
 			requestDownloadSelection({
 				workspace,
-				files: files
-					.filter((file) => fileIds.includes(file.id))
-					.map((file) => ({ id: file.id, name: file.name, size: file.size })),
+				files: selectedFiles,
 				folders: [],
 			});
 		},
