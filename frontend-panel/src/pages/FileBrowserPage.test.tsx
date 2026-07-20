@@ -14,6 +14,7 @@ import {
 	consumeStorageEventEcho,
 } from "@/lib/storageEventEcho";
 import FileBrowserPage from "@/pages/FileBrowserPage";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 
 const mockState = vi.hoisted(() => ({
 	batchDelete: vi.fn(),
@@ -30,6 +31,7 @@ const mockState = vi.hoisted(() => ({
 	createWopiSession: vi.fn(),
 	streamArchiveDownload: vi.fn(),
 	startAuthenticatedDownload: vi.fn(),
+	requestDownloadSelection: vi.fn(),
 	dispatchEvent: vi.fn(),
 	fileBrowserContext: null as Record<string, unknown> | null,
 	folderPolicyPreload: vi.fn(),
@@ -253,9 +255,11 @@ vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
 				<button type="button" onClick={() => void onArchiveCompress([3], [])}>
 					batch-archive-compress
 				</button>
-				<button type="button" onClick={() => void onArchiveDownload([], [])}>
-					batch-archive-empty
-				</button>
+				{onArchiveDownload ? (
+					<button type="button" onClick={() => void onArchiveDownload([], [])}>
+						batch-archive-empty
+					</button>
+				) : null}
 			</div>
 		),
 	}),
@@ -480,9 +484,11 @@ vi.mock("@/components/files/FileGrid", () => ({
 				>
 					move-selection
 				</button>
-				<button type="button" onClick={() => context?.onArchiveDownload(5)}>
-					archive-folder
-				</button>
+				{context?.onArchiveDownload ? (
+					<button type="button" onClick={() => context.onArchiveDownload?.(5)}>
+						archive-folder
+					</button>
+				) : null}
 			</div>
 		);
 	},
@@ -1162,6 +1168,16 @@ vi.mock("@/stores/musicPlayerStore", () => ({
 		}),
 }));
 
+vi.mock("@/stores/downloadStore", async (importOriginal) => {
+	const actual =
+		await importOriginal<typeof import("@/stores/downloadStore")>();
+	return {
+		...actual,
+		requestDownloadSelection: (...args: unknown[]) =>
+			mockState.requestDownloadSelection(...args),
+	};
+});
+
 vi.mock("@/stores/workspaceStore", () => ({
 	bindWorkspaceService: <T extends object>(
 		factory: (
@@ -1258,6 +1274,11 @@ describe("FileBrowserPage", () => {
 		mockState.streamArchiveDownload.mockReset();
 		mockState.startAuthenticatedDownload.mockReset();
 		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
+		mockState.requestDownloadSelection.mockReset();
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
 		mockState.dispatchEvent.mockReset();
 		mockState.fileBrowserContext = null;
 		mockState.folderPolicyPreload.mockReset();
@@ -2028,13 +2049,44 @@ describe("FileBrowserPage", () => {
 		expect(screen.getByText("share:report.pdf:page")).toBeInTheDocument();
 	});
 
-	it("starts a streamed archive download from a folder action", async () => {
+	it("opens the download method selector from a folder action", async () => {
 		render(<FileBrowserPage />);
 
 		fireEvent.click(screen.getByRole("button", { name: "archive-folder" }));
 
-		expect(mockState.streamArchiveDownload).toHaveBeenCalledWith([], [5]);
+		expect(mockState.requestDownloadSelection).toHaveBeenCalledWith({
+			workspace: { kind: "personal" },
+			files: [],
+			folders: [{ id: 5, name: "Docs" }],
+		});
 		expect(mockState.toastSuccess).not.toHaveBeenCalled();
+	});
+
+	it("hides archive entry points before config loads or when user ZIP is disabled", () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: false,
+		});
+		const unloaded = render(<FileBrowserPage />);
+		expect(
+			screen.queryByRole("button", { name: "archive-folder" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "batch-archive-empty" }),
+		).not.toBeInTheDocument();
+
+		unloaded.unmount();
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		render(<FileBrowserPage />);
+		expect(
+			screen.queryByRole("button", { name: "archive-folder" }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: "batch-archive-empty" }),
+		).not.toBeInTheDocument();
 	});
 
 	it("opens a naming dialog for batch archive compress and clears selection after task creation", async () => {
@@ -2307,9 +2359,11 @@ describe("FileBrowserPage", () => {
 		const context = getFileBrowserContext();
 
 		context.onDownload(3, "notes.txt");
-		expect(mockState.startAuthenticatedDownload).toHaveBeenCalledWith(
-			"/files/3/download",
-		);
+		expect(mockState.requestDownloadSelection).toHaveBeenCalledWith({
+			workspace: { kind: "personal" },
+			files: [{ id: 3, name: "notes.txt", size: 10 }],
+			folders: [],
+		});
 
 		await expect(context.onToggleLock("file", 3, false)).resolves.toBe(true);
 		await expect(context.onToggleLock("folder", 5, true)).resolves.toBe(true);

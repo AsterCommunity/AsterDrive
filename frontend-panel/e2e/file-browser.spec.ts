@@ -8,11 +8,13 @@ import {
 	createFolderFromSurface,
 	createPageShare,
 	deleteItem,
+	expectBrowserArchiveDownload,
 	expectCodePreview,
 	expectDownloadMatches,
 	expectImagePreview,
 	expectItemMissing,
 	expectPdfPreview,
+	expectProxyDownloadTracked,
 	expectTrashItemMissing,
 	expectTrashItemVisible,
 	fileDropZone,
@@ -72,6 +74,12 @@ test.describe
 			await closeActiveDialog(page);
 
 			await expectDownloadMatches(
+				page,
+				CODE_FILE.name,
+				CODE_FILE.buffer,
+				testInfo.outputDir,
+			);
+			await expectProxyDownloadTracked(
 				page,
 				CODE_FILE.name,
 				CODE_FILE.buffer,
@@ -227,7 +235,7 @@ test.describe
 		test("applies batch copy, move, and delete operations from multi-selection", async ({
 			page,
 			request,
-		}) => {
+		}, testInfo) => {
 			await authenticate(page, request);
 
 			const copyTarget = uniqueName("pw-batch-copy");
@@ -259,6 +267,9 @@ test.describe
 				"file-browser-selection-toolbar",
 			);
 			await expect(selectionToolbar.getByText("2 selected")).toBeVisible();
+			await expectBrowserArchiveDownload(page, testInfo.outputDir);
+			await toggleItemSelection(page, firstFile.name);
+			await toggleItemSelection(page, secondFile.name);
 			await page.getByRole("button", { exact: true, name: "Copy to" }).click();
 			await chooseTargetFolder(page, copyTarget, "Copy here");
 
@@ -357,9 +368,10 @@ test.describe
 			await expect(page.getByText(filename, { exact: true })).toBeVisible({
 				timeout: 30_000,
 			});
-			await expect(page.getByText("Chunked", { exact: true })).toBeVisible();
 			await expect(
-				page.getByText(`Chunk 1/${init.total_chunks}`, { exact: true }),
+				page.getByText(`Chunked · Chunk 1/${init.total_chunks}`, {
+					exact: true,
+				}),
 			).toBeVisible();
 			await page.getByTitle("Select file to resume").first().click();
 			await page.getByTestId("resume-input").setInputFiles({

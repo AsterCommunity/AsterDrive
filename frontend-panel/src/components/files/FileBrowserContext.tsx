@@ -3,7 +3,7 @@ import type { BrowserOpenMode } from "@/stores/fileStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 export interface FileBrowserSelectionDownloadAction {
-	kind: "file" | "archive";
+	kind: "file" | "selection" | "archive";
 	onClick: () => void;
 }
 

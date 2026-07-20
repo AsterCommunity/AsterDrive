@@ -6,6 +6,8 @@ import { ArchiveTaskNameDialog } from "@/pages/file-browser/fileBrowserLazy";
 import type { FileBrowserArchiveTaskTarget } from "@/pages/file-browser/types";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
+import { requestDownloadSelection } from "@/stores/downloadStore";
+import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type {
 	ArchiveFilenameEncoding,
 	FileListItem,
@@ -106,9 +108,23 @@ export function useFileBrowserArchiveActions({
 				return;
 			}
 
-			await batchService.streamArchiveDownload(fileIds, folderIds);
+			const files = displayFiles
+				.filter((file) => fileIds.includes(file.id))
+				.map((file) => ({ id: file.id, name: file.name, size: file.size }));
+			const folders = displayFolders
+				.filter((folder) => folderIds.includes(folder.id))
+				.map((folder) => ({ id: folder.id, name: folder.name }));
+			if (files.length + folders.length !== fileIds.length + folderIds.length) {
+				await batchService.streamArchiveDownload(fileIds, folderIds);
+				return;
+			}
+			requestDownloadSelection({
+				workspace: useWorkspaceStore.getState().workspace,
+				files,
+				folders,
+			});
 		},
-		[],
+		[displayFiles, displayFolders],
 	);
 
 	const requestArchiveCompress = useCallback(

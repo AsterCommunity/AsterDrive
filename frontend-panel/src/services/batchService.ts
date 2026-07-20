@@ -177,7 +177,7 @@ export function resolveMoveDispatch({
 	return dispatcher.batchMove(fileIds, folderIds, targetFolderId);
 }
 
-function buildArchiveDownloadUrl(
+export function buildArchiveDownloadUrl(
 	workspace: Workspace,
 	ticket: StreamTicketInfo,
 ) {
@@ -266,6 +266,19 @@ export function createBatchService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				.then((ticket) => {
 					triggerStreamingDownload(buildArchiveDownloadUrl(workspace, ticket));
 				}),
+
+		createArchiveDownloadTicket: (
+			fileIds: number[],
+			folderIds: number[],
+			archiveName?: string,
+		) =>
+			api.post<StreamTicketInfo>(
+				buildWorkspacePath(workspace, "/batch/archive-download"),
+				buildArchiveDownloadPayload(fileIds, folderIds, archiveName),
+			),
+
+		archiveDownloadUrl: (ticket: StreamTicketInfo) =>
+			buildArchiveDownloadUrl(workspace, ticket),
 
 		createArchiveCompressTask: (
 			fileIds: number[],

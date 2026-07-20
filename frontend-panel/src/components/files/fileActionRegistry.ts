@@ -233,9 +233,9 @@ const selectionActions: FileActionDescriptor[] = [
 		id: "download",
 		icon: "Download",
 		labelKey: (context) =>
-			context.downloadAction?.kind === "file"
-				? "download"
-				: "tasks:archive_download_action",
+			context.downloadAction?.kind === "archive"
+				? "tasks:archive_download_action"
+				: "download",
 		presentation: { group: "transfer", order: 10 },
 		scope: "mixed",
 		availability: (context) => ({

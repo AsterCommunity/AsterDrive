@@ -43,12 +43,12 @@ describe("UploadTaskItem", () => {
 		);
 
 		expect(screen.getByText("report.pdf")).toBeInTheDocument();
-		expect(screen.getByText("Chunked")).toBeInTheDocument();
-		expect(screen.getByText("Uploading")).toBeInTheDocument();
-		expect(screen.getByText("2.0 MB/s")).toBeInTheDocument();
+		expect(
+			screen.getByText(/Chunked · Uploading · 2\.0 MB\/s/),
+		).toBeInTheDocument();
 		expect(screen.getByText("45%")).toBeInTheDocument();
 		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "45");
-		expect(container.firstChild).toHaveClass("bg-card/55");
+		expect(container.firstChild).toHaveClass("bg-card/45");
 		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Spinner");
 	});
 
@@ -70,10 +70,10 @@ describe("UploadTaskItem", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Retry required")).toBeInTheDocument();
+		expect(screen.getByText(/Presigned · Retry required/)).toBeInTheDocument();
 		expect(screen.queryByText("100%")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
-		expect(container.firstChild).toHaveClass("bg-card/35", "border-b");
+		expect(container.firstChild).toHaveClass("bg-card/45", "border-b");
 		expect(screen.getAllByTestId("icon")[0]).toHaveAttribute(
 			"data-name",
 			"Check",
@@ -102,7 +102,7 @@ describe("UploadTaskItem", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Upload canceled")).toBeInTheDocument();
+		expect(screen.getByText(/Chunked · Upload canceled/)).toBeInTheDocument();
 		expect(screen.queryByText("42%")).not.toBeInTheDocument();
 		expect(screen.queryByTestId("progress")).not.toBeInTheDocument();
 		expect(container.firstChild).toHaveClass("bg-destructive/5");
@@ -121,7 +121,7 @@ describe("UploadTaskItem", () => {
 			/>,
 		);
 
-		expect(screen.getByText("Chunk 66/176")).toBeInTheDocument();
+		expect(screen.getByText(/Chunked · Chunk 66\/176/)).toBeInTheDocument();
 		expect(screen.getByText("37%")).toBeInTheDocument();
 		expect(screen.getByTestId("progress")).toHaveAttribute("data-value", "37");
 	});

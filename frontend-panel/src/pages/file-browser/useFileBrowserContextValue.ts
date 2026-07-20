@@ -19,7 +19,7 @@ interface UseFileBrowserContextValueOptions {
 	fadingFolderIds: Set<number>;
 	selectionToolbar: FileBrowserSelectionToolbarState | null;
 	handleArchiveCompress: (type: "file" | "folder", id: number) => void;
-	handleArchiveDownload: (folderId: number) => void;
+	handleArchiveDownload?: (folderId: number) => void;
 	handleArchiveExtract: (fileId: number) => void;
 	handleCopy: (type: "file" | "folder", id: number) => void;
 	handleDelete: (type: "file" | "folder", id: number) => Promise<void>;

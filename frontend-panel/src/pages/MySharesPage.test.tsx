@@ -419,7 +419,7 @@ describe("MySharesPage", () => {
 		await screen.findByText("Upload Visible");
 
 		expect(screen.getByTestId("my-shares-scroll-container")).toHaveClass(
-			"pb-[calc(7rem+env(safe-area-inset-bottom))]",
+			"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem+env(safe-area-inset-bottom))]",
 		);
 
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({
@@ -429,7 +429,7 @@ describe("MySharesPage", () => {
 
 		await waitFor(() => {
 			expect(screen.getByTestId("my-shares-scroll-container")).toHaveClass(
-				"pb-[calc(18rem+env(safe-area-inset-bottom))]",
+				"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem+env(safe-area-inset-bottom))]",
 			);
 		});
 	});

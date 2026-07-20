@@ -334,7 +334,7 @@ export function useFileBrowserBatchActions({
 								}
 							: onArchiveDownload
 								? {
-										kind: "archive" as const,
+										kind: "selection" as const,
 										onClick: handleSelectionDownload,
 									}
 								: undefined,

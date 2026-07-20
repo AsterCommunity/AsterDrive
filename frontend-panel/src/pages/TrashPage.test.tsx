@@ -504,7 +504,9 @@ describe("TrashPage", () => {
 			screen.getByText("select:report.pdf").closest(".min-h-0"),
 		).toHaveAttribute(
 			"data-viewport-class",
-			expect.stringContaining("pb-[calc(7rem"),
+			expect.stringContaining(
+				"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem",
+			),
 		);
 	});
 
@@ -529,7 +531,9 @@ describe("TrashPage", () => {
 			screen.getByText("select:report.pdf").closest(".min-h-0"),
 		).toHaveAttribute(
 			"data-viewport-class",
-			expect.stringContaining("pb-[calc(18rem"),
+			expect.stringContaining(
+				"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem",
+			),
 		);
 	});
 

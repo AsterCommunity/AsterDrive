@@ -1,4 +1,10 @@
-import type { ChangeEvent, DragEvent, RefObject } from "react";
+import type {
+	ChangeEvent,
+	Dispatch,
+	DragEvent,
+	RefObject,
+	SetStateAction,
+} from "react";
 import {
 	useCallback,
 	useEffect,
@@ -52,6 +58,7 @@ interface UseUploadAreaManagerOptions {
 	refresh: () => Promise<void>;
 	refreshUser: (options?: { fields?: MeField[] }) => Promise<void>;
 	resumeFileInputRef: RefObject<HTMLInputElement | null>;
+	setUploadPanelOpen: Dispatch<SetStateAction<boolean>>;
 	storageEventStreamEnabled: boolean;
 	workspace: Workspace;
 }
@@ -62,6 +69,7 @@ export function useUploadAreaManager({
 	refresh,
 	refreshUser,
 	resumeFileInputRef,
+	setUploadPanelOpen,
 	storageEventStreamEnabled,
 	workspace,
 }: UseUploadAreaManagerOptions) {
@@ -69,7 +77,6 @@ export function useUploadAreaManager({
 	const currentFolderIdRef = useRef(currentFolderId);
 	const [isDragging, setIsDragging] = useState(false);
 	const dragCounter = useRef(0);
-	const [uploadPanelOpen, setUploadPanelOpen] = useState(true);
 	const [uploadSettings, setUploadSettings] = useState(readUploadSettings);
 	const [tasks, setTasks] = useState<UploadTask[]>([]);
 	const [hasUploadActivity, setHasUploadActivity] = useState(false);
@@ -102,7 +109,7 @@ export function useUploadAreaManager({
 			setUploadPanelOpen(false);
 		}
 		previousTaskCountRef.current = tasks.length;
-	}, [tasks.length]);
+	}, [setUploadPanelOpen, tasks.length]);
 
 	useEffect(() => {
 		const directAbortControllers = directAbortRef.current;
@@ -402,7 +409,7 @@ export function useUploadAreaManager({
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},
-		[breadcrumb, t],
+		[breadcrumb, setUploadPanelOpen, t],
 	);
 
 	const addFiles = useCallback(
@@ -422,7 +429,7 @@ export function useUploadAreaManager({
 			setTasks((prev) => [...nextTasks, ...prev]);
 			setUploadPanelOpen(true);
 		},
-		[breadcrumb, t],
+		[breadcrumb, setUploadPanelOpen, t],
 	);
 
 	const handleFileInputChange = useCallback(
@@ -519,7 +526,6 @@ export function useUploadAreaManager({
 		totalCount,
 		uploadAutoClearCompleted: uploadSettings.autoClearCompleted,
 		uploadConcurrency: uploadSettings.concurrency,
-		uploadPanelOpen,
 		uploadTasks,
 	};
 }

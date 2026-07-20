@@ -2,10 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SearchBrowserPage from "@/pages/SearchBrowserPage";
+import { useDownloadStore } from "@/stores/downloadStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	beginLocalStorageDeleteMutation: vi.fn(),
+	batchActionOptions: null as null | {
+		onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
+		onDownload: (fileId: number, fileName: string) => void;
+	},
 	clearSelection: vi.fn(),
 	deleteFile: vi.fn(),
 	deleteFolder: vi.fn(),
@@ -119,22 +126,27 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
-	useFileBrowserBatchActions: () => ({
-		dialogs: null,
-		selectionToolbar: {
-			allDisplayedSelected: false,
-			count: 2,
-			downloadAction: undefined,
-			hasDisplayedItems: true,
-			onArchiveCompress: undefined,
-			onClearSelection: vi.fn(),
-			onCopy: undefined,
-			onDelete: vi.fn(),
-			onManageTags: vi.fn(),
-			onMove: undefined,
-			onToggleDisplayedSelection: vi.fn(),
-		},
-	}),
+	useFileBrowserBatchActions: (
+		options: NonNullable<typeof mockState.batchActionOptions>,
+	) => {
+		mockState.batchActionOptions = options;
+		return {
+			dialogs: null,
+			selectionToolbar: {
+				allDisplayedSelected: false,
+				count: 2,
+				downloadAction: undefined,
+				hasDisplayedItems: true,
+				onArchiveCompress: undefined,
+				onClearSelection: vi.fn(),
+				onCopy: undefined,
+				onDelete: vi.fn(),
+				onManageTags: vi.fn(),
+				onMove: undefined,
+				onToggleDisplayedSelection: vi.fn(),
+			},
+		};
+	},
 }));
 
 vi.mock("@/services/searchService", () => ({
@@ -193,6 +205,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		currentFolderActions,
 		fileBrowserContextValue,
 		hasMoreFiles,
+		bottomOverlayOffset,
 	}: {
 		currentFolderActions?: "full" | "refresh-only";
 		fileBrowserContextValue: {
@@ -205,12 +218,14 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 			onMove?: unknown;
 		};
 		hasMoreFiles: boolean;
+		bottomOverlayOffset?: string;
 	}) => (
 		<div
 			data-testid="workspace"
 			data-current-folder-actions={currentFolderActions ?? "full"}
 			data-copy={String(Boolean(fileBrowserContextValue.onCopy))}
 			data-has-more={String(hasMoreFiles)}
+			data-bottom-overlay={bottomOverlayOffset ?? "none"}
 			data-location={String(Boolean(fileBrowserContextValue.onGoToLocation))}
 			data-move={String(Boolean(fileBrowserContextValue.onMove))}
 		>
@@ -308,6 +323,7 @@ function folderItem(id: number, name: string): FolderListItem {
 describe("SearchBrowserPage", () => {
 	beforeEach(() => {
 		mockState.beginLocalStorageDeleteMutation.mockReset();
+		mockState.batchActionOptions = null;
 		mockState.beginLocalStorageDeleteMutation.mockReturnValue({
 			rollback: vi.fn(),
 		});
@@ -334,6 +350,57 @@ describe("SearchBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
+		useDownloadStore.setState({ pendingSelection: null, tasks: [] });
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
+	});
+
+	it("gates search archive downloads while preserving direct single-file selection", async () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		expect(mockState.batchActionOptions?.onArchiveDownload).toBeUndefined();
+		mockState.batchActionOptions?.onDownload(1, "report.txt");
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [{ id: 1, name: "report.txt", size: 1024 }],
+			folders: [],
+		});
+	});
+
+	it("maps enabled search archive selections across files and folders", async () => {
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		mockState.batchActionOptions?.onArchiveDownload?.([1], [2]);
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [{ id: 1, name: "report.txt", size: 1024 }],
+			folders: [{ id: 2, name: "Reports" }],
+		});
+	});
+
+	it("falls back to backend archive download when search result ids expired", async () => {
+		render(<SearchBrowserPage />);
+		await screen.findByText("report.txt");
+
+		await mockState.batchActionOptions?.onArchiveDownload?.([1, 99], [2, 88]);
+
+		expect(mockState.streamArchiveDownload).toHaveBeenCalledWith(
+			[1, 99],
+			[2, 88],
+		);
+		expect(useDownloadStore.getState().pendingSelection).toBeNull();
 	});
 
 	it("loads search results through the file-browser surface", async () => {
@@ -352,6 +419,10 @@ describe("SearchBrowserPage", () => {
 
 		expect(await screen.findByText("report.txt")).toBeInTheDocument();
 		expect(screen.getByText("Reports")).toBeInTheDocument();
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-bottom-overlay",
+			"selection-compact",
+		);
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-current-folder-actions",
 			"refresh-only",

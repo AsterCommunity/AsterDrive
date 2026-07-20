@@ -213,7 +213,9 @@ export function FileCard({
 				)}
 			</div>
 
-			<div className="min-w-0 flex-1 space-y-1">
+			<div
+				className={cn("min-w-0 flex-1 space-y-1", isFolder && "text-center")}
+			>
 				<span
 					data-drag-preview-name
 					className="block w-full line-clamp-2 text-sm leading-tight font-medium"

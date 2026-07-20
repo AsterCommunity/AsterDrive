@@ -2,10 +2,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CategoryBrowserPage from "@/pages/CategoryBrowserPage";
+import { useDownloadStore } from "@/stores/downloadStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { FileListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
 	beginLocalStorageDeleteMutation: vi.fn(),
+	batchActionOptions: null as null | {
+		onArchiveDownload?: (fileIds: number[], folderIds: number[]) => void;
+		onDownload: (fileId: number, fileName: string) => void;
+	},
 	clearSelection: vi.fn(),
 	deleteFile: vi.fn(),
 	downloadPath: vi.fn(),
@@ -122,22 +129,27 @@ vi.mock("@/stores/fileStore", () => ({
 }));
 
 vi.mock("@/pages/file-browser/useFileBrowserBatchActions", () => ({
-	useFileBrowserBatchActions: () => ({
-		dialogs: null,
-		selectionToolbar: {
-			allDisplayedSelected: false,
-			count: 1,
-			downloadAction: undefined,
-			hasDisplayedItems: true,
-			onArchiveCompress: undefined,
-			onClearSelection: vi.fn(),
-			onCopy: undefined,
-			onDelete: vi.fn(),
-			onManageTags: vi.fn(),
-			onMove: undefined,
-			onToggleDisplayedSelection: vi.fn(),
-		},
-	}),
+	useFileBrowserBatchActions: (
+		options: NonNullable<typeof mockState.batchActionOptions>,
+	) => {
+		mockState.batchActionOptions = options;
+		return {
+			dialogs: null,
+			selectionToolbar: {
+				allDisplayedSelected: false,
+				count: 1,
+				downloadAction: undefined,
+				hasDisplayedItems: true,
+				onArchiveCompress: undefined,
+				onClearSelection: vi.fn(),
+				onCopy: undefined,
+				onDelete: vi.fn(),
+				onManageTags: vi.fn(),
+				onMove: undefined,
+				onToggleDisplayedSelection: vi.fn(),
+			},
+		};
+	},
 }));
 
 vi.mock("@/services/searchService", () => ({
@@ -205,6 +217,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		infoPanelOpen,
 		infoTarget,
 		loading,
+		bottomOverlayOffset,
 		onInfoPanelOpenChange,
 		suppressLoadMore,
 	}: {
@@ -223,6 +236,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		infoPanelOpen: boolean;
 		infoTarget: { file?: FileListItem } | null;
 		loading: boolean;
+		bottomOverlayOffset?: string;
 		onInfoPanelOpenChange: (open: boolean) => void;
 		suppressLoadMore?: boolean;
 	}) => (
@@ -233,6 +247,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 			data-empty-title={emptyTitle ?? ""}
 			data-has-more={String(hasMoreFiles)}
 			data-loading={String(loading)}
+			data-bottom-overlay={bottomOverlayOffset ?? "none"}
 			data-suppress-load-more={String(Boolean(suppressLoadMore))}
 			data-copy={String(Boolean(fileBrowserContextValue.onCopy))}
 			data-info-open={String(infoPanelOpen)}
@@ -312,6 +327,7 @@ function fileItem(id: number, name: string): FileListItem {
 describe("CategoryBrowserPage", () => {
 	beforeEach(() => {
 		mockState.beginLocalStorageDeleteMutation.mockReset();
+		mockState.batchActionOptions = null;
 		mockState.beginLocalStorageDeleteMutation.mockReturnValue({
 			rollback: vi.fn(),
 		});
@@ -337,6 +353,63 @@ describe("CategoryBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
+		useDownloadStore.setState({ pendingSelection: null, tasks: [] });
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
+	});
+
+	it("gates multi-file archive selection while preserving single-file download", async () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		render(<CategoryBrowserPage />);
+		await screen.findByText("photo.jpg");
+
+		expect(mockState.batchActionOptions?.onArchiveDownload).toBeUndefined();
+		mockState.batchActionOptions?.onDownload(1, "photo.jpg");
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [{ id: 1, name: "photo.jpg", size: 1024 }],
+			folders: [],
+		});
+	});
+
+	it("maps enabled category archive selections with authoritative file sizes", async () => {
+		mockState.search.mockResolvedValueOnce({
+			files: [fileItem(1, "photo.jpg"), fileItem(2, "cover.jpg")],
+			folders: [],
+			total_files: 2,
+			total_folders: 0,
+		});
+		render(<CategoryBrowserPage />);
+		await screen.findByText("cover.jpg");
+
+		mockState.batchActionOptions?.onArchiveDownload?.([1, 2], []);
+		expect(useDownloadStore.getState().pendingSelection).toEqual({
+			workspace: { kind: "personal" },
+			files: [
+				{ id: 1, name: "photo.jpg", size: 1024 },
+				{ id: 2, name: "cover.jpg", size: 1024 },
+			],
+			folders: [],
+		});
+	});
+
+	it("falls back to backend archive download when selected file ids expired", async () => {
+		render(<CategoryBrowserPage />);
+		await screen.findByText("photo.jpg");
+
+		await mockState.batchActionOptions?.onArchiveDownload?.([1, 99], []);
+
+		expect(mockState.streamArchiveDownload).toHaveBeenCalledWith([1, 99], []);
+		expect(useDownloadStore.getState().pendingSelection).toBeNull();
 	});
 
 	it("loads image category files without copy or move actions", async () => {
@@ -357,6 +430,10 @@ describe("CategoryBrowserPage", () => {
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-selection",
 			"true",
+		);
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-bottom-overlay",
+			"selection-compact",
 		);
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-current-folder-actions",

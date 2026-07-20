@@ -61,9 +61,17 @@ pub struct PublicFrontendMediaConfig {
 
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct PublicFrontendDownloadConfig {
+    pub archive_download_user_enabled: bool,
+    pub archive_download_share_enabled: bool,
+}
+
+#[derive(Serialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PublicFrontendConfig {
     pub version: i32,
     pub branding: PublicBranding,
+    pub downloads: PublicFrontendDownloadConfig,
     pub media: PublicFrontendMediaConfig,
 }
 
@@ -90,13 +98,23 @@ pub fn get_public_branding(state: &impl SharedRuntimeState) -> PublicBranding {
 
 pub fn get_public_frontend_config(state: &impl SharedRuntimeState) -> PublicFrontendConfig {
     PublicFrontendConfig {
-        version: 1,
+        version: 2,
         branding: get_public_branding(state),
+        downloads: public_frontend_download_config(state.runtime_config()),
         media: PublicFrontendMediaConfig {
             image_preview_preference: operations::frontend_image_preview_preference(
                 state.runtime_config(),
             ),
         },
+    }
+}
+
+fn public_frontend_download_config(
+    runtime_config: &crate::config::RuntimeConfig,
+) -> PublicFrontendDownloadConfig {
+    PublicFrontendDownloadConfig {
+        archive_download_user_enabled: operations::archive_download_user_enabled(runtime_config),
+        archive_download_share_enabled: operations::archive_download_share_enabled(runtime_config),
     }
 }
 
@@ -297,5 +315,70 @@ fn hash_policy_snapshot_for_public_support(
         policy.base_path.hash(hasher);
         policy.remote_node_id.hash(hasher);
         policy.options.as_ref().hash(hasher);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::public_frontend_download_config;
+    use crate::config::RuntimeConfig;
+    use crate::config::definitions::{
+        ALL_CONFIGS, ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
+        CONFIG_CATEGORY_RUNTIME_MAINTENANCE,
+    };
+    use aster_forge_db::system_config;
+    use chrono::Utc;
+
+    fn config_model(key: &str, value: &str) -> system_config::Model {
+        let category = ALL_CONFIGS
+            .iter()
+            .find(|definition| definition.key == key)
+            .map(|definition| definition.category)
+            .unwrap_or(CONFIG_CATEGORY_RUNTIME_MAINTENANCE);
+
+        system_config::Model {
+            id: 1,
+            key: key.to_string(),
+            value: value.to_string(),
+            value_type: aster_forge_config::ConfigValueType::Boolean,
+            requires_restart: false,
+            is_sensitive: false,
+            source: aster_forge_config::ConfigSource::System,
+            visibility: aster_forge_config::ConfigVisibility::Private,
+            namespace: String::new(),
+            category: category.to_string(),
+            description: "test".to_string(),
+            updated_at: Utc::now(),
+            updated_by: None,
+        }
+    }
+
+    #[test]
+    fn public_frontend_download_config_defaults_to_both_archive_capabilities() {
+        let downloads = public_frontend_download_config(&RuntimeConfig::new());
+
+        assert!(downloads.archive_download_user_enabled);
+        assert!(downloads.archive_download_share_enabled);
+    }
+
+    #[test]
+    fn public_frontend_download_config_maps_every_user_and_share_flag_combination() {
+        for (user_enabled, share_enabled) in
+            [(true, true), (true, false), (false, true), (false, false)]
+        {
+            let runtime_config = RuntimeConfig::new();
+            runtime_config.apply(config_model(
+                ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
+                if user_enabled { "true" } else { "false" },
+            ));
+            runtime_config.apply(config_model(
+                ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY,
+                if share_enabled { "true" } else { "false" },
+            ));
+
+            let downloads = public_frontend_download_config(&runtime_config);
+            assert_eq!(downloads.archive_download_user_enabled, user_enabled);
+            assert_eq!(downloads.archive_download_share_enabled, share_enabled);
+        }
     }
 }

@@ -373,7 +373,9 @@ describe("FileBrowserWorkspace", () => {
 
 		expect(screen.getByText("file-grid").closest(".min-h-0")).toHaveAttribute(
 			"data-viewport-class",
-			expect.stringContaining("pb-[calc(7rem"),
+			expect.stringContaining(
+				"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem",
+			),
 		);
 
 		view.rerender(
@@ -419,7 +421,9 @@ describe("FileBrowserWorkspace", () => {
 
 		expect(screen.getByText("file-grid").closest(".min-h-0")).toHaveAttribute(
 			"data-viewport-class",
-			expect.stringContaining("pb-[calc(18rem"),
+			expect.stringContaining(
+				"pb-[calc(var(--bottom-right-activity-shell-height,0px)+2rem",
+			),
 		);
 	});
 });

@@ -1,17 +1,10 @@
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useId, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { TransferActivitySection } from "@/components/files/TransferActivitySection";
 import { UploadTaskItem } from "@/components/files/UploadTaskItem";
 import { Button } from "@/components/ui/button";
-import {
-	Card,
-	CardContent,
-	CardFooter,
-	CardHeader,
-	CardTitle,
-} from "@/components/ui/card";
 import { Icon } from "@/components/ui/icon";
-import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -43,6 +36,7 @@ export interface UploadTaskView {
 }
 
 interface UploadPanelProps {
+	embedded?: boolean;
 	open: boolean;
 	onToggle: () => void;
 	title: string;
@@ -80,7 +74,7 @@ type FlatRow =
 const ROW_HEIGHT_TASK_COMPACT = 56;
 const ROW_HEIGHT_TASK_PROGRESS = 74;
 const ROW_HEIGHT_GROUP = 38;
-const PANEL_EXPANDED_BODY_CLASS = "h-[min(28rem,calc(100vh-11rem))]";
+const PANEL_EXPANDED_BODY_CLASS = "h-[min(26rem,calc(100dvh-15rem))]";
 
 function taskShowsProgress(task: UploadTaskView) {
 	const failed = task.actions?.some(
@@ -103,6 +97,7 @@ function taskRowKey(task: UploadTaskView) {
 }
 
 export function UploadPanel({
+	embedded = false,
 	open,
 	onToggle,
 	title,
@@ -203,143 +198,120 @@ export function UploadPanel({
 		}
 		setSettingsOpen((prev) => !prev);
 	};
+	const tone =
+		activeCount > 0
+			? ("active" as const)
+			: failedCount > 0
+				? ("error" as const)
+				: successCount > 0
+					? ("success" as const)
+					: ("default" as const);
 
 	return (
-		<div className="fixed right-4 bottom-4 z-(--z-fixed) w-[28rem] max-w-[calc(100vw-2rem)]">
-			<Card
-				size="sm"
-				className="gap-0 overflow-hidden bg-card/95 py-0 shadow-none ring-1 ring-border/60 backdrop-blur-sm transition-[border-color,box-shadow] data-[size=sm]:gap-0 data-[size=sm]:py-0 dark:bg-card/80 dark:ring-border/70"
+		<div
+			className={cn(
+				"w-full max-w-full",
+				embedded
+					? "pointer-events-auto"
+					: "fixed right-4 bottom-4 z-(--z-fixed) max-w-[calc(100vw-2rem)]",
+			)}
+		>
+			<TransferActivitySection
+				open={open}
+				onToggle={onToggle}
+				title={title}
+				summary={summary}
+				icon={
+					successCount > 0 && activeCount === 0 && failedCount === 0
+						? "Check"
+						: "Upload"
+				}
+				tone={tone}
+				progress={showOverallProgress ? overallProgress : null}
+				toggleLabel={
+					open ? t("upload_panel_collapse") : t("upload_panel_expand")
+				}
+				expandedBodyClassName={PANEL_EXPANDED_BODY_CLASS}
+				actions={
+					<Button
+						variant="ghost"
+						size="icon-xs"
+						onClick={handleSettingsToggle}
+						aria-expanded={settingsOpen}
+						aria-controls={settingsPanelId}
+						aria-label={t("upload_settings")}
+						title={t("upload_settings")}
+					>
+						<Icon name="Gear" className="size-3" />
+					</Button>
+				}
 			>
-				<CardHeader className="border-b border-border/60 bg-card/80 px-4 py-3 dark:bg-card/65">
-					<div className="flex items-start gap-3">
-						<div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-muted/45 text-muted-foreground dark:bg-muted/25">
-							<Icon name="Upload" className="size-4" />
-						</div>
-						<div className="min-w-0 flex-1">
-							<CardTitle>{title}</CardTitle>
-							<div className="truncate text-xs text-muted-foreground">
-								{summary}
+				<div className="flex h-full min-h-0 flex-col">
+					<UploadSettingsPanel
+						autoClearCompleted={autoClearCompleted}
+						concurrency={concurrency}
+						canDecreaseConcurrency={canDecreaseConcurrency}
+						canIncreaseConcurrency={canIncreaseConcurrency}
+						open={settingsOpen}
+						panelId={settingsPanelId}
+						onAutoClearCompletedChange={onAutoClearCompletedChange}
+						onConcurrencyChange={onConcurrencyChange}
+						t={t}
+					/>
+					<div className="min-h-0 flex-1 overflow-hidden bg-background/70 dark:bg-background/20">
+						{tasks.length === 0 ? (
+							<div className="flex h-full min-h-[10rem] items-center justify-center px-6 py-8 text-center text-sm text-muted-foreground">
+								{emptyText}
 							</div>
-						</div>
-						<div className="flex shrink-0 items-center gap-1">
-							<Button
-								variant="ghost"
-								size="icon-xs"
-								onClick={handleSettingsToggle}
-								aria-expanded={settingsOpen}
-								aria-controls={settingsPanelId}
-								aria-label={t("upload_settings")}
-								title={t("upload_settings")}
-							>
-								<Icon name="Gear" className="size-3" />
-							</Button>
-							<Button
-								variant="ghost"
-								size="icon-xs"
-								onClick={onToggle}
-								aria-label={
-									open ? t("upload_panel_collapse") : t("upload_panel_expand")
-								}
-								title={
-									open ? t("upload_panel_collapse") : t("upload_panel_expand")
-								}
-							>
-								<Icon
-									name={open ? "CaretDown" : "CaretUp"}
-									className="size-3"
-								/>
-							</Button>
-						</div>
+						) : (
+							<ScrollArea ref={scrollRef} className="h-full w-full">
+								<div
+									className="relative w-full"
+									style={{
+										height: virtualizer.getTotalSize(),
+									}}
+								>
+									{virtualizer.getVirtualItems().map((virtualRow) => {
+										const row = flatRows[virtualRow.index];
+										return (
+											<div
+												key={row.key}
+												className="absolute inset-x-0 w-full overflow-hidden"
+												style={{
+													height: virtualRow.size,
+													transform: `translateY(${virtualRow.start}px)`,
+												}}
+											>
+												{row.type === "group-header" ? (
+													<GroupHeader row={row} t={t} />
+												) : (
+													<UploadTaskItem {...row.task} />
+												)}
+											</div>
+										);
+									})}
+								</div>
+							</ScrollArea>
+						)}
 					</div>
-					{showOverallProgress ? (
-						<div className="mt-3 flex items-center gap-2">
-							<Progress value={overallProgress} className="h-1.5 flex-1" />
-							<span className="w-9 text-right text-[11px] text-muted-foreground tabular-nums">
-								{overallProgress}%
-							</span>
+					{canRetryFailed || canClearCompleted ? (
+						<div className="flex shrink-0 justify-end gap-2 border-t border-border/60 bg-card/80 px-4 py-3 dark:bg-card/65">
+							{canRetryFailed ? (
+								<Button variant="outline" size="sm" onClick={onRetryFailed}>
+									<Icon name="ArrowsClockwise" className="size-3.5" />
+									{retryFailedLabel}
+								</Button>
+							) : null}
+							{canClearCompleted ? (
+								<Button variant="outline" size="sm" onClick={onClearCompleted}>
+									<Icon name="X" className="size-3.5" />
+									{clearCompletedLabel}
+								</Button>
+							) : null}
 						</div>
 					) : null}
-				</CardHeader>
-				<div
-					aria-hidden={!open}
-					data-state={open ? "open" : "closed"}
-					inert={open ? undefined : true}
-					className={cn(
-						"min-h-0 overflow-hidden transition-[height,opacity] duration-200 ease-out motion-reduce:transition-none",
-						open ? `${PANEL_EXPANDED_BODY_CLASS} opacity-100` : "h-0 opacity-0",
-					)}
-				>
-					<div className="flex h-full min-h-0 flex-col">
-						<UploadSettingsPanel
-							autoClearCompleted={autoClearCompleted}
-							concurrency={concurrency}
-							canDecreaseConcurrency={canDecreaseConcurrency}
-							canIncreaseConcurrency={canIncreaseConcurrency}
-							open={settingsOpen}
-							panelId={settingsPanelId}
-							onAutoClearCompletedChange={onAutoClearCompletedChange}
-							onConcurrencyChange={onConcurrencyChange}
-							t={t}
-						/>
-						<CardContent className="min-h-0 flex-1 overflow-hidden bg-background/70 p-0 group-data-[size=sm]/card:px-0 dark:bg-background/20">
-							{tasks.length === 0 ? (
-								<div className="flex h-full min-h-[10rem] items-center justify-center px-6 py-8 text-center text-sm text-muted-foreground">
-									{emptyText}
-								</div>
-							) : (
-								<ScrollArea ref={scrollRef} className="h-full w-full">
-									<div
-										className="relative w-full"
-										style={{
-											height: virtualizer.getTotalSize(),
-										}}
-									>
-										{virtualizer.getVirtualItems().map((virtualRow) => {
-											const row = flatRows[virtualRow.index];
-											return (
-												<div
-													key={row.key}
-													className="absolute inset-x-0 w-full overflow-hidden"
-													style={{
-														height: virtualRow.size,
-														transform: `translateY(${virtualRow.start}px)`,
-													}}
-												>
-													{row.type === "group-header" ? (
-														<GroupHeader row={row} t={t} />
-													) : (
-														<UploadTaskItem {...row.task} />
-													)}
-												</div>
-											);
-										})}
-									</div>
-								</ScrollArea>
-							)}
-						</CardContent>
-						{canRetryFailed || canClearCompleted ? (
-							<CardFooter className="shrink-0 justify-end gap-2 border-t border-border/60 bg-card/80 px-4 py-3 dark:bg-card/65">
-								{canRetryFailed ? (
-									<Button variant="outline" size="sm" onClick={onRetryFailed}>
-										<Icon name="ArrowsClockwise" className="size-3.5" />
-										{retryFailedLabel}
-									</Button>
-								) : null}
-								{canClearCompleted ? (
-									<Button
-										variant="outline"
-										size="sm"
-										onClick={onClearCompleted}
-									>
-										<Icon name="X" className="size-3.5" />
-										{clearCompletedLabel}
-									</Button>
-								) : null}
-							</CardFooter>
-						) : null}
-					</div>
 				</div>
-			</Card>
+			</TransferActivitySection>
 		</div>
 	);
 }

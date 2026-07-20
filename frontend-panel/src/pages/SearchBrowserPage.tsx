@@ -18,9 +18,9 @@ import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import type { SearchFilter } from "@/components/layout/global-search/types";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import {
 	beginLocalStorageDeleteMutation,
@@ -41,7 +41,9 @@ import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
+import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -234,6 +236,9 @@ export default function SearchBrowserPage() {
 	const previewAppsLoaded = usePreviewAppStore((s) => s.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((s) => s.load);
 	const thumbnailSupport = useThumbnailSupportStore((s) => s.config);
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 	const [
 		{ error, files, folders, loading, loadingMore, totalFiles, totalFolders },
 		dispatchResults,
@@ -379,16 +384,40 @@ export default function SearchBrowserPage() {
 		scrollViewport,
 	]);
 
-	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
-			handleApiError,
-		);
-	}, []);
+	const handleDownload = useCallback(
+		(fileId: number, fileName: string) => {
+			const file = files.find((entry) => entry.id === fileId);
+			requestDownloadSelection({
+				workspace,
+				files: [{ id: fileId, name: fileName, size: file?.size }],
+				folders: [],
+			});
+		},
+		[files, workspace],
+	);
 
 	const handleArchiveDownload = useCallback(
-		(fileIds: number[], folderIds: number[]) =>
-			batchService.streamArchiveDownload(fileIds, folderIds),
-		[],
+		async (fileIds: number[], folderIds: number[]) => {
+			const selectedFiles = files
+				.filter((file) => fileIds.includes(file.id))
+				.map((file) => ({ id: file.id, name: file.name, size: file.size }));
+			const selectedFolders = folders
+				.filter((folder) => folderIds.includes(folder.id))
+				.map((folder) => ({ id: folder.id, name: folder.name }));
+			if (
+				selectedFiles.length + selectedFolders.length !==
+				fileIds.length + folderIds.length
+			) {
+				await batchService.streamArchiveDownload(fileIds, folderIds);
+				return;
+			}
+			requestDownloadSelection({
+				workspace,
+				files: selectedFiles,
+				folders: selectedFolders,
+			});
+		},
+		[files, folders, workspace],
 	);
 
 	const { dialogs: batchActionDialogs, selectionToolbar } =
@@ -397,7 +426,9 @@ export default function SearchBrowserPage() {
 			displayFiles: files,
 			displayFolders: folders,
 			onChanged: () => loadSearch(0, "replace"),
-			onArchiveDownload: handleArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			onDownload: handleDownload,
 		});
 
@@ -548,7 +579,9 @@ export default function SearchBrowserPage() {
 			onFileChooseOpenMethod: (file) => openPreview(file, "picker"),
 			onShare: handleShare,
 			onDownload: handleDownload,
-			onArchiveDownload: (folderId) => handleArchiveDownload([], [folderId]),
+			onArchiveDownload: archiveDownloadEnabled
+				? (folderId) => handleArchiveDownload([], [folderId])
+				: undefined,
 			onArchiveCompress: undefined,
 			onArchiveExtract: undefined,
 			onManageTags: handleManageTags,
@@ -562,6 +595,7 @@ export default function SearchBrowserPage() {
 		}),
 		[
 			browserOpenMode,
+			archiveDownloadEnabled,
 			files,
 			folders,
 			handleArchiveDownload,
@@ -600,6 +634,7 @@ export default function SearchBrowserPage() {
 		],
 		[criteriaReady, parsedQuery.category, parsedQuery.q, t],
 	);
+	const bottomOverlayOffset = useBottomOverlayOffset(selectionToolbar !== null);
 
 	return (
 		<AppLayout>
@@ -637,6 +672,7 @@ export default function SearchBrowserPage() {
 				onTriggerFolderUpload={() => undefined}
 			/>
 			<FileBrowserWorkspace
+				bottomOverlayOffset={bottomOverlayOffset}
 				breadcrumb={breadcrumb}
 				contentDragOver={false}
 				currentFolderActions="refresh-only"

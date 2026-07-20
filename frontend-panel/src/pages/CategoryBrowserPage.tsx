@@ -17,9 +17,9 @@ import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDia
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import {
 	beginLocalStorageDeleteMutation,
@@ -44,7 +44,9 @@ import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
+import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -149,6 +151,9 @@ export default function CategoryBrowserPage() {
 	const previewAppsLoaded = usePreviewAppStore((s) => s.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((s) => s.load);
 	const thumbnailSupport = useThumbnailSupportStore((s) => s.config);
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 	const [{ error, files, loading, loadingMore, totalFiles }, dispatchResults] =
 		useReducer(categoryResultsReducer, CATEGORY_RESULTS_INITIAL_STATE);
 	const [previewState, setPreviewState] =
@@ -285,16 +290,34 @@ export default function CategoryBrowserPage() {
 		scrollViewport,
 	]);
 
-	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
-			handleApiError,
-		);
-	}, []);
+	const handleDownload = useCallback(
+		(fileId: number, fileName: string) => {
+			const file = files.find((entry) => entry.id === fileId);
+			requestDownloadSelection({
+				workspace,
+				files: [{ id: fileId, name: fileName, size: file?.size }],
+				folders: [],
+			});
+		},
+		[files, workspace],
+	);
 
 	const handleArchiveDownload = useCallback(
-		(fileIds: number[], folderIds: number[]) =>
-			batchService.streamArchiveDownload(fileIds, folderIds),
-		[],
+		async (fileIds: number[], _folderIds: number[]) => {
+			const selectedFiles = files
+				.filter((file) => fileIds.includes(file.id))
+				.map((file) => ({ id: file.id, name: file.name, size: file.size }));
+			if (selectedFiles.length !== fileIds.length) {
+				await batchService.streamArchiveDownload(fileIds, []);
+				return;
+			}
+			requestDownloadSelection({
+				workspace,
+				files: selectedFiles,
+				folders: [],
+			});
+		},
+		[files, workspace],
 	);
 
 	const { dialogs: batchActionDialogs, selectionToolbar } =
@@ -303,7 +326,9 @@ export default function CategoryBrowserPage() {
 			displayFiles: files,
 			displayFolders: [],
 			onChanged: () => loadCategory(0, "replace"),
-			onArchiveDownload: handleArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			onDownload: handleDownload,
 		});
 
@@ -463,6 +488,7 @@ export default function CategoryBrowserPage() {
 				: {},
 		[files, previewState, thumbnailSupport],
 	);
+	const bottomOverlayOffset = useBottomOverlayOffset(selectionToolbar !== null);
 
 	if (!category) {
 		return <Navigate to={workspaceRootPath(workspace)} replace />;
@@ -499,6 +525,7 @@ export default function CategoryBrowserPage() {
 				onTriggerFolderUpload={() => undefined}
 			/>
 			<FileBrowserWorkspace
+				bottomOverlayOffset={bottomOverlayOffset}
 				breadcrumb={[{ id: null, name: categoryLabel }]}
 				contentDragOver={false}
 				currentFolderActions="refresh-only"

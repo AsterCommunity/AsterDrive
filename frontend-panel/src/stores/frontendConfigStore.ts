@@ -29,6 +29,8 @@ interface CachedFrontendConfigPayload {
 
 interface FrontendConfigState {
 	allowUserRegistration: boolean;
+	archiveDownloadShareEnabled: boolean;
+	archiveDownloadUserEnabled: boolean;
 	branding: AppliedBranding;
 	config: PublicFrontendConfig | null;
 	imagePreviewPreference: PublicImagePreviewPreference;
@@ -84,6 +86,9 @@ function isFrontendConfig(value: unknown): value is PublicFrontendConfig {
 		typeof value.version === "number" &&
 		Number.isFinite(value.version) &&
 		isPublicBranding(value.branding) &&
+		isRecord(value.downloads) &&
+		typeof value.downloads.archive_download_share_enabled === "boolean" &&
+		typeof value.downloads.archive_download_user_enabled === "boolean" &&
 		isRecord(value.media) &&
 		isImagePreviewPreference(value.media.image_preview_preference)
 	);
@@ -151,6 +156,9 @@ function applyFrontendConfig(config: PublicFrontendConfig) {
 	applyBranding(branding);
 	return {
 		allowUserRegistration: config.branding.allow_user_registration ?? true,
+		archiveDownloadShareEnabled:
+			config.downloads.archive_download_share_enabled,
+		archiveDownloadUserEnabled: config.downloads.archive_download_user_enabled,
 		branding,
 		config,
 		imagePreviewPreference: config.media.image_preview_preference,
@@ -165,6 +173,8 @@ function fallbackState() {
 	applyBranding(DEFAULT_BRANDING);
 	return {
 		allowUserRegistration: true,
+		archiveDownloadShareEnabled: false,
+		archiveDownloadUserEnabled: false,
 		branding: DEFAULT_BRANDING,
 		config: null,
 		imagePreviewPreference: DEFAULT_IMAGE_PREVIEW_PREFERENCE,
@@ -193,6 +203,10 @@ export const useFrontendConfigStore = create<FrontendConfigState>(
 	(set, get) => ({
 		allowUserRegistration:
 			initialCachedConfig?.branding.allow_user_registration ?? true,
+		archiveDownloadShareEnabled:
+			initialCachedConfig?.downloads.archive_download_share_enabled ?? false,
+		archiveDownloadUserEnabled:
+			initialCachedConfig?.downloads.archive_download_user_enabled ?? false,
 		branding: initialBranding,
 		config: initialCachedConfig,
 		imagePreviewPreference:
@@ -208,6 +222,8 @@ export const useFrontendConfigStore = create<FrontendConfigState>(
 			lastRevalidationAttemptAt = 0;
 			set({
 				allowUserRegistration: true,
+				archiveDownloadShareEnabled: false,
+				archiveDownloadUserEnabled: false,
 				branding: DEFAULT_BRANDING,
 				config: null,
 				imagePreviewPreference: DEFAULT_IMAGE_PREVIEW_PREFERENCE,
@@ -224,7 +240,9 @@ export const useFrontendConfigStore = create<FrontendConfigState>(
 			inFlightLoad = (async () => {
 				lastRevalidationAttemptAt = Date.now();
 				try {
-					const config = await frontendConfigService.get();
+					const config = await frontendConfigService.get(
+						force ? { cacheBust: Date.now() } : undefined,
+					);
 					if (!isFrontendConfig(config)) {
 						throw new Error("invalid frontend config response");
 					}

@@ -6,6 +6,7 @@ use crate::config::definitions::{
 };
 use crate::config::media_processing::MEDIA_PROCESSING_REGISTRY_JSON_KEY;
 use crate::config::operations::{
+    ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY, ARCHIVE_DOWNLOAD_USER_ENABLED_KEY,
     FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY, OFFLINE_DOWNLOAD_ENGINE_KEY,
     OFFLINE_DOWNLOAD_ENGINE_REGISTRY_JSON_KEY, OfflineDownloadEngine,
 };
@@ -226,6 +227,8 @@ fn config_schema_invalidates(key: &str) -> Vec<ConfigInvalidationTarget> {
         | BRANDING_FAVICON_URL_KEY
         | BRANDING_WORDMARK_DARK_URL_KEY
         | BRANDING_WORDMARK_LIGHT_URL_KEY
+        | ARCHIVE_DOWNLOAD_USER_ENABLED_KEY
+        | ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY
         | FRONTEND_IMAGE_PREVIEW_PREFERENCE_KEY => {
             vec![ConfigInvalidationTarget::FrontendConfig]
         }
@@ -387,6 +390,24 @@ mod tests {
         assert_eq!(
             invalidates_for(AUTH_ALLOW_USER_REGISTRATION_KEY),
             [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(ARCHIVE_DOWNLOAD_USER_ENABLED_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+        assert_eq!(
+            invalidates_for(ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY),
+            [ConfigInvalidationTarget::FrontendConfig]
+        );
+
+        let unrelated = schema
+            .iter()
+            .find(|item| item.key == MAIL_SMTP_HOST_KEY)
+            .expect("mail config should be in schema");
+        assert!(
+            !unrelated
+                .invalidates
+                .contains(&ConfigInvalidationTarget::FrontendConfig)
         );
         assert_eq!(
             invalidates_for(PREVIEW_APPS_CONFIG_KEY),

@@ -21,6 +21,10 @@ vi.mock("@/components/files/UploadAreaHost", () => ({
 	),
 }));
 
+vi.mock("@/components/files/DownloadCenter", () => ({
+	DownloadCenter: () => null,
+}));
+
 vi.mock("./Loading", () => ({
 	Loading: () => <div data-testid="workspace-route-loading" />,
 }));

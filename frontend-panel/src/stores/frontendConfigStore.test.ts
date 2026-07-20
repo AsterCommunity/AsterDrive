@@ -50,10 +50,14 @@ const branding = {
 
 const frontendConfig = {
 	branding,
+	downloads: {
+		archive_download_share_enabled: false,
+		archive_download_user_enabled: true,
+	},
 	media: {
 		image_preview_preference: "original_first",
 	},
-	version: 1,
+	version: 2,
 };
 
 const appliedBranding = {
@@ -98,6 +102,12 @@ describe("frontendConfigStore", () => {
 			branding.site_urls,
 		);
 		expect(useFrontendConfigStore.getState().config).toEqual(frontendConfig);
+		expect(useFrontendConfigStore.getState().archiveDownloadShareEnabled).toBe(
+			false,
+		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			true,
+		);
 		expect(useFrontendConfigStore.getState().branding).toEqual(appliedBranding);
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
@@ -182,6 +192,71 @@ describe("frontendConfigStore", () => {
 		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
 	});
 
+	it("drops cached configs without download capabilities", async () => {
+		const { downloads: _downloads, ...configWithoutDownloads } = frontendConfig;
+		localStorage.setItem(
+			"aster-cached-frontend-config:v1",
+			JSON.stringify({
+				config: configWithoutDownloads,
+			}),
+		);
+
+		const { FRONTEND_CONFIG_CACHE_KEY, useFrontendConfigStore } =
+			await loadStore();
+
+		expect(useFrontendConfigStore.getState().config).toBeNull();
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
+		);
+		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
+	});
+
+	it.each([
+		["archive_download_user_enabled", undefined],
+		["archive_download_share_enabled", undefined],
+		["archive_download_user_enabled", "yes"],
+		["archive_download_share_enabled", 1],
+	] as const)(
+		"drops cached configs with invalid %s capability",
+		async (key, value) => {
+			const downloads = { ...frontendConfig.downloads } as Record<
+				string,
+				unknown
+			>;
+			if (value === undefined) delete downloads[key];
+			else downloads[key] = value;
+			localStorage.setItem(
+				"aster-cached-frontend-config:v1",
+				JSON.stringify({ config: { ...frontendConfig, downloads } }),
+			);
+
+			const { FRONTEND_CONFIG_CACHE_KEY, useFrontendConfigStore } =
+				await loadStore();
+
+			expect(useFrontendConfigStore.getState().config).toBeNull();
+			expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+				false,
+			);
+			expect(
+				useFrontendConfigStore.getState().archiveDownloadShareEnabled,
+			).toBe(false);
+			expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
+		},
+	);
+
+	it.each(["2", null] as const)(
+		"drops cached configs with a non-finite numeric version: %s",
+		async (version) => {
+			localStorage.setItem(
+				"aster-cached-frontend-config:v1",
+				JSON.stringify({ config: { ...frontendConfig, version } }),
+			);
+
+			const { useFrontendConfigStore } = await loadStore();
+			expect(useFrontendConfigStore.getState().config).toBeNull();
+		},
+	);
+
 	it("drops cached configs with invalid branding shape", async () => {
 		localStorage.setItem(
 			"aster-cached-frontend-config:v1",
@@ -256,6 +331,9 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
 		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
+		);
 		expect(useFrontendConfigStore.getState().isLoaded).toBe(true);
 	});
 
@@ -275,6 +353,67 @@ describe("frontendConfigStore", () => {
 			"original_first",
 		);
 		expect(useFrontendConfigStore.getState().isLoaded).toBe(true);
+	});
+
+	it.each([Number.NaN, Number.POSITIVE_INFINITY, "2"])(
+		"rejects fetched configs with invalid version %s",
+		async (version) => {
+			mockState.get.mockResolvedValueOnce({ ...frontendConfig, version });
+
+			const { useFrontendConfigStore } = await loadStore();
+			await useFrontendConfigStore.getState().load();
+
+			expect(useFrontendConfigStore.getState().config).toBeNull();
+			expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+				false,
+			);
+			expect(
+				useFrontendConfigStore.getState().archiveDownloadShareEnabled,
+			).toBe(false);
+		},
+	);
+
+	it("applies all user and share capability combinations independently", async () => {
+		const { useFrontendConfigStore } = await loadStore();
+
+		for (const [user, share] of [
+			[true, true],
+			[true, false],
+			[false, true],
+			[false, false],
+		] as const) {
+			mockState.get.mockResolvedValueOnce({
+				...frontendConfig,
+				downloads: {
+					archive_download_user_enabled: user,
+					archive_download_share_enabled: share,
+				},
+			});
+			await useFrontendConfigStore.getState().load({ force: true });
+
+			expect(useFrontendConfigStore.getState()).toMatchObject({
+				archiveDownloadUserEnabled: user,
+				archiveDownloadShareEnabled: share,
+			});
+		}
+	});
+
+	it("applies remote config even when persisting it fails", async () => {
+		mockState.get.mockResolvedValue(frontendConfig);
+		const setItem = vi
+			.spyOn(Storage.prototype, "setItem")
+			.mockImplementation(() => {
+				throw new Error("quota exceeded");
+			});
+		const { useFrontendConfigStore } = await loadStore();
+
+		await useFrontendConfigStore.getState().load();
+
+		expect(useFrontendConfigStore.getState().config).toEqual(frontendConfig);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			true,
+		);
+		setItem.mockRestore();
 	});
 
 	it("keeps a loaded cached config when revalidation fails", async () => {
@@ -310,6 +449,12 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().siteUrl).toBeNull();
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
+		);
+		expect(useFrontendConfigStore.getState().archiveDownloadShareEnabled).toBe(
+			false,
+		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
 		);
 	});
 
@@ -353,8 +498,22 @@ describe("frontendConfigStore", () => {
 		await useFrontendConfigStore.getState().load({ force: true });
 
 		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(mockState.get.mock.calls[1]?.[0]).toEqual({
+			cacheBust: expect.any(Number),
+		});
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"preview_first",
 		);
+	});
+
+	it("uses the current timestamp as the forced refresh cache buster", async () => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-07-20T12:34:56.789Z"));
+		mockState.get.mockResolvedValue(frontendConfig);
+		const { useFrontendConfigStore } = await loadStore();
+
+		await useFrontendConfigStore.getState().load({ force: true });
+
+		expect(mockState.get).toHaveBeenCalledWith({ cacheBust: 1784550896789 });
 	});
 });
