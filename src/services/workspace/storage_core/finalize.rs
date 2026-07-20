@@ -100,7 +100,7 @@ pub(crate) async fn finalize_upload_session_file(
     let transaction_now = now;
     let created = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
-        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
             let session = transaction_session.clone();
             let file_hash = transaction_file_hash.clone();

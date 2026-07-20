@@ -92,7 +92,7 @@ pub(super) async fn persist_temp_store(
     let transaction_now = now;
     let create_result = aster_forge_db::transaction::with_transaction_retry(
         state.writer_db(),
-        &aster_forge_db::transaction::TransactionRetryConfig::default(),
+        &aster_forge_db::retry::RetryConfig::deadlock(),
         move |txn| {
             let operation_context = transaction_operation_context.clone();
             let verified_blob = transaction_verified_blob.clone();
