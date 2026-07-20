@@ -27,7 +27,7 @@ tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }
 tracing = { version = "0.1.44", default-features = false }
 
 [dependencies.sea-orm-migration]
-version = "2.0.0-rc.43"
+version = "2.0.0"
 default-features = false
 features = [
   # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.

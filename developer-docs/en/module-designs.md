@@ -715,6 +715,41 @@ Post-copy validation checks:
 
 It does not decide whether specific historical records should be migrated. The goal is to faithfully copy the current database state, not to clean or redesign it.
 
+## 8. Frontend download coordination and transfer activity area
+
+Main code paths:
+
+- `frontend-panel/src/services/downloadCoordinator.ts`
+- `frontend-panel/src/components/files/DownloadCenter.tsx`
+- `frontend-panel/src/components/files/UploadAreaHost.tsx`
+- `frontend-panel/src/components/layout/BottomRightActivityShell.tsx`
+- `frontend-panel/src/stores/frontendConfigStore.ts`
+
+### Download ownership boundaries
+
+Pages only collect the selection in the current workspace and pass file / folder IDs plus display metadata such as names and sizes to the download layer. Local page state may lag behind a selection after pagination, search refresh, or item expiry. If the number of locally resolved items differs from the number of requested IDs, the page must send the original IDs to the backend ZIP endpoint for authoritative resolution instead of silently dropping missing items.
+
+`downloadCoordinator` owns browser-side download protocol details and lifecycle management, including:
+
+- building authenticated download paths through the workspace-aware file service
+- proxy streaming, progress, cancellation, failed-item retry, and memory fallback
+- directory-write capability detection and recursive folder traversal
+- file and folder pagination cursor advancement
+
+Pagination loops must check both `next_*_cursor` and whether the current page returned any items. An empty page with a stale cursor terminates the loop immediately to avoid repeated requests or infinite pagination.
+
+`DownloadCenter` only presents download choices and task state. It does not build file paths or decide authentication policy. Single-file “browser default” downloads use the coordinator's authenticated file entry point; multi-item “browser ZIP” downloads use the batch service's backend archive stream. Proxy file, proxy ZIP, and local-directory downloads create observable browser download tasks through the coordinator.
+
+### Backend capability remains authoritative
+
+The anonymous bootstrap endpoint `GET /api/v1/public/frontend-config` exposes signed-in and public-share ZIP download switches under `downloads`. The frontend config store caches and consumes them; when a switch is disabled or bootstrap config is unavailable, ZIP choices are hidden conservatively. Backend endpoints still enforce runtime configuration, so frontend capability checks are presentation logic rather than authorization.
+
+### Unified activity area and layout reservation
+
+The upload panel and download center both portal into one bottom-right shell through `BottomRightActivityPortal`. The shell owns width, borders, stacking, and section layout; `transferActivityStore` owns whether upload or download is expanded. The upload manager must not keep a duplicate expanded-state pass-through.
+
+The shell is visually fixed at the bottom right, but it must not cover the last rows of file content. `BottomRightActivityShell` measures its real height with `ResizeObserver` and writes `--bottom-right-activity-shell-height`. File browsing, search, category, share, and trash surfaces reserve that height through the shared padding constant. Any new page that displays transfer activity must use the same reservation instead of introducing another independent overlay.
+
 ## When to extend this document
 
 If a module satisfies both of these conditions, it is worth adding here:

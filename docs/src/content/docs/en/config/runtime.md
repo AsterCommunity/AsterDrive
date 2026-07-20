@@ -254,6 +254,8 @@ This group controls features that read, scan, transform, or temporarily unpack f
 | Online extraction entry count limit | `10000` |
 | Online extraction duration limit | `300` seconds |
 | Online archive compression global switch | Enabled |
+| User archive-download switch | Enabled |
+| Share archive-download switch | Enabled |
 | Archive build entry count limit | `10000` |
 | Archive build total source size limit | `2 GiB` |
 | Archive build output size limit | `2 GiB` |
@@ -299,6 +301,13 @@ When users switch `filename encoding` in the preview toolbar, AsterDrive rereads
 Online extraction, online compression, and folder archive download all use the archive background-task lane, and all of them use the server temporary directory. The defaults are sized for common personal and small-team files. Do not raise every limit immediately.
 
 `Enable online archive compression` only controls whether users can create a new ZIP archive from selected files and folders. It is enabled by default. When disabled, new online-compression tasks are rejected. Online extraction, folder archive downloads, and archive preview are controlled by their own settings and are not disabled by this switch.
+
+ZIP package downloads have two independent switches:
+
+- **Enable archive downloads for users**: controls whether signed-in users can download selected content from personal or team workspaces as ZIP files
+- **Enable archive downloads for shares**: controls whether public-share visitors can download ZIP files after password, share-scope, and download-count checks
+
+When disabled, the backend rejects new matching ZIP download requests and the official frontend hides those download methods. The switches are independent and do not affect direct single-file downloads or online archive compression that creates a new ZIP file in the workspace.
 
 If users often process large archives or large folders, check these settings separately:
 
@@ -437,6 +446,7 @@ The primary node's service startup and shutdown are also recorded as audit event
 | Online extraction staging limit | Applied to online extraction tasks created later |
 | Online extraction source, uncompressed size, entry count, path depth, compression ratio, and duration limits | Applied to online extraction tasks created later |
 | Online archive compression global switch | Applied to online-compression tasks created later; does not affect online extraction, folder archive downloads, or archive preview |
+| User and share archive-download switches | After saving, the official frontend refreshes public capabilities and hides or shows the matching ZIP methods; new requests are also enforced by the backend |
 | Archive build entry, total source size, and output size limits | Applied to online compression and archive download tasks created later |
 | Link import engine registry, temp directory, file size, speed, concurrency, request timeout, and aria2 parameters | Applied to link-import tasks created later; manual retries clean old artifacts from both the default temp directory and the current offline-download temp directory |
 | Archive preview switches and limits | Applied to later requests and new `archive_preview_generate` tasks |

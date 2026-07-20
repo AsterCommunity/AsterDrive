@@ -25,7 +25,7 @@
   "code": "success",
   "msg": "",
   "data": {
-    "version": 1,
+    "version": 2,
     "branding": {
       "title": "AsterDrive",
       "description": "Self-hosted cloud storage",
@@ -36,6 +36,10 @@
       "allow_user_registration": true,
       "passkey_login_enabled": true
     },
+    "downloads": {
+      "archive_download_user_enabled": true,
+      "archive_download_share_enabled": true
+    },
     "media": {
       "image_preview_preference": "preview_first"
     }
@@ -45,8 +49,11 @@
 
 要点：
 
-- `version` 当前为 `1`，用于前端判断启动配置结构版本
+- `version` 当前为 `2`，用于前端判断启动配置结构版本
 - `branding` 是公开品牌与登录入口配置的唯一当前接口结构；旧 `/public/branding` 路由已移除
+- `downloads.archive_download_user_enabled` 决定登录用户是否看到并能使用个人空间、团队空间的 ZIP 打包下载方式
+- `downloads.archive_download_share_enabled` 决定公开分享访问者是否能使用分享内容的 ZIP 打包下载方式
+- 这两个字段来自后端运行时配置。前端只负责按能力隐藏入口，归档下载端点仍会再次检查开关，不能把前端隐藏当成权限边界
 - `media.image_preview_preference` 来自运行时配置 `frontend_image_preview_preference`
 - `image_preview_preference` 当前支持 `original_first` 和 `preview_first`
 - 前端会缓存这份启动配置，并在相关运行时配置变更后主动刷新

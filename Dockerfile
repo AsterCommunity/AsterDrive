@@ -35,9 +35,13 @@ ENV RUSTFLAGS="-C link-arg=-s"
 RUN cargo build --release --features "${CARGO_FEATURES}"
 
 # Stage 3: Alpine runtime
-FROM alpine:3.23
+FROM alpine:3.24
 
-RUN apk add --no-cache ca-certificates sqlite-libs vips-tools vips-poppler ffmpeg libheif && \
+# Alpine 3.24 still ships libtiff 4.7.1, which is affected by CVE-2026-4775.
+RUN apk add --no-cache ca-certificates sqlite-libs vips-tools vips-poppler 'ffmpeg>=8.1.2-r0' libheif && \
+    apk add --no-cache \
+      --repository=https://dl-cdn.alpinelinux.org/alpine/edge/main \
+      'tiff=4.7.2-r0' && \
     addgroup -S -g 10001 aster && \
     adduser -S -D -H -u 10001 -G aster -s /sbin/nologin aster && \
     mkdir -p /data && \

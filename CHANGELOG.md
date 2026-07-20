@@ -7,6 +7,94 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0-rc.1] - 2026-07-20
+
+### Release Highlights
+
+**AsterDrive `v0.4.0-rc.1` 是 `0.4.0` 系列的首个 release candidate，主线是全新的下载中心、跨工作区批量移动与 OneDrive 浏览器直连。** 文件下载全面改版：下载操作弹出方法选择对话框，提供代理文件下载、代理归档下载（ZIP）、File System Access API 文件夹下载与浏览器默认下载四种方式；右下角新增统一传输活动面板，上传与下载任务同屏展示进度、速度与预计完成时间，支持取消与失败重试。批量操作支持在个人与团队工作区之间移动文件和文件夹（copy-then-delete 语义，锁定资源整体拒绝并完整报告）；单项移动 / 复制自动路由到文件 / 文件夹专属端点，不再占用批量通道。
+OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 上传会话分片直传，不经服务端中继，上传 URL 加密落库；下载可选直接返回 Graph 原生地址，配合 `original_filename` 对象命名让浏览器拿到正确文件名。部署侧，Docker 基础镜像升级 Alpine 3.24 并锁定 libtiff 4.7.2 修复 CVE-2026-4775；SeaORM 升级到 2.0.0 稳定版；文档站从 VitePress 迁移到 Astro Starlight。
+
+- **下载中心** — 四种下载方式、统一传输活动面板、进度 / 速度 / 取消 / 重试，管理端可按用户与分享分别开关归档下载
+- **跨工作区批量移动** — 个人 / 团队工作区互移，copy-then-delete 语义，锁定资源完整报告；单项操作直连专属端点
+- **OneDrive 浏览器直传上传** — Microsoft Graph 上传会话分片直传，上传 URL 加密存储，支持取消与断点查询
+- **OneDrive 直接下载** — 直返 Graph 原生下载地址，`original_filename` 对象命名保证下载文件名正确
+- **Docker 镜像安全更新** — Alpine 3.23 → 3.24，锁定 libtiff 4.7.2-r0 修复 CVE-2026-4775，要求 ffmpeg ≥ 8.1.2
+- **文档站迁移** — VitePress → Astro Starlight，搜索 / 多版本 / 组件体系全面重建
+
+### Added
+
+- **下载中心与统一传输面板**
+  - 下载操作弹出方法选择对话框：代理文件下载（前端流式、进度条）、代理归档下载（后端构建 ZIP）、File System Access API 文件夹下载（保留目录结构）、浏览器默认下载
+  - 右下角传输活动面板同时展示上传与下载任务，显示进度、速度、预计完成时间与队列 / 准备 / 下载中 / 完成 / 失败 / 已取消状态
+  - 支持取消进行中的下载、重试失败的下载；下载任务计数显示在应用标题栏
+  - Content-Disposition 文件名解析支持 RFC 5987 与引号格式
+
+- **归档下载管理端开关**
+  - 新增运行时配置 `archive_download_user_enabled` / `archive_download_share_enabled`（均默认开启），分别控制已认证用户与公开分享访客的归档下载
+  - 前端公开配置版本升级到 2，携带归档下载能力标记；旧版本缓存自动失效
+  - 开关关闭时 UI 隐藏对应下载选项；管理端保存相关设置后自动刷新前端配置
+
+- **跨工作区批量移动**
+  - 新增 `POST /workspace-transfer/move` 端点，支持在个人与团队工作区之间移动文件和文件夹
+  - 跨工作区移动采用 copy-then-delete 语义：目标创建副本后删除源；源删除失败时回滚清理目标副本
+  - 遇到锁定资源整体拒绝并报告所有受阻资源；审计日志记录源与目标详情
+  - 目标文件夹对话框新增源 / 目标工作区选择器
+  - 单项移动 / 复制自动路由到 `PATCH /files/{id}` / `PATCH /folders/{id}`，多项（2+）才走 `POST /batch/move` / `POST /batch/copy`
+
+- **OneDrive 浏览器直传上传**
+  - OneDrive 存储策略新增 `provider_resumable_upload_strategy`：`server_relay`（默认，经服务端中继）或 `frontend_direct`（浏览器直传）
+  - 直传模式创建 Microsoft Graph 上传会话，浏览器按 Content-Range 分片直传，416 范围冲突与瞬时失败自动重试
+  - 上传 URL 以 `provider_session_ciphertext` 加密落库，支持取消（abort session）与断点查询（next_expected_ranges）
+  - 上传会话新增 `provider_resumable` 数据平面类型与对应完成计划（校验对象大小）
+
+- **OneDrive 直接下载与对象命名**
+  - OneDrive 存储策略新增 `provider_download_strategy`：`frontend_direct` 时直接返回 Microsoft Graph 原生下载地址
+  - 新增 connector 级 `object_naming` 能力声明（`opaque_uuid` / `original_filename`），OneDrive 对象布局改为 `files/{upload_uuid}/{filename}`，Graph 原生下载地址返回正确文件名
+
+- **安全披露渠道**
+  - 新增 RFC 9116 `/.well-known/security.txt`，README 与 SECURITY.md 补充安全公告链接
+
+### Changed
+
+- **内部：存储驱动扩展接口重构** — 移除 `as_presigned()` / `as_list()` / `as_stream_upload()` 等独立 downcast 方法，统一为 `extensions()` 返回 `StorageDriverExtensions`；装饰器整体转发扩展包，新增驱动能力不再需要改动每个包装器（纯内部，无行为变化）
+- **内部：前端工具链** — TypeScript 6 + openapi-typescript（bunx），刷新依赖锁定（纯工具链，无行为变化）
+- **依赖更新** — SeaORM `2.0.0-rc.43` → `2.0.0` 稳定版
+- **Docker 基础镜像** — Alpine 3.23 → 3.24
+- **文档站** — 从 VitePress 迁移到 Astro Starlight，导航 / 搜索 / 多版本构建体系重建
+
+### Fixed
+
+- **目录下载分页循环** — 空页面返回过期游标时不再死循环
+- **过期选择回退** — 分类 / 搜索页面的选择项过期时回退到后端归档下载
+- **批量移动可靠性** — 移动失败时回滚清理目标副本；锁定资源阻止移动时报告选择中的全部受阻资源
+- **上传 worker 空转** — 队列为空时不再创建 worker
+- **OneDrive 错误消息脱敏** — 客户端错误消息中的敏感上传 URL 统一脱敏，防止 token 泄漏到日志
+
+### Security
+
+- **Docker 镜像 libtiff CVE 修复** — Alpine 3.24 仓库仍提供受 CVE-2026-4775 影响的 libtiff 4.7.1，镜像构建从 Alpine edge 仓库锁定 `tiff=4.7.2-r0`，并要求 `ffmpeg>=8.1.2-r0`
+- **OneDrive 上传 URL 防泄漏** — 上传 URL 加密落库（`provider_session_ciphertext`），客户端错误消息统一脱敏
+
+### Database Migrations
+
+- `m20260719_000001_add_upload_provider_session`
+  - 为 `upload_sessions` 新增 `provider_session_ciphertext` 列（nullable），加密存储提供商会话元数据（如 OneDrive 直传上传 URL）
+  - 仅 provider resumable 数据平面下非空，存量会话不受影响
+
+### Statistics
+
+- 422 files changed, 17927 insertions(+), 6362 deletions(-)
+- 13 commits
+- 1 个数据库 migration
+
+### Notes
+
+- 本版本是 `0.4.0` 系列首个 release candidate，建议重点验证下载中心各下载方式、跨工作区移动与 OneDrive 浏览器直连
+- 1 个数据库 migration 会在启动时自动执行
+- 归档下载两个开关均默认开启（与旧版行为一致），如不需要请在管理后台关闭
+- OneDrive 存储策略默认仍为 `server_relay`；切换到 `frontend_direct` 后，浏览器需能直接访问对应 Microsoft Graph 端点（国际版 / 世纪互联）
+- Docker 基础镜像升级 Alpine 3.24，基于自定义镜像层构建的部署请重新验证
+
 ## [v0.4.0-beta.3] - 2026-07-18
 
 ### Release Highlights
@@ -5698,7 +5786,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...HEAD
+[v0.4.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...v0.4.0-rc.1
 [v0.4.0-beta.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.2...v0.4.0-beta.3
 [v0.4.0-beta.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...v0.4.0-beta.2
 [v0.4.0-beta.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.3.2...v0.4.0-beta.1

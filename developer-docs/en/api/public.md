@@ -25,7 +25,7 @@ This endpoint is the current anonymous bootstrap entry for the frontend applicat
   "code": "success",
   "msg": "",
   "data": {
-    "version": 1,
+    "version": 2,
     "branding": {
       "title": "AsterDrive",
       "description": "Self-hosted cloud storage",
@@ -36,6 +36,10 @@ This endpoint is the current anonymous bootstrap entry for the frontend applicat
       "allow_user_registration": true,
       "passkey_login_enabled": true
     },
+    "downloads": {
+      "archive_download_user_enabled": true,
+      "archive_download_share_enabled": true
+    },
     "media": {
       "image_preview_preference": "preview_first"
     }
@@ -45,8 +49,11 @@ This endpoint is the current anonymous bootstrap entry for the frontend applicat
 
 Key points:
 
-- `version` is currently `1`
+- `version` is currently `2`
 - `branding` is the only current public structure for brand and login-entry configuration; the old `/public/branding` route has been removed
+- `downloads.archive_download_user_enabled` controls whether signed-in users can see and use ZIP package downloads in personal and team workspaces
+- `downloads.archive_download_share_enabled` controls whether public-share visitors can use ZIP package downloads for shared content
+- both fields come from backend runtime configuration. The frontend hides unavailable choices for usability, while archive-download endpoints enforce the switches again; UI visibility is not an authorization boundary
 - `media.image_preview_preference` comes from runtime config `frontend_image_preview_preference`
 - supported `image_preview_preference` values are `original_first` and `preview_first`
 - the frontend caches this bootstrap config and refreshes it after related runtime config changes

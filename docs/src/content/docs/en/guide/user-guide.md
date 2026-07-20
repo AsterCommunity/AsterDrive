@@ -83,6 +83,24 @@ You can also drag directly:
 - Drag files or folders to a parent directory in the top breadcrumbs
 - Drag files or folders to the left-side trash
 
+## Download Files, Folders, and Multiple Items
+
+After you click `Download` for a file, folder, or multi-selection, the page offers the download methods supported by the current browser:
+
+- **Frontend proxy download**: the current page receives the file stream and shows progress, speed, and estimated remaining time in the bottom-right download center; use it when you want visible or cancellable progress for one file
+- **Download to folder**: choose a local directory and write the selected items into it; folder and multi-item downloads preserve relative directory structure, and the browser asks for directory-write permission the first time
+- **Use browser default download**: hand one file directly to the browser, which manages the save location and progress in its own download list
+- **Proxy ZIP download**: AsterDrive packages the selection and downloads it through the page, with progress in the bottom-right download center
+- **Use browser ZIP download**: AsterDrive packages the selected content and hands the ZIP directly to the browser
+
+Browser capabilities differ. If direct directory writing is unavailable, the page offers a ZIP fallback when the administrator allows ZIP downloads. When the administrator disables archive downloads, ZIP choices disappear; this does not mean the page is broken. Browser-default download for a single file remains available.
+
+Uploads and downloads share the bottom-right transfer activity area. The collapsed view shows a summary; expand it to inspect individual items. Proxy downloads can be canceled, failed items can be retried, and completed items can be cleared. The page reserves space for the activity area so it does not cover the final rows of file content.
+
+:::tip[Download Center and Task Center are different]
+The bottom-right download center tracks proxy and local-directory downloads running in the current browser. `Task Center` tracks server-side work such as online compression, online extraction, and link import. After choosing “Use browser default download” or “Use browser ZIP download”, check progress in the browser's own download list.
+:::
+
 ## Search, Multi-Select, and Batch Operations
 
 The top search box searches files and folders by name in the current workspace.  
