@@ -1,6 +1,9 @@
 //! 批量操作服务子模块：`copy`。
 
-use std::{borrow::Cow, collections::HashSet};
+use std::{
+    borrow::Cow,
+    collections::{HashMap, HashSet},
+};
 
 use futures::{StreamExt, stream};
 
@@ -14,7 +17,8 @@ use crate::services::{
 
 use super::shared::load_target_folder_in_scope;
 use super::{
-    BatchResult, NormalizedSelection, load_normalized_selection_in_scope, reserve_unique_name,
+    BatchItemError, BatchResult, NormalizedSelection, load_normalized_selection_in_scope,
+    reserve_unique_name,
 };
 
 const BATCH_FOLDER_COPY_CONCURRENCY: usize = 4;
@@ -23,6 +27,76 @@ const BATCH_FOLDER_COPY_CONCURRENCY: usize = 4;
 pub(crate) enum BatchTransferMode {
     Copy,
     Move,
+}
+
+fn destination_cleanup_targets(
+    deletion_errors: &[BatchItemError],
+    created_file_ids_by_source: &HashMap<i64, Vec<i64>>,
+    created_folder_ids_by_source: &HashMap<i64, Vec<i64>>,
+) -> (Vec<i64>, Vec<i64>) {
+    let failed_file_ids: HashSet<i64> = deletion_errors
+        .iter()
+        .filter(|error| error.entity_type == "file")
+        .map(|error| error.entity_id)
+        .collect();
+    let failed_folder_ids: HashSet<i64> = deletion_errors
+        .iter()
+        .filter(|error| error.entity_type == "folder")
+        .map(|error| error.entity_id)
+        .collect();
+    let file_ids = created_file_ids_by_source
+        .iter()
+        .filter(|(source_id, _)| failed_file_ids.contains(source_id))
+        .flat_map(|(_, destination_ids)| destination_ids.iter().copied())
+        .collect();
+    let folder_ids = created_folder_ids_by_source
+        .iter()
+        .filter(|(source_id, _)| failed_folder_ids.contains(source_id))
+        .flat_map(|(_, destination_ids)| destination_ids.iter().copied())
+        .collect();
+    (file_ids, folder_ids)
+}
+
+fn push_destination_cleanup_error(
+    result: &mut BatchResult,
+    entity_type: &str,
+    entity_id: i64,
+    detail: &str,
+) {
+    result.errors.push(BatchItemError {
+        entity_type: entity_type.to_string(),
+        entity_id,
+        error: format!("destination cleanup failed: {detail}; destination copy may remain"),
+    });
+}
+
+fn append_destination_cleanup_diagnostics(
+    result: &mut BatchResult,
+    cleanup_file_ids: &[i64],
+    cleanup_folder_ids: &[i64],
+    cleanup_result: std::result::Result<BatchResult, String>,
+) {
+    match cleanup_result {
+        Ok(cleanup) if cleanup.failed > 0 => {
+            for error in cleanup.errors {
+                push_destination_cleanup_error(
+                    result,
+                    &error.entity_type,
+                    error.entity_id,
+                    &error.error,
+                );
+            }
+        }
+        Err(error) => {
+            for &id in cleanup_file_ids {
+                push_destination_cleanup_error(result, "file", id, &error);
+            }
+            for &id in cleanup_folder_ids {
+                push_destination_cleanup_error(result, "folder", id, &error);
+            }
+        }
+        Ok(_) => {}
+    }
 }
 
 pub(crate) async fn batch_copy_in_scope(
@@ -65,6 +139,8 @@ pub(crate) async fn batch_transfer_between_scopes(
     mode: BatchTransferMode,
 ) -> Result<BatchResult> {
     let mut result = BatchResult::new();
+    let mut created_file_ids_by_source = HashMap::new();
+    let mut created_folder_ids_by_source = HashMap::new();
     let NormalizedSelection {
         file_ids: normalized_file_ids,
         folder_ids: normalized_folder_ids,
@@ -147,6 +223,18 @@ pub(crate) async fn batch_transfer_between_scopes(
             target_folder_id,
         )
         .await?;
+        let created_files_by_name: HashMap<&str, i64> = created_files
+            .iter()
+            .map(|file| (file.name.as_str(), file.id))
+            .collect();
+        for spec in &file_copy_specs {
+            if let Some(&created_id) = created_files_by_name.get(spec.dest_name.as_ref()) {
+                created_file_ids_by_source
+                    .entry(spec.src.id)
+                    .or_insert_with(Vec::new)
+                    .push(created_id);
+            }
+        }
         storage_change::publish(
             state,
             storage_change::StorageChangeEvent::new(
@@ -188,7 +276,13 @@ pub(crate) async fn batch_transfer_between_scopes(
 
     for (_, id, copy_result) in folder_copy_results {
         match copy_result {
-            Ok(_) => result.record_success(),
+            Ok(created_folder) => {
+                created_folder_ids_by_source
+                    .entry(id)
+                    .or_insert_with(Vec::new)
+                    .push(created_folder.id);
+                result.record_success();
+            }
             Err(e) => result.record_failure("folder", id, e.to_string()),
         }
     }
@@ -197,9 +291,32 @@ pub(crate) async fn batch_transfer_between_scopes(
         let deleted =
             super::delete::batch_delete_in_scope(state, source_scope, file_ids, folder_ids).await?;
         if deleted.failed > 0 {
+            let (cleanup_file_ids, cleanup_folder_ids) = destination_cleanup_targets(
+                &deleted.errors,
+                &created_file_ids_by_source,
+                &created_folder_ids_by_source,
+            );
             result.succeeded = result.succeeded.saturating_sub(deleted.failed);
             result.failed = result.failed.saturating_add(deleted.failed);
             result.errors.extend(deleted.errors);
+            let cleanup_result = if cleanup_file_ids.is_empty() && cleanup_folder_ids.is_empty() {
+                Ok(BatchResult::new())
+            } else {
+                super::delete::batch_delete_in_scope(
+                    state,
+                    dest_scope,
+                    &cleanup_file_ids,
+                    &cleanup_folder_ids,
+                )
+                .await
+                .map_err(|error| error.to_string())
+            };
+            append_destination_cleanup_diagnostics(
+                &mut result,
+                &cleanup_file_ids,
+                &cleanup_folder_ids,
+                cleanup_result,
+            );
         }
     }
 
@@ -247,4 +364,84 @@ pub async fn batch_copy_team(
         target_folder_id,
     )
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn item_error(entity_type: &str, entity_id: i64, error: &str) -> BatchItemError {
+        BatchItemError {
+            entity_type: entity_type.to_string(),
+            entity_id,
+            error: error.to_string(),
+        }
+    }
+
+    #[test]
+    fn cleanup_targets_map_all_copies_for_failed_sources_and_deduplicate_errors() {
+        let deletion_errors = vec![
+            item_error("file", 10, "source file delete failed"),
+            item_error("file", 10, "source file delete failed again"),
+            item_error("folder", 20, "source folder delete failed"),
+        ];
+        let file_map = HashMap::from([(10, vec![110, 111]), (11, vec![112])]);
+        let folder_map = HashMap::from([(20, vec![220, 221]), (21, vec![222])]);
+
+        let (mut file_ids, mut folder_ids) =
+            destination_cleanup_targets(&deletion_errors, &file_map, &folder_map);
+        file_ids.sort_unstable();
+        folder_ids.sort_unstable();
+
+        assert_eq!(file_ids, vec![110, 111]);
+        assert_eq!(folder_ids, vec![220, 221]);
+    }
+
+    #[test]
+    fn cleanup_diagnostics_preserve_original_deletion_result_counts_and_errors() {
+        let mut result = BatchResult::new();
+        result.record_success();
+        result.record_failure("file", 10, "source file delete failed".to_string());
+        let mut cleanup = BatchResult::new();
+        cleanup.record_failure("file", 110, "destination file is locked".to_string());
+
+        append_destination_cleanup_diagnostics(&mut result, &[110], &[], Ok(cleanup));
+
+        assert_eq!(result.succeeded, 1);
+        assert_eq!(result.failed, 1);
+        assert_eq!(result.errors.len(), 2);
+        assert_eq!(result.errors[0].entity_id, 10);
+        assert_eq!(result.errors[0].error, "source file delete failed");
+        assert_eq!(result.errors[1].entity_id, 110);
+        assert!(
+            result.errors[1]
+                .error
+                .contains("destination cleanup failed")
+        );
+        assert!(
+            result.errors[1]
+                .error
+                .contains("destination copy may remain")
+        );
+    }
+
+    #[test]
+    fn cleanup_diagnostics_report_systemic_cleanup_failures_for_every_target() {
+        let mut result = BatchResult::new();
+
+        append_destination_cleanup_diagnostics(
+            &mut result,
+            &[110],
+            &[220],
+            Err("cleanup transaction failed".to_string()),
+        );
+
+        assert_eq!(result.succeeded, 0);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.errors.len(), 2);
+        assert!(result.errors.iter().all(|error| {
+            error.error.contains("destination copy may remain")
+                && error.error.contains("destination cleanup failed")
+        }));
+    }
 }

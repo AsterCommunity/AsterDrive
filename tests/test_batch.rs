@@ -1821,6 +1821,15 @@ async fn test_workspace_transfer_move_rejects_locked_source_without_copying() {
     let (token, _) = register_and_login!(app);
     let team_id = create_team!(app, token, "Locked Move Team");
     let file_id = upload_personal_file!(app, token, None::<i64>, "locked-move.txt", "locked body");
+    let unlocked_file_id = upload_personal_file!(
+        app,
+        token,
+        None::<i64>,
+        "unlocked-move.txt",
+        "unlocked body"
+    );
+    let unlocked_folder_id =
+        create_personal_folder!(app, token, "Unlocked Move Folder", None::<i64>);
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/files/{file_id}/lock"))
@@ -1836,21 +1845,40 @@ async fn test_workspace_transfer_move_rejects_locked_source_without_copying() {
         token,
         serde_json::json!({
             "source_workspace": { "kind": "personal" },
-            "file_ids": [file_id],
-            "folder_ids": [],
+            "file_ids": [file_id, unlocked_file_id],
+            "folder_ids": [unlocked_folder_id],
             "destination_workspace": { "kind": "team", "team_id": team_id },
             "target_folder_id": null
         })
     );
     assert_eq!(status, 200);
     assert_eq!(body["data"]["succeeded"], 0);
-    assert_eq!(body["data"]["failed"], 1);
-    assert_eq!(body["data"]["errors"][0]["entity_id"], file_id);
+    assert_eq!(body["data"]["failed"], 3);
+    let errors = body["data"]["errors"].as_array().unwrap();
+    assert_eq!(errors.len(), 3);
+    assert_eq!(errors[0]["entity_type"], "file");
+    assert_eq!(errors[0]["entity_id"], file_id);
     assert!(
-        body["data"]["errors"][0]["error"]
+        errors[0]["error"]
             .as_str()
             .unwrap()
-            .contains("locked")
+            .contains("file is locked")
+    );
+    assert_eq!(errors[1]["entity_type"], "file");
+    assert_eq!(errors[1]["entity_id"], unlocked_file_id);
+    assert!(
+        errors[1]["error"]
+            .as_str()
+            .unwrap()
+            .contains("selection contains a locked resource")
+    );
+    assert_eq!(errors[2]["entity_type"], "folder");
+    assert_eq!(errors[2]["entity_id"], unlocked_folder_id);
+    assert!(
+        errors[2]["error"]
+            .as_str()
+            .unwrap()
+            .contains("selection contains a locked resource")
     );
 
     let req = test::TestRequest::get()
@@ -1860,7 +1888,31 @@ async fn test_workspace_transfer_move_rejects_locked_source_without_copying() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["files"][0]["id"], file_id);
+    let source_file_ids: Vec<i64> = body["data"]["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|file| file["id"].as_i64().unwrap())
+        .collect();
+    assert!(source_file_ids.contains(&file_id));
+    assert!(source_file_ids.contains(&unlocked_file_id));
+    assert!(
+        body["data"]["folders"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|folder| folder["id"] == unlocked_folder_id)
+    );
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/teams/{team_id}/folders"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["data"]["files"].as_array().unwrap().is_empty());
+    assert!(body["data"]["folders"].as_array().unwrap().is_empty());
 }
 
 #[actix_web::test]

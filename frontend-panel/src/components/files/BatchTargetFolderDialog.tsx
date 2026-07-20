@@ -470,13 +470,11 @@ export function BatchTargetFolderDialog({
 										breadcrumb[breadcrumb.length - 1]?.name ?? t("files:root"),
 								})}
 							</div>
-							{mode === "copy" && (
-								<div>
-									{t("files:batch_target_current_workspace", {
-										name: targetWorkspaceLabel,
-									})}
-								</div>
-							)}
+							<div>
+								{t("files:batch_target_current_workspace", {
+									name: targetWorkspaceLabel,
+								})}
+							</div>
 							{validationMessage && (
 								<div className="text-destructive">{validationMessage}</div>
 							)}

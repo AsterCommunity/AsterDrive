@@ -131,4 +131,32 @@ describe("clipboard copy and move dispatch", () => {
 		expect(mockState.batchMove).not.toHaveBeenCalled();
 		expect(mockState.copyFile).not.toHaveBeenCalled();
 	});
+
+	it("uses the single-folder move endpoint for one cut folder", async () => {
+		const { slice } = createClipboardState({
+			fileIds: [],
+			folderIds: [2],
+			mode: "cut",
+		});
+
+		await slice.clipboardPaste();
+
+		expect(mockState.moveFolder).toHaveBeenCalledWith(2, 9);
+		expect(mockState.batchMove).not.toHaveBeenCalled();
+		expect(mockState.moveFile).not.toHaveBeenCalled();
+	});
+
+	it("uses batch move for multiple cut resources", async () => {
+		const { slice } = createClipboardState({
+			fileIds: [1],
+			folderIds: [2],
+			mode: "cut",
+		});
+
+		await slice.clipboardPaste();
+
+		expect(mockState.batchMove).toHaveBeenCalledWith([1], [2], 9);
+		expect(mockState.moveFile).not.toHaveBeenCalled();
+		expect(mockState.moveFolder).not.toHaveBeenCalled();
+	});
 });

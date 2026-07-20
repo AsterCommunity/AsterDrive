@@ -216,29 +216,44 @@ pub(crate) async fn batch_move_between_scopes_with_audit(
     let selection =
         load_normalized_selection_in_scope(state, source_scope, file_ids, folder_ids).await?;
     let mut preflight = BatchResult::new();
-    for id in selection.file_ids {
-        if selection
+    let has_locked_resource = file_ids.iter().any(|id| {
+        selection
             .file_map
-            .get(&id)
+            .get(id)
             .is_some_and(|file| file.is_locked)
-        {
-            preflight.record_failure(
-                "file",
-                id,
-                AsterError::resource_locked("file is locked").to_string(),
-            );
-        }
-    }
-    for id in selection.folder_ids {
-        if selection
+    }) || folder_ids.iter().any(|id| {
+        selection
             .folder_map
-            .get(&id)
+            .get(id)
             .is_some_and(|folder| folder.is_locked)
-        {
+    });
+    if has_locked_resource {
+        for &id in file_ids {
+            let detail = if selection
+                .file_map
+                .get(&id)
+                .is_some_and(|file| file.is_locked)
+            {
+                "file is locked"
+            } else {
+                "move aborted because the selection contains a locked resource"
+            };
+            preflight.record_failure("file", id, AsterError::resource_locked(detail).to_string());
+        }
+        for &id in folder_ids {
+            let detail = if selection
+                .folder_map
+                .get(&id)
+                .is_some_and(|folder| folder.is_locked)
+            {
+                "folder is locked"
+            } else {
+                "move aborted because the selection contains a locked resource"
+            };
             preflight.record_failure(
                 "folder",
                 id,
-                AsterError::resource_locked("folder is locked").to_string(),
+                AsterError::resource_locked(detail).to_string(),
             );
         }
     }

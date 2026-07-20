@@ -405,6 +405,7 @@ describe("BatchTargetFolderDialog", () => {
 
 		await screen.findByText("empty");
 		expect(screen.getByLabelText("target-workspace")).toBeInTheDocument();
+		expect(screen.getByText("workspace:My Drive")).toBeInTheDocument();
 		expect(mockState.ensureTeamsLoaded).toHaveBeenCalledWith(42);
 	});
 
