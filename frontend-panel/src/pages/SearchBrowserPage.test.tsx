@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SearchBrowserPage from "@/pages/SearchBrowserPage";
+import { useDownloadStore } from "@/stores/downloadStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -193,6 +195,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		currentFolderActions,
 		fileBrowserContextValue,
 		hasMoreFiles,
+		bottomOverlayOffset,
 	}: {
 		currentFolderActions?: "full" | "refresh-only";
 		fileBrowserContextValue: {
@@ -205,12 +208,14 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 			onMove?: unknown;
 		};
 		hasMoreFiles: boolean;
+		bottomOverlayOffset?: string;
 	}) => (
 		<div
 			data-testid="workspace"
 			data-current-folder-actions={currentFolderActions ?? "full"}
 			data-copy={String(Boolean(fileBrowserContextValue.onCopy))}
 			data-has-more={String(hasMoreFiles)}
+			data-bottom-overlay={bottomOverlayOffset ?? "none"}
 			data-location={String(Boolean(fileBrowserContextValue.onGoToLocation))}
 			data-move={String(Boolean(fileBrowserContextValue.onMove))}
 		>
@@ -334,6 +339,11 @@ describe("SearchBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
+		useDownloadStore.setState({ tasks: [] });
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
 	});
 
 	it("loads search results through the file-browser surface", async () => {
@@ -352,6 +362,10 @@ describe("SearchBrowserPage", () => {
 
 		expect(await screen.findByText("report.txt")).toBeInTheDocument();
 		expect(screen.getByText("Reports")).toBeInTheDocument();
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-bottom-overlay",
+			"selection-compact",
+		);
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-current-folder-actions",
 			"refresh-only",

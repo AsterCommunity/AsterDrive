@@ -7,18 +7,17 @@ import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Icon } from "@/components/ui/icon";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
 import { writeTextToClipboard } from "@/lib/clipboard";
 import {
-	type BottomOverlayOffset,
 	getBottomOverlayPaddingClass,
 	PAGE_SECTION_PADDING_CLASS,
 } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 import { shareService } from "@/services/shareService";
-import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { BatchResult, MyShareInfo } from "@/types/api";
 import { MySharesContent } from "./my-shares/MySharesContent";
 import { MySharesSelectionBar } from "./my-shares/MySharesSelectionBar";
@@ -37,9 +36,6 @@ function openShareLink(share: MyShareInfo) {
 export default function MySharesPage() {
 	const { t } = useTranslation(["core", "share", "errors"]);
 	usePageTitle(t("share:my_shares_title"));
-	const uploadPanelPresence = useUploadAreaControlsStore(
-		(state) => state.uploadPanelPresence,
-	);
 	const {
 		clearSelection,
 		editTarget,
@@ -120,13 +116,7 @@ export default function MySharesPage() {
 	const allSelected = shares.length > 0 && selectedCount === shares.length;
 	const singleDeleteTarget =
 		deleteTargets && deleteTargets.length === 1 ? deleteTargets[0] : null;
-	const bottomOverlayOffset: BottomOverlayOffset = uploadPanelPresence.open
-		? "expanded"
-		: uploadPanelPresence.visible
-			? "upload-compact"
-			: selectedCount > 0
-				? "selection-compact"
-				: "none";
+	const bottomOverlayOffset = useBottomOverlayOffset(selectedCount > 0);
 
 	const selectAll = useCallback(() => {
 		selectShareIds(shares.map((share) => share.id));

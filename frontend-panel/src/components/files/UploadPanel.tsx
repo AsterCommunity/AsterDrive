@@ -43,6 +43,7 @@ export interface UploadTaskView {
 }
 
 interface UploadPanelProps {
+	embedded?: boolean;
 	open: boolean;
 	onToggle: () => void;
 	title: string;
@@ -103,6 +104,7 @@ function taskRowKey(task: UploadTaskView) {
 }
 
 export function UploadPanel({
+	embedded = false,
 	open,
 	onToggle,
 	title,
@@ -205,7 +207,14 @@ export function UploadPanel({
 	};
 
 	return (
-		<div className="fixed right-4 bottom-4 z-(--z-fixed) w-[28rem] max-w-[calc(100vw-2rem)]">
+		<div
+			className={cn(
+				"w-[28rem] max-w-full",
+				embedded
+					? "pointer-events-auto"
+					: "fixed right-4 bottom-4 z-(--z-fixed) max-w-[calc(100vw-2rem)]",
+			)}
+		>
 			<Card
 				size="sm"
 				className="gap-0 overflow-hidden bg-card/95 py-0 shadow-none ring-1 ring-border/60 backdrop-blur-sm transition-[border-color,box-shadow] data-[size=sm]:gap-0 data-[size=sm]:py-0 dark:bg-card/80 dark:ring-border/70"

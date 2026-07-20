@@ -147,6 +147,26 @@ describe("fileActionRegistry", () => {
 		});
 	});
 
+	it("labels multi-selection downloads as downloads instead of forcing ZIP semantics", () => {
+		const onDownload = vi.fn();
+		const actions = resolveFileActions(
+			BUILTIN_FILE_SELECTION_ACTION_DESCRIPTORS,
+			context({
+				downloadAction: {
+					kind: "selection",
+					onClick: onDownload,
+				},
+				selectionCount: 3,
+			}),
+		);
+
+		expect(actions[0]).toMatchObject({
+			icon: "Download",
+			labelKey: "download",
+			onClick: onDownload,
+		});
+	});
+
 	it("supports plugin descriptors without enabling unavailable actions", () => {
 		const runPluginAction = vi.fn();
 		const descriptors: FileActionDescriptor[] = [

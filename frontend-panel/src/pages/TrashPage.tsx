@@ -16,21 +16,17 @@ import { ItemCheckbox } from "@/components/ui/item-checkbox";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { STORAGE_KEYS } from "@/config/app";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { useConfirmDialog } from "@/hooks/useConfirmDialog";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { usePendingAction } from "@/hooks/usePendingAction";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
-import {
-	type BottomOverlayOffset,
-	FOLDER_LIMIT,
-	getBottomOverlayPaddingClass,
-} from "@/lib/constants";
+import { FOLDER_LIMIT, getBottomOverlayPaddingClass } from "@/lib/constants";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import { cn } from "@/lib/utils";
 import { trashService } from "@/services/trashService";
 import { useAuthStore } from "@/stores/authStore";
-import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { TrashContents } from "@/types/api";
 import type { TrashItem } from "@/types/api-helpers";
 
@@ -79,9 +75,6 @@ export default function TrashPage() {
 	const { t } = useTranslation(["core", "files", "admin", "tasks"]);
 	usePageTitle(t("core:trash"));
 	const refreshUser = useAuthStore((s) => s.refreshUser);
-	const uploadPanelPresence = useUploadAreaControlsStore(
-		(s) => s.uploadPanelPresence,
-	);
 	const [contents, setContents] = useState<TrashContents>({
 		files: [],
 		folders: [],
@@ -115,13 +108,7 @@ export default function TrashPage() {
 	const pendingKeys = pendingState?.keys ?? new Set<string>();
 	const pendingOperation = pendingState?.operation ?? null;
 	const isBusy = pendingState !== null || purgeAllPending;
-	const bottomOverlayOffset: BottomOverlayOffset = uploadPanelPresence.open
-		? "expanded"
-		: uploadPanelPresence.visible
-			? "upload-compact"
-			: selectionCount > 0
-				? "selection-compact"
-				: "none";
+	const bottomOverlayOffset = useBottomOverlayOffset(selectionCount > 0);
 	const bottomOverlayPadding =
 		getBottomOverlayPaddingClass(bottomOverlayOffset);
 

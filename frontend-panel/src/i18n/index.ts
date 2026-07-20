@@ -79,6 +79,7 @@ const SPLIT_NAMESPACE_PARTS: Partial<
 	core: ["common", "appearance", "workspace", "browser", "date-time", "status"],
 	files: [
 		"actions",
+		"downloads",
 		"versions",
 		"upload",
 		"listing",

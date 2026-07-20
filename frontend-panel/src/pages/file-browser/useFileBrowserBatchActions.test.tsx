@@ -481,7 +481,7 @@ describe("useFileBrowserBatchActions", () => {
 			/>,
 		);
 
-		expect(screen.getByText("download:archive")).toBeInTheDocument();
+		expect(screen.getByText("download:selection")).toBeInTheDocument();
 		expect(screen.queryByText("copy-selected")).not.toBeInTheDocument();
 		expect(screen.queryByText("move-selected")).not.toBeInTheDocument();
 		expect(screen.queryByText("manage-tags")).not.toBeInTheDocument();
@@ -513,7 +513,7 @@ describe("useFileBrowserBatchActions", () => {
 			<Harness onArchiveDownload={onArchiveDownload} onDownload={onDownload} />,
 		);
 
-		fireEvent.click(screen.getByText("download:archive"));
+		fireEvent.click(screen.getByText("download:selection"));
 
 		await waitFor(() => {
 			expect(onArchiveDownload).toHaveBeenCalledWith([1, 2], [5]);
@@ -537,7 +537,7 @@ describe("useFileBrowserBatchActions", () => {
 			/>,
 		);
 
-		fireEvent.click(screen.getByText("download:archive"));
+		fireEvent.click(screen.getByText("download:selection"));
 		await waitFor(() => {
 			expect(mockState.handleApiError).toHaveBeenCalledWith(downloadError);
 		});

@@ -17,9 +17,9 @@ import { TagLibraryManagerDialog } from "@/components/files/TagLibraryManagerDia
 import { TagManagerDialog } from "@/components/files/TagManagerDialog";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { usePageTitle } from "@/hooks/usePageTitle";
 import { useSelectionShortcuts } from "@/hooks/useSelectionShortcuts";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { subscribeStorageChange } from "@/lib/storageChangeBus";
 import {
 	beginLocalStorageDeleteMutation,
@@ -41,9 +41,9 @@ import type {
 } from "@/pages/file-browser/types";
 import { useFileBrowserBatchActions } from "@/pages/file-browser/useFileBrowserBatchActions";
 import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
-import { batchService } from "@/services/batchService";
 import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
+import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
@@ -285,16 +285,29 @@ export default function CategoryBrowserPage() {
 		scrollViewport,
 	]);
 
-	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
-			handleApiError,
-		);
-	}, []);
+	const handleDownload = useCallback(
+		(fileId: number, fileName: string) => {
+			const file = files.find((entry) => entry.id === fileId);
+			requestDownloadSelection({
+				workspace,
+				files: [{ id: fileId, name: fileName, size: file?.size }],
+				folders: [],
+			});
+		},
+		[files, workspace],
+	);
 
 	const handleArchiveDownload = useCallback(
-		(fileIds: number[], folderIds: number[]) =>
-			batchService.streamArchiveDownload(fileIds, folderIds),
-		[],
+		(fileIds: number[], _folderIds: number[]) => {
+			requestDownloadSelection({
+				workspace,
+				files: files
+					.filter((file) => fileIds.includes(file.id))
+					.map((file) => ({ id: file.id, name: file.name, size: file.size })),
+				folders: [],
+			});
+		},
+		[files, workspace],
 	);
 
 	const { dialogs: batchActionDialogs, selectionToolbar } =
@@ -463,6 +476,7 @@ export default function CategoryBrowserPage() {
 				: {},
 		[files, previewState, thumbnailSupport],
 	);
+	const bottomOverlayOffset = useBottomOverlayOffset(selectionToolbar !== null);
 
 	if (!category) {
 		return <Navigate to={workspaceRootPath(workspace)} replace />;
@@ -499,6 +513,7 @@ export default function CategoryBrowserPage() {
 				onTriggerFolderUpload={() => undefined}
 			/>
 			<FileBrowserWorkspace
+				bottomOverlayOffset={bottomOverlayOffset}
 				breadcrumb={[{ id: null, name: categoryLabel }]}
 				contentDragOver={false}
 				currentFolderActions="refresh-only"

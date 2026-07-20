@@ -1,6 +1,8 @@
 import { useLayoutEffect, useMemo } from "react";
 import { Outlet } from "react-router-dom";
+import { DownloadCenter } from "@/components/files/DownloadCenter";
 import { UploadAreaHost } from "@/components/files/UploadAreaHost";
+import { BottomRightActivityShell } from "@/components/layout/BottomRightActivityShell";
 import {
 	PERSONAL_WORKSPACE,
 	type Workspace,
@@ -32,9 +34,10 @@ export function WorkspaceOutlet({ workspace }: { workspace: Workspace }) {
 	}, [stableWorkspace]);
 
 	return (
-		<>
+		<BottomRightActivityShell>
 			<UploadAreaHost workspace={stableWorkspace} />
 			<Outlet />
-		</>
+			<DownloadCenter />
+		</BottomRightActivityShell>
 	);
 }

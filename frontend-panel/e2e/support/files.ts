@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { expect, type Locator, type Page } from "@playwright/test";
 import type { TestFile } from "./fixtures";
@@ -349,6 +349,10 @@ export async function expectDownloadMatches(
 	const downloadPromise = page.waitForEvent("download");
 	await openItemContextMenu(page, fileName);
 	await page.getByRole("menuitem", { name: "Download" }).click();
+	await page
+		.getByRole("dialog")
+		.getByRole("button", { name: "Use browser download" })
+		.click();
 
 	const download = await downloadPromise;
 	const targetPath = path.join(outputDir, download.suggestedFilename());
@@ -356,6 +360,77 @@ export async function expectDownloadMatches(
 
 	const actual = await readFile(targetPath);
 	expect(actual.equals(expected)).toBe(true);
+}
+
+export async function expectProxyDownloadTracked(
+	page: Page,
+	fileName: string,
+	expected: Buffer,
+	outputDir: string,
+) {
+	await page.evaluate(() => {
+		Object.defineProperty(window, "showSaveFilePicker", {
+			configurable: true,
+			value: undefined,
+		});
+	});
+	const downloadPromise = page.waitForEvent("download");
+	await openItemContextMenu(page, fileName);
+	await page.getByRole("menuitem", { name: "Download" }).click();
+	await page
+		.getByRole("dialog")
+		.getByRole("button", { name: "Proxy file download" })
+		.click();
+
+	const download = await downloadPromise;
+	const targetPath = path.join(
+		outputDir,
+		`proxy-${download.suggestedFilename()}`,
+	);
+	await download.saveAs(targetPath);
+	const actual = await readFile(targetPath);
+	expect(actual.equals(expected)).toBe(true);
+
+	const shell = page.getByTestId("bottom-right-activity-shell");
+	await expect(shell.getByRole("button", { name: "Downloads" })).toBeVisible();
+	await expect(page.getByRole("dialog", { name: "Downloads" })).toHaveCount(0);
+	await expect(shell.locator(":scope > *")).toHaveCount(2);
+	const shellHeight = await shell.evaluate(
+		(element) => element.getBoundingClientRect().height,
+	);
+	const measuredHeight = await page.evaluate(() =>
+		Number.parseFloat(
+			getComputedStyle(document.documentElement).getPropertyValue(
+				"--bottom-right-activity-shell-height",
+			),
+		),
+	);
+	expect(measuredHeight).toBeGreaterThanOrEqual(shellHeight - 1);
+	const viewportPadding = await fileDropZone(page)
+		.locator('[data-slot="scroll-area-viewport"]')
+		.first()
+		.evaluate((element) =>
+			Number.parseFloat(getComputedStyle(element).paddingBottom),
+		);
+	expect(viewportPadding).toBeGreaterThan(shellHeight);
+}
+
+export async function expectBrowserArchiveDownload(
+	page: Page,
+	outputDir: string,
+) {
+	const downloadPromise = page.waitForEvent("download");
+	await page.getByRole("button", { exact: true, name: "Download" }).click();
+	await page
+		.getByRole("dialog")
+		.getByRole("button", { name: "Use browser ZIP download" })
+		.click();
+
+	const download = await downloadPromise;
+	expect(download.suggestedFilename().toLowerCase()).toMatch(/\.zip$/);
+	const targetPath = path.join(outputDir, download.suggestedFilename());
+	await download.saveAs(targetPath);
+	expect((await stat(targetPath)).size).toBeGreaterThan(0);
 }
 
 export async function createPageShare(

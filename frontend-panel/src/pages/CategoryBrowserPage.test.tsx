@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import CategoryBrowserPage from "@/pages/CategoryBrowserPage";
+import { useDownloadStore } from "@/stores/downloadStore";
+import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { FileListItem } from "@/types/api";
 
 const mockState = vi.hoisted(() => ({
@@ -205,6 +207,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		infoPanelOpen,
 		infoTarget,
 		loading,
+		bottomOverlayOffset,
 		onInfoPanelOpenChange,
 		suppressLoadMore,
 	}: {
@@ -223,6 +226,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 		infoPanelOpen: boolean;
 		infoTarget: { file?: FileListItem } | null;
 		loading: boolean;
+		bottomOverlayOffset?: string;
 		onInfoPanelOpenChange: (open: boolean) => void;
 		suppressLoadMore?: boolean;
 	}) => (
@@ -233,6 +237,7 @@ vi.mock("@/pages/file-browser/FileBrowserWorkspace", () => ({
 			data-empty-title={emptyTitle ?? ""}
 			data-has-more={String(hasMoreFiles)}
 			data-loading={String(loading)}
+			data-bottom-overlay={bottomOverlayOffset ?? "none"}
 			data-suppress-load-more={String(Boolean(suppressLoadMore))}
 			data-copy={String(Boolean(fileBrowserContextValue.onCopy))}
 			data-info-open={String(infoPanelOpen)}
@@ -337,6 +342,11 @@ describe("CategoryBrowserPage", () => {
 		mockState.selectItems.mockReset();
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
+		useDownloadStore.setState({ tasks: [] });
+		useUploadAreaControlsStore.getState().setUploadPanelPresence({
+			open: false,
+			visible: false,
+		});
 	});
 
 	it("loads image category files without copy or move actions", async () => {
@@ -357,6 +367,10 @@ describe("CategoryBrowserPage", () => {
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-selection",
 			"true",
+		);
+		expect(screen.getByTestId("workspace")).toHaveAttribute(
+			"data-bottom-overlay",
+			"selection-compact",
 		);
 		expect(screen.getByTestId("toolbar")).toHaveAttribute(
 			"data-current-folder-actions",

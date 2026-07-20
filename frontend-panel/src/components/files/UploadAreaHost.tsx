@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef } from "react";
 import { useTranslation } from "react-i18next";
 import { UploadPanel } from "@/components/files/UploadPanel";
 import { useUploadAreaManager } from "@/components/files/useUploadAreaManager";
+import { BottomRightActivityPortal } from "@/components/layout/BottomRightActivityShell";
 import type { Workspace } from "@/lib/workspace";
 import { useAuthStore } from "@/stores/authStore";
 import { useFileStore } from "@/stores/fileStore";
@@ -158,27 +159,30 @@ export function UploadAreaHost({ workspace }: UploadAreaHostProps) {
 				onChange={handleResumeFileChange}
 			/>
 			{showUploadPanel && (
-				<UploadPanel
-					open={uploadPanelOpen}
-					onToggle={() => setUploadPanelOpen((prev) => !prev)}
-					title={t("files:upload")}
-					summary={uploadSummary}
-					tasks={uploadTasks}
-					emptyText={t("files:upload_empty")}
-					totalCount={totalCount}
-					successCount={successCount}
-					failedCount={failedCount}
-					activeCount={activeCount}
-					overallProgress={overallProgress}
-					concurrency={uploadConcurrency}
-					autoClearCompleted={uploadAutoClearCompleted}
-					onConcurrencyChange={setUploadConcurrency}
-					onAutoClearCompletedChange={setUploadAutoClearCompleted}
-					onRetryFailed={retryFailedTasks}
-					retryFailedLabel={t("files:upload_retry")}
-					onClearCompleted={clearCompletedTasks}
-					clearCompletedLabel={t("files:upload_clear_completed")}
-				/>
+				<BottomRightActivityPortal>
+					<UploadPanel
+						embedded
+						open={uploadPanelOpen}
+						onToggle={() => setUploadPanelOpen((prev) => !prev)}
+						title={t("files:upload")}
+						summary={uploadSummary}
+						tasks={uploadTasks}
+						emptyText={t("files:upload_empty")}
+						totalCount={totalCount}
+						successCount={successCount}
+						failedCount={failedCount}
+						activeCount={activeCount}
+						overallProgress={overallProgress}
+						concurrency={uploadConcurrency}
+						autoClearCompleted={uploadAutoClearCompleted}
+						onConcurrencyChange={setUploadConcurrency}
+						onAutoClearCompletedChange={setUploadAutoClearCompleted}
+						onRetryFailed={retryFailedTasks}
+						retryFailedLabel={t("files:upload_retry")}
+						onClearCompleted={clearCompletedTasks}
+						clearCompletedLabel={t("files:upload_clear_completed")}
+					/>
+				</BottomRightActivityPortal>
 			)}
 		</>
 	);

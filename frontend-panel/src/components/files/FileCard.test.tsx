@@ -143,7 +143,9 @@ describe("FileCard", () => {
 			"select-none",
 		);
 		expect(screen.getByTestId("icon")).toHaveAttribute("data-name", "Folder");
-		expect(screen.getByText("Docs")).toBeInTheDocument();
+		const folderName = screen.getByText("Docs");
+		expect(folderName).toBeInTheDocument();
+		expect(folderName.parentElement).toHaveClass("text-center");
 
 		fireEvent.click(card);
 		fireEvent.keyDown(card, { key: "Enter" });
@@ -208,6 +210,9 @@ describe("FileCard", () => {
 		);
 		expect(container.querySelector("[data-drag-preview-media]")).toHaveClass(
 			"overflow-hidden",
+		);
+		expect(screen.getByText("report.pdf").parentElement).not.toHaveClass(
+			"text-center",
 		);
 	});
 

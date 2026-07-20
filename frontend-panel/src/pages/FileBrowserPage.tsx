@@ -12,9 +12,9 @@ import {
 } from "@/components/files/UploadArea";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { handleApiError } from "@/hooks/useApiError";
+import { useBottomOverlayOffset } from "@/hooks/useBottomOverlayOffset";
 import { useKeyboardShortcuts } from "@/hooks/useKeyboardShortcuts";
 import { usePageTitle } from "@/hooks/usePageTitle";
-import { startAuthenticatedDownload } from "@/lib/authenticatedDownload";
 import { formatBatchToast } from "@/lib/formatBatchToast";
 import { runWhenIdle } from "@/lib/idleTask";
 import { workspaceKey } from "@/lib/workspace";
@@ -39,10 +39,10 @@ import {
 } from "@/services/batchService";
 import { createFileService, fileService } from "@/services/fileService";
 import { useAuthStore } from "@/stores/authStore";
+import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
-import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
 import type { FolderListItem } from "@/types/api";
 
@@ -132,9 +132,6 @@ export default function FileBrowserPage() {
 	const setSortBy = useFileStore((s) => s.setSortBy);
 	const setSortOrder = useFileStore((s) => s.setSortOrder);
 	const hasMoreFiles = useFileStore((s) => s.hasMoreFiles());
-	const uploadPanelPresence = useUploadAreaControlsStore(
-		(s) => s.uploadPanelPresence,
-	);
 	const isAdmin = useAuthStore((s) => s.user?.role === "admin");
 
 	const displayFolders = folders;
@@ -252,11 +249,17 @@ export default function FileBrowserPage() {
 		t,
 	});
 
-	const handleDownload = useCallback((fileId: number, _fileName: string) => {
-		void startAuthenticatedDownload(fileService.downloadPath(fileId)).catch(
-			handleApiError,
-		);
-	}, []);
+	const handleDownload = useCallback(
+		(fileId: number, fileName: string) => {
+			const file = displayFiles.find((entry) => entry.id === fileId);
+			requestDownloadSelection({
+				workspace: useWorkspaceStore.getState().workspace,
+				files: [{ id: fileId, name: fileName, size: file?.size }],
+				folders: [],
+			});
+		},
+		[displayFiles],
+	);
 
 	const handleToggleLock = useCallback(
 		async (type: "file" | "folder", id: number, locked: boolean) => {
@@ -405,13 +408,7 @@ export default function FileBrowserPage() {
 
 	const isEmpty =
 		!loading && displayFolders.length === 0 && displayFiles.length === 0;
-	const bottomOverlayOffset = uploadPanelPresence.open
-		? "expanded"
-		: uploadPanelPresence.visible
-			? "upload-compact"
-			: selectionToolbar
-				? "selection-compact"
-				: "none";
+	const bottomOverlayOffset = useBottomOverlayOffset(selectionToolbar !== null);
 	const handleUploadAreaReady = useCallback(
 		(instance: UploadAreaHandle | null) => {
 			uploadAreaRef.current = instance;
