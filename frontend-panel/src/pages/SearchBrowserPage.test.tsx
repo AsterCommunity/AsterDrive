@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import SearchBrowserPage from "@/pages/SearchBrowserPage";
 import { useDownloadStore } from "@/stores/downloadStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { useUploadAreaControlsStore } from "@/stores/uploadAreaControlsStore";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
@@ -340,6 +341,10 @@ describe("SearchBrowserPage", () => {
 		mockState.streamArchiveDownload.mockReset();
 		mockState.workspace = { kind: "personal" };
 		useDownloadStore.setState({ tasks: [] });
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
 		useUploadAreaControlsStore.getState().setUploadPanelPresence({
 			open: false,
 			visible: false,

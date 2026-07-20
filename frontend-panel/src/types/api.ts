@@ -491,6 +491,8 @@ export type PublicMediaDataSupportMatch =
 	components["schemas"]["PublicMediaDataSupportMatch"];
 export type PublicImagePreviewPreference =
 	components["schemas"]["PublicImagePreviewPreference"];
+export type PublicFrontendDownloadConfig =
+	components["schemas"]["PublicFrontendDownloadConfig"];
 export type PublicFrontendMediaConfig =
 	components["schemas"]["PublicFrontendMediaConfig"];
 export type PublicFrontendConfig =

@@ -22,6 +22,8 @@ const PUBLIC_BRANDING_CONFIG_KEYS = new Set([
 
 const FRONTEND_CONFIG_KEYS = new Set([
 	...PUBLIC_BRANDING_CONFIG_KEYS,
+	"archive_download_user_enabled",
+	"archive_download_share_enabled",
 	"frontend_image_preview_preference",
 ]);
 

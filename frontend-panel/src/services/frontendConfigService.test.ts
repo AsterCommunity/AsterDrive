@@ -25,10 +25,14 @@ describe("frontendConfigService", () => {
 			wordmark_dark_url: "/wordmark-dark.svg",
 			wordmark_light_url: "/wordmark-light.svg",
 		},
+		downloads: {
+			archive_download_share_enabled: true,
+			archive_download_user_enabled: true,
+		},
 		media: {
 			image_preview_preference: "preview_first",
 		},
-		version: 1,
+		version: 2,
 	};
 
 	it("loads public frontend config from the public endpoint", async () => {
@@ -45,6 +49,16 @@ describe("frontendConfigService", () => {
 
 		await expect(frontendConfigService.get()).rejects.toThrow("offline");
 		expect(apiGet).toHaveBeenCalledTimes(1);
+	});
+
+	it("cache-busts forced public config refreshes", async () => {
+		apiGet.mockResolvedValue(frontendConfig);
+
+		await frontendConfigService.get({ cacheBust: 1234 });
+
+		expect(apiGet).toHaveBeenCalledWith("/public/frontend-config", {
+			params: { _: 1234 },
+		});
 	});
 
 	it("propagates non-success http responses as client rejections", async () => {

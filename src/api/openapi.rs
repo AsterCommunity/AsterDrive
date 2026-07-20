@@ -659,6 +659,7 @@ use utoipa::{Modify, OpenApi};
             crate::services::ops::config::ConfigActionType,
             crate::services::ops::config::PublicBranding,
             crate::services::ops::config::PublicFrontendConfig,
+            crate::services::ops::config::PublicFrontendDownloadConfig,
             crate::services::ops::config::PublicFrontendMediaConfig,
             crate::config::media_processing::PublicExtensionSupport,
             crate::config::media_processing::PublicImagePreviewPreference,

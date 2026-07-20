@@ -14,6 +14,7 @@ import {
 	consumeStorageEventEcho,
 } from "@/lib/storageEventEcho";
 import FileBrowserPage from "@/pages/FileBrowserPage";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 
 const mockState = vi.hoisted(() => ({
 	batchDelete: vi.fn(),
@@ -1270,6 +1271,10 @@ describe("FileBrowserPage", () => {
 		mockState.startAuthenticatedDownload.mockReset();
 		mockState.startAuthenticatedDownload.mockResolvedValue(undefined);
 		mockState.requestDownloadSelection.mockReset();
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
 		mockState.dispatchEvent.mockReset();
 		mockState.fileBrowserContext = null;
 		mockState.folderPolicyPreload.mockReset();

@@ -42,6 +42,7 @@ import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
 import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -234,6 +235,9 @@ export default function SearchBrowserPage() {
 	const previewAppsLoaded = usePreviewAppStore((s) => s.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((s) => s.load);
 	const thumbnailSupport = useThumbnailSupportStore((s) => s.config);
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 	const [
 		{ error, files, folders, loading, loadingMore, totalFiles, totalFolders },
 		dispatchResults,
@@ -412,7 +416,9 @@ export default function SearchBrowserPage() {
 			displayFiles: files,
 			displayFolders: folders,
 			onChanged: () => loadSearch(0, "replace"),
-			onArchiveDownload: handleArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			onDownload: handleDownload,
 		});
 
@@ -563,7 +569,9 @@ export default function SearchBrowserPage() {
 			onFileChooseOpenMethod: (file) => openPreview(file, "picker"),
 			onShare: handleShare,
 			onDownload: handleDownload,
-			onArchiveDownload: (folderId) => handleArchiveDownload([], [folderId]),
+			onArchiveDownload: archiveDownloadEnabled
+				? (folderId) => handleArchiveDownload([], [folderId])
+				: undefined,
 			onArchiveCompress: undefined,
 			onArchiveExtract: undefined,
 			onManageTags: handleManageTags,
@@ -577,6 +585,7 @@ export default function SearchBrowserPage() {
 		}),
 		[
 			browserOpenMode,
+			archiveDownloadEnabled,
 			files,
 			folders,
 			handleArchiveDownload,

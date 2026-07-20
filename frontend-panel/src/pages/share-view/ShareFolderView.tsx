@@ -28,6 +28,7 @@ import { useMediaQuery } from "@/pages/file-browser/useMediaQuery";
 import { shareService } from "@/services/shareService";
 import { useFileStore } from "@/stores/fileStore";
 import type { SortBy, SortOrder } from "@/stores/fileStore/types";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type {
 	FileInfo,
 	FileListItem,
@@ -92,6 +93,9 @@ export function ShareFolderView({
 	const { t } = useTranslation(["core", "share", "files", "errors"]);
 	const clearSelection = useFileStore((state) => state.clearSelection);
 	const selectItems = useFileStore((state) => state.selectItems);
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadShareEnabled,
+	);
 	const handleArchiveDownload = useCallback(
 		(fileIds: number[], folderIds: number[]) =>
 			shareService.streamArchiveDownload(token, fileIds, folderIds),
@@ -102,7 +106,9 @@ export function ShareFolderView({
 			...FILE_BROWSER_BATCH_ACTION_POLICIES.publicShare,
 			displayFiles: folderContents?.files ?? [],
 			displayFolders: folderContents?.folders ?? [],
-			onArchiveDownload: handleArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			onDownload: (fileId) => {
 				const file = folderContents?.files.find((item) => item.id === fileId);
 				if (file) onFileDownload(file);
@@ -162,7 +168,9 @@ export function ShareFolderView({
 					: null,
 				breadcrumbPathIds,
 				getThumbnailPath: (file) => `/s/${token}/files/${file.id}/thumbnail`,
-				onArchiveDownload: (folderId) => handleArchiveDownload([], [folderId]),
+				onArchiveDownload: archiveDownloadEnabled
+					? (folderId) => handleArchiveDownload([], [folderId])
+					: undefined,
 				onFolderOpen: (id, name) => onNavigateToFolder(id, name),
 				onFileClick: onFilePreview,
 				onDownload: (fileId) => {
@@ -174,6 +182,7 @@ export function ShareFolderView({
 				onDelete: noopDelete,
 			};
 		}, [
+			archiveDownloadEnabled,
 			breadcrumbPathIds,
 			folderContents,
 			handleArchiveDownload,

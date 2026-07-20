@@ -6,6 +6,7 @@ import type {
 } from "@/components/files/FileBrowserContext";
 import { ShareFolderView } from "@/pages/share-view/ShareFolderView";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import type {
 	FileListItem,
 	FolderContents,
@@ -314,6 +315,10 @@ describe("ShareFolderView", () => {
 			selectedFileIds: new Set(),
 			selectedFolderIds: new Set(),
 		});
+		useFrontendConfigStore.setState({
+			archiveDownloadShareEnabled: true,
+			isLoaded: true,
+		});
 	});
 
 	afterEach(() => {
@@ -334,6 +339,33 @@ describe("ShareFolderView", () => {
 		expect(
 			screen.queryByText("files:folder_empty_desc"),
 		).not.toBeInTheDocument();
+	});
+
+	it("hides folder and multi-selection archive downloads when disabled", async () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadShareEnabled: false,
+			isLoaded: true,
+		});
+		renderFolderView({
+			breadcrumb: [{ id: null, name: "Shared Root" }],
+			folderContents: createContents([
+				createFile(1, "alpha.txt"),
+				createFile(2, "beta.txt"),
+			]),
+		});
+
+		await screen.findByTestId("file-grid");
+		expect(mockState.capturedContextValues.at(-1)?.onArchiveDownload).toBe(
+			undefined,
+		);
+
+		useFileStore.getState().selectItems([1, 2], []);
+		await waitFor(() => {
+			expect(
+				mockState.capturedContextValues.at(-1)?.batchSelectionActions
+					?.downloadAction,
+			).toBeUndefined();
+		});
 	});
 
 	it("uses the shared navigation toolbar for refresh, sorting, and view changes", () => {

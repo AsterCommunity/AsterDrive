@@ -41,6 +41,7 @@ import { createFileService, fileService } from "@/services/fileService";
 import { useAuthStore } from "@/stores/authStore";
 import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -133,6 +134,9 @@ export default function FileBrowserPage() {
 	const setSortOrder = useFileStore((s) => s.setSortOrder);
 	const hasMoreFiles = useFileStore((s) => s.hasMoreFiles());
 	const isAdmin = useAuthStore((s) => s.user?.role === "admin");
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 
 	const displayFolders = folders;
 	const displayFiles = files;
@@ -297,7 +301,9 @@ export default function FileBrowserPage() {
 			displayFiles,
 			displayFolders,
 			onArchiveCompress: handleBatchArchiveCompress,
-			onArchiveDownload: startArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? startArchiveDownload
+				: undefined,
 			onDownload: handleDownload,
 		});
 
@@ -389,7 +395,9 @@ export default function FileBrowserPage() {
 			fadingFolderIds,
 			selectionToolbar,
 			handleArchiveCompress,
-			handleArchiveDownload,
+			handleArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			handleArchiveExtract,
 			handleCopy,
 			handleDelete,

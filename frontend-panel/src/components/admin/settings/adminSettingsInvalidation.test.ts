@@ -67,11 +67,13 @@ describe("adminSettingsInvalidation", () => {
 		).toEqual(["frontend_config", "preview_apps"]);
 	});
 
-	it("invalidates frontend config for public branding and image preview preferences", () => {
+	it("invalidates frontend config for public UI capability changes", () => {
 		expect(
 			targetsFor([
 				"public_site_url",
 				"auth_allow_user_registration",
+				"archive_download_user_enabled",
+				"archive_download_share_enabled",
 				"frontend_image_preview_preference",
 			]),
 		).toEqual(["frontend_config"]);

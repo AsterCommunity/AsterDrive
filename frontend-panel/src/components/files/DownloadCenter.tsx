@@ -31,6 +31,7 @@ import {
 	type DownloadTask,
 	useDownloadStore,
 } from "@/stores/downloadStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 
 function taskProgress(task: DownloadTask) {
 	if (task.totalBytes && task.totalBytes > 0) {
@@ -226,6 +227,9 @@ function DownloadTaskCard({ task }: { task: DownloadTask }) {
 
 export function DownloadCenter() {
 	const { t } = useTranslation("files");
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 	const pendingSelection = useDownloadStore((state) => state.pendingSelection);
 	const dismissSelection = useDownloadStore((state) => state.dismissSelection);
 	const isPanelOpen = useDownloadStore((state) => state.isPanelOpen);
@@ -256,6 +260,7 @@ export function DownloadCenter() {
 		pendingSelection.folders.length === 0
 			? pendingSelection.files[0]
 			: null;
+	const directoryDownloadSupported = supportsDirectoryDownload();
 
 	return (
 		<>
@@ -359,7 +364,7 @@ export function DownloadCenter() {
 								</span>
 							</Button>
 						) : null}
-						{pendingSelection ? (
+						{pendingSelection && archiveDownloadEnabled ? (
 							<Button
 								type="button"
 								variant="outline"
@@ -380,14 +385,15 @@ export function DownloadCenter() {
 								</span>
 							</Button>
 						) : null}
-						{pendingSelection ? (
+						{pendingSelection &&
+						(directoryDownloadSupported || archiveDownloadEnabled) ? (
 							<Button
 								type="button"
 								variant="outline"
 								className="h-auto justify-start gap-3 p-3 text-left"
 								onClick={() => {
 									dismissSelection();
-									if (supportsDirectoryDownload()) {
+									if (directoryDownloadSupported) {
 										void startDirectoryDownload(pendingSelection);
 									} else {
 										void startProxyArchiveDownload(pendingSelection);
@@ -400,14 +406,14 @@ export function DownloadCenter() {
 										{t("download_to_folder")}
 									</span>
 									<span className="mt-0.5 block text-xs text-muted-foreground">
-										{supportsDirectoryDownload()
+										{directoryDownloadSupported
 											? t("download_to_folder_desc")
 											: t("download_directory_fallback")}
 									</span>
 								</span>
 							</Button>
 						) : null}
-						{pendingSelection && !singleFile ? (
+						{pendingSelection && !singleFile && archiveDownloadEnabled ? (
 							<Button
 								type="button"
 								variant="ghost"

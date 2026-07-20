@@ -50,10 +50,14 @@ const branding = {
 
 const frontendConfig = {
 	branding,
+	downloads: {
+		archive_download_share_enabled: false,
+		archive_download_user_enabled: true,
+	},
 	media: {
 		image_preview_preference: "original_first",
 	},
-	version: 1,
+	version: 2,
 };
 
 const appliedBranding = {
@@ -98,6 +102,12 @@ describe("frontendConfigStore", () => {
 			branding.site_urls,
 		);
 		expect(useFrontendConfigStore.getState().config).toEqual(frontendConfig);
+		expect(useFrontendConfigStore.getState().archiveDownloadShareEnabled).toBe(
+			false,
+		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			true,
+		);
 		expect(useFrontendConfigStore.getState().branding).toEqual(appliedBranding);
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
@@ -182,6 +192,25 @@ describe("frontendConfigStore", () => {
 		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
 	});
 
+	it("drops cached configs without download capabilities", async () => {
+		const { downloads: _downloads, ...configWithoutDownloads } = frontendConfig;
+		localStorage.setItem(
+			"aster-cached-frontend-config:v1",
+			JSON.stringify({
+				config: configWithoutDownloads,
+			}),
+		);
+
+		const { FRONTEND_CONFIG_CACHE_KEY, useFrontendConfigStore } =
+			await loadStore();
+
+		expect(useFrontendConfigStore.getState().config).toBeNull();
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
+		);
+		expect(localStorage.getItem(FRONTEND_CONFIG_CACHE_KEY)).toBeNull();
+	});
+
 	it("drops cached configs with invalid branding shape", async () => {
 		localStorage.setItem(
 			"aster-cached-frontend-config:v1",
@@ -256,6 +285,9 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
 		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
+		);
 		expect(useFrontendConfigStore.getState().isLoaded).toBe(true);
 	});
 
@@ -311,6 +343,12 @@ describe("frontendConfigStore", () => {
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"original_first",
 		);
+		expect(useFrontendConfigStore.getState().archiveDownloadShareEnabled).toBe(
+			false,
+		);
+		expect(useFrontendConfigStore.getState().archiveDownloadUserEnabled).toBe(
+			false,
+		);
 	});
 
 	it("reuses an in-flight frontend config load", async () => {
@@ -353,6 +391,9 @@ describe("frontendConfigStore", () => {
 		await useFrontendConfigStore.getState().load({ force: true });
 
 		expect(mockState.get).toHaveBeenCalledTimes(2);
+		expect(mockState.get.mock.calls[1]?.[0]).toEqual({
+			cacheBust: expect.any(Number),
+		});
 		expect(useFrontendConfigStore.getState().imagePreviewPreference).toBe(
 			"preview_first",
 		);

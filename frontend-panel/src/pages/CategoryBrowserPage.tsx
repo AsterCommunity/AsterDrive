@@ -45,6 +45,7 @@ import { fileService } from "@/services/fileService";
 import { searchService } from "@/services/searchService";
 import { requestDownloadSelection } from "@/stores/downloadStore";
 import { useFileStore } from "@/stores/fileStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 import { usePreviewAppStore } from "@/stores/previewAppStore";
 import { useThumbnailSupportStore } from "@/stores/thumbnailSupportStore";
 import { useWorkspaceStore } from "@/stores/workspaceStore";
@@ -149,6 +150,9 @@ export default function CategoryBrowserPage() {
 	const previewAppsLoaded = usePreviewAppStore((s) => s.isLoaded);
 	const loadPreviewApps = usePreviewAppStore((s) => s.load);
 	const thumbnailSupport = useThumbnailSupportStore((s) => s.config);
+	const archiveDownloadEnabled = useFrontendConfigStore(
+		(state) => state.isLoaded && state.archiveDownloadUserEnabled,
+	);
 	const [{ error, files, loading, loadingMore, totalFiles }, dispatchResults] =
 		useReducer(categoryResultsReducer, CATEGORY_RESULTS_INITIAL_STATE);
 	const [previewState, setPreviewState] =
@@ -316,7 +320,9 @@ export default function CategoryBrowserPage() {
 			displayFiles: files,
 			displayFolders: [],
 			onChanged: () => loadCategory(0, "replace"),
-			onArchiveDownload: handleArchiveDownload,
+			onArchiveDownload: archiveDownloadEnabled
+				? handleArchiveDownload
+				: undefined,
 			onDownload: handleDownload,
 		});
 

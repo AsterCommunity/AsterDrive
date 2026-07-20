@@ -7110,9 +7110,14 @@ export interface components {
         };
         PublicFrontendConfig: {
             branding: components["schemas"]["PublicBranding"];
+            downloads: components["schemas"]["PublicFrontendDownloadConfig"];
             media: components["schemas"]["PublicFrontendMediaConfig"];
             /** Format: int32 */
             version: number;
+        };
+        PublicFrontendDownloadConfig: {
+            archive_download_share_enabled: boolean;
+            archive_download_user_enabled: boolean;
         };
         PublicFrontendMediaConfig: {
             image_preview_preference: components["schemas"]["PublicImagePreviewPreference"];
@@ -19434,6 +19439,7 @@ export interface operations {
                         code: components["schemas"]["ApiErrorCode"];
                         data?: {
                             branding: components["schemas"]["PublicBranding"];
+                            downloads: components["schemas"]["PublicFrontendDownloadConfig"];
                             media: components["schemas"]["PublicFrontendMediaConfig"];
                             /** Format: int32 */
                             version: number;

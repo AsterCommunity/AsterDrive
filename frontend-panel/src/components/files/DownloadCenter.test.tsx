@@ -6,6 +6,7 @@ import {
 	type DownloadTask,
 	useDownloadStore,
 } from "@/stores/downloadStore";
+import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
 
 const mocks = vi.hoisted(() => ({
 	handleApiError: vi.fn(),
@@ -69,6 +70,10 @@ describe("DownloadCenter", () => {
 			pendingSelection: null,
 			tasks: [],
 		});
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: true,
+			isLoaded: true,
+		});
 	});
 
 	it("shows an active blue bordered status bar with progress and completed items", () => {
@@ -131,5 +136,34 @@ describe("DownloadCenter", () => {
 
 		expect(mocks.streamArchiveDownload).toHaveBeenCalledWith([1, 2], [3]);
 		expect(useDownloadStore.getState().pendingSelection).toBeNull();
+	});
+
+	it("hides ZIP download methods when archive downloads are disabled", () => {
+		useFrontendConfigStore.setState({
+			archiveDownloadUserEnabled: false,
+			isLoaded: true,
+		});
+		useDownloadStore.setState({
+			pendingSelection: {
+				workspace: { kind: "personal" },
+				files: [
+					{ id: 1, name: "first.txt" },
+					{ id: 2, name: "second.txt" },
+				],
+				folders: [{ id: 3, name: "docs" }],
+			},
+		});
+
+		render(<DownloadCenter />);
+
+		expect(
+			screen.queryByRole("button", { name: /download_proxy_archive/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /download_browser_archive/ }),
+		).not.toBeInTheDocument();
+		expect(
+			screen.queryByRole("button", { name: /download_to_folder/ }),
+		).not.toBeInTheDocument();
 	});
 });
