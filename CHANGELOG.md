@@ -7,6 +7,71 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0-rc.2] - 2026-07-21
+
+### Release Highlights
+
+**AsterDrive `v0.4.0-rc.2` 是 `0.4.0` 系列的第二个 release candidate，主线是 AsterForge 共享基础设施库的一轮大规模缺陷修复与安全加固。** 缓存系统修复 reservation 泄漏、内存后端过期策略与 Redis 故障恢复后的数据复活问题；配置同步修复单进程部署下热更新失败、restart-only 配置丢失等问题，Redis Pub/Sub 传输层抽取为独立的 events crate 并支持重连后自动 reconcile；数据库层修复 LIKE 转义顺序、SQLite `BUSY` / `LOCKED` 重试分类，事务重试配置统一为 `RetryConfig` profile；运行时修复启动中止时的资源清理、任务 lease 溢出 panic 与周期任务零间隔热循环。安全方面，CSRF token 校验改为常数时间比较，外部认证 return path 拒绝控制字符，Microsoft 多租户 token 强制不信任 `email_verified` claim，模板渲染改为单遍占位符展开。
+
+- **缓存系统修复** — reservation 泄漏、per-entry 过期策略、Redis shadow 数据复活、glob 前缀转义
+- **配置同步修复** — 单进程热更新、restart-only 配置保留、events crate 抽取与重连 reconcile
+- **数据库层修复** — LIKE 转义、SQLite 锁错误重试分类、事务重试配置统一
+- **运行时与任务修复** — 启动中止资源清理、lease 溢出饱和、周期任务间隔钳制、定时任务 claim 续约
+- **安全加固** — CSRF 常数时间比较、return path 控制字符校验、Microsoft `email_verified` 强制、模板单遍展开
+
+### Changed
+
+- **依赖更新** — AsterForge `55dbb87e` → `19e82ace`（7 个 upstream commits）；事务重试 API 从 `TransactionRetryConfig` 迁移到统一的 `RetryConfig::deadlock()` profile，重试退避参数按死锁场景调优
+- **内部：事件传输层抽取** — Redis Pub/Sub 连接 / 重连 / 退避 / 关闭逻辑抽取为独立的 `aster_forge_events` crate，配置同步委托其管理订阅生命周期（纯内部重构，无行为变化）
+
+### Fixed
+
+- **缓存系统**
+  - 内存后端改为按条目独立过期，修复 `default_ttl=0` 时条目过早驱逐与写入即失效
+  - 缓存 reservation 改用 RAII guard，修复并发竞争下的 reservation 泄漏；移除会误删并发新值的错误 `remove`
+  - Redis 后端远程读取成功后清除本地 shadow，修复故障恢复后从未持久化的数据复活
+  - `invalidate_prefix` 对 glob 元字符转义，前缀按字面量匹配
+- **配置同步**
+  - 修复单进程部署（无订阅 worker）下 `publish_reload` 失败导致配置热更新不可用
+  - `reload()` / `replace()` 保留 restart-only 配置记录，进程内值保留到重启
+  - 数值配置校验拒绝 NaN / 无穷大，防止非有限值进入算术运算
+  - 配置同步 supervisor 支持有界指数退避重连，重连后自动 reconcile 全量配置
+- **数据库层**
+  - 修复 LIKE 转义顺序（先转义反斜杠再转义通配符），SQLite 增加显式 `ESCAPE` 子句
+  - SQLite `BUSY` / `LOCKED` 错误家族（含扩展错误码）纳入可重试分类
+  - 连接关闭时 reader / writer 两个连接池都会尝试关闭；审计日志保留驱动层错误分类
+- **运行时与后台任务**
+  - 必需组件启动中止时也执行已启动组件的 shutdown 阶段，确保资源清理
+  - 任务 lease 过期计算溢出时饱和到最大时间，不再 panic
+  - 周期任务零间隔钳制到 1s 下限，防止热循环打爆数据库
+  - 新增定时任务 claim 续约机制，保护长耗时任务
+  - 副本号耗尽时开启新副本层，不再回绕或 panic
+- **其他**
+  - 文件分类只接受 ASCII 字母数字扩展名；`text/csv` 正确归类为 Spreadsheet
+  - SMTP 认证的用户名 trim 语义在就绪校验与凭据挂载间保持一致
+  - metrics 批量注册失败时回滚部分注册；`RUST_LOG` 区分未设置与非法值；panic hook 不再因 stderr 关闭而双重 panic
+
+### Security
+
+- **CSRF token 时序侧信道** — double-submit token 校验改为常数时间比较，防止时序分析探测 token 值
+- **外部认证 return path 注入** — return path 拒绝 CR / LF / TAB / NUL 控制字符，防止重定向与日志注入
+- **Microsoft 多租户 token claim 信任** — 多租户 token 强制 `email_verified: false`，不再信任攻击者可控的 claim
+- **模板递归替换** — 占位符展开改为单遍执行，用户控制的值不再触发二次替换；`&amp;` 最后解码避免双重解码出 `<`
+- **CORS 预检匹配** — 配置的 header 名归一化为小写，修复浏览器发送小写 header 时预检匹配失败
+- **限流 Retry-After** — 亚秒 retry 延迟向上取整到 1s，不再返回 `Retry-After: 0` 邀请立即重试
+
+### Statistics
+
+- 5 files changed, 98 insertions(+), 63 deletions(-)
+- 2 commits
+- AsterForge `55dbb87e` → `19e82ace`（7 个 upstream commits）
+
+### Notes
+
+- 本版本为纯基础设施修复版本，无数据库 migration，无 API 变更
+- 单进程部署的配置热更新在本版本修复，此前热更新失效的实例升级后无需额外操作
+- 建议运行 `v0.4.0-rc.1` 的实例升级后继续验证
+
 ## [v0.4.0-rc.1] - 2026-07-20
 
 ### Release Highlights
@@ -5786,7 +5851,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...HEAD
+[v0.4.0-rc.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...v0.4.0-rc.2
 [v0.4.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...v0.4.0-rc.1
 [v0.4.0-beta.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.2...v0.4.0-beta.3
 [v0.4.0-beta.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.1...v0.4.0-beta.2
