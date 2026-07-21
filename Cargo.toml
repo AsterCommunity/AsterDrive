@@ -111,6 +111,7 @@ aster_forge_config = { git = "https://github.com/AsterCommunity/AsterForge", pac
 aster_forge_crypto = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_crypto" }
 aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db", features = ["audit-log", "mail-outbox", "runtime-component", "runtime-lease", "scheduled-task", "system-config"] }
 aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth", features = ["github", "google", "microsoft", "qq", "sea-orm"] }
+aster_forge_events = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_events", features = ["redis"] }
 aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification", features = ["sea-orm"] }
 aster_forge_logging = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_logging" }
 aster_forge_mail = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_mail", features = ["persistence", "runtime-component"] }

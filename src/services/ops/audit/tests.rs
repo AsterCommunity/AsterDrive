@@ -388,6 +388,7 @@ async fn log_writes_synchronously_without_global_manager() {
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_tx,
+        storage_change_bus: None,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
@@ -504,6 +505,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_tx,
+        storage_change_bus: None,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

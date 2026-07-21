@@ -8,7 +8,7 @@ use std::{
 
 use chrono::{DateTime, Utc};
 use futures::future::join_all;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
@@ -23,20 +23,27 @@ const CACHE_INVALIDATION_RESERVATION_TTL_SECS: u64 = 1;
 const CACHE_INVALIDATION_RESERVATION_PREFIX: &str = "storage_change_cache_invalidation:";
 const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 
+mod transport;
+pub use transport::{build_cross_instance_bus, run_cross_instance_subscription};
+
 #[derive(Debug, Default, PartialEq, Eq)]
 struct CacheInvalidationTargets {
     prefixes: Vec<String>,
     keys: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum StorageChangeAudience {
     User(i64),
     Team(i64),
     Any,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+fn default_storage_change_audience() -> StorageChangeAudience {
+    StorageChangeAudience::Any
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageChangeKind {
     #[serde(rename = "file.created")]
@@ -127,7 +134,7 @@ impl StorageChangeKind {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub enum StorageChangeWorkspace {
@@ -135,10 +142,10 @@ pub enum StorageChangeWorkspace {
     Team { team_id: i64 },
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageChangeEvent {
-    #[serde(skip_serializing)]
+    #[serde(skip, default = "default_storage_change_audience")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(ignore))]
     audience: StorageChangeAudience,
     pub kind: StorageChangeKind,
@@ -255,6 +262,11 @@ impl StorageChangeEvent {
 }
 
 pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
+    transport::publish_cross_instance(state, &event);
+    publish_local(state, event);
+}
+
+pub(super) fn publish_local<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
     invalidate_storage_change_caches(state.cache().clone(), &event);
     if let Err(e) = state.storage_change_tx().send(event) {
         tracing::debug!("skip storage change broadcast without listeners: {e}");

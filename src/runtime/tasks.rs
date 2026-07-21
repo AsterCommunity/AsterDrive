@@ -162,6 +162,12 @@ pub fn spawn_primary_background_tasks(
             state.clone(),
         ));
     }
+    if state.storage_change_bus.is_some() {
+        tasks.push(spawn_storage_change_subscription(
+            shutdown_token.clone(),
+            state.clone(),
+        ));
+    }
 
     tasks.push(
         crate::services::share::share_download_rollback_worker_task(
@@ -177,6 +183,19 @@ pub fn spawn_primary_background_tasks(
     tasks.push(run_primary_runtime_group(shutdown_token.clone(), state));
 
     tasks
+}
+
+fn spawn_storage_change_subscription(
+    shutdown_token: CancellationToken,
+    state: web::Data<PrimaryAppState>,
+) -> impl Future<Output = ()> + Send + 'static {
+    async move {
+        crate::services::events::storage_change::run_cross_instance_subscription(
+            state.into_inner(),
+            shutdown_token,
+        )
+        .await;
+    }
 }
 
 async fn run_primary_runtime_group(
@@ -725,6 +744,7 @@ pub(crate) mod test_support {
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_tx,
+            storage_change_bus: None,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

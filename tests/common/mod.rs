@@ -896,6 +896,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_tx: base.storage_change_tx,
+        storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
@@ -1297,6 +1298,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender,
         storage_change_tx,
+        storage_change_bus: None,
         share_download_rollback,
         background_task_dispatch_wakeup:
             aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

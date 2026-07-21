@@ -849,6 +849,7 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_tx,
+        storage_change_bus: None,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

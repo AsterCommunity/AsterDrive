@@ -85,6 +85,8 @@ ASTER__CONFIG_SYNC__ENDPOINT=redis://127.0.0.1:6379/
 ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 ```
 
+启用 Redis 配置同步时，AsterDrive 的跨实例 Storage SSE 会使用同一组实例配置派生出的独立 topic：`aster_drive.config_reload` 对应 `aster_drive.storage_events`。配置 reload 和文件/目录变更事件不会共用 Redis channel，所有实例必须保持相同的 `topic` 才能互相接收事件。
+
 修改 `[config_sync]` 后需要重启进程。这一组是静态启动配置，不在后台系统设置里动态修改。
 
 ## 哪些写入会发送通知
@@ -107,7 +109,7 @@ ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 - Redis URL 合法但服务暂时不可达时，实例可以完成启动；订阅 supervisor 会记录 `disconnected`，使用有界指数退避和抖动自动重连
 - 管理 API 或 CLI 已完成数据库写入，但随后发布通知失败时，命令会返回错误；本地值已经写入，其他实例可能要等重启或下一条成功通知后才重新加载
 
-如果运行期间 Redis 短暂断开，恢复 Redis 后无需重启实例。订阅恢复后每个实例会从权威数据库执行一次完整 snapshot reconcile，补齐 Pub/Sub 断线期间错过的通知。
+运行期间 Redis 短暂断开时，config reload 和 Storage SSE 的订阅都会进入 `disconnected` / `reconnecting` 状态。Drive 会向本地存活的 SSE 客户端发送一次 `sync.required`，提示前端从权威 API 刷新。Redis 恢复后无需重启实例：订阅进入 `recovered`，config reload 会从权威数据库执行一次完整 snapshot reconcile，Storage SSE 则继续接收新的跨实例事件。Redis pub/sub 不提供历史回放，断线窗口内丢失的具体 Storage SSE 事件由 `sync.required` 的全量刷新覆盖。
 
 :::caution[Redis pub/sub 不补发历史消息]
 Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知不会在它恢复后重放；但实例每次启动都会从数据库全量加载，所以重启后会回到权威状态。
@@ -130,7 +132,7 @@ Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知
 2. 通过实例 B 刷新对应页面，确认设置及时生效。
 3. 在任一实例日志和指标里确认订阅连接保持稳定，或在短暂故障后进入 `recovered`。
 4. 用 CLI 修改一个测试用自定义配置，再从另一实例读取。
-5. 暂停 Redis，确认 `disconnected` / `reconnecting` 观测符合预期；恢复 Redis 后确认出现 `recovered`，并验证下一次修改能继续同步。
+5. 暂停 Redis，确认出现 `disconnected` / `reconnecting`，且 SSE 客户端收到 `sync.required`；恢复 Redis 后确认出现 `recovered`，并验证下一次配置修改和文件变更都能继续同步。
 
 上线前也应把 Redis 可用性和所有实例的 topic 一致性加入 [生产上线检查](/deployment/production-checklist/)。
 
@@ -144,7 +146,7 @@ Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知
 - `endpoint` 是否都能从容器或主机内部访问
 - `topic` 是否完全一致
 - 实例是否连接同一份数据库
-- 日志和指标里是否出现持续的 `disconnected` / `reconnecting`，以及恢复后的 `recovered`
+- 日志和指标里是否持续出现 Redis 连接错误或 `disconnected` / `reconnecting`，以及之后是否缺少 `recovered`
 
 ### 可以只给 primary 配吗
 

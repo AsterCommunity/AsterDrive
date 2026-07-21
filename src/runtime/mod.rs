@@ -32,6 +32,8 @@ pub struct PrimaryAppState {
     pub mail_sender: Arc<dyn MailSender>,
     /// 文件/文件夹变更广播（SSE 消费）
     pub storage_change_tx: tokio::sync::broadcast::Sender<StorageChangeEvent>,
+    /// Optional cross-instance transient event transport.
+    pub storage_change_bus: Option<Arc<aster_forge_events::RedisEventBus>>,
     /// 公开分享下载中途断连时的 download_count 回滚队列
     pub share_download_rollback: ShareDownloadRollbackQueue,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
@@ -72,6 +74,7 @@ pub trait MailRuntimeState: SharedRuntimeState {
 
 pub trait StorageChangeRuntimeState: SharedRuntimeState {
     fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent>;
+    fn storage_change_bus(&self) -> Option<&Arc<aster_forge_events::RedisEventBus>>;
 }
 
 pub trait ShareDownloadRuntimeState: SharedRuntimeState {
@@ -182,6 +185,10 @@ impl MailRuntimeState for PrimaryAppState {
 impl StorageChangeRuntimeState for PrimaryAppState {
     fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent> {
         &self.storage_change_tx
+    }
+
+    fn storage_change_bus(&self) -> Option<&Arc<aster_forge_events::RedisEventBus>> {
+        self.storage_change_bus.as_ref()
     }
 }
 
@@ -357,6 +364,7 @@ mod tests {
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_tx,
+            storage_change_bus: None,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

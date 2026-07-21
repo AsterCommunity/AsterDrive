@@ -85,6 +85,8 @@ ASTER__CONFIG_SYNC__ENDPOINT=redis://127.0.0.1:6379/
 ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 ```
 
+When Redis configuration synchronization is enabled, AsterDrive derives a separate topic for cross-instance Storage SSE from the same instance configuration: `aster_drive.config_reload` maps to `aster_drive.storage_events`. Configuration reloads and file/folder change events do not share a Redis channel. Every instance must use the same `topic` to receive each other's events.
+
 Restart the process after changing `[config_sync]`. It is static startup configuration and is not changed dynamically through system settings.
 
 ## Writes That Publish Notifications
@@ -104,10 +106,10 @@ If one operation changes multiple dependent settings, one notification contains 
 
 - when `[cache].backend = "redis"` cannot connect, cache can fall back to in-process memory
 - when the backend, endpoint URL, or another `[config_sync].backend = "redis"` value is invalid and the notification backend cannot be constructed, the instance fails to start
-- when the Redis URL is valid but the service is temporarily unreachable, the instance may finish startup, but the subscription worker records an error and stops, disabling cross-instance reloads
+- when the Redis URL is valid but the service is temporarily unreachable, the instance may finish startup; the subscription worker records the disconnect and reconnects automatically with backoff, so a process restart is not required
 - if an admin API or CLI database write succeeds but notification publishing then fails, the command returns an error; the local value is already stored, while other instances may remain stale until restart or a later successful notification
 
-After a runtime Redis outage, restore Redis and restart each affected instance so the subscription worker reconnects and every process reloads the full snapshot from the database.
+During a runtime Redis outage, the subscription worker reports `disconnected` and `reconnecting`. Drive emits one `sync.required` event to each local SSE stream so the frontend can refresh from authoritative APIs. Once Redis is available again, the worker reports `recovered` and continues receiving new cross-instance events. Redis pub/sub does not replay the concrete events missed during the outage; the `sync.required` refresh covers that gap.
 
 :::caution[Redis pub/sub does not replay history]
 Redis pub/sub is not a durable message queue. Notifications missed while an instance is offline are not replayed. Every instance performs a full database load at startup, so restarting returns it to authoritative state.
@@ -130,7 +132,7 @@ Start at least two instances connected to the same database and Redis, then:
 2. Refresh the relevant page through instance B and confirm the change appears promptly.
 3. Confirm logs do not repeatedly report `runtime config reload subscription stopped`.
 4. Change a test custom configuration entry through the CLI and read it from another instance.
-5. Pause Redis and verify the warning and failure behavior; restore Redis, restart the instances, and confirm the next change synchronizes again.
+5. Pause Redis and verify the reconnect warning plus a `sync.required` SSE event; restore Redis and confirm the subscription recovers automatically and the next change synchronizes again.
 
 Add Redis availability and topic consistency across instances to the [production launch checklist](/en/deployment/production-checklist/).
 
@@ -144,7 +146,7 @@ Check:
 - `endpoint` is reachable from inside each host or container
 - `topic` matches exactly
 - every instance connects to the same database
-- logs do not show subscription termination or Redis connection errors
+- logs do not show persistent Redis errors without a later `recovered` observation
 
 ### Can I enable it only on primary?
 
