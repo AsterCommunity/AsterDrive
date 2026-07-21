@@ -18,7 +18,7 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 #[actix_web::test]
 async fn test_trash_restore_purge() {
     let state = common::setup().await;
-    let mut rx = state.storage_change_tx.subscribe();
+    let mut rx = state.storage_change_bus.subscribe();
     let app = create_test_app!(state);
 
     let (token, _) = register_and_login!(app);
@@ -184,7 +184,7 @@ async fn test_trash_purge_all() {
     use aster_drive::services::events::storage_change::StorageChangeKind;
 
     let state = common::setup().await;
-    let mut rx = state.storage_change_tx.subscribe();
+    let mut rx = state.storage_change_bus.subscribe();
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 

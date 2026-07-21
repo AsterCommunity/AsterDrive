@@ -895,7 +895,6 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         config_sync: base.config_sync,
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
-        storage_change_tx: base.storage_change_tx,
         storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
@@ -1265,7 +1264,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     policy_snapshot.reload(&db).await.unwrap();
     let mail_sender = aster_forge_mail::memory_sender();
 
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+    let storage_change_bus = aster_drive::services::events::storage_change::StorageChangeBus::new(
         aster_drive::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
@@ -1297,8 +1296,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender,
-        storage_change_tx,
-        storage_change_bus: None,
+        storage_change_bus,
         share_download_rollback,
         background_task_dispatch_wakeup:
             aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

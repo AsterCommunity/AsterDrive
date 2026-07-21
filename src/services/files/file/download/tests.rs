@@ -372,7 +372,7 @@ where
     config.server.temp_dir = temp_root.join(".tmp").to_string_lossy().into_owned();
     config.server.upload_temp_dir = temp_root.join(".uploads").to_string_lossy().into_owned();
 
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+    let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
@@ -391,8 +391,7 @@ where
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
-        storage_change_tx,
-        storage_change_bus: None,
+        storage_change_bus,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

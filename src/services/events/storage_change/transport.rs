@@ -3,7 +3,9 @@ use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use tokio_util::sync::CancellationToken;
 
-use super::{StorageChangeAudience, StorageChangeEvent};
+use super::{
+    STORAGE_CHANGE_CHANNEL_CAPACITY, StorageChangeAudience, StorageChangeBus, StorageChangeEvent,
+};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 
@@ -16,28 +18,34 @@ struct StorageChangeTransportMessage {
     event: StorageChangeEvent,
 }
 
-pub fn build_cross_instance_bus(
+pub fn build_storage_change_bus(
     config: &aster_forge_config::ConfigSyncConfig,
-) -> Result<Option<Arc<aster_forge_events::RedisEventBus>>> {
-    if config.backend.trim().eq_ignore_ascii_case("redis") {
+) -> Result<StorageChangeBus> {
+    let transport = if config.backend.trim().eq_ignore_ascii_case("redis") {
         let topic = storage_change_topic(&config.topic);
-        return aster_forge_events::RedisEventBus::from_url(&config.endpoint, topic)
-            .map(Arc::new)
-            .map(Some)
-            .map_err(|error| {
-                AsterError::internal_error(format!(
-                    "failed to configure cross-instance storage events: {error}"
-                ))
-            });
-    }
-    Ok(None)
+        Some(
+            aster_forge_events::RedisEventBus::from_url(&config.endpoint, topic).map_err(
+                |error| {
+                    AsterError::internal_error(format!(
+                        "failed to configure cross-instance storage events: {error}"
+                    ))
+                },
+            )?,
+        )
+    } else {
+        None
+    };
+    Ok(StorageChangeBus::from_optional_transport(
+        STORAGE_CHANGE_CHANNEL_CAPACITY,
+        transport,
+    ))
 }
 
 pub(super) fn publish_cross_instance<S: StorageChangeRuntimeState>(
     state: &S,
     event: &StorageChangeEvent,
 ) {
-    let Some(bus) = state.storage_change_bus().cloned() else {
+    let Some(bus) = state.storage_change_bus().transport() else {
         return;
     };
     let payload = match encode_transport_message(state.config_sync().runtime_id(), event) {
@@ -62,7 +70,7 @@ pub async fn run_cross_instance_subscription(
     state: Arc<PrimaryAppState>,
     shutdown: CancellationToken,
 ) {
-    let Some(bus) = state.storage_change_bus.clone() else {
+    let Some(bus) = state.storage_change_bus.transport() else {
         return;
     };
     let runtime_id = state.config_sync().runtime_id().to_string();
@@ -139,7 +147,7 @@ mod tests {
     use std::collections::HashSet;
 
     use super::{
-        build_cross_instance_bus, decode_remote_event, encode_transport_message,
+        build_storage_change_bus, decode_remote_event, encode_transport_message,
         storage_change_topic,
     };
     use crate::services::events::storage_change::{StorageChangeEvent, StorageChangeKind};
@@ -206,10 +214,14 @@ mod tests {
     #[test]
     fn cross_instance_bus_is_disabled_without_redis_backend() {
         let config = ConfigSyncConfig::default();
-        assert!(
-            build_cross_instance_bus(&config)
-                .expect("disabled config should be accepted")
-                .is_none()
+        let bus = build_storage_change_bus(&config).expect("disabled config should be accepted");
+        assert!(!bus.has_transport());
+        let mut local = bus.subscribe();
+        bus.publish_local(StorageChangeEvent::sync_required())
+            .expect("local bus remains available");
+        assert_eq!(
+            local.try_recv().expect("receive local event").kind,
+            StorageChangeKind::SyncRequired
         );
 
         let config = ConfigSyncConfig {
@@ -217,9 +229,9 @@ mod tests {
             ..ConfigSyncConfig::default()
         };
         assert!(
-            build_cross_instance_bus(&config)
+            !build_storage_change_bus(&config)
                 .expect("none backend should be accepted")
-                .is_none()
+                .has_transport()
         );
     }
 
@@ -230,10 +242,13 @@ mod tests {
             endpoint: "redis://127.0.0.1:6379/0".to_string(),
             topic: "aster_drive.config_reload".to_string(),
         };
-        let bus = build_cross_instance_bus(&config)
-            .expect("valid Redis config should be accepted")
-            .expect("Redis backend should create a bus");
-        assert_eq!(bus.topic(), "aster_drive.storage_events");
+        let bus = build_storage_change_bus(&config).expect("valid Redis config should be accepted");
+        assert_eq!(
+            bus.transport()
+                .expect("Redis backend should create a transport")
+                .topic(),
+            "aster_drive.storage_events"
+        );
     }
 
     #[test]
@@ -244,7 +259,7 @@ mod tests {
                 endpoint: endpoint.to_string(),
                 topic: "aster_drive.config_reload".to_string(),
             };
-            let error = match build_cross_instance_bus(&config) {
+            let error = match build_storage_change_bus(&config) {
                 Ok(_) => panic!("invalid Redis endpoint should fail configuration"),
                 Err(error) => error,
             };

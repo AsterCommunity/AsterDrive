@@ -508,7 +508,7 @@ async fn test_batch_move_files() {
 #[actix_web::test]
 async fn test_batch_copy_files() {
     let state = common::setup().await;
-    let storage_change_tx = state.storage_change_tx.clone();
+    let storage_change_bus = state.storage_change_bus.clone();
     let app = create_test_app!(state);
     let (token, _) = register_and_login!(app);
 
@@ -547,7 +547,7 @@ async fn test_batch_copy_files() {
     }
 
     // Batch copy both files to root (null = root)
-    let mut rx = storage_change_tx.subscribe();
+    let mut rx = storage_change_bus.subscribe();
     let req = test::TestRequest::post()
         .uri("/api/v1/batch/copy")
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -1483,7 +1483,7 @@ async fn test_batch_copy_preserves_partial_failures_for_quota() {
 #[actix_web::test]
 async fn test_workspace_transfer_copy_personal_file_to_team_root_resolves_name_conflict() {
     let state = common::setup().await;
-    let storage_change_tx = state.storage_change_tx.clone();
+    let storage_change_bus = state.storage_change_bus.clone();
     let db = state.writer_db().clone();
     let mail_sender = state.mail_sender.clone();
     let app = create_test_app!(state);
@@ -1515,7 +1515,7 @@ async fn test_workspace_transfer_copy_personal_file_to_team_root_resolves_name_c
         "existing team body"
     );
 
-    let mut rx = storage_change_tx.subscribe();
+    let mut rx = storage_change_bus.subscribe();
     let req = test::TestRequest::post()
         .uri("/api/v1/workspace-transfer/copy")
         .insert_header(("Cookie", common::access_cookie_header(&token)))

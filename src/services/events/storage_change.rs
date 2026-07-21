@@ -24,7 +24,10 @@ const CACHE_INVALIDATION_RESERVATION_PREFIX: &str = "storage_change_cache_invali
 const AFFECTED_PARENT_LOOKUP_CHUNK_SIZE: usize = 500;
 
 mod transport;
-pub use transport::{build_cross_instance_bus, run_cross_instance_subscription};
+pub use transport::{build_storage_change_bus, run_cross_instance_subscription};
+
+pub type StorageChangeBus =
+    aster_forge_events::TransientEventBus<StorageChangeEvent, aster_forge_events::RedisEventBus>;
 
 #[derive(Debug, Default, PartialEq, Eq)]
 struct CacheInvalidationTargets {
@@ -268,7 +271,7 @@ pub fn publish<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEven
 
 pub(super) fn publish_local<S: StorageChangeRuntimeState>(state: &S, event: StorageChangeEvent) {
     invalidate_storage_change_caches(state.cache().clone(), &event);
-    if let Err(e) = state.storage_change_tx().send(event) {
+    if let Err(e) = state.storage_change_bus().publish_local(event) {
         tracing::debug!("skip storage change broadcast without listeners: {e}");
     }
 }

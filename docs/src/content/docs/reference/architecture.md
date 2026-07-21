@@ -100,7 +100,7 @@ flowchart TB
 | --- | --- | --- |
 | 每实例运行资源 | HTTP listener、连接池、内存快照、driver registry、SSE 连接、进程内 broadcast、reverse tunnel registry | 只属于当前进程；实例退出后不保留，其他 primary 不能直接读取 |
 | 数据库协调资源 | `runtime_leases`、scheduled task claim、普通 task processing token/heartbeat、mail outbox claim、业务元数据 | 由共享 PostgreSQL/MySQL 提供权威状态、原子 claim、lease 和 fencing |
-| 跨实例控制面 | Redis cache、config sync Pub/Sub、未来的 storage event notification 和 tunnel owner directory | 只传递失效、刷新、owner discovery 等小消息；断线恢复后回到权威数据库 reconcile |
+| 跨实例控制面 | Redis cache、config sync Pub/Sub、storage event notification，以及未来的 tunnel owner directory | 只传递失效、刷新、owner discovery 等小消息；断线恢复后回到权威数据库 reconcile |
 | 跨实例数据面 | S3/Azure/OneDrive/SFTP、direct follower internal API、未来的 tunnel owner streaming proxy | 运输或保存文件 body；不能通过 Redis Pub/Sub 或数据库 lease 搬运文件内容 |
 
 ```mermaid

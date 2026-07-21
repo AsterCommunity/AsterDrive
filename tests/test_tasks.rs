@@ -3860,7 +3860,7 @@ async fn test_team_archive_extract_task_creates_team_folder_tree() {
 #[actix_web::test]
 async fn test_archive_extract_task_publishes_single_storage_change_event() {
     let state = common::setup().await;
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 
@@ -4027,7 +4027,7 @@ async fn test_archive_extract_decodes_gb18030_names_by_default() {
 #[actix_web::test]
 async fn test_archive_extract_empty_directories_publish_non_quota_storage_change_event() {
     let state = common::setup().await;
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
 

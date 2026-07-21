@@ -632,7 +632,7 @@ async fn test_aster_dav_fs_copy_file_publishes_storage_event() {
     let (_projects, _docs, reports, file, _contents) =
         seed_nested_file(&state, user.id, None).await;
 
-    let mut rx = state.storage_change_tx.subscribe();
+    let mut rx = state.storage_change_bus.subscribe();
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
 
     let source = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
@@ -679,7 +679,7 @@ async fn test_aster_dav_fs_remove_dir_publishes_storage_event() {
     let (projects, docs, _reports, _file, _contents) =
         seed_nested_file(&state, user.id, None).await;
 
-    let mut rx = state.storage_change_tx.subscribe();
+    let mut rx = state.storage_change_bus.subscribe();
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
 
     let target = DavPath::new("/projects/docs/").unwrap();
@@ -721,7 +721,7 @@ async fn test_aster_dav_fs_copy_folder_publishes_storage_event() {
     let (projects, _docs, _reports, _file, _contents) =
         seed_nested_file(&state, user.id, None).await;
 
-    let mut rx = state.storage_change_tx.subscribe();
+    let mut rx = state.storage_change_bus.subscribe();
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
 
     let source = DavPath::new("/projects/docs/").unwrap();

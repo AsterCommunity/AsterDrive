@@ -16,11 +16,8 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
     runtime_config.reload(&common.database).await?;
     let mail_sender = crate::services::mail::sender::runtime_sender(runtime_config.clone());
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
-    );
     let storage_change_bus =
-        crate::services::events::storage_change::build_cross_instance_bus(&common.cfg.config_sync)?;
+        crate::services::events::storage_change::build_storage_change_bus(&common.cfg.config_sync)?;
     let rollback_queue_capacity =
         crate::config::operations::share_download_rollback_queue_capacity(&runtime_config);
     let (share_download_rollback, share_download_rollback_worker) =
@@ -55,7 +52,6 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             config_sync: common.config_sync,
             metrics: common.metrics,
             mail_sender,
-            storage_change_tx,
             storage_change_bus,
             share_download_rollback,
             background_task_dispatch_wakeup:

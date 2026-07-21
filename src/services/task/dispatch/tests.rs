@@ -56,7 +56,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         .reload(&db)
         .await
         .expect("dispatch test runtime config should reload");
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+    let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let (share_download_rollback, _worker) =
@@ -76,8 +76,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
-        storage_change_tx,
-        storage_change_bus: None,
+        storage_change_bus,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
