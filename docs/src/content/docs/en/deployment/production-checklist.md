@@ -200,7 +200,8 @@ For multiple instances, confirm:
 - every instance can reach the configured Redis endpoint
 - every instance uses exactly the same `aster_drive.config_reload` topic
 - every storage policy uses shared storage rather than independent `local` roots
-- remote nodes use `direct` transport; reverse tunnels currently belong to the single profile
+- if reverse tunnels are enabled, every primary sets its own `deployment.internal_endpoint` and the same `deployment.internal_proxy_secret`
+- the reverse-tunnel owner directory exposes a live lease/fencing token, and a failover drill confirms stale tokens are rejected before the standby takes over
 - changing a system setting through instance A becomes visible through instance B promptly
 - the Redis outage and recovery procedure has been rehearsed
 

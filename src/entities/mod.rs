@@ -24,6 +24,7 @@ pub mod mfa_recovery_code;
 pub mod mfa_totp_setup_flow;
 pub mod passkey;
 pub mod remote_storage_target;
+pub mod remote_tunnel_owner;
 pub mod resource_lock;
 pub mod share;
 pub mod storage_connector_application_config;

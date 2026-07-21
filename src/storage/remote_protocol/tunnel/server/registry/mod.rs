@@ -47,14 +47,13 @@ impl RemoteTunnelRegistry {
     }
 
     pub fn is_online(&self, remote_node: &managed_follower::Model) -> bool {
-        self.last_seen_at
+        let local_last_seen = self
+            .last_seen_at
             .get(&remote_node.id)
-            .and_then(|last_seen_at| {
-                chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL)
-                    .ok()
-                    .map(|ttl| *last_seen_at.value() + ttl > chrono::Utc::now())
-            })
-            .unwrap_or(false)
+            .map(|last_seen_at| *last_seen_at.value());
+        local_last_seen
+            .or(remote_node.tunnel_last_seen_at)
+            .is_some_and(is_recent_tunnel_seen_at)
     }
 
     pub(crate) fn update_last_seen(&self, remote_node_id: i64) {
@@ -99,9 +98,29 @@ impl RemoteTunnelRegistry {
     }
 }
 
+fn is_recent_tunnel_seen_at(last_seen_at: chrono::DateTime<chrono::Utc>) -> bool {
+    chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL)
+        .ok()
+        .is_some_and(|ttl| last_seen_at + ttl > chrono::Utc::now())
+}
+
 pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::AsterError {
     storage_driver_error(
         StorageErrorKind::Transient,
         format!("remote node #{remote_node_id} reverse tunnel is offline"),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn persisted_tunnel_seen_time_obeys_online_ttl_boundary() {
+        assert!(is_recent_tunnel_seen_at(chrono::Utc::now()));
+        let expired = chrono::Utc::now()
+            - chrono::Duration::from_std(REMOTE_TUNNEL_ONLINE_TTL).unwrap()
+            - chrono::Duration::milliseconds(1);
+        assert!(!is_recent_tunnel_seen_at(expired));
+    }
 }

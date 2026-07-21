@@ -92,6 +92,7 @@ jemalloc-stats = [
     "aster_forge_alloc/jemalloc-stats",
 ]
 jemalloc-profiling = ["jemalloc-stats", "tikv-jemallocator/profiling"]
+multi-primary-e2e = []
 
 [dependencies]
 actix-governor = "0.10"
@@ -212,3 +213,11 @@ doctest = false
 name = "path_hotspots"
 harness = false
 required-features = ["benchmarks"]
+
+[[test]]
+name = "test_multi_primary_e2e"
+required-features = ["multi-primary-e2e"]
+
+[[test]]
+name = "test_multi_primary_storage_events_e2e"
+required-features = ["multi-primary-e2e"]

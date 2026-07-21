@@ -1,5 +1,7 @@
 [deployment]
 profile = "single"  # "single" | "cluster"; cluster requires shared PostgreSQL/MySQL, Redis, and object storage
+internal_endpoint = ""  # cluster reverse-tunnel proxy URL for this primary, e.g. http://primary-a:3000
+internal_proxy_secret = ""  # same secret on every primary; leave both empty for direct-only cluster
 
 [server]
 host = "127.0.0.1"

@@ -29,6 +29,7 @@ const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
     "m20260716_000001_bind_external_auth_login_flows";
 const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_session_kind";
 const ADD_UPLOAD_PROVIDER_SESSION_MIGRATION: &str = "m20260719_000001_add_upload_provider_session";
+const REMOTE_TUNNEL_OWNERS_MIGRATION: &str = "m20260721_000001_remote_tunnel_owners";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -129,6 +130,44 @@ async fn upload_provider_session_migration_is_nullable_and_reversible() {
         &reapplied_columns,
         "provider_session_ciphertext"
     ));
+}
+
+#[tokio::test]
+async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == REMOTE_TUNNEL_OWNERS_MIGRATION),
+        "remote tunnel owner directory migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
+    let columns = sqlite_table_columns(&db, "remote_tunnel_owners").await;
+    for expected in [
+        "remote_node_id",
+        "runtime_id",
+        "internal_endpoint",
+        "fencing_token",
+        "lease_expires_at",
+        "updated_at",
+    ] {
+        assert!(
+            has_column(&columns, expected),
+            "remote_tunnel_owners should include {expected}"
+        );
+    }
+
+    let rollback_steps = steps_to_roll_back_migration(REMOTE_TUNNEL_OWNERS_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
+        .await
+        .expect("remote tunnel owner directory migration should roll back");
+    assert!(!sqlite_table_exists(&db, "remote_tunnel_owners").await);
+
+    CurrentMigrator::up(&db, Some(rollback_steps))
+        .await
+        .expect("remote tunnel owner directory migration should reapply");
+    assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

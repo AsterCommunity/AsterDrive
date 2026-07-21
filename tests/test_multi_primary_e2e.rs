@@ -10,14 +10,32 @@ use aster_forge_test::redis::RedisTestContainer;
 use aster_forge_test::smtp::SmtpTestContainer;
 use aster_forge_test::suite::TestContainerSuite;
 use chrono::Utc;
+use futures::{SinkExt, StreamExt};
 use migration::Migrator;
 use reqwest::header::SET_COOKIE;
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
 use serde_json::{Value, json};
+use tokio_tungstenite::connect_async;
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+use tokio_tungstenite::tungstenite::http::HeaderValue;
+use tokio_tungstenite::tungstenite::protocol::Message as WsMessage;
+use tokio_util::sync::CancellationToken;
+
+use aster_drive::storage::remote_protocol::tunnel::server::{
+    REMOTE_TUNNEL_CONNECT_PATH, REMOTE_TUNNEL_PROXY_PATH_PREFIX, RemoteTunnelStreamFrame,
+    RemoteTunnelStreamFrameKind, decode_stream_frame, encode_stream_frame,
+};
+use aster_drive::storage::remote_protocol::{
+    INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
+    INTERNAL_AUTH_TIMESTAMP_HEADER, INTERNAL_STORAGE_BASE_PATH, RemoteStorageCapabilities,
+    sign_internal_request,
+};
 
 const RUNTIME_LEASE_ID: &str = "aster_drive.background_tasks";
 const ADMIN_PASSWORD: &str = "AsterDrive-E2E-Password-399!";
 const SHARED_SECRET: &str = "asterdrive399abcdef0123456789abcdef0123456789abcdef0123456789abcd";
+const INTERNAL_PROXY_SECRET: &str =
+    "asterdrive399proxyabcdef0123456789abcdef0123456789abcdef012345";
 
 struct SharedServices {
     _postgres: PostgresTestContainer,
@@ -177,6 +195,14 @@ impl ServerProcess {
         }
         command
             .env("ASTER__DEPLOYMENT__PROFILE", "cluster")
+            .env(
+                "ASTER__DEPLOYMENT__INTERNAL_ENDPOINT",
+                format!("http://127.0.0.1:{port}"),
+            )
+            .env(
+                "ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET",
+                INTERNAL_PROXY_SECRET,
+            )
             .env("ASTER__SERVER__HOST", "127.0.0.1")
             .env("ASTER__SERVER__PORT", port.to_string())
             .env("ASTER__SERVER__WORKERS", "1")
@@ -561,6 +587,403 @@ async fn scheduled_runtime_records(
         .collect()
 }
 
+struct SyntheticTunnelFollower {
+    shutdown: CancellationToken,
+    task: tokio::task::JoinHandle<()>,
+}
+
+impl SyntheticTunnelFollower {
+    async fn stop(self) {
+        self.shutdown.cancel();
+        tokio::time::timeout(Duration::from_secs(5), self.task)
+            .await
+            .expect("synthetic tunnel follower should stop before timeout")
+            .expect("synthetic tunnel follower task should join");
+    }
+}
+
+async fn seed_reverse_tunnel_node(
+    database: &DatabaseConnection,
+) -> aster_drive::entities::managed_follower::Model {
+    let now = Utc::now();
+    let node = aster_drive::entities::managed_follower::ActiveModel {
+        name: Set("multi-primary reverse tunnel follower".to_string()),
+        base_url: Set(String::new()),
+        access_key: Set(format!("e2e-access-{}", uuid::Uuid::new_v4().simple())),
+        secret_key: Set(format!("e2e-secret-{}", uuid::Uuid::new_v4().simple())),
+        is_enabled: Set(true),
+        transport_mode: Set(aster_drive::types::RemoteNodeTransportMode::ReverseTunnel),
+        last_capabilities: Set("{}".to_string()),
+        last_error: Set(String::new()),
+        last_checked_at: Set(None),
+        tunnel_last_error: Set(String::new()),
+        tunnel_last_seen_at: Set(None),
+        created_at: Set(now),
+        updated_at: Set(now),
+        ..Default::default()
+    }
+    .insert(database)
+    .await
+    .expect("insert reverse tunnel E2E remote node");
+
+    aster_drive::entities::follower_enrollment_session::ActiveModel {
+        managed_follower_id: Set(node.id),
+        token_hash: Set(format!("e2e-token-{}", uuid::Uuid::new_v4().simple())),
+        ack_token_hash: Set(format!("e2e-ack-{}", uuid::Uuid::new_v4().simple())),
+        expires_at: Set(now + chrono::Duration::minutes(30)),
+        redeemed_at: Set(Some(now)),
+        acked_at: Set(Some(now)),
+        invalidated_at: Set(None),
+        created_at: Set(now),
+        ..Default::default()
+    }
+    .insert(database)
+    .await
+    .expect("mark reverse tunnel E2E enrollment complete");
+    node
+}
+
+async fn defer_remote_node_health_tests(database: &DatabaseConnection) {
+    aster_drive::db::repository::config_repo::upsert_with_actor(
+        database,
+        aster_drive::config::definitions::REMOTE_NODE_HEALTH_TEST_INTERVAL_SECS_KEY,
+        "3600",
+        None,
+    )
+    .await
+    .expect("defer automatic remote-node health tests during tunnel routing E2E");
+}
+
+fn spawn_synthetic_tunnel_follower(
+    primary_url: String,
+    remote_node: aster_drive::entities::managed_follower::Model,
+) -> SyntheticTunnelFollower {
+    let shutdown = CancellationToken::new();
+    let worker_shutdown = shutdown.clone();
+    let task = tokio::spawn(async move {
+        while !worker_shutdown.is_cancelled() {
+            let result = run_synthetic_tunnel_connection(
+                &primary_url,
+                &remote_node,
+                worker_shutdown.clone(),
+            )
+            .await;
+            if worker_shutdown.is_cancelled() {
+                break;
+            }
+            if let Err(error) = result {
+                tracing::debug!("synthetic reverse tunnel reconnecting after: {error}");
+            }
+            tokio::time::sleep(Duration::from_millis(250)).await;
+        }
+    });
+    SyntheticTunnelFollower { shutdown, task }
+}
+
+async fn run_synthetic_tunnel_connection(
+    primary_url: &str,
+    remote_node: &aster_drive::entities::managed_follower::Model,
+    shutdown: CancellationToken,
+) -> Result<(), String> {
+    let ws_url = format!(
+        "{}{}",
+        primary_url.replacen("http://", "ws://", 1),
+        REMOTE_TUNNEL_CONNECT_PATH
+    );
+    let timestamp = Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let signature = sign_internal_request(
+        &remote_node.secret_key,
+        "GET",
+        REMOTE_TUNNEL_CONNECT_PATH,
+        timestamp,
+        &nonce,
+        None,
+    );
+    let mut request = ws_url
+        .into_client_request()
+        .map_err(|error| format!("build synthetic tunnel websocket request: {error}"))?;
+    let headers = request.headers_mut();
+    headers.insert(
+        INTERNAL_AUTH_ACCESS_KEY_HEADER,
+        HeaderValue::from_str(&remote_node.access_key)
+            .map_err(|error| format!("set synthetic tunnel access key: {error}"))?,
+    );
+    headers.insert(
+        INTERNAL_AUTH_TIMESTAMP_HEADER,
+        HeaderValue::from_str(&timestamp.to_string())
+            .map_err(|error| format!("set synthetic tunnel timestamp: {error}"))?,
+    );
+    headers.insert(
+        INTERNAL_AUTH_NONCE_HEADER,
+        HeaderValue::from_str(&nonce)
+            .map_err(|error| format!("set synthetic tunnel nonce: {error}"))?,
+    );
+    headers.insert(
+        INTERNAL_AUTH_SIGNATURE_HEADER,
+        HeaderValue::from_str(&signature)
+            .map_err(|error| format!("set synthetic tunnel signature: {error}"))?,
+    );
+
+    let (socket, _) = connect_async(request)
+        .await
+        .map_err(|error| format!("connect synthetic tunnel websocket: {error}"))?;
+    let (mut writer, mut reader) = socket.split();
+    loop {
+        let message = tokio::select! {
+            _ = shutdown.cancelled() => return Ok(()),
+            message = reader.next() => message,
+        };
+        let Some(message) = message else {
+            return Ok(());
+        };
+        match message.map_err(|error| format!("read synthetic tunnel websocket: {error}"))? {
+            WsMessage::Binary(bytes) => {
+                let start = decode_stream_frame(bytes)
+                    .map_err(|error| format!("decode synthetic tunnel frame: {error}"))?;
+                if start.kind != RemoteTunnelStreamFrameKind::RequestStart {
+                    return Err(format!(
+                        "synthetic tunnel expected request_start, got {:?}",
+                        start.kind
+                    ));
+                }
+                drain_synthetic_request_body(&start.request_id, &mut reader, &mut writer).await?;
+                send_synthetic_capabilities_response(&start.request_id, &mut writer).await?;
+            }
+            WsMessage::Ping(bytes) => writer
+                .send(WsMessage::Pong(bytes))
+                .await
+                .map_err(|error| format!("send synthetic tunnel pong: {error}"))?,
+            WsMessage::Close(_) => return Ok(()),
+            _ => {}
+        }
+    }
+}
+
+async fn drain_synthetic_request_body<R, W>(
+    request_id: &str,
+    reader: &mut R,
+    writer: &mut W,
+) -> Result<(), String>
+where
+    R: futures::Stream<Item = Result<WsMessage, tokio_tungstenite::tungstenite::Error>> + Unpin,
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    loop {
+        let message = reader
+            .next()
+            .await
+            .ok_or_else(|| "synthetic tunnel closed before request_end".to_string())?
+            .map_err(|error| format!("read synthetic tunnel request body: {error}"))?;
+        match message {
+            WsMessage::Binary(bytes) => {
+                let frame = decode_stream_frame(bytes)
+                    .map_err(|error| format!("decode synthetic request body frame: {error}"))?;
+                if frame.request_id != request_id {
+                    return Err("synthetic tunnel received interleaved request".to_string());
+                }
+                match frame.kind {
+                    RemoteTunnelStreamFrameKind::RequestBody => {}
+                    RemoteTunnelStreamFrameKind::RequestEnd => return Ok(()),
+                    RemoteTunnelStreamFrameKind::Error => return Ok(()),
+                    other => {
+                        return Err(format!(
+                            "synthetic tunnel received unexpected request frame {other:?}"
+                        ));
+                    }
+                }
+            }
+            WsMessage::Ping(bytes) => writer
+                .send(WsMessage::Pong(bytes))
+                .await
+                .map_err(|error| format!("send synthetic tunnel body pong: {error}"))?,
+            WsMessage::Close(_) => {
+                return Err("synthetic tunnel closed before request_end".to_string());
+            }
+            _ => {}
+        }
+    }
+}
+
+async fn send_synthetic_capabilities_response<W>(
+    request_id: &str,
+    writer: &mut W,
+) -> Result<(), String>
+where
+    W: futures::Sink<WsMessage, Error = tokio_tungstenite::tungstenite::Error> + Unpin,
+{
+    let body = serde_json::to_vec(&json!({
+        "code": "success",
+        "msg": "",
+        "data": RemoteStorageCapabilities::current(),
+    }))
+    .map_err(|error| format!("encode synthetic tunnel capabilities: {error}"))?;
+    let frames = [
+        RemoteTunnelStreamFrame {
+            kind: RemoteTunnelStreamFrameKind::ResponseStart,
+            request_id: request_id.to_string(),
+            method: None,
+            path_and_query: None,
+            headers: vec![("content-type".to_string(), "application/json".to_string())],
+            content_length: Some(body.len() as u64),
+            status: Some(200),
+            message: None,
+            body: bytes::Bytes::new(),
+        },
+        RemoteTunnelStreamFrame {
+            kind: RemoteTunnelStreamFrameKind::ResponseBody,
+            request_id: request_id.to_string(),
+            method: None,
+            path_and_query: None,
+            headers: Vec::new(),
+            content_length: None,
+            status: None,
+            message: None,
+            body: bytes::Bytes::copy_from_slice(&body[..body.len() / 2]),
+        },
+        RemoteTunnelStreamFrame {
+            kind: RemoteTunnelStreamFrameKind::ResponseBody,
+            request_id: request_id.to_string(),
+            method: None,
+            path_and_query: None,
+            headers: Vec::new(),
+            content_length: None,
+            status: None,
+            message: None,
+            body: bytes::Bytes::copy_from_slice(&body[body.len() / 2..]),
+        },
+        RemoteTunnelStreamFrame {
+            kind: RemoteTunnelStreamFrameKind::ResponseEnd,
+            request_id: request_id.to_string(),
+            method: None,
+            path_and_query: None,
+            headers: Vec::new(),
+            content_length: None,
+            status: None,
+            message: None,
+            body: bytes::Bytes::new(),
+        },
+    ];
+    for frame in frames {
+        writer
+            .send(WsMessage::Binary(encode_stream_frame(&frame).map_err(
+                |error| format!("encode synthetic response frame: {error}"),
+            )?))
+            .await
+            .map_err(|error| format!("send synthetic response frame: {error}"))?;
+    }
+    Ok(())
+}
+
+async fn wait_for_tunnel_owner(
+    database: &DatabaseConnection,
+    remote_node_id: i64,
+    expected_endpoint: &str,
+    server: &mut ServerProcess,
+    timeout: Duration,
+) -> aster_drive::entities::remote_tunnel_owner::Model {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        server.assert_running();
+        if let Some(owner) =
+            aster_drive::entities::remote_tunnel_owner::Entity::find_by_id(remote_node_id)
+                .one(database)
+                .await
+                .expect("query reverse tunnel owner directory")
+            && owner.internal_endpoint == expected_endpoint
+            && owner.lease_expires_at > Utc::now()
+        {
+            return owner;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "reverse tunnel owner did not become {expected_endpoint}\n{}",
+                server.diagnostics()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn test_remote_node_through(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    access_token: &str,
+    remote_node_id: i64,
+) -> Value {
+    let response = client
+        .post(format!(
+            "{}/api/v1/admin/remote-nodes/{remote_node_id}/test",
+            server.base_url()
+        ))
+        .bearer_auth(access_token)
+        .send()
+        .await
+        .expect("send reverse tunnel remote-node probe");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode reverse tunnel remote-node probe");
+    assert!(
+        status.is_success(),
+        "reverse tunnel probe through {} failed with {status}: {body}\n{}",
+        server.name(),
+        server.diagnostics()
+    );
+    body
+}
+
+async fn stale_fencing_proxy_response(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    remote_node_id: i64,
+    stale_fencing_token: &str,
+) -> (reqwest::StatusCode, String) {
+    let mut url = reqwest::Url::parse(&format!(
+        "{}{}{remote_node_id}",
+        server.base_url(),
+        format!("{REMOTE_TUNNEL_PROXY_PATH_PREFIX}/")
+    ))
+    .expect("build stale fencing proxy URL");
+    url.query_pairs_mut()
+        .append_pair("method", "GET")
+        .append_pair(
+            "path_and_query",
+            &format!("{INTERNAL_STORAGE_BASE_PATH}/capabilities"),
+        )
+        .append_pair("fencing_token", stale_fencing_token)
+        .append_pair("headers", "W10");
+    let request_target = format!("{}?{}", url.path(), url.query().unwrap_or_default());
+    let timestamp = Utc::now().timestamp();
+    let nonce = uuid::Uuid::new_v4().to_string();
+    let signature = sign_internal_request(
+        INTERNAL_PROXY_SECRET,
+        "POST",
+        &request_target,
+        timestamp,
+        &nonce,
+        Some(0),
+    );
+    let response = client
+        .post(url)
+        .header(INTERNAL_AUTH_ACCESS_KEY_HEADER, "stale-e2e-runtime")
+        .header(INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string())
+        .header(INTERNAL_AUTH_NONCE_HEADER, nonce)
+        .header(INTERNAL_AUTH_SIGNATURE_HEADER, signature)
+        .header(reqwest::header::CONTENT_LENGTH, "0")
+        .body(Vec::new())
+        .send()
+        .await
+        .expect("send stale fencing proxy request");
+    let status = response.status();
+    let body = response
+        .text()
+        .await
+        .expect("read stale fencing proxy response");
+    (status, body)
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires Docker and two real AsterDrive primary processes"]
 async fn config_sync_propagates_and_reconciles_after_redis_outage() {
@@ -841,5 +1264,112 @@ async fn graceful_primary_shutdown_releases_lease_for_standby() {
         .close()
         .await
         .expect("close graceful shutdown E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker, two real AsterDrive primaries, and a synthetic tunnel follower"]
+async fn reverse_tunnel_request_hitting_non_owner_primary_streams_through_owner() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    defer_remote_node_health_tests(&database).await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .expect("build reverse tunnel E2E HTTP client");
+
+    let mut primary_a = ServerProcess::spawn("primary-a", &services);
+    wait_for_health(&client, &mut primary_a).await;
+    let access_token = setup_and_login(&client, &primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+    let remote_node = seed_reverse_tunnel_node(&database).await;
+
+    let follower = spawn_synthetic_tunnel_follower(primary_a.base_url(), remote_node.clone());
+    let owner = wait_for_tunnel_owner(
+        &database,
+        remote_node.id,
+        &primary_a.base_url(),
+        &mut primary_a,
+        Duration::from_secs(15),
+    )
+    .await;
+    assert_eq!(owner.remote_node_id, remote_node.id);
+
+    let probe = test_remote_node_through(&client, &primary_b, &access_token, remote_node.id).await;
+    assert_eq!(
+        probe["data"]["capabilities"]["protocol_version"],
+        RemoteStorageCapabilities::current().protocol_version
+    );
+    assert_eq!(probe["data"]["tunnel"]["status"], "online");
+
+    follower.stop().await;
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close reverse tunnel routing E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker, two real AsterDrive primaries, and a synthetic tunnel follower"]
+async fn reverse_tunnel_owner_failover_fences_stale_primary() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    defer_remote_node_health_tests(&database).await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .build()
+        .expect("build reverse tunnel failover E2E HTTP client");
+
+    let mut primary_a = ServerProcess::spawn("primary-a", &services);
+    wait_for_health(&client, &mut primary_a).await;
+    let access_token = setup_and_login(&client, &primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+    let remote_node = seed_reverse_tunnel_node(&database).await;
+
+    let follower_a = spawn_synthetic_tunnel_follower(primary_a.base_url(), remote_node.clone());
+    let owner_a = wait_for_tunnel_owner(
+        &database,
+        remote_node.id,
+        &primary_a.base_url(),
+        &mut primary_a,
+        Duration::from_secs(15),
+    )
+    .await;
+    primary_a.terminate();
+    follower_a.stop().await;
+    let follower_b = spawn_synthetic_tunnel_follower(primary_b.base_url(), remote_node.clone());
+    let owner_b = wait_for_tunnel_owner(
+        &database,
+        remote_node.id,
+        &primary_b.base_url(),
+        &mut primary_b,
+        Duration::from_secs(65),
+    )
+    .await;
+    assert_ne!(owner_b.fencing_token, owner_a.fencing_token);
+
+    let probe = test_remote_node_through(&client, &primary_b, &access_token, remote_node.id).await;
+    assert_eq!(probe["data"]["tunnel"]["status"], "online");
+    let (stale_status, stale_body) =
+        stale_fencing_proxy_response(&client, &primary_b, remote_node.id, &owner_a.fencing_token)
+            .await;
+    assert!(
+        !stale_status.is_success() && stale_body.contains("fencing token is stale"),
+        "stale owner token should be rejected, got {stale_status}: {stale_body}"
+    );
+
+    follower_b.stop().await;
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close reverse tunnel failover E2E database connection");
     services.cleanup_database().await;
 }

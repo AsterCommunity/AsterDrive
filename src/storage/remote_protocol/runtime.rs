@@ -8,17 +8,21 @@ use crate::storage::drivers::remote::RemoteDriver;
 use crate::types::RemoteNodeTransportMode;
 
 use super::RemoteStorageClient;
-use super::tunnel::server::{RemoteTunnelBroker, RemoteTunnelRegistry};
+use super::tunnel::server::{
+    ClusterRemoteTunnelBroker, RemoteTunnelBroker, RemoteTunnelOwnerDirectory, RemoteTunnelRegistry,
+};
 
 #[derive(Clone)]
 pub struct RemoteProtocolRuntime {
     tunnel_registry: Arc<RemoteTunnelRegistry>,
+    tunnel_owner_directory: Arc<parking_lot::RwLock<Option<Arc<RemoteTunnelOwnerDirectory>>>>,
 }
 
 impl RemoteProtocolRuntime {
     pub fn new() -> Self {
         Self {
             tunnel_registry: Arc::new(RemoteTunnelRegistry::new()),
+            tunnel_owner_directory: Arc::new(parking_lot::RwLock::new(None)),
         }
     }
 
@@ -30,8 +34,30 @@ impl RemoteProtocolRuntime {
         &self.tunnel_registry
     }
 
+    pub fn configure_tunnel_owner_directory(
+        &self,
+        db: DatabaseConnection,
+        deployment: &crate::config::DeploymentConfig,
+        runtime_id: &str,
+    ) -> Result<()> {
+        *self.tunnel_owner_directory.write() =
+            RemoteTunnelOwnerDirectory::from_deployment(db, deployment, runtime_id.to_string())?
+                .map(Arc::new);
+        Ok(())
+    }
+
+    pub fn tunnel_owner_directory(&self) -> Option<Arc<RemoteTunnelOwnerDirectory>> {
+        self.tunnel_owner_directory.read().clone()
+    }
+
     pub(crate) fn tunnel_broker(&self) -> Arc<dyn RemoteTunnelBroker> {
-        self.tunnel_registry.clone()
+        match self.tunnel_owner_directory() {
+            Some(directory) => Arc::new(ClusterRemoteTunnelBroker::new(
+                self.tunnel_registry.clone(),
+                directory,
+            )),
+            None => self.tunnel_registry.clone(),
+        }
     }
 
     pub fn client_for_node(&self, node: &managed_follower::Model) -> Result<RemoteStorageClient> {

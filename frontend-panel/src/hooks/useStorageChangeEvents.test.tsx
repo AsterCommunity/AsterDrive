@@ -703,6 +703,166 @@ describe("useStorageChangeEvents", () => {
 		}
 	});
 
+	it("does not run an authoritative reload on the initial connection", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			expect(MockEventSource.instances).toHaveLength(1);
+
+			MockEventSource.instances[0]?.triggerOpen();
+
+			expect(mockState.invalidateBlobUrl).not.toHaveBeenCalled();
+			expect(mockState.invalidateTextContent).not.toHaveBeenCalled();
+			expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
+			expect(mockState.teamStore.reload).not.toHaveBeenCalled();
+			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("runs one authoritative reload after a failed SSE connection recovers", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			MockEventSource.instances[0]?.triggerOpen();
+			MockEventSource.instances[0]?.triggerError();
+			await vi.advanceTimersByTimeAsync(1000);
+			expect(MockEventSource.instances).toHaveLength(2);
+
+			MockEventSource.instances[1]?.triggerOpen();
+
+			expect(mockState.invalidateBlobUrl).toHaveBeenCalledTimes(1);
+			expect(mockState.invalidateBlobUrl).toHaveBeenCalledWith();
+			expect(mockState.invalidateTextContent).toHaveBeenCalledTimes(1);
+			expect(mockState.invalidateTextContent).toHaveBeenCalledWith();
+			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(1);
+			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(1);
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("reloads authoritatively when the initial connection only opens after a retry", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			MockEventSource.instances[0]?.triggerError();
+			await vi.advanceTimersByTimeAsync(1000);
+			MockEventSource.instances[1]?.triggerOpen();
+
+			expect(mockState.invalidateBlobUrl).toHaveBeenCalledWith();
+			expect(mockState.invalidateTextContent).toHaveBeenCalledWith();
+			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledWith(7);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("defers the recovery reload while the storage refresh gate is active", async () => {
+		vi.useFakeTimers();
+		try {
+			mockState.storageRefreshGate.isStorageRefreshGateActive.mockReturnValue(
+				true,
+			);
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			MockEventSource.instances[0]?.triggerOpen();
+			MockEventSource.instances[0]?.triggerError();
+			await vi.advanceTimersByTimeAsync(1000);
+			MockEventSource.instances[1]?.triggerOpen();
+
+			expect(
+				mockState.storageRefreshGate.deferStorageRefresh,
+			).toHaveBeenCalledTimes(1);
+			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.teamStore.reload).toHaveBeenCalledWith(100);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("runs at most one authoritative reload for each recovered connection", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			MockEventSource.instances[0]?.triggerOpen();
+
+			MockEventSource.instances[0]?.triggerError();
+			await vi.advanceTimersByTimeAsync(1000);
+			MockEventSource.instances[1]?.triggerOpen();
+			MockEventSource.instances[1]?.triggerOpen();
+
+			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(1);
+			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(1);
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(1);
+
+			MockEventSource.instances[1]?.triggerError();
+			await vi.advanceTimersByTimeAsync(1000);
+			MockEventSource.instances[2]?.triggerOpen();
+
+			expect(mockState.auth.refreshUser).toHaveBeenCalledTimes(2);
+			expect(mockState.teamStore.reload).toHaveBeenCalledTimes(2);
+			expect(mockState.fileStore.navigateTo).toHaveBeenCalledTimes(2);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("cancels a pending reconnect without running a recovery reload", async () => {
+		vi.useFakeTimers();
+		try {
+			const { useStorageChangeEvents } = await import(
+				"@/hooks/useStorageChangeEvents"
+			);
+			const hook = renderHook(() => useStorageChangeEvents());
+
+			await vi.advanceTimersByTimeAsync(1500);
+			MockEventSource.instances[0]?.triggerOpen();
+			MockEventSource.instances[0]?.triggerError();
+			hook.unmount();
+
+			await vi.advanceTimersByTimeAsync(60_000);
+
+			expect(MockEventSource.instances).toHaveLength(1);
+			expect(mockState.auth.refreshUser).not.toHaveBeenCalled();
+			expect(mockState.teamStore.reload).not.toHaveBeenCalled();
+			expect(mockState.fileStore.navigateTo).not.toHaveBeenCalled();
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
 	it("stops reconnecting after the failure limit and cleans up on unmount", async () => {
 		vi.useFakeTimers();
 		try {

@@ -30,6 +30,11 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(common.database.clone());
+    remote_protocol.configure_tunnel_owner_directory(
+        common.database.clone(),
+        &common.cfg.deployment,
+        common.config_sync.runtime_id(),
+    )?;
     common
         .driver_registry
         .set_remote_protocol(remote_protocol.clone());

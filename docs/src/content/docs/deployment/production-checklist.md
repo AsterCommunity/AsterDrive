@@ -200,7 +200,8 @@ Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/
 - 所有实例都能访问配置的 Redis endpoint
 - 所有实例使用完全相同的 `aster_drive.config_reload` topic
 - 所有 storage policy 使用共享存储，不使用彼此独立的 `local` 根目录
-- remote node 使用 `direct` transport；当前 reverse tunnel 仅用于 single profile
+- 如果启用 reverse tunnel，所有 primary 都配置各自的 `deployment.internal_endpoint`，并设置相同的 `deployment.internal_proxy_secret`
+- reverse tunnel owner directory 能查到有效 lease/fencing token；故障演练确认旧 token 被拒、standby 在 lease 过期后接管
 - 在实例 A 修改系统设置后，实例 B 能及时看到变化
 - Redis 中断和恢复后的处理流程已经演练
 

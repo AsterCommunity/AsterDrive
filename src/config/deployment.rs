@@ -30,6 +30,29 @@ impl DeploymentProfile {
 pub struct DeploymentConfig {
     #[serde(default)]
     pub profile: DeploymentProfile,
+    /// Per-instance HTTP endpoint used by other primaries for internal data-plane proxying.
+    #[serde(default)]
+    pub internal_endpoint: String,
+    /// Cluster-wide secret used to authenticate internal primary-to-primary proxy requests.
+    #[serde(default)]
+    pub internal_proxy_secret: String,
+}
+
+const INTERNAL_PROXY_SECRET_MIN_LENGTH: usize = 32;
+
+impl DeploymentConfig {
+    pub fn internal_proxy_enabled(&self) -> bool {
+        let endpoint = self.internal_endpoint.trim();
+        self.profile.is_cluster()
+            && self.internal_proxy_secret.trim().len() >= INTERNAL_PROXY_SECRET_MIN_LENGTH
+            && matches!(
+                url::Url::parse(endpoint),
+                Ok(url)
+                    if matches!(url.scheme(), "http" | "https")
+                        && url.query().is_none()
+                        && url.fragment().is_none()
+            )
+    }
 }
 
 pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Vec<String> {
@@ -67,6 +90,40 @@ pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Ve
             "cluster profile requires config_sync.endpoint when config_sync.backend is redis"
                 .to_string(),
         );
+    }
+
+    let internal_endpoint = config.deployment.internal_endpoint.trim();
+    let internal_proxy_secret = config.deployment.internal_proxy_secret.trim();
+    match (
+        internal_endpoint.is_empty(),
+        internal_proxy_secret.is_empty(),
+    ) {
+        (true, false) => issues.push(
+            "cluster deployment.internal_endpoint is required when internal_proxy_secret is set"
+                .to_string(),
+        ),
+        (false, true) => issues.push(
+            "cluster deployment.internal_proxy_secret is required when internal_endpoint is set"
+                .to_string(),
+        ),
+        (false, false) => {
+            match url::Url::parse(internal_endpoint) {
+                Ok(url)
+                    if matches!(url.scheme(), "http" | "https")
+                        && url.query().is_none()
+                        && url.fragment().is_none() => {}
+                _ => issues.push(
+                    "cluster deployment.internal_endpoint must be an absolute http/https URL without query or fragment"
+                        .to_string(),
+                ),
+            }
+            if internal_proxy_secret.len() < INTERNAL_PROXY_SECRET_MIN_LENGTH {
+                issues.push(format!(
+                    "cluster deployment.internal_proxy_secret must contain at least {INTERNAL_PROXY_SECRET_MIN_LENGTH} characters"
+                ));
+            }
+        }
+        (true, true) => {}
     }
 
     issues
@@ -130,6 +187,55 @@ mod tests {
         config.config_sync.endpoint = "redis://redis:6379/0".to_string();
 
         validate_static(&config).expect("cluster profile should accept shared dependencies");
+    }
+
+    #[test]
+    fn cluster_internal_proxy_requires_a_complete_valid_pair() {
+        let mut config = Config::default();
+        config.deployment.profile = DeploymentProfile::Cluster;
+        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.cache.backend = "redis".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.backend = "redis".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+
+        config.deployment.internal_endpoint = "http://primary-a:3000".to_string();
+        let issues = static_issues(&config, None);
+        assert_eq!(
+            issues,
+            vec![
+                "cluster deployment.internal_proxy_secret is required when internal_endpoint is set"
+            ]
+        );
+
+        config.deployment.internal_proxy_secret =
+            "cluster-proxy-secret-at-least-32-bytes".to_string();
+        assert!(static_issues(&config, None).is_empty());
+        assert!(config.deployment.internal_proxy_enabled());
+
+        config.deployment.internal_endpoint = "redis://primary-a:6379/0".to_string();
+        assert_eq!(static_issues(&config, None).len(), 1);
+        assert!(!config.deployment.internal_proxy_enabled());
+    }
+
+    #[test]
+    fn cluster_internal_proxy_rejects_short_shared_secret() {
+        let mut config = Config::default();
+        config.deployment.profile = DeploymentProfile::Cluster;
+        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.cache.backend = "redis".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.backend = "redis".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+        config.deployment.internal_endpoint = "http://primary-a:3000".to_string();
+        config.deployment.internal_proxy_secret = "short".to_string();
+
+        assert!(
+            static_issues(&config, None)
+                .iter()
+                .any(|issue| issue.contains("at least 32 characters"))
+        );
+        assert!(!config.deployment.internal_proxy_enabled());
     }
 
     #[test]

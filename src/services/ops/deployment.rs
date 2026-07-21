@@ -64,9 +64,10 @@ pub fn validate_remote_node_transport(
     if config.deployment.profile.is_cluster()
         && is_enabled
         && transport_mode.resolves_to_reverse_tunnel(base_url)
+        && !config.deployment.internal_proxy_enabled()
     {
         return Err(AsterError::validation_error(
-            "cluster deployment profile currently requires direct remote node transport; reverse tunnel routing is primary-local",
+            "cluster reverse tunnel requires deployment.internal_endpoint and deployment.internal_proxy_secret on every primary",
         ));
     }
     Ok(())
@@ -80,17 +81,21 @@ pub async fn inspect_primary_topology(
         return Ok(ClusterTopologyReport::default());
     }
 
-    let reverse_tunnel_nodes = managed_follower_repo::find_all(db)
-        .await?
-        .into_iter()
-        .filter(|node| {
-            node.is_enabled
-                && node
-                    .transport_mode
-                    .resolves_to_reverse_tunnel(&node.base_url)
-        })
-        .map(|node| (node.id, node.name))
-        .collect();
+    let reverse_tunnel_nodes = if config.deployment.internal_proxy_enabled() {
+        Vec::new()
+    } else {
+        managed_follower_repo::find_all(db)
+            .await?
+            .into_iter()
+            .filter(|node| {
+                node.is_enabled
+                    && node
+                        .transport_mode
+                        .resolves_to_reverse_tunnel(&node.base_url)
+            })
+            .map(|node| (node.id, node.name))
+            .collect()
+    };
 
     let local_storage_policies = policy_repo::find_all(db)
         .await?
@@ -177,6 +182,12 @@ mod tests {
         );
         validate_remote_node_transport(&config, RemoteNodeTransportMode::ReverseTunnel, "", false)
             .expect("disabled reverse tunnel nodes may remain configured");
+
+        config.deployment.internal_endpoint = "http://primary-a:3000".to_string();
+        config.deployment.internal_proxy_secret =
+            "cluster-secret-for-tests-at-least-32-bytes".to_string();
+        validate_remote_node_transport(&config, RemoteNodeTransportMode::ReverseTunnel, "", true)
+            .expect("configured cluster proxy should accept reverse tunnel nodes");
     }
 
     #[tokio::test]
