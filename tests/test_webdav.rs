@@ -735,6 +735,75 @@ async fn test_webdav_mkcol_body_boundaries() {
 }
 
 #[actix_web::test]
+async fn test_webdav_mkcol_rejects_existing_targets_and_missing_parent() {
+    let app = setup_with_webdav!();
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let existing_file_uri = "/webdav/mkcol-over-plain-%E2%82%AC";
+
+    let req = test::TestRequest::put()
+        .uri(existing_file_uri)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("plain resource")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "file fixture should be created");
+
+    let req = test::TestRequest::with_uri(existing_file_uri)
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        405,
+        "MKCOL over an existing non-collection resource should be rejected"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(existing_file_uri)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "failed MKCOL should preserve the file");
+    let body = test::read_body(resp).await;
+    assert_eq!(body.as_ref(), b"plain resource");
+
+    let existing_collection_uri = "/webdav/mkcol-existing/";
+    for expected_status in [201, 405] {
+        let req = test::TestRequest::with_uri(existing_collection_uri)
+            .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            expected_status,
+            "MKCOL should create a new collection once and reject the existing target"
+        );
+    }
+
+    let req = test::TestRequest::with_uri("/webdav/mkcol-missing/child/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        409,
+        "MKCOL below a missing parent should return Conflict"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/mkcol-new/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "MKCOL should create a new collection");
+}
+
+#[actix_web::test]
 async fn test_webdav_bodyless_methods_reject_non_empty_request_bodies() {
     let app = setup_with_webdav!();
 
@@ -1297,6 +1366,40 @@ async fn test_webdav_real_http_put_with_content_length_persists_bytes() {
     assert_eq!(get.status(), reqwest::StatusCode::OK);
     let bytes = get.bytes().await.expect("real WebDAV GET body should read");
     assert_eq!(bytes.as_ref(), data.as_slice());
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_webdav_real_http_percent_encoded_hash_filename_round_trip() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let client = reqwest::Client::new();
+    let encoded_hash_url = format!("{}/webdav/windows%23name.txt", server.base_url);
+
+    let put = client
+        .put(&encoded_hash_url)
+        .basic_auth(&username, Some(&password))
+        .body("windows hash filename")
+        .send()
+        .await
+        .expect("percent-encoded hash filename should be created");
+    assert_eq!(put.status(), reqwest::StatusCode::CREATED);
+
+    let get = client
+        .get(&encoded_hash_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("percent-encoded hash filename should be readable");
+    assert_eq!(get.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        get.text()
+            .await
+            .expect("percent-encoded hash filename body should be readable"),
+        "windows hash filename"
+    );
 
     server.stop().await;
 }

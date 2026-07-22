@@ -10,6 +10,8 @@ title: "WebDAV"
 Regular WebDAV users usually only need to create a dedicated account in the workspace they want to connect, then enter the address in Finder, Windows, or rclone. Personal and team spaces use the same WebDAV address; credentials decide which workspace the client enters.
 :::
 
+For protocol methods, client validation, and filename, same-name resource, property, lock, and DeltaV limits, see [WebDAV Features and Limits](/en/guide/webdav/).
+
 ## Static Configuration in `config.toml`
 
 ```toml
