@@ -33,10 +33,13 @@ debug = false
 opt-level = 2
 lto = true
 codegen-units = 1
+# Keep function symbols for actionable production panic backtraces while
+# leaving source-level debug information out of the distributed binary.
+debug = 0
 # Keep ordinary request/task panics from taking down every HTTP worker. Stack overflow and OOM
 # remain process-fatal and must be prevented at their input/allocation boundaries.
 panic = "unwind"
-strip = true
+strip = "debuginfo"
 
 # 压测/火焰图采样用：接近 release，但保留符号并关闭 LTO，方便 perf 展开栈。
 # frame pointer 需要通过 RUSTFLAGS 传入：

@@ -35,11 +35,9 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
         .driver_registry
         .set_remote_protocol(remote_protocol.clone());
 
-    tracing::info!(
+    tracing::debug!(
         mode = NodeRuntimeMode::Primary.as_str(),
-        "startup complete — listening on {}:{}",
-        common.cfg.server.host,
-        common.cfg.server.port
+        "primary runtime state prepared"
     );
 
     Ok(PreparedPrimaryRuntime {

@@ -15,11 +15,9 @@ pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
     runtime_config.reload(&common.database).await?;
     aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
-    tracing::info!(
+    tracing::debug!(
         mode = NodeRuntimeMode::Follower.as_str(),
-        "startup complete — listening on {}:{}",
-        common.cfg.server.host,
-        common.cfg.server.port
+        "follower runtime state prepared"
     );
 
     Ok(PreparedFollowerRuntime {

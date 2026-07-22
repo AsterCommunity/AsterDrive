@@ -208,7 +208,9 @@ async fn main() -> std::io::Result<()> {
     // 1. 加载配置（会自动创建 data/config.toml）
     let config_load_report = aster_drive::config::init_config().map_err(io_other)?;
     for message in config_load_report.messages() {
-        eprintln!("{message}");
+        if !message.starts_with("[INFO] Configuration loaded from:") {
+            eprintln!("{message}");
+        }
     }
     let cfg = aster_drive::config::get_config();
     let runtime_mode = aster_drive::config::node_mode::start_mode(cfg.as_ref());
@@ -227,6 +229,18 @@ async fn main() -> std::io::Result<()> {
     if let Some(warning) = log_result.warning {
         tracing::warn!("{}", warning);
     }
+    tracing::info!(path = %config_load_report.config_path().display(), "configuration loaded");
+    tracing::info!(
+        version = aster_drive::build_info::VERSION,
+        revision = aster_drive::build_info::REVISION,
+        build_time = aster_drive::build_info::BUILD_TIME,
+        profile = aster_drive::build_info::PROFILE,
+        target = aster_drive::build_info::TARGET,
+        variant = aster_drive::build_info::VARIANT,
+        mode = runtime_mode.as_str(),
+        "starting {}",
+        aster_drive::build_info::PRODUCT_NAME
+    );
 
     // 只清理短命 runtime 临时目录：
     // - 不碰 temp_dir 根，避免误删共享目录（例如 /tmp）里的其他内容；

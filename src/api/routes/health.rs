@@ -113,14 +113,9 @@ pub async fn memory() -> HttpResponse {
 
 pub fn system_info_response() -> SystemInfoResponse {
     SystemInfoResponse {
-        version: env!("CARGO_PKG_VERSION").to_string(),
-        build_time: compile_time().to_string(),
+        version: crate::build_info::VERSION.to_string(),
+        build_time: crate::build_info::BUILD_TIME.to_string(),
     }
-}
-
-#[inline]
-pub(crate) fn compile_time() -> &'static str {
-    option_env!("ASTER_BUILD_TIME").unwrap_or("unknown")
 }
 
 fn status_response(status: &str) -> HealthResponse {

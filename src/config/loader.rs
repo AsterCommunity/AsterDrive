@@ -23,6 +23,10 @@ pub struct ConfigLoadReport {
 }
 
 impl ConfigLoadReport {
+    pub fn config_path(&self) -> &Path {
+        &self.config_path
+    }
+
     pub fn messages(&self) -> Vec<String> {
         let mut messages = Vec::with_capacity(4);
         if self.default_created {
