@@ -34,7 +34,7 @@ The main implementation entry points for protocol debugging are:
 After changing WebDAV code, begin with the smallest relevant target instead of compiling an unnecessarily broad test matrix:
 
 ```bash
-cargo test --test webdav protocol::<test_name> -- --nocapture
+cargo test --test webdav protocol::test_name -- --nocapture
 ```
 
 For example, after changing `MKCOL`:

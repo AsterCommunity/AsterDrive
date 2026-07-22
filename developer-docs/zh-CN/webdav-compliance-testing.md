@@ -34,7 +34,7 @@
 修改 WebDAV 后先跑最小目标，不要一上来编译整个测试矩阵：
 
 ```bash
-cargo test --test webdav protocol::<test_name> -- --nocapture
+cargo test --test webdav protocol::test_name -- --nocapture
 ```
 
 例如修改 `MKCOL`：

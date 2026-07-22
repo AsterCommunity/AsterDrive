@@ -21,15 +21,27 @@ use std::fs::{self, File};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
-const LITMUS_VERSION: &str = "0.18";
+const WEBDAV_COMPAT_VERSIONS: &str = include_str!("../../scripts/ci/webdav-compat/versions.env");
 const LITMUS_BIN_ENV: &str = "LITMUS_BIN";
 const ARTIFACT_DIR_ENV: &str = "ASTER_WEBDAV_COMPAT_ARTIFACT_DIR";
 const DEFAULT_SUITE_TIMEOUT: Duration = Duration::from_secs(120);
 const BASELINE: &str = include_str!("fixtures/litmus-baseline.txt");
+
+fn litmus_version() -> &'static str {
+    static VERSION: LazyLock<&'static str> = LazyLock::new(|| {
+        WEBDAV_COMPAT_VERSIONS
+            .lines()
+            .map(str::trim)
+            .find_map(|line| line.strip_prefix("LITMUS_VERSION="))
+            .filter(|version| !version.is_empty())
+            .expect("versions.env must define a non-empty LITMUS_VERSION")
+    });
+    *VERSION
+}
 
 #[derive(Clone, Copy, Debug, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -383,7 +395,8 @@ fn resolve_litmus_wrapper() -> Result<PathBuf, String> {
     }
 
     Err(format!(
-        "Litmus wrapper not found. Install pinned Litmus {LITMUS_VERSION} or set {LITMUS_BIN_ENV}"
+        "Litmus wrapper not found. Install pinned Litmus {} or set {LITMUS_BIN_ENV}",
+        litmus_version()
     ))
 }
 
@@ -752,7 +765,7 @@ fn evaluate_litmus_result(
             group.name,
             output.cases.len(),
             group.expected_test_count,
-            LITMUS_VERSION
+            litmus_version()
         ));
     }
 
@@ -923,7 +936,7 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
     let (observed_differences, accepted_differences, errors) =
         evaluate_litmus_result(group, &process, &output, &baseline);
     let report = LitmusReport {
-        litmus_version: LITMUS_VERSION,
+        litmus_version: litmus_version(),
         group: group.name.to_string(),
         evaluation_mode: group.evaluation_mode,
         environment: group.environment.iter().copied().collect(),
@@ -1027,6 +1040,19 @@ fn litmus_output_parser_distinguishes_all_statuses_and_carriage_returns() {
                 message: "legacy response".to_string(),
             }],
         }
+    );
+}
+
+#[test]
+fn litmus_version_comes_from_the_shared_compatibility_manifest() {
+    assert!(!litmus_version().is_empty());
+    assert_eq!(
+        WEBDAV_COMPAT_VERSIONS
+            .lines()
+            .filter(|line| line.trim().starts_with("LITMUS_VERSION="))
+            .count(),
+        1,
+        "versions.env should define LITMUS_VERSION exactly once"
     );
 }
 

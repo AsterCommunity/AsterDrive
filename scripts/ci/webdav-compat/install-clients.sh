@@ -32,6 +32,19 @@ case $(uname -m) in
     ;;
 esac
 
+for command in curl install make nproc sed sha256sum tar unzip xz; do
+  if ! command -v "$command" >/dev/null 2>&1; then
+    package_hint=$command
+    case $command in
+      nproc) package_hint=coreutils ;;
+      unzip) package_hint=unzip ;;
+      xz) package_hint=xz-utils ;;
+    esac
+    echo "Required client installer command is missing: $command (install package: $package_hint)" >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$bin_dir"
 
 download_and_verify() {
