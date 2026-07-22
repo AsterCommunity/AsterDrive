@@ -4,8 +4,8 @@ set -euo pipefail
 
 script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
 # shellcheck source-path=SCRIPTDIR
-# shellcheck source=webdav-compat-versions.env
-source "$script_dir/webdav-compat-versions.env"
+# shellcheck source=versions.env
+source "$script_dir/versions.env"
 
 install_prefix=${WEBDAV_COMPAT_TOOLS_DIR:-"$HOME/.local/webdav-compat"}
 bin_dir="$install_prefix/bin"

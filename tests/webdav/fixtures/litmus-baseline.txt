@@ -1,4 +1,4 @@
-# Litmus 0.13 known-difference allowlist.
+# Litmus 0.18 known-difference allowlist.
 #
 # Format:
 # group | FAIL|SKIPPED|WARNING | test name | independent tracking issue URL | rationale
@@ -6,7 +6,6 @@
 # Unknown failures/skips fail the compatibility job. Stale entries also fail so
 # fixed behavior is removed from this file instead of silently remaining waived.
 
-basic | FAIL | mkcol_over_plain | https://github.com/AsterCommunity/AsterDrive/issues/423 | MKCOL does not yet reject an existing non-collection target
 basic | WARNING | delete_fragment | https://github.com/AsterCommunity/AsterDrive/issues/424 | raw fragment-bearing mutation targets are still accepted
 locks | FAIL | lock_collection | https://github.com/AsterCommunity/AsterDrive/issues/425 | a depth-infinity collection token does not authorize the covered descendant PUT
 locks | FAIL | owner_modify | https://github.com/AsterCommunity/AsterDrive/issues/425 | owner mutation under the collection lock is rejected with 423

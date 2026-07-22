@@ -1,7 +1,6 @@
 //! 集成测试：`webdav_lock_system`。
 
-#[macro_use]
-mod common;
+use crate::common;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::webdav::dav::DavLockError;
 

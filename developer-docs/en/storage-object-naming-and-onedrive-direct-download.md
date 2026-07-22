@@ -167,7 +167,7 @@ cargo test --lib services::workspace::storage
 cargo test --lib storage::drivers::onedrive
 cargo test --lib services::files::upload
 cargo test --test test_upload
-cargo test --test test_webdav
+cargo test --test webdav
 cargo test --features openapi --test generate_openapi
 ```
 

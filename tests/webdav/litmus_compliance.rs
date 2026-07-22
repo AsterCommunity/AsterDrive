@@ -1,11 +1,10 @@
-//! WebDAV Litmus 0.13 conformance baseline.
+//! WebDAV Litmus 0.18 conformance baseline.
 //!
 //! The external suites are ignored in the ordinary Rust test run. The
-//! WebDAV compatibility workflow installs the pinned Litmus package and runs
+//! WebDAV compatibility workflow installs the pinned Litmus build and runs
 //! them explicitly while preserving per-suite artifacts.
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use actix_web::dev::Service;
 use actix_web::{App, HttpServer, web};
@@ -26,40 +25,49 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
-const LITMUS_VERSION: &str = "0.13";
+const LITMUS_VERSION: &str = "0.18";
 const LITMUS_BIN_ENV: &str = "LITMUS_BIN";
 const ARTIFACT_DIR_ENV: &str = "ASTER_WEBDAV_COMPAT_ARTIFACT_DIR";
-const CLIENT_COMMAND_TIMEOUT: Duration = Duration::from_secs(120);
-const BASELINE: &str = include_str!("fixtures/webdav/litmus-baseline.txt");
+const DEFAULT_SUITE_TIMEOUT: Duration = Duration::from_secs(120);
+const BASELINE: &str = include_str!("fixtures/litmus-baseline.txt");
 
 #[derive(Clone, Copy)]
 struct LitmusGroup {
     name: &'static str,
     expected_test_count: usize,
+    timeout: Duration,
 }
 
 const TEST_GROUPS: &[LitmusGroup] = &[
     LitmusGroup {
         name: "basic",
         expected_test_count: 16,
+        timeout: DEFAULT_SUITE_TIMEOUT,
     },
     LitmusGroup {
         name: "copymove",
         expected_test_count: 13,
+        timeout: DEFAULT_SUITE_TIMEOUT,
     },
     LitmusGroup {
         name: "props",
-        expected_test_count: 30,
+        expected_test_count: 33,
+        timeout: DEFAULT_SUITE_TIMEOUT,
     },
     LitmusGroup {
         name: "locks",
-        expected_test_count: 41,
+        expected_test_count: 40,
+        timeout: DEFAULT_SUITE_TIMEOUT,
     },
     LitmusGroup {
         name: "http",
         expected_test_count: 4,
+        timeout: DEFAULT_SUITE_TIMEOUT,
     },
 ];
+
+#[path = "litmus/extended.rs"]
+mod extended_litmus;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -120,6 +128,7 @@ struct BaselineEntry {
 struct LitmusReport {
     litmus_version: &'static str,
     group: String,
+    timeout_seconds: u64,
     expected_test_count: usize,
     observed_test_count: usize,
     exit_code: Option<i32>,
@@ -397,7 +406,7 @@ fn run_litmus_group(
     let mut timed_out = false;
 
     let exit_status = loop {
-        if started_at.elapsed() > CLIENT_COMMAND_TIMEOUT {
+        if started_at.elapsed() > group.timeout {
             timed_out = true;
             terminate_process_group(&mut child);
             break child.wait().map_err(|error| {
@@ -621,7 +630,11 @@ fn parse_litmus_detail(line: &str, status_position: usize, marker: &str) -> Stri
 }
 
 fn parse_baseline(contents: &str) -> Result<Vec<BaselineEntry>, String> {
-    let known_groups: BTreeSet<&str> = TEST_GROUPS.iter().map(|group| group.name).collect();
+    let known_groups: BTreeSet<&str> = TEST_GROUPS
+        .iter()
+        .chain(extended_litmus::TEST_GROUPS)
+        .map(|group| group.name)
+        .collect();
     let mut entries = Vec::new();
     let mut keys = BTreeSet::new();
 
@@ -702,7 +715,7 @@ fn evaluate_litmus_result(
     if process.timed_out {
         errors.push(format!(
             "Litmus {} timed out after {:?}",
-            group.name, CLIENT_COMMAND_TIMEOUT
+            group.name, group.timeout
         ));
     }
     if output.cases.len() != group.expected_test_count {
@@ -865,6 +878,7 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
     let report = LitmusReport {
         litmus_version: LITMUS_VERSION,
         group: group.name.to_string(),
+        timeout_seconds: group.timeout.as_secs(),
         expected_test_count: group.expected_test_count,
         observed_test_count: output.cases.len(),
         exit_code: process.exit_status.code(),
@@ -985,31 +999,31 @@ fn committed_litmus_baseline_is_well_formed() {
 }
 
 #[actix_web::test]
-#[ignore = "requires pinned Litmus 0.13; run via the WebDAV compatibility workflow"]
+#[ignore = "requires pinned Litmus 0.18; run via the WebDAV compatibility workflow"]
 async fn test_litmus_basic() {
     run_group(TEST_GROUPS[0]).await;
 }
 
 #[actix_web::test]
-#[ignore = "requires pinned Litmus 0.13; run via the WebDAV compatibility workflow"]
+#[ignore = "requires pinned Litmus 0.18; run via the WebDAV compatibility workflow"]
 async fn test_litmus_copymove() {
     run_group(TEST_GROUPS[1]).await;
 }
 
 #[actix_web::test]
-#[ignore = "requires pinned Litmus 0.13; run via the WebDAV compatibility workflow"]
+#[ignore = "requires pinned Litmus 0.18; run via the WebDAV compatibility workflow"]
 async fn test_litmus_props() {
     run_group(TEST_GROUPS[2]).await;
 }
 
 #[actix_web::test]
-#[ignore = "requires pinned Litmus 0.13; run via the WebDAV compatibility workflow"]
+#[ignore = "requires pinned Litmus 0.18; run via the WebDAV compatibility workflow"]
 async fn test_litmus_locks() {
     run_group(TEST_GROUPS[3]).await;
 }
 
 #[actix_web::test]
-#[ignore = "requires pinned Litmus 0.13; run via the WebDAV compatibility workflow"]
+#[ignore = "requires pinned Litmus 0.18; run via the WebDAV compatibility workflow"]
 async fn test_litmus_http() {
     run_group(TEST_GROUPS[4]).await;
 }

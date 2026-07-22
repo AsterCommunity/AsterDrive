@@ -17,6 +17,7 @@
 - [API 概览](./api/index.md)
 - [标签 API](./api/tags.md)
 - [测试与数据库后端](./testing.md)
+- [WebDAV 合规与兼容性检查](./webdav-compliance-testing.md)
 - [Jemalloc 堆画像](./jemalloc-profiling.md)
 - [静态配置密钥处理备忘](./static-config-secret-handling.md)
 - [服务层模块化重构历史方案与当前目录映射](./service-modularization-refactor-plan.md)

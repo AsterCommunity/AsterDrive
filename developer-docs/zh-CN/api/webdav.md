@@ -117,3 +117,7 @@ http://localhost:3000/webdav
 - `webdav_block_system_files_enabled = true` 时，WebDAV 写入 / 移动 / 复制会按 `webdav_block_system_file_patterns` 拦截系统文件名，默认包含 `.DS_Store`、`._*`、`Thumbs.db`、`desktop.ini`、`$RECYCLE.BIN` 等常见客户端垃圾文件；REST 文件夹列表不会应用这层过滤
 
 如果部署在反向代理后面，还要确认代理层允许 WebDAV 方法和相关请求头，见 [反向代理部署](https://drive.astercosm.com/deployment/reverse-proxy/)。
+
+## 合规与客户端兼容性测试
+
+协议修改的本地检查、Litmus 固定基线、known-difference 管理、真实客户端矩阵和 CI 产物说明见 [WebDAV 合规与兼容性检查](../webdav-compliance-testing.md)。

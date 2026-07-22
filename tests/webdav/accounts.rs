@@ -1,7 +1,6 @@
 //! WebDAV 账号管理测试
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use actix_web::{App, test, web};
 use aster_drive::config::{RateLimitConfig, RateLimitTier};

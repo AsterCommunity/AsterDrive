@@ -360,59 +360,62 @@ fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
             return Err(responses::invalid_xml_body());
         }
     };
-    if root.name != "propfind" {
+    if !is_dav_element(&root, "propfind") {
         return Err(invalid_propfind_body());
     }
 
     let mut kind = None;
     let mut include = Vec::new();
+    let mut include_seen = false;
 
     for child in child_elements(&root) {
-        match child.name.as_str() {
-            "propname" => {
-                if kind.is_some() {
-                    return Err(invalid_propfind_body());
-                }
-                kind = Some(PropfindKind::PropName);
+        if is_dav_element(child, "propname") {
+            if kind.is_some() {
+                return Err(invalid_propfind_body());
             }
-            "allprop" => {
-                if kind.is_some() {
-                    return Err(invalid_propfind_body());
-                }
-                kind = Some(PropfindKind::AllProp {
-                    include: Vec::new(),
-                });
+            kind = Some(PropfindKind::PropName);
+        } else if is_dav_element(child, "allprop") {
+            if kind.is_some() {
+                return Err(invalid_propfind_body());
             }
-            "include" => {
-                if !matches!(kind.as_ref(), Some(PropfindKind::AllProp { .. })) {
-                    return Err(invalid_propfind_body());
-                }
-                include.extend(child_elements(child).map(RequestedProp::from));
+            kind = Some(PropfindKind::AllProp {
+                include: Vec::new(),
+            });
+        } else if is_dav_element(child, "include") {
+            if include_seen {
+                return Err(invalid_propfind_body());
             }
-            "prop" => {
-                if kind.is_some() {
-                    return Err(invalid_propfind_body());
-                }
-                let props = child_elements(child).map(RequestedProp::from).collect();
-                kind = Some(PropfindKind::Prop(props));
+            include_seen = true;
+            include.extend(child_elements(child).map(RequestedProp::from));
+        } else if is_dav_element(child, "prop") {
+            if kind.is_some() {
+                return Err(invalid_propfind_body());
             }
-            _ => return Err(invalid_propfind_body()),
+            let props = child_elements(child).map(RequestedProp::from).collect();
+            kind = Some(PropfindKind::Prop(props));
+        } else {
+            // RFC 4918 section 17 requires unknown XML elements, including
+            // their complete subtrees, to be processed as if they were absent.
+            // Only direct DAV: children above can select PROPFIND behavior.
+            continue;
         }
     }
 
     match kind {
         Some(PropfindKind::AllProp { .. }) => Ok(PropfindKind::AllProp { include }),
         Some(kind) => {
-            if include.is_empty() {
+            if !include_seen {
                 Ok(kind)
             } else {
                 Err(invalid_propfind_body())
             }
         }
-        None => Ok(PropfindKind::AllProp {
-            include: Vec::new(),
-        }),
+        None => Err(invalid_propfind_body()),
     }
+}
+
+fn is_dav_element(element: &Element, local_name: &str) -> bool {
+    element.name == local_name && element.namespace.as_deref() == Some("DAV:")
 }
 
 fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResponse> {

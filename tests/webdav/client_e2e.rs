@@ -3,9 +3,9 @@
 //! These tests require external binaries and are intentionally ignored by
 //! default. Run with:
 //!
-//! `cargo test --test test_webdav_client_e2e -- --ignored --nocapture`
+//! `cargo test --test webdav client_e2e:: -- --ignored --nocapture`
 
-mod common;
+use crate::common;
 
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::WebDavConfig;

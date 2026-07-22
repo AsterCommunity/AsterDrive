@@ -1,7 +1,6 @@
 //! 集成测试：`webdav`。
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use actix_web::test;
 use actix_web::{App, HttpServer, web};
@@ -960,7 +959,7 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
         (
             "PROPFIND",
             "/webdav/",
-            "<D:propfind xmlns:D=\"DAV:\"/>",
+            "<D:propfind xmlns:D=\"DAV:\"><D:allprop/></D:propfind>",
             actix_web::http::StatusCode::MULTI_STATUS,
         ),
         (
@@ -4168,6 +4167,140 @@ async fn test_webdav_propfind_depth_one_large_directory_live_props() {
 }
 
 #[actix_web::test]
+async fn test_webdav_propfind_ignores_unknown_xml_extensions() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let cases = [
+        (
+            "Litmus unknown DAV element before allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<propfind xmlns="DAV:">
+  <foobar />
+  <allprop />
+</propfind>"#,
+        ),
+        (
+            "unknown DAV and extension elements after allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <D:allprop />
+  <D:future-selector />
+  <X:future-selector />
+</D:propfind>"#,
+        ),
+        (
+            "unknown subtree containing DAV selectors",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:wrapper>
+    <D:propname />
+    <D:prop><D:getetag /></D:prop>
+    <D:include><D:quota-used-bytes /></D:include>
+  </X:wrapper>
+  <D:allprop />
+</D:propfind>"#,
+        ),
+        (
+            "extension local names must not activate DAV selectors",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:propname />
+  <X:prop><D:getetag /></X:prop>
+  <X:allprop />
+  <X:include><D:quota-used-bytes /></X:include>
+  <D:allprop />
+</D:propfind>"#,
+        ),
+        (
+            "unknown attributes on root and selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension" X:mode="future">
+  <D:allprop X:mode="future" />
+</D:propfind>"#,
+        ),
+        (
+            "unknown element between include and allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <D:include><D:quota-used-bytes /></D:include>
+  <X:between />
+  <D:allprop />
+</D:propfind>"#,
+        ),
+    ];
+
+    for (label, body) in cases {
+        let req = test::TestRequest::with_uri("/webdav/")
+            .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Depth", "0"))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            207,
+            "valid PROPFIND extension should be ignored for case: {label}"
+        );
+        assert_eq!(
+            resp.headers()
+                .get(actix_web::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/xml; charset=utf-8"),
+            "PROPFIND should return XML for case: {label}"
+        );
+        let body = test::read_body(resp).await;
+        let xml = String::from_utf8_lossy(&body);
+        assert!(
+            xml.contains("<D:multistatus") && xml.contains("<D:displayname"),
+            "recognized allprop selector should remain active for case {label}: {xml}"
+        );
+        Element::parse(Cursor::new(xml.as_bytes()))
+            .unwrap_or_else(|error| panic!("PROPFIND XML should parse for {label}: {error}"));
+    }
+}
+
+#[actix_web::test]
+async fn test_webdav_propfind_validates_unknown_subtrees_before_ignoring_them() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE propfind [
+  <!ENTITY external SYSTEM "file:///TARGET">
+]>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:ignored>&external;</X:ignored>
+  <D:allprop />
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "XML safety validation must run before unknown subtrees are ignored"
+    );
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("no-external-entities"),
+        "external entity rejection should retain the DAV error condition: {xml}"
+    );
+    Element::parse(Cursor::new(xml.as_bytes()))
+        .expect("external entity rejection should return valid XML");
+}
+
+#[actix_web::test]
 async fn test_webdav_propfind_rejects_invalid_request_grammar() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -4198,11 +4331,56 @@ async fn test_webdav_propfind_rejects_invalid_request_grammar() {
 </D:propfind>"#,
         ),
         (
-            "unknown child",
+            "duplicate allprop selector",
             r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:propfind xmlns:D="DAV:">
-  <D:unknown />
+  <D:allprop />
+  <D:allprop />
 </D:propfind>"#,
+        ),
+        (
+            "duplicate propname selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:propname />
+  <D:propname />
+</D:propfind>"#,
+        ),
+        (
+            "duplicate prop selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop><D:displayname /></D:prop>
+  <D:prop><D:getetag /></D:prop>
+</D:propfind>"#,
+        ),
+        (
+            "duplicate include selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:allprop />
+  <D:include><D:getetag /></D:include>
+  <D:include><D:quota-used-bytes /></D:include>
+</D:propfind>"#,
+        ),
+        (
+            "non-empty propfind without selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" />"#,
+        ),
+        (
+            "unknown-only propfind",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:future-selector />
+</D:propfind>"#,
+        ),
+        (
+            "propfind root outside DAV namespace",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<X:propfind xmlns:X="urn:aster:extension">
+  <X:allprop />
+</X:propfind>"#,
         ),
     ];
 
