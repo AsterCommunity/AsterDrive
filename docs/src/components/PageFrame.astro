@@ -54,7 +54,7 @@ const isSplash = entry.data.template === 'splash';
 			z-index: var(--sl-z-index-navbar);
 			position: fixed;
 			inset-inline-start: 0;
-			inset-block-start: 0;
+			inset-block-start: var(--aster-announcement-height);
 			width: 100%;
 			height: var(--sl-nav-height);
 			border-bottom: 1px solid var(--sl-color-hairline-shade);
@@ -80,7 +80,7 @@ const isSplash = entry.data.template === 'splash';
 			visibility: var(--sl-sidebar-visibility, hidden);
 			position: fixed;
 			z-index: var(--sl-z-index-menu);
-			inset-block: var(--sl-nav-height) 0;
+			inset-block: calc(var(--aster-announcement-height) + var(--sl-nav-height)) 0;
 			inset-inline-start: 0;
 			width: 100%;
 			background-color: var(--sl-color-black);
@@ -117,7 +117,9 @@ const isSplash = entry.data.template === 'splash';
 		}
 
 		.main-frame {
-			padding-top: calc(var(--sl-nav-height) + var(--sl-mobile-toc-height));
+			padding-top: calc(
+				var(--aster-announcement-height) + var(--sl-nav-height) + var(--sl-mobile-toc-height)
+			);
 			padding-inline-start: var(--sl-content-inline-start);
 		}
 

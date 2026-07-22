@@ -19,6 +19,7 @@ The following paths are relative to `/api/v1` and require authentication.
 | `GET` | `/files/{id}/archive-preview` | Read read-only archive preview manifest |
 | `GET` | `/files/{id}/direct-link` | Create direct-download token |
 | `POST` | `/files/{id}/preview-link` | Create short-lived preview link |
+| `POST` | `/files/{id}/resource-handle` | Resolve a frontend-consumable file resource contract |
 | `POST` | `/files/{id}/wopi/open` | Create WOPI launch session |
 | `GET` | `/files/{id}/download` | Download file content |
 | `GET` | `/files/{id}/thumbnail` | Get thumbnail |
@@ -111,6 +112,7 @@ Completion behavior:
 - `GET /files/{id}/archive-preview`: read archive manifest; returns `202` and queues `archive_preview_generate` if not ready
 - `GET /files/{id}/direct-link`: returns a short token; real download is `/d/{token}/{filename}`
 - `POST /files/{id}/preview-link`: returns a short preview link; real content is `/pv/{token}/{filename}`
+- `POST /files/{id}/resource-handle`: resolves the resource URL, credentials, cache identity, and redirect policy for the requested purpose and representation
 - `POST /files/{id}/wopi/open`: creates a WOPI launch session for a configured WOPI previewer
 - `GET /files/{id}/download`: streams file content or redirects to a presigned GET URL when policy says so; supports `If-None-Match`
 - `GET /files/{id}/thumbnail`: returns thumbnail, or `202` with `Retry-After` while generating
@@ -130,6 +132,54 @@ File info and list items include persisted classification fields:
 These fields are recalculated on create, upload, overwrite, and rename.
 
 Detail responses from `GET /files/{id}` and `GET /teams/{team_id}/files/{id}` also include `storage_used`. This is the quota-accounting size for the file detail view: current `size` plus all historical version sizes. Directory list items omit this field.
+
+## `POST /files/{id}/resource-handle`
+
+File details answer what a file is. A resource handle answers how the current client should consume it. Request example:
+
+```json
+{
+  "purpose": "preview",
+  "delivery_mode": "blob_url",
+  "representation": "auto"
+}
+```
+
+Allowed values:
+
+- `purpose`: `preview`, `download`, `external_viewer`
+- `delivery_mode`: `blob_url`, `text`, `direct_url`, `media_stream`, `iframe_session`, `manifest`
+- `representation`: `auto`, `original`, `image_preview`, `thumbnail`; omitted values default to `auto`
+
+Core response contract:
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "identity": {
+      "cache_key": "/api/v1/files/42/download",
+      "etag": "\"blob-hash\"",
+      "scope": "personal"
+    },
+    "request": {
+      "url": "/api/v1/files/42/download?disposition=inline",
+      "credentials": "include",
+      "conditional_headers": "allowed",
+      "redirect_policy": "same_origin_only"
+    },
+    "delivery": {
+      "mode": "blob_url",
+      "mime_type": "image/jpeg"
+    }
+  }
+}
+```
+
+`identity.cache_key` is the stable resource identity, while `request.url` is the concrete URL for this request. `etag`, `conditional_headers`, and `credentials` tell the frontend whether conditional requests and login credentials are appropriate. `redirect_policy = "may_cross_origin"` means the URL can be a short-lived OneDrive or object-storage direct URL.
+
+For `auto + preview + blob_url`, browser-hostile image formats such as HEIC, RAW, and TIFF may resolve to a derived WebP image-preview path. Sandbox-sensitive MIME types such as HTML remain on the same-origin path rather than bypassing isolation through a provider direct URL.
 
 ## `PATCH /files/{id}`
 

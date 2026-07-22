@@ -97,7 +97,7 @@ Practical guidance:
 
 ## Relation to existing smoke tests
 
-The repository still has [`tests/test_database_backends.rs`](../../tests/test_database_backends.rs), and its purpose has not changed:
+The repository still has [`tests/test_database_backends.rs`](../../../tests/test_database_backends.rs), and its purpose has not changed:
 
 - It mainly covers production-database smoke behavior
 - It explicitly validates PostgreSQL / MySQL search indexes, search flows, and cross-database migration paths

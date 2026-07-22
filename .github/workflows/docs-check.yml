@@ -5,11 +5,13 @@ on:
     branches: [master]
     paths:
       - 'docs/**'
+      - 'developer-docs/**'
       - 'src/api/api_error_code.rs'
       - '.github/workflows/docs-check.yml'
   pull_request:
     paths:
       - 'docs/**'
+      - 'developer-docs/**'
       - 'src/api/api_error_code.rs'
       - '.github/workflows/docs-check.yml'
 
@@ -38,6 +40,14 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: docs-openapi-v1
+
       - name: Setup bun
         uses: oven-sh/setup-bun@v2
 
@@ -50,3 +60,6 @@ jobs:
 
       - name: Build docs
         run: bun run docs:build
+
+      - name: Build developer docs
+        run: bun run developer-docs:build

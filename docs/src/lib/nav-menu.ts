@@ -41,7 +41,8 @@ const zhNav: NavEntry[] = [
 			{ label: '备份恢复', link: '/deployment/backup/' },
 			{ label: '故障排查', link: '/deployment/troubleshooting/' }
 		]
-	}
+	},
+	{ label: '开发者', link: '/developer/' }
 ]
 
 const enNav: NavEntry[] = [
@@ -83,7 +84,8 @@ const enNav: NavEntry[] = [
 			{ label: 'Backup and Restore', link: '/en/deployment/backup/' },
 			{ label: 'Troubleshooting', link: '/en/deployment/troubleshooting/' }
 		]
-	}
+	},
+	{ label: 'Developer', link: '/developer/en/' }
 ]
 
 export function getNav(locale: string | undefined): NavEntry[] {

@@ -97,7 +97,7 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_c
 
 ## 和现有 smoke tests 的关系
 
-仓库里还有 [tests/test_database_backends.rs](../../tests/test_database_backends.rs)，它的定位没有变：
+仓库里还有 [tests/test_database_backends.rs](../../../tests/test_database_backends.rs)，它的定位没有变：
 
 - 主要负责生产数据库相关的 smoke coverage
 - 会显式验证 PostgreSQL / MySQL 搜索索引、搜索链路和跨库迁移路径

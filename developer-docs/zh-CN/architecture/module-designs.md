@@ -1,6 +1,6 @@
 # AsterDrive 关键模块设计说明
 
-本文补充 [`architecture.md`](./architecture.md) 的全局视角，专门解释几个已经落地、但仅靠看目录和接口名很难迅速建立正确心智模型的核心模块。
+本文补充[架构概览](./index.md)的全局视角，专门解释几个已经落地、但仅靠看目录和接口名很难迅速建立正确心智模型的核心模块。
 
 这里描述的是当前仓库的实现设计，不是未来计划，也不是理想化重写方案。
 
@@ -15,7 +15,7 @@
 - `doctor` / 一致性审计
 - 跨数据库迁移 CLI
 
-如果你只是想知道“请求从哪里进来、代码应该改在哪一层”，先看 [`architecture.md`](./architecture.md)。如果你已经知道入口，但还不清楚模块内部为什么这么拆、边界为什么这样收，继续看本文。
+如果你只是想知道“请求从哪里进来、代码应该改在哪一层”，先看[架构概览](./index.md)。如果你已经知道入口，但还不清楚模块内部为什么这么拆、边界为什么这样收，继续看本文。
 
 ## 1. 统一工作空间存储链路
 
@@ -192,7 +192,7 @@
 - extension trait 表示“能做”，不代表“该用它做所有事”。`ListStorageDriver` 面向的是审计、清理这类维护任务；用户可见的目录树永远走业务数据库和权限模型，不暴露底层对象 key。
 - `local_path` 只允许真正落在本机文件系统的驱动实现；远端驱动不许返回下载后的临时路径伪装该能力，否则调用方会误以为可以做零拷贝本地操作。
 - 原生缩略图 / 媒体元数据返回 `None` 是正常路径，表示该对象应回退到 AsterDrive 自己的处理流水线。
-- `provider_resumable` 只描述 provider 自己的 session 能力，不向 upload service 暴露通用编排协议；它和 S3-compatible multipart 是两条刻意分开的契约（见 [`upload-finalization-contracts.md`](./upload-finalization-contracts.md)）。
+- `provider_resumable` 只描述 provider 自己的 session 能力，不向 upload service 暴露通用编排协议；它和 S3-compatible multipart 是两条刻意分开的契约（见[上传完成契约矩阵](../design/upload-finalization-contracts.md)）。
 
 ## 3. 分享服务
 

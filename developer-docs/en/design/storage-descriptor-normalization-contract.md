@@ -33,7 +33,7 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 - Storage policy object-storage endpoint/bucket normalization uses `normalize_s3_endpoint_and_bucket` plus connector-specific API error mapping. Non-empty endpoints must be `http://` or `https://` and include a hostname; bucket/container is required.
 - Storage policy SFTP endpoint normalization is handled by `parse_sftp_endpoint`: it allows `sftp://host:port`, bare `host`, and `host:port`, with default port `22`; only a real `://` scheme separator triggers URL-scheme validation. Paths, query strings, fragments, and URL credentials are invalid; the remote root must use `base_path`.
 - SFTP host key fingerprints live in `storage_policy.options.sftp_host_key_fingerprint`. Unknown or mismatched host keys must fail closed and expose actual / expected fingerprints through structured `SftpHostKeyRejected` context; tests must not parse error text.
-- `max_file_size = 0` means no extra policy limit; negative values are invalid at the service boundary. Upload paths still perform final size checks when applying a policy or target.
+- For storage policies, `max_file_size = 0` means no extra policy limit and negative values are invalid at the service boundary. Upload paths still perform final size checks when applying a policy. Remote storage target create DTOs do not accept this field.
 - Same-driver edits preserve omitted `access_key` / `secret_key` values. Explicit replacements are trimmed and revalidated.
 - When changing a remote storage target driver, old driver-specific fields must not leak into the new driver. Endpoint, bucket, access key, and secret key reset; base path follows the new driver input/default semantics and is normalized again.
 
@@ -50,7 +50,7 @@ Field normalization belongs in backend use cases or connector/driver-specific pu
 When descriptor or normalization behavior changes, add focused unit tests:
 
 - Descriptor tests must cover every built-in driver field, secret marker, action, and key capability.
-- Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
+- Normalization tests must cover trimming, blank values, path escapes, prefix slash trimming, negative storage-policy `max_file_size`, same-driver secret preservation, explicit secret replacement, and driver-change field reset.
 - SFTP coverage must include bare host, `host:port`, `sftp://host:port`, wrong schemes, host key fingerprint format, unknown-host-key rejection, and accepted pinned fingerprints.
 - For storage policy descriptor behavior, run `cargo test --lib storage::connectors` or a narrower filter.
 - For remote storage target normalization, run `cargo test --lib remote::storage_target::tests::<filter>`.

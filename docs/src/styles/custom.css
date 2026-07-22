@@ -5,6 +5,7 @@
 	--sl-color-accent: #2563eb;
 	--sl-color-accent-high: #1d4ed8;
 	--sl-color-bg: #f8fafc;
+	--aster-announcement-height: 0px;
 }
 
 :root[data-theme='dark'] {
@@ -16,6 +17,18 @@
 
 html {
 	scroll-behavior: smooth;
+}
+
+html:root {
+	scroll-padding-top: calc(
+		1.5rem + var(--aster-announcement-height) + var(--sl-nav-height) + var(--sl-mobile-toc-height)
+	);
+}
+
+@media (min-width: 72rem) {
+	html:root {
+		scroll-padding-top: calc(1.5rem + var(--aster-announcement-height) + var(--sl-nav-height));
+	}
 }
 
 body {
@@ -34,6 +47,41 @@ body {
 
 /* 安全公告：保持醒目但克制，避免压过文档导航 */
 
+.sl-announcements-container {
+	display: block !important;
+	position: fixed;
+	inset-block-start: 0;
+	inset-inline: 0;
+	z-index: calc(var(--sl-z-index-navbar) + 1);
+	width: 100%;
+	background: var(--sl-color-bg-nav);
+}
+
+starlight-menu-button > button {
+	top: calc(var(--aster-announcement-height) + (var(--sl-nav-height) - var(--sl-menu-button-size)) / 2);
+}
+
+mobile-starlight-toc > nav {
+	top: calc(var(--aster-announcement-height) + var(--sl-nav-height) - 1px);
+}
+
+mobile-starlight-toc .dropdown {
+	max-height: calc(
+		85vh - var(--aster-announcement-height) - var(--sl-nav-height) - var(--sl-mobile-toc-height)
+	);
+}
+
+.sl-skip-link {
+	top: calc(var(--aster-announcement-height) + 0.75rem);
+}
+
+@media (min-width: 72rem) {
+	.right-sidebar {
+		top: var(--aster-announcement-height);
+		height: calc(100vh - var(--aster-announcement-height));
+	}
+}
+
 .sl-announcement:is(
 	[data-announcement-id='security-advisory-cve-2026-8461'],
 	[data-announcement-id='security-advisory-ghsa-7797-6gjx-hwgh']
@@ -43,6 +91,7 @@ body {
 	--sl-announcement-accent: var(--sl-color-orange-high);
 	--sl-announcement-icon: var(--sl-color-orange);
 	--sl-announcement-padding-y: 0.45rem;
+	background: var(--sl-announcement-bg);
 	box-shadow: none;
 }
 

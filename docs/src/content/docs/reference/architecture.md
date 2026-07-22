@@ -5,7 +5,7 @@ title: "架构概览"
 
 这一页解释 AsterDrive 运行起来以后各组件怎么协作。它面向部署者、管理员和刚开始参与开发的人，重点是建立系统边界、数据流和排障入口。
 
-如果你要看更细的源码级设计，仓库里还有 `developer-docs/zh-CN/architecture.md` 和 `developer-docs/zh-CN/module-designs.md`。那两份文档更适合改代码前读。
+如果你要看更细的源码级设计，可继续阅读开发者文档中的[架构概览](https://drive.astercosm.com/developer/architecture/)和[模块设计说明](https://drive.astercosm.com/developer/architecture/module-designs/)。那两份文档更适合改代码前读。
 
 ## 60 秒版本
 

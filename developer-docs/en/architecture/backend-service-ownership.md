@@ -1,6 +1,6 @@
 # Backend Service Ownership Boundaries
 
-This guide records the backend ownership boundaries AsterDrive should use while continuing the 0.3 service-layer cleanup.
+This guide records the service ownership boundaries of the current AsterDrive `0.4.0` backend. It also constrains later refactors, but the modules and responsibilities below describe the current checkout.
 
 It describes the current repository shape, not a generic architecture theory. When deciding where a change belongs, start from AsterDrive product semantics: files, workspaces, uploads, storage policies, remote nodes, remote storage targets, WebDAV, and WOPI.
 

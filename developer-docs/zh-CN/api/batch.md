@@ -189,6 +189,7 @@
 
 当前语义：
 
+- `archive_compress_enabled = false` 时管理员已关闭在线压缩入口，请求返回 `archive_compress.disabled`
 - `target_folder_id = null` 时，服务端会先看选中项是否都来自同一个父目录；如果是，就把生成的压缩包写回这个共同父目录，否则写回根目录
 - 返回的是 `TaskInfo`，不是文件流
 - 这条链路会出现在 [`后台任务 API`](./tasks.md) 里
@@ -223,6 +224,7 @@
 
 当前语义：
 
+- `archive_download_user_enabled = false` 时，个人与团队空间的 ticket 创建都会返回 `archive_download.user_disabled`
 - `archive_name` 为空时会自动推导；最终文件名总是 `.zip`
 - ticket 默认 5 分钟过期
 - `download_path` 可能是相对路径，也可能在配置了 `public_site_url` 后直接返回绝对 URL
@@ -235,6 +237,7 @@
 
 当前实现细节：
 
+- `archive_download_user_enabled` 会在 ticket 消费时再次检查；管理员关闭开关后，已经签发但尚未消费的 ticket 也会返回 `archive_download.user_disabled`
 - 空目录会被保留在 ZIP 里
 - 多选文件夹时会按当前目录树打包
 - 同级重名根项会在 ZIP 根目录内自动避让命名

@@ -69,7 +69,7 @@ The follower does not serve normal user APIs, WebDAV, or frontend pages. It only
 - Health checks: `/health*`
 - Internal object storage protocol: `/api/v1/internal/storage/*`
 
-This internal protocol is currently used for object writes, object assembly, object listing, binding synchronization, and remote storage target control between the primary node and managed remote nodes. Since `0.4.0`, the control plane only exposes `/targets`; the legacy `/ingress-profiles` compatibility routes have been removed.
+This internal protocol is currently used for object writes, object assembly, object listing, binding synchronization, and remote storage target control between the primary node and managed remote nodes. The current protocol is `v5` with a `v4` compatibility floor, and the primary / follower supported ranges must overlap. Since `0.4.0`, the control plane only exposes `/targets`; the legacy `/ingress-profiles` compatibility routes have been removed.
 
 If a remote node uses `reverse_tunnel` or `auto` and has no directly reachable `base_url`, the follower does not expose an additional direct entry for the primary. Instead, the tunnel worker inside the follower process actively connects to the primary's `/api/v1/internal/remote-tunnel/*`.
 
@@ -412,5 +412,5 @@ Complex business logic in the route layer is usually a code smell.
 ## Further Reading
 
 - [`module-designs.md`](./module-designs.md)
-- [`api/index.md`](./api/index.md)
-- [`testing.md`](./testing.md)
+- [`api/index.md`](../api/index.md)
+- [`testing/index.md`](../testing/index.md)

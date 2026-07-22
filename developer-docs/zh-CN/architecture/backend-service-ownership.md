@@ -1,6 +1,6 @@
 # 后端服务所有权边界
 
-本文记录 AsterDrive 后端在 0.3 系列继续拆分 service 时应遵守的所有权边界。
+本文记录 AsterDrive `0.4.0` 当前后端结构应遵守的 service 所有权边界。它也用于约束后续拆分，但下面列出的模块和职责以当前 checkout 为准。
 
 这里描述的是当前仓库的工程边界，不是抽象分层理论。判断一个改动应该放在哪里时，先从产品语义出发：文件、工作空间、上传、存储策略、远端节点、remote storage target、WebDAV/WOPI 分别是谁的职责。
 
@@ -40,7 +40,7 @@ route 层不应该拥有：
 - 存储策略选择规则
 - 上传完成、配额、版本、blob 引用计数一致性
 - driver capability 判断
-- remote node / remote storage target target 选择
+- remote node / remote storage target 选择
 - UI 表单字段矩阵
 - 数据库事务编排
 

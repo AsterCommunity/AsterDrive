@@ -134,6 +134,7 @@ AsterDrive 的管理后台**故意做得不"全功能"**。
 - `azure_blob`：Azure Blob Storage container，使用 Azure Blob SDK 和 SAS URL
 - `tencent_cos`：腾讯云 COS，基础对象读写复用 S3 兼容能力，并额外支持 COS 数据万象等腾讯云原生能力
 - `one_drive`：Microsoft Graph 可访问的 OneDrive、SharePoint 或 Microsoft 365 group drive
+- `sftp`：通过 AsterDrive 服务端流式读写 SSH/SFTP 文件服务器
 - `remote`：绑定到远程节点，由另一台 AsterDrive 从节点承接真实对象读写
 
 在这里你可以：
@@ -144,12 +145,13 @@ AsterDrive 的管理后台**故意做得不"全功能"**。
 - 控制单文件大小上限
 - 控制分片大小
 - 为 S3 / Azure Blob / COS 选择上传和下载方式，例如 `relay_stream` 或 `presigned`
-- 为 OneDrive 保存 Microsoft Graph 应用凭据、发起授权或重新授权，并验证已保存凭据
+- 为 OneDrive 保存 Microsoft Graph 应用凭据、发起授权或重新授权，并分别选择服务端中继或 Microsoft Graph 浏览器直传 / 直接下载
+- 为 SFTP 填写 endpoint、SSH 用户名、密码、远程根目录，并在首次连接测试后确认服务器主机密钥指纹
 - 为通用 S3 策略控制 path-style 访问方式，兼容 MinIO、RustFS、R2、AWS S3 等不同 endpoint 习惯
 - 在符合条件时，把误建成通用 `s3` 的腾讯云 COS 策略提升为 `tencent_cos`
 - 创建存储策略数据迁移任务，把已有对象从源策略复制到目标策略
 
-编辑已有策略时，左侧会显示当前容量观测结果。`local` 策略会读取底层文件系统总量、可用量和已用量；`one_drive` 策略会读取 Microsoft Graph drive quota；`remote` 策略会向 follower 查询策略绑定的远程存储目标能力；`s3` / `tencent_cos` / `azure_blob` 没有统一可靠的剩余容量接口，所以会显示为“不支持”，不会伪造容量数值。
+编辑已有策略时，左侧会显示当前容量观测结果。`local` 策略会读取底层文件系统总量、可用量和已用量；`one_drive` 策略会读取 Microsoft Graph drive quota；`remote` 策略会向 follower 查询策略绑定的远程存储目标能力；`s3` / `tencent_cos` / `azure_blob` / `sftp` 没有统一可靠的剩余容量接口，所以会显示为“不支持”，不会伪造容量数值。
 
 通用 `s3` 策略里的 `Path-style 访问` 控制请求地址形态。MinIO、RustFS 这类兼容服务通常开启；AWS S3 这类支持虚拟托管风格的服务通常可以关闭。保存前先测试连接，比按厂商名字猜更可靠。
 
@@ -357,6 +359,7 @@ AsterDrive 允许协议语义里的共享锁，所以同一个资源可能同时
 - 缩略图源文件大小上限
 - 在线解压源文件、staging、展开大小、条目数量、路径和压缩比限制
 - 在线归档压缩总开关
+- 登录用户和公开分享各自独立的 ZIP 打包下载开关
 - 在线压缩和打包下载的条目数量、源文件总大小和输出大小限制
 - 压缩包预览开关和限制
 - 媒体处理器、vips / ffmpeg / ffprobe 命令和后缀绑定

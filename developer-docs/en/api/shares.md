@@ -77,9 +77,12 @@ The following `/s/...` paths are still relative to `/api/v1`, so the full REST p
 | `GET` | `/s/{token}/archive-preview` | Read archive preview manifest for a shared archive file |
 | `POST` | `/s/{token}/stream-session` | Create a short-lived stream session for a shared file |
 | `GET` | `/s/{token}/download` | Download a shared file |
+| `POST` | `/s/{token}/archive-download` | Create a ZIP download ticket for files / folders in share scope |
+| `GET` | `/s/{token}/archive-download/{ticket}` | Consume the ticket and stream the ZIP |
 | `GET` | `/s/{token}/stream/{session_token}/{filename}` | Stream a shared file through a stream session |
 | `GET` | `/s/{token}/content` | List the root contents of a folder share |
 | `GET` | `/s/{token}/folders/{folder_id}/content` | Browse a subfolder inside the shared tree |
+| `GET` | `/s/{token}/folders/{folder_id}/ancestors` | Read ancestors relative to the shared root |
 | `GET` | `/s/{token}/files/{file_id}/download` | Download a child file inside a folder share |
 | `POST` | `/s/{token}/files/{file_id}/preview-link` | Create a preview link for a child file |
 | `GET` | `/s/{token}/files/{file_id}/archive-preview` | Read archive preview for a child archive |
@@ -97,6 +100,9 @@ Important details:
 - `/verify` writes a one-hour `aster_share_<token>` cookie on success
 - password-protected preview, archive-preview, stream, metadata, thumbnail, and download calls require that cookie
 - file-only endpoints reject folder shares, and folder-tree endpoints validate that child resources are still inside the shared subtree
+- archive download accepts mixed `file_ids` / `folder_ids` plus optional `archive_name`, and returns a short-lived `StreamTicketInfo`
+- consuming `/archive-download/{ticket}` returns a raw ZIP stream instead of wrapped JSON and does not create a normal `/tasks` background task
+- ancestors contain only the path below the shared root; out-of-scope folders return `403`
 - archive preview supports the same `filename_encoding` query as authenticated file APIs
 - metadata / thumbnail / archive-preview endpoints may return `202` while background generation is queued
 - image-preview responses are raw WebP with `ETag`, not wrapped JSON
@@ -116,6 +122,18 @@ Stream session response:
 ```
 
 Stream sessions default to a 3-hour lifetime, controlled by `share_stream_session_ttl_secs`. They support `Range` and return raw file streams. A stream session consumes the share download counter only once; response-build failures attempt to roll that counter back.
+
+Shared archive download request:
+
+```json
+{
+  "file_ids": [11, 12],
+  "folder_ids": [21],
+  "archive_name": "shared-selection.zip"
+}
+```
+
+Both ticket creation and consumption enforce the password cookie, share subtree, download counter, and `archive_download_share_enabled`; disabling the feature returns `archive_download.share_disabled`. A ticket is bound to the share token that created it and cannot be consumed under another share. Password-protected shares must complete `/verify` before using archive-download or ancestors endpoints.
 
 Folder-share content listing supports the same directory-list parameters:
 

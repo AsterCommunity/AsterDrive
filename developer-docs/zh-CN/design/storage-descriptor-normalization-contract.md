@@ -32,7 +32,7 @@
 - storage policy object-storage endpoint/bucket 使用 `normalize_s3_endpoint_and_bucket` 及 connector 错误码映射：endpoint 非空时必须是 `http://` 或 `https://` 且包含 hostname，bucket/container 不能为空。
 - storage policy SFTP endpoint 由 `parse_sftp_endpoint` 处理：允许 `sftp://host:port`、裸 `host` 和 `host:port`，默认端口 `22`；只有出现真实 `://` scheme 分隔符时才按 URL scheme 校验。路径、query、fragment 和 URL 内凭据无效，远程根目录必须走 `base_path`。
 - SFTP 主机密钥指纹存放在 `storage_policy.options.sftp_host_key_fingerprint`。未知或不匹配的 host key 必须 fail closed，并通过结构化 `SftpHostKeyRejected` 上下文暴露 actual / expected 指纹，测试不要解析错误文本。
-- `max_file_size` 的 `0` 表示不声明额外限制；负数无效。上传链路仍要在使用 policy/target 时执行最终大小校验。
+- storage policy 的 `max_file_size` 中，`0` 表示不声明额外限制，负数无效；上传链路仍会在应用 policy 时执行最终大小校验。remote storage target 创建 DTO 不接受这个字段。
 - 同 driver 编辑时，`access_key` / `secret_key` / `base_path` / endpoint / bucket 等可选字段省略表示保留已有值；显式提供字段则重新走对应 driver 的规范化和校验。
 - 切换 remote storage target driver 时，旧 driver-specific 字段不能继承到新 driver：endpoint、bucket、access key、secret key 会重置为空；base path 回到新 driver 输入或默认根语义后再规范化。
 
@@ -49,7 +49,7 @@
 修改 descriptor 或 normalization 时至少补对应的纯函数/单元测试：
 
 - descriptor 必须覆盖每个内置 driver 的字段、secret 标记、action 和关键 capability。
-- normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
+- normalization 必须覆盖 trim、空值、逃逸路径、prefix 首尾斜杠、storage policy 负数 `max_file_size`、同 driver secret preserve、显式 secret replace、driver 切换字段重置。
 - SFTP 必须覆盖裸 host、`host:port`、`sftp://host:port`、错误协议、host key 指纹格式、未知 host key 拒绝和已确认指纹通过。
 - storage policy descriptor 行为改变时，跑 `cargo test --lib storage::connectors` 或更小过滤；remote storage target 归一化改变时，跑 `cargo test --lib remote::storage_target::tests::<filter>`。
 - 改 OpenAPI schema 后必须重新导出 OpenAPI 并生成前端 SDK。本契约切片不改变 API shape。

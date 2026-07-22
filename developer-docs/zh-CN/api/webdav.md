@@ -120,4 +120,4 @@ http://localhost:3000/webdav
 
 ## 合规与客户端兼容性测试
 
-协议修改的本地检查、Litmus 固定基线、known-difference 管理、真实客户端矩阵和 CI 产物说明见 [WebDAV 合规与兼容性检查](../webdav-compliance-testing.md)。
+协议修改的本地检查、Litmus 固定基线、known-difference 管理、真实客户端矩阵和 CI 产物说明见 [WebDAV 合规与兼容性检查](../testing/webdav-compliance-testing.md)。

@@ -52,7 +52,7 @@ For more detailed commands and Compose examples, see [Docker Deployment](/en/dep
 <details>
 <summary>Why is SQLite the default instead of PostgreSQL?</summary>
 
-SQLite gives you zero operations, single-file backup by direct copy, and an almost nonexistent trial barrier.
+SQLite does not require a separate database service, keeps the database itself in one file, and has an almost nonexistent trial barrier. After stopping AsterDrive, it is also straightforward to cold-back up the database together with local persistent directories. While the service is running, do not copy only the database file, and do not omit file objects or `config.toml`. See [Backup and Restore](/en/deployment/backup/) for the complete boundary.
 
 Our judgment is: **letting you see "what this project is" in 5 minutes** matters more than **forcing you to install a database first**.
 

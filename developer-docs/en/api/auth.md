@@ -10,6 +10,8 @@ All paths below are relative to `/api/v1`.
 | `POST` | `/auth/setup` | Initialize the system and create the first admin |
 | `POST` | `/auth/register` | Register an ordinary user after system initialization |
 | `POST` | `/auth/register/resend` | Resend registration activation email |
+| `GET` | `/auth/invitations/{token}` | Validate invitation and read email / expiry |
+| `POST` | `/auth/invitations/{token}/accept` | Accept invitation and create an ordinary user |
 | `GET` | `/auth/contact-verification/confirm` | Consume email verification token and redirect frontend |
 | `POST` | `/auth/password/reset/request` | Request password reset email |
 | `POST` | `/auth/password/reset/confirm` | Complete password reset with token |
@@ -87,6 +89,24 @@ The policy applies to local registration and local email changes only. Internati
 ```
 
 Before setup, `/auth/register` returns `400` with `validation.system_not_initialized`, regardless of the public-registration setting. After setup, disabling public registration makes `/auth/register` return `403`, while `/auth/setup` always reports that the system is already initialized.
+
+### Invitation registration
+
+Invitation endpoints are public auth routes and do not require an existing login:
+
+- `GET /auth/invitations/{token}` validates the token and returns its `email` and `expires_at`
+- `POST /auth/invitations/{token}/accept` accepts account credentials and creates an ordinary user with `201`
+
+```json
+{
+  "username": "new-user",
+  "password": "password"
+}
+```
+
+Email comes from the invitation record and is neither supplied nor replaceable by the client. Invitations form a one-time state machine: `pending` may be accepted or revoked, expiry produces `expired`, and successful use produces `accepted`. A token cannot create another account after acceptance.
+
+Stable error codes are `auth.invitation_invalid`, `auth.invitation_expired`, `auth.invitation_revoked`, and `auth.invitation_accepted`. Frontend invitation pages should treat the flow as anonymous and should not start ordinary refresh-token handling after a `401`.
 
 ## Login state
 
@@ -295,7 +315,7 @@ User self-management:
 - `GET /auth/external-auth/links`
 - `DELETE /auth/external-auth/links/{id}`
 
-The `oidc` driver uses discovery, PKCE, nonce, and ID Token validation. The `generic_oauth2` driver uses manually configured endpoints, PKCE, token exchange, and UserInfo claim mapping. Dedicated `github`, `qq`, `google`, and `microsoft` providers use backend-fixed endpoints and claim semantics; callers should not send manual OAuth endpoint fields for those provider kinds. Microsoft tenant selection lives under `options.microsoft.tenant`. See [External Authentication Module](../external-auth.md).
+The `oidc` driver uses discovery, PKCE, nonce, and ID Token validation. The `generic_oauth2` driver uses manually configured endpoints, PKCE, token exchange, and UserInfo claim mapping. Dedicated `github`, `qq`, `google`, and `microsoft` providers use backend-fixed endpoints and claim semantics; callers should not send manual OAuth endpoint fields for those provider kinds. Microsoft tenant selection lives under `options.microsoft.tenant`. See [External Authentication Module](../design/external-auth.md).
 
 ## Profile, preferences, avatars, and events
 

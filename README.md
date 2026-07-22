@@ -16,8 +16,8 @@
   <a href="README.zh.md"><img alt="中文 README" src="https://img.shields.io/badge/README-中文-E11D48?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/en/guide/getting-started/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/en/deployment/ops-cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
-  <a href="developer-docs/en/architecture.md"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
-  <a href="developer-docs/en/api/index.md"><img alt="API Docs" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/developer/en/architecture/"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/developer/en/api/"><img alt="API Docs" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/en/deployment/docker/"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
@@ -194,9 +194,9 @@ The user and deployment documentation is published with Astro Starlight at [driv
 - [Production checklist](https://drive.astercosm.com/en/deployment/production-checklist/)
 - [Backup and restore](https://drive.astercosm.com/en/deployment/backup/)
 - [Operations CLI](https://drive.astercosm.com/en/deployment/ops-cli/)
-- [Developer docs](developer-docs/README.md)
-- [Architecture](developer-docs/en/architecture.md)
-- [API overview](developer-docs/en/api/index.md)
+- [Developer docs](https://drive.astercosm.com/developer/en/)
+- [Architecture](https://drive.astercosm.com/developer/en/architecture/)
+- [API overview](https://drive.astercosm.com/developer/en/api/)
 
 ## Security
 

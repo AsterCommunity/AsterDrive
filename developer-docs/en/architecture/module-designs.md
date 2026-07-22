@@ -1,6 +1,6 @@
 # Core Module Design Notes
 
-This document supplements the repository-wide view from [`architecture.md`](./architecture.md) and explains a few core modules that are already implemented but hard to understand just from directory names and endpoint names.
+This document supplements the repository-wide [architecture overview](./index.md) and explains a few core modules that are already implemented but hard to understand just from directory names and endpoint names.
 
 This is the current implementation design, not a future plan and not an idealized rewrite proposal.
 
@@ -14,7 +14,7 @@ Current coverage:
 - `doctor` / consistency audits
 - cross-database migration CLI
 
-If you only want to know where requests enter and which layer to modify, start with [`architecture.md`](./architecture.md). If you already know the entry point but do not yet understand why a module is split the way it is, keep reading.
+If you only want to know where requests enter and which layer to modify, start with the [architecture overview](./index.md). If you already know the entry point but do not yet understand why a module is split the way it is, keep reading.
 
 ## 1. Unified workspace storage pipeline
 

@@ -182,6 +182,7 @@ Request body:
 
 Semantics:
 
+- when `archive_compress_enabled = false`, the administrator has disabled online compression and the endpoint returns `archive_compress.disabled`
 - if `target_folder_id = null`, the server first checks whether the selected items all come from the same parent directory; if they do, the ZIP is written back there, otherwise it goes to the root
 - the endpoint returns `TaskInfo`, not a file stream
 - the result later appears in the background-task API
@@ -215,6 +216,7 @@ Success returns a short-lived stream ticket:
 
 Key points:
 
+- when `archive_download_user_enabled = false`, personal and team ticket creation returns `archive_download.user_disabled`
 - `archive_name` is optional; the final file always ends in `.zip`
 - the ticket expires after 5 minutes by default
 - `download_path` may be relative or absolute depending on `public_site_url`
@@ -227,6 +229,7 @@ The `download_path` from the previous call returns the raw `application/zip` str
 
 Implementation notes:
 
+- `archive_download_user_enabled` is checked again when the ticket is consumed, so a previously issued but unused ticket also returns `archive_download.user_disabled` after the switch is turned off
 - empty folders are preserved
 - multiple selected folders are packed according to the current tree shape
 - duplicate top-level names inside the ZIP are automatically disambiguated
