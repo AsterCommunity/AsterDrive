@@ -290,21 +290,24 @@ pub(crate) async fn ensure_unlocked(
     request_scheme: &str,
     request_host: &str,
 ) -> Result<(), HttpResponse> {
-    let request_href = href_for_dav_path(prefix, path);
-    let tokens = protocol::submitted_lock_tokens_for_path(
-        headers,
-        &request_href,
-        request_scheme,
-        request_host,
-    );
-    match lock_system.check(path, None, false, deep, &tokens).await {
-        Ok(()) => Ok(()),
-        Err(lock) => Err(lock_token_submitted_response(
-            StatusCode::LOCKED,
-            prefix,
-            &lock.path,
-        )),
+    for lock in lock_system.conflicting_locks(path, deep).await {
+        let lock_href = href_for_dav_path(prefix, &lock.path);
+        let submitted_tokens = protocol::submitted_lock_tokens_for_path(
+            headers,
+            &lock_href,
+            request_scheme,
+            request_host,
+        );
+        if !submitted_tokens.iter().any(|token| token == &lock.token) {
+            return Err(lock_token_submitted_response(
+                StatusCode::LOCKED,
+                prefix,
+                &lock.path,
+            ));
+        }
     }
+
+    Ok(())
 }
 
 pub(crate) async fn ensure_parent_unlocked(

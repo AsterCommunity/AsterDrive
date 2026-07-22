@@ -7,6 +7,3 @@
 # fixed behavior is removed from this file instead of silently remaining waived.
 
 basic | WARNING | delete_fragment | https://github.com/AsterCommunity/AsterDrive/issues/424 | raw fragment-bearing mutation targets are still accepted
-locks | FAIL | lock_collection | https://github.com/AsterCommunity/AsterDrive/issues/425 | a depth-infinity collection token does not authorize the covered descendant PUT
-locks | FAIL | owner_modify | https://github.com/AsterCommunity/AsterDrive/issues/425 | owner mutation under the collection lock is rejected with 423
-locks | WARNING | notowner_modify | https://github.com/AsterCommunity/AsterDrive/issues/425 | uncovered descendant DELETE and MOVE report 404 instead of 423

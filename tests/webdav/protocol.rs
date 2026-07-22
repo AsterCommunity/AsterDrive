@@ -5361,6 +5361,172 @@ async fn test_webdav_depth_zero_collection_lock_protects_member_urls() {
 }
 
 #[actix_web::test]
+async fn test_webdav_depth_infinity_lock_accepts_tagged_root_token_for_descendant() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-lock-copy-source.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("copy source")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>testuser</D:href></D:owner>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "infinity"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .trim_matches(|c| c == '<' || c == '>')
+        .to_string();
+    let tagged_if = format!("</webdav/deep-parent/> (<{lock_token}>)");
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload("created")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        201,
+        "the tagged collection-root token should authorize descendant creation"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload("updated")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "the tagged collection-root token should authorize descendant overwrite"
+    );
+
+    let property_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:A="urn:aster:">
+  <D:set><D:prop><A:deep-lock>owner</A:deep-lock></D:prop></D:set>
+</D:propertyupdate>"#;
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload(property_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        207,
+        "the tagged collection-root token should authorize descendant PROPPATCH"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("</webdav/unrelated/> (<{lock_token}>)")))
+        .set_payload("wrong tag")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        412,
+        "a valid token tagged for an unrelated resource must not authorize the descendant"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("missing token")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "PUT without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(property_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "PROPPATCH without the token must remain locked"
+    );
+
+    let req = test::TestRequest::delete()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "DELETE without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/moved-out-of-deep-parent.txt"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "MOVE without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-lock-copy-source.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header((
+            "Destination",
+            "/webdav/deep-parent/copied-without-token.txt",
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "COPY into the locked collection without the token must remain locked"
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_tagged_if_token_only_unlocks_matching_resource() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
