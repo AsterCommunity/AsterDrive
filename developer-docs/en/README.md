@@ -21,6 +21,7 @@ The `docs/` tree is reserved for deployment-facing and end-user documentation, s
 - [API Overview](./api/index.md)
 - [Tags API](./api/tags.md)
 - [Testing and Database Backends](./testing.md)
+- [WebDAV Conformance and Compatibility Testing](./webdav-compliance-testing.md)
 - [Jemalloc Heap Profiling](./jemalloc-profiling.md)
 
 ## Current Status

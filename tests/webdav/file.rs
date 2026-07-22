@@ -1,7 +1,6 @@
 //! 集成测试：`webdav_file`。
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use std::io::SeekFrom;
 

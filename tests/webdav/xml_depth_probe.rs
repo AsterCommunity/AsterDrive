@@ -8,7 +8,7 @@
 use std::io::Cursor;
 use std::process::Command;
 
-const PROBE_TEST_NAME: &str = "webdav_xml_deep_nesting_child_probe";
+const PROBE_TEST_NAME: &str = "xml_depth_probe::webdav_xml_deep_nesting_child_probe";
 const PROBE_ENV: &str = "ASTER_WEBDAV_XML_DEPTH_CRASH_PROBE_CHILD";
 const XML_DEPTH: usize = 30_000;
 const XML_BODY_LIMIT: usize = 1_048_576;

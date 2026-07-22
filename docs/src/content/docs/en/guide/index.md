@@ -22,6 +22,7 @@ After the service opens normally, regular users should start here:
 
 - [User Manual](./user-guide/): files, workspaces, trash, shares, WebDAV, and personal settings
 - [Common Workflows](./core-workflows/): common operations connected through real scenarios
+- [WebDAV Features and Limits](./webdav/): dedicated accounts, implemented methods, filename encoding, same-name resources, and client compatibility boundaries
 - [Teams and Permissions](./teams-and-permissions/): personal spaces, team spaces, team roles, and admin boundaries
 - [Sharing and Public Access](./sharing/): share links, passwords, expiration, and download limits
 - [File Editing](./editing/): in-browser editing, version history, and WOPI open methods

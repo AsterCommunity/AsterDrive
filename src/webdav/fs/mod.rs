@@ -399,6 +399,19 @@ impl DavFileSystem for AsterDavFs {
 
     fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
+            match path_resolver::resolve_path_cached_in_scope(
+                &self.state,
+                self.scope,
+                path,
+                self.root_folder_id,
+            )
+            .await
+            {
+                Ok(_) => return Err(FsError::Exists),
+                Err(FsError::NotFound) => {}
+                Err(err) => return Err(err),
+            }
+
             let (parent_id, name) = path_resolver::resolve_parent_cached_in_scope(
                 &self.state,
                 self.scope,

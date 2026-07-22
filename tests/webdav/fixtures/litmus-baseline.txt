@@ -1,0 +1,9 @@
+# Litmus 0.18 known-difference allowlist.
+#
+# Format:
+# group | FAIL|SKIPPED|WARNING | test name | independent tracking issue URL | rationale
+#
+# Unknown failures/skips fail the compatibility job. Stale entries also fail so
+# fixed behavior is removed from this file instead of silently remaining waived.
+
+basic | WARNING | delete_fragment | https://github.com/AsterCommunity/AsterDrive/issues/424 | raw fragment-bearing mutation targets are still accepted

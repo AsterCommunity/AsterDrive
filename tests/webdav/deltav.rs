@@ -1,7 +1,6 @@
 //! 集成测试：`webdav_deltav`。
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use actix_web::test;
 use base64::Engine;
