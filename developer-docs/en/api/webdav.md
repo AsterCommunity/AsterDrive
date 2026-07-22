@@ -117,3 +117,7 @@ Limits:
 - if `webdav_block_system_files_enabled = true`, WebDAV writes / moves / copies are blocked according to `webdav_block_system_file_patterns`, which by default includes common client junk names such as `.DS_Store`, `._*`, `Thumbs.db`, `desktop.ini`, and `$RECYCLE.BIN`. REST folder listing does not apply this filter
 
 When deployed behind a reverse proxy, make sure the proxy allows WebDAV methods and related headers. See [reverse proxy deployment](https://drive.astercosm.com/en/deployment/reverse-proxy/).
+
+## Conformance and client compatibility testing
+
+For local protocol checks, the pinned Litmus baseline, known-difference management, the real-client matrix, and CI artifacts, see [WebDAV Conformance and Compatibility Testing](../webdav-compliance-testing.md).

@@ -1,7 +1,6 @@
 //! 集成测试：`webdav_path_resolver`。
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use std::time::Duration;
 

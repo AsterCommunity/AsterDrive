@@ -354,6 +354,8 @@ https://your-domain/webdav/
 
 If the administrator changed the WebDAV prefix, use the new address.
 
+For implemented methods, filename URL encoding, same-name file/folder behavior, and property, lock, and DeltaV boundaries, see [WebDAV Features and Limits](/en/guide/webdav/).
+
 ## Settings
 
 After entering from the top-right user menu, the settings page has four sections.

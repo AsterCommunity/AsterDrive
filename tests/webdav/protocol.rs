@@ -1,7 +1,6 @@
 //! 集成测试：`webdav`。
 
-#[macro_use]
-mod common;
+use crate::common;
 
 use actix_web::test;
 use actix_web::{App, HttpServer, web};
@@ -735,6 +734,75 @@ async fn test_webdav_mkcol_body_boundaries() {
 }
 
 #[actix_web::test]
+async fn test_webdav_mkcol_rejects_existing_targets_and_missing_parent() {
+    let app = setup_with_webdav!();
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let existing_file_uri = "/webdav/mkcol-over-plain-%E2%82%AC";
+
+    let req = test::TestRequest::put()
+        .uri(existing_file_uri)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("plain resource")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "file fixture should be created");
+
+    let req = test::TestRequest::with_uri(existing_file_uri)
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        405,
+        "MKCOL over an existing non-collection resource should be rejected"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(existing_file_uri)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200, "failed MKCOL should preserve the file");
+    let body = test::read_body(resp).await;
+    assert_eq!(body.as_ref(), b"plain resource");
+
+    let existing_collection_uri = "/webdav/mkcol-existing/";
+    for expected_status in [201, 405] {
+        let req = test::TestRequest::with_uri(existing_collection_uri)
+            .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            expected_status,
+            "MKCOL should create a new collection once and reject the existing target"
+        );
+    }
+
+    let req = test::TestRequest::with_uri("/webdav/mkcol-missing/child/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        409,
+        "MKCOL below a missing parent should return Conflict"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/mkcol-new/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201, "MKCOL should create a new collection");
+}
+
+#[actix_web::test]
 async fn test_webdav_bodyless_methods_reject_non_empty_request_bodies() {
     let app = setup_with_webdav!();
 
@@ -891,7 +959,7 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
         (
             "PROPFIND",
             "/webdav/",
-            "<D:propfind xmlns:D=\"DAV:\"/>",
+            "<D:propfind xmlns:D=\"DAV:\"><D:allprop/></D:propfind>",
             actix_web::http::StatusCode::MULTI_STATUS,
         ),
         (
@@ -1297,6 +1365,40 @@ async fn test_webdav_real_http_put_with_content_length_persists_bytes() {
     assert_eq!(get.status(), reqwest::StatusCode::OK);
     let bytes = get.bytes().await.expect("real WebDAV GET body should read");
     assert_eq!(bytes.as_ref(), data.as_slice());
+
+    server.stop().await;
+}
+
+#[actix_web::test]
+async fn test_webdav_real_http_percent_encoded_hash_filename_round_trip() {
+    let state = common::setup().await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let server = start_real_webdav_server(state).await;
+    let client = reqwest::Client::new();
+    let encoded_hash_url = format!("{}/webdav/windows%23name.txt", server.base_url);
+
+    let put = client
+        .put(&encoded_hash_url)
+        .basic_auth(&username, Some(&password))
+        .body("windows hash filename")
+        .send()
+        .await
+        .expect("percent-encoded hash filename should be created");
+    assert_eq!(put.status(), reqwest::StatusCode::CREATED);
+
+    let get = client
+        .get(&encoded_hash_url)
+        .basic_auth(&username, Some(&password))
+        .send()
+        .await
+        .expect("percent-encoded hash filename should be readable");
+    assert_eq!(get.status(), reqwest::StatusCode::OK);
+    assert_eq!(
+        get.text()
+            .await
+            .expect("percent-encoded hash filename body should be readable"),
+        "windows hash filename"
+    );
 
     server.stop().await;
 }
@@ -4065,6 +4167,140 @@ async fn test_webdav_propfind_depth_one_large_directory_live_props() {
 }
 
 #[actix_web::test]
+async fn test_webdav_propfind_ignores_unknown_xml_extensions() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let cases = [
+        (
+            "Litmus unknown DAV element before allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<propfind xmlns="DAV:">
+  <foobar />
+  <allprop />
+</propfind>"#,
+        ),
+        (
+            "unknown DAV and extension elements after allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <D:allprop />
+  <D:future-selector />
+  <X:future-selector />
+</D:propfind>"#,
+        ),
+        (
+            "unknown subtree containing DAV selectors",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:wrapper>
+    <D:propname />
+    <D:prop><D:getetag /></D:prop>
+    <D:include><D:quota-used-bytes /></D:include>
+  </X:wrapper>
+  <D:allprop />
+</D:propfind>"#,
+        ),
+        (
+            "extension local names must not activate DAV selectors",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:propname />
+  <X:prop><D:getetag /></X:prop>
+  <X:allprop />
+  <X:include><D:quota-used-bytes /></X:include>
+  <D:allprop />
+</D:propfind>"#,
+        ),
+        (
+            "unknown attributes on root and selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension" X:mode="future">
+  <D:allprop X:mode="future" />
+</D:propfind>"#,
+        ),
+        (
+            "unknown element between include and allprop",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <D:include><D:quota-used-bytes /></D:include>
+  <X:between />
+  <D:allprop />
+</D:propfind>"#,
+        ),
+    ];
+
+    for (label, body) in cases {
+        let req = test::TestRequest::with_uri("/webdav/")
+            .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Depth", "0"))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            207,
+            "valid PROPFIND extension should be ignored for case: {label}"
+        );
+        assert_eq!(
+            resp.headers()
+                .get(actix_web::http::header::CONTENT_TYPE)
+                .and_then(|value| value.to_str().ok()),
+            Some("application/xml; charset=utf-8"),
+            "PROPFIND should return XML for case: {label}"
+        );
+        let body = test::read_body(resp).await;
+        let xml = String::from_utf8_lossy(&body);
+        assert!(
+            xml.contains("<D:multistatus") && xml.contains("<D:displayname"),
+            "recognized allprop selector should remain active for case {label}: {xml}"
+        );
+        Element::parse(Cursor::new(xml.as_bytes()))
+            .unwrap_or_else(|error| panic!("PROPFIND XML should parse for {label}: {error}"));
+    }
+}
+
+#[actix_web::test]
+async fn test_webdav_propfind_validates_unknown_subtrees_before_ignoring_them() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<!DOCTYPE propfind [
+  <!ENTITY external SYSTEM "file:///TARGET">
+]>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:ignored>&external;</X:ignored>
+  <D:allprop />
+</D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        403,
+        "XML safety validation must run before unknown subtrees are ignored"
+    );
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("no-external-entities"),
+        "external entity rejection should retain the DAV error condition: {xml}"
+    );
+    Element::parse(Cursor::new(xml.as_bytes()))
+        .expect("external entity rejection should return valid XML");
+}
+
+#[actix_web::test]
 async fn test_webdav_propfind_rejects_invalid_request_grammar() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -4095,11 +4331,56 @@ async fn test_webdav_propfind_rejects_invalid_request_grammar() {
 </D:propfind>"#,
         ),
         (
-            "unknown child",
+            "duplicate allprop selector",
             r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:propfind xmlns:D="DAV:">
-  <D:unknown />
+  <D:allprop />
+  <D:allprop />
 </D:propfind>"#,
+        ),
+        (
+            "duplicate propname selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:propname />
+  <D:propname />
+</D:propfind>"#,
+        ),
+        (
+            "duplicate prop selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:prop><D:displayname /></D:prop>
+  <D:prop><D:getetag /></D:prop>
+</D:propfind>"#,
+        ),
+        (
+            "duplicate include selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:">
+  <D:allprop />
+  <D:include><D:getetag /></D:include>
+  <D:include><D:quota-used-bytes /></D:include>
+</D:propfind>"#,
+        ),
+        (
+            "non-empty propfind without selector",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" />"#,
+        ),
+        (
+            "unknown-only propfind",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propfind xmlns:D="DAV:" xmlns:X="urn:aster:extension">
+  <X:future-selector />
+</D:propfind>"#,
+        ),
+        (
+            "propfind root outside DAV namespace",
+            r#"<?xml version="1.0" encoding="utf-8" ?>
+<X:propfind xmlns:X="urn:aster:extension">
+  <X:allprop />
+</X:propfind>"#,
         ),
     ];
 
@@ -5076,6 +5357,172 @@ async fn test_webdav_depth_zero_collection_lock_protects_member_urls() {
         resp.status() == 201 || resp.status() == 204,
         "submitting the parent collection lock token should allow member creation, got {}",
         resp.status()
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_depth_infinity_lock_accepts_tagged_root_token_for_descendant() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/")
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-lock-copy-source.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("copy source")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+  <D:owner><D:href>testuser</D:href></D:owner>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "infinity"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .trim_matches(|c| c == '<' || c == '>')
+        .to_string();
+    let tagged_if = format!("</webdav/deep-parent/> (<{lock_token}>)");
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload("created")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        201,
+        "the tagged collection-root token should authorize descendant creation"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload("updated")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "the tagged collection-root token should authorize descendant overwrite"
+    );
+
+    let property_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:propertyupdate xmlns:D="DAV:" xmlns:A="urn:aster:">
+  <D:set><D:prop><A:deep-lock>owner</A:deep-lock></D:prop></D:set>
+</D:propertyupdate>"#;
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("If", tagged_if.clone()))
+        .set_payload(property_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        207,
+        "the tagged collection-root token should authorize descendant PROPPATCH"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("</webdav/unrelated/> (<{lock_token}>)")))
+        .set_payload("wrong tag")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        412,
+        "a valid token tagged for an unrelated resource must not authorize the descendant"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("missing token")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "PUT without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPPATCH").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(property_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "PROPPATCH without the token must remain locked"
+    );
+
+    let req = test::TestRequest::delete()
+        .uri("/webdav/deep-parent/member.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "DELETE without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-parent/member.txt")
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", "/webdav/moved-out-of-deep-parent.txt"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "MOVE without the token must remain locked"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/deep-lock-copy-source.txt")
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header((
+            "Destination",
+            "/webdav/deep-parent/copied-without-token.txt",
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        423,
+        "COPY into the locked collection without the token must remain locked"
     );
 }
 
