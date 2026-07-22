@@ -604,11 +604,8 @@ fn parse_litmus_status(line: &str) -> Option<(usize, &'static str, LitmusCaseSta
         (" pass", LitmusCaseStatus::Passed),
     ]
     .into_iter()
-    .filter_map(|(marker, status)| {
-        line.rfind(marker)
-            .map(|position| (position, marker, status))
-    })
-    .max_by_key(|(position, _, _)| *position)
+    .filter_map(|(marker, status)| line.find(marker).map(|position| (position, marker, status)))
+    .min_by_key(|(position, _, _)| *position)
 }
 
 fn parse_litmus_case_name(value: &str) -> String {
@@ -909,6 +906,7 @@ fn litmus_output_parser_distinguishes_all_statuses_and_carriage_returns() {
         "\r 3. known-bug............... \r 3. known-bug............... XFAIL\n",
         "\r 4. warning-case............ WARNING: legacy response\n",
         "    ...................... pass (with 1 warning)\n",
+        "\r 5. detail-word............. FAIL (server reported pass after the failure)\n",
     );
 
     assert_eq!(
@@ -944,6 +942,12 @@ fn litmus_output_parser_distinguishes_all_statuses_and_carriage_returns() {
                     name: "warning-case".to_string(),
                     status: LitmusCaseStatus::Passed,
                     detail: "with 1 warning".to_string(),
+                },
+                LitmusCaseResult {
+                    number: 5,
+                    name: "detail-word".to_string(),
+                    status: LitmusCaseStatus::Failed,
+                    detail: "server reported pass after the failure".to_string(),
                 },
             ],
             warnings: vec![LitmusWarning {
