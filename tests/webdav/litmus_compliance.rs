@@ -31,11 +31,20 @@ const ARTIFACT_DIR_ENV: &str = "ASTER_WEBDAV_COMPAT_ARTIFACT_DIR";
 const DEFAULT_SUITE_TIMEOUT: Duration = Duration::from_secs(120);
 const BASELINE: &str = include_str!("fixtures/litmus-baseline.txt");
 
+#[derive(Clone, Copy, Debug, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum LitmusEvaluationMode {
+    Baseline,
+    Probe,
+}
+
 #[derive(Clone, Copy)]
 struct LitmusGroup {
     name: &'static str,
     expected_test_count: usize,
     timeout: Duration,
+    environment: &'static [(&'static str, &'static str)],
+    evaluation_mode: LitmusEvaluationMode,
 }
 
 const TEST_GROUPS: &[LitmusGroup] = &[
@@ -43,31 +52,44 @@ const TEST_GROUPS: &[LitmusGroup] = &[
         name: "basic",
         expected_test_count: 16,
         timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "copymove",
         expected_test_count: 13,
         timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "props",
         expected_test_count: 33,
         timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "locks",
         expected_test_count: 40,
         timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "http",
         expected_test_count: 4,
         timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
 ];
 
-#[path = "litmus/extended.rs"]
-mod extended_litmus;
+#[path = "litmus/resource.rs"]
+mod resource_litmus;
+
+#[path = "litmus/security_policy.rs"]
+mod security_policy_litmus;
 
 #[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -128,6 +150,8 @@ struct BaselineEntry {
 struct LitmusReport {
     litmus_version: &'static str,
     group: String,
+    evaluation_mode: LitmusEvaluationMode,
+    environment: BTreeMap<&'static str, &'static str>,
     timeout_seconds: u64,
     expected_test_count: usize,
     observed_test_count: usize,
@@ -135,6 +159,7 @@ struct LitmusReport {
     timed_out: bool,
     cases: Vec<LitmusCaseResult>,
     warnings: Vec<LitmusWarning>,
+    observed_differences: Vec<String>,
     accepted_differences: Vec<String>,
     errors: Vec<String>,
 }
@@ -389,6 +414,7 @@ fn run_litmus_group(
     command
         .args([url, username, password])
         .env("TESTS", group.name)
+        .envs(group.environment.iter().copied())
         .current_dir(workspace)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr))
@@ -632,7 +658,8 @@ fn parse_litmus_detail(line: &str, status_position: usize, marker: &str) -> Stri
 fn parse_baseline(contents: &str) -> Result<Vec<BaselineEntry>, String> {
     let known_groups: BTreeSet<&str> = TEST_GROUPS
         .iter()
-        .chain(extended_litmus::TEST_GROUPS)
+        .chain(resource_litmus::TEST_GROUPS)
+        .chain(security_policy_litmus::TEST_GROUPS)
         .map(|group| group.name)
         .collect();
     let mut entries = Vec::new();
@@ -709,7 +736,8 @@ fn evaluate_litmus_result(
     process: &LitmusProcessResult,
     output: &ParsedLitmusOutput,
     baseline: &[BaselineEntry],
-) -> (Vec<String>, Vec<String>) {
+) -> (Vec<String>, Vec<String>, Vec<String>) {
+    let mut observed_differences = Vec::new();
     let mut accepted_differences = Vec::new();
     let mut errors = Vec::new();
     if process.timed_out {
@@ -751,6 +779,14 @@ fn evaluate_litmus_result(
     }));
 
     for difference in &observed {
+        observed_differences.push(format!(
+            "{} {}",
+            difference.status.baseline_name().unwrap_or("difference"),
+            difference.test
+        ));
+        if matches!(group.evaluation_mode, LitmusEvaluationMode::Probe) {
+            continue;
+        }
         if let Some(entry) = expected.get(difference) {
             accepted_differences.push(format!(
                 "{} {} tracked by {}: {}",
@@ -768,15 +804,22 @@ fn evaluate_litmus_result(
             ));
         }
     }
-    for entry in expected.values() {
-        if !observed.contains(&entry.key) {
-            errors.push(format!(
-                "stale Litmus baseline entry: {} {} no longer occurs; remove {}",
-                entry.key.status.baseline_name().unwrap_or("difference"),
-                entry.key.test,
-                entry.tracking_issue
-            ));
+    if matches!(group.evaluation_mode, LitmusEvaluationMode::Baseline) {
+        for entry in expected.values() {
+            if !observed.contains(&entry.key) {
+                errors.push(format!(
+                    "stale Litmus baseline entry: {} {} no longer occurs; remove {}",
+                    entry.key.status.baseline_name().unwrap_or("difference"),
+                    entry.key.test,
+                    entry.tracking_issue
+                ));
+            }
         }
+    } else if !expected.is_empty() {
+        errors.push(format!(
+            "Litmus probe group {} must not use the conformance baseline",
+            group.name
+        ));
     }
 
     let has_failures = output
@@ -798,7 +841,7 @@ fn evaluate_litmus_result(
         ));
     }
 
-    (accepted_differences, errors)
+    (observed_differences, accepted_differences, errors)
 }
 
 fn write_report(workspace: &Path, report: &LitmusReport) -> Result<(), String> {
@@ -815,8 +858,12 @@ fn format_failure(
     errors: &[String],
     workspace: &Path,
 ) -> String {
+    let evaluation = match group.evaluation_mode {
+        LitmusEvaluationMode::Baseline => "baseline",
+        LitmusEvaluationMode::Probe => "probe",
+    };
     let mut message = format!(
-        "Litmus `{}` baseline failed; artifacts: {}\n",
+        "Litmus `{}` {evaluation} failed; artifacts: {}\n",
         group.name,
         workspace.display()
     );
@@ -873,11 +920,13 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
     server_result?;
 
     let output = parse_litmus_output(&process.stdout);
-    let (accepted_differences, errors) =
+    let (observed_differences, accepted_differences, errors) =
         evaluate_litmus_result(group, &process, &output, &baseline);
     let report = LitmusReport {
         litmus_version: LITMUS_VERSION,
         group: group.name.to_string(),
+        evaluation_mode: group.evaluation_mode,
+        environment: group.environment.iter().copied().collect(),
         timeout_seconds: group.timeout.as_secs(),
         expected_test_count: group.expected_test_count,
         observed_test_count: output.cases.len(),
@@ -885,18 +934,27 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
         timed_out: process.timed_out,
         cases: output.cases,
         warnings: output.warnings,
+        observed_differences,
         accepted_differences,
         errors: errors.clone(),
     };
     write_report(&workspace.path, &report)?;
 
     if errors.is_empty() {
-        println!(
-            "[litmus/{}] {} tests completed; {} known differences",
-            group.name,
-            report.observed_test_count,
-            report.accepted_differences.len()
-        );
+        match group.evaluation_mode {
+            LitmusEvaluationMode::Baseline => println!(
+                "[litmus/{}] {} tests completed; {} known differences",
+                group.name,
+                report.observed_test_count,
+                report.accepted_differences.len()
+            ),
+            LitmusEvaluationMode::Probe => println!(
+                "[litmus/{}] {} probe cases completed; {} policy differences observed",
+                group.name,
+                report.observed_test_count,
+                report.observed_differences.len()
+            ),
+        }
         Ok(())
     } else {
         Err(format_failure(group, &process, &errors, &workspace.path))
@@ -970,6 +1028,41 @@ fn litmus_output_parser_distinguishes_all_statuses_and_carriage_returns() {
             }],
         }
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn security_policy_probe_records_failures_without_creating_conformance_errors() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let group = LitmusGroup {
+        name: "protected",
+        expected_test_count: 1,
+        timeout: DEFAULT_SUITE_TIMEOUT,
+        environment: &[("TEST_PROTECTED", ".DAV")],
+        evaluation_mode: LitmusEvaluationMode::Probe,
+    };
+    let process = LitmusProcessResult {
+        exit_status: ExitStatus::from_raw(1 << 8),
+        timed_out: false,
+        stdout: String::new(),
+        stderr: String::new(),
+    };
+    let output = ParsedLitmusOutput {
+        cases: vec![LitmusCaseResult {
+            number: 0,
+            name: "put".to_string(),
+            status: LitmusCaseStatus::Failed,
+            detail: "protected path accepted the write".to_string(),
+        }],
+        warnings: Vec::new(),
+    };
+
+    let (observed, accepted, errors) = evaluate_litmus_result(group, &process, &output, &[]);
+
+    assert_eq!(observed, vec!["FAIL put"]);
+    assert!(accepted.is_empty());
+    assert!(errors.is_empty());
 }
 
 #[test]

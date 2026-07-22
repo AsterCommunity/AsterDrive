@@ -100,7 +100,10 @@ jobs:
         run: |
           set -o pipefail
           cargo test --test webdav litmus_compliance::test_litmus_ -- \
-            --ignored --skip extended_litmus:: --nocapture --test-threads=1 \
+            --ignored \
+            --skip resource_litmus:: \
+            --skip security_policy_litmus:: \
+            --nocapture --test-threads=1 \
             2>&1 | tee artifacts/litmus-test.log
 
       - name: Upload Litmus results and request logs

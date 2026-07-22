@@ -4,7 +4,7 @@
 //! baseline. `largefile` transfers about 2 GiB in each direction, while the
 //! lockbomb suites execute 20,000 LOCK/UNLOCK iterations per worker.
 
-use super::{LitmusGroup, run_group};
+use super::{LitmusEvaluationMode, LitmusGroup, run_group};
 use std::time::Duration;
 
 const LARGEFILE_TIMEOUT: Duration = Duration::from_secs(30 * 60);
@@ -16,16 +16,22 @@ pub(super) const TEST_GROUPS: &[LitmusGroup] = &[
         name: "largefile",
         expected_test_count: 5,
         timeout: LARGEFILE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "lockbomb",
         expected_test_count: 3,
         timeout: LOCKBOMB_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
     LitmusGroup {
         name: "lockbomb-single",
         expected_test_count: 3,
         timeout: LOCKBOMB_SINGLE_TIMEOUT,
+        environment: &[],
+        evaluation_mode: LitmusEvaluationMode::Baseline,
     },
 ];
 

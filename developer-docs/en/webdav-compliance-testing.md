@@ -71,14 +71,23 @@ scripts/ci/webdav-compat/versions.env
 
 These five groups are the Litmus 0.18 default suite and the conformance gate for ordinary pull requests. Pinning the version, source commits, and checksums keeps case names, counts, output format, and known differences stable. Substituting another binary through `LITMUS_BIN` while interpreting its output as the current baseline is invalid. A baseline upgrade must update the version, case counts, parser verification, CI installation method, and known-difference file together.
 
-The Litmus 0.18 installation also contains four suites that stay outside the ordinary pull-request gate:
+The Litmus 0.18 installation also contains two categories of optional suites that stay outside the ordinary pull-request gate.
+
+Resource and stress suites:
 
 - `largefile`: large-file transfer, including a resource of about 2 GiB;
 - `lockbomb`: multithreaded high-volume LOCK/UNLOCK stress;
-- `lockbomb-single`: single-threaded high-volume LOCK/UNLOCK stress;
-- `protected`: behavior for protected metadata paths such as `.DAV`.
+- `lockbomb-single`: single-threaded high-volume LOCK/UNLOCK stress.
 
-Run `largefile` and the lock-stress suites through scheduled or manual jobs with separate timeouts and resource limits. Define AsterDrive's product semantics for protected paths before establishing a `protected` result baseline.
+Implementation-specific security-policy suite:
+
+- `protected`: checks a server-reserved metadata path, pinned to `TEST_PROTECTED=.DAV`, with 25 cases.
+
+Run `largefile` and the lock-stress suites through scheduled or manual jobs with separate timeouts and resource limits. `protected` targets implementations such as Apache `mod_dav_fs` that place a trusted property database near the WebDAV namespace; it is not an RFC 4918 conformance group. AsterDrive stores dead properties in its database and does not currently reserve `.DAV`, so this suite runs as an explicit security-policy probe and stays outside the default conformance baseline.
+
+> **AsterDrive applicability note:** AsterDrive stores dead properties in the database `entity_properties` table, associated with resolved file/folder `entity_type + entity_id` values. It does not map `.DAV` or any other directory name to the internal property database, and it does not expose property records through WebDAV file paths. Under the product contract, `.DAV` is a valid ordinary user directory; AsterDrive has no reason to reserve or block that name merely to satisfy this Litmus suite. Creating, reading, moving, or deleting `.DAV` only operates on ordinary file/folder entities and does not reach property tables, lock tables, or other trusted internal metadata. The 15 `protected` differences are therefore expected differences from Apache's file-backed property-database model, not evidence of dead-property storage exposure or a product security vulnerability.
+
+`webdav_block_system_files_enabled` and `webdav_block_system_file_patterns` remain configurable product hygiene for client artifacts such as `.DS_Store` and `Thumbs.db`. They do not provide internal-metadata isolation and are not a WebDAV path-security boundary. AsterDrive's property isolation boundary is the path resolver, workspace scope, entity authorization, and the `entity_properties` repository—not a reserved directory name.
 
 ## Install the pinned Litmus 0.18
 
@@ -121,7 +130,10 @@ mkdir -p "$PWD/artifacts/webdav-local"
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo test --test webdav litmus_compliance::test_litmus_ -- \
-  --ignored --skip extended_litmus:: --nocapture --test-threads=1
+  --ignored \
+  --skip resource_litmus:: \
+  --skip security_policy_litmus:: \
+  --nocapture --test-threads=1
 ```
 
 `--test-threads=1` is required. Each group starts an independent local HTTP server, creates temporary WebDAV credentials, and uses its own working directory. Serial execution keeps output and artifact ownership deterministic.
@@ -145,12 +157,12 @@ litmus_compliance::test_litmus_locks
 litmus_compliance::test_litmus_http
 ```
 
-The resource-intensive suites live separately in `tests/webdav/litmus/extended.rs`:
+The resource-intensive suites live separately in `tests/webdav/litmus/resource.rs`:
 
 ```text
-litmus_compliance::extended_litmus::test_litmus_largefile
-litmus_compliance::extended_litmus::test_litmus_lockbomb
-litmus_compliance::extended_litmus::test_litmus_lockbomb_single
+litmus_compliance::resource_litmus::test_litmus_largefile
+litmus_compliance::resource_litmus::test_litmus_lockbomb
+litmus_compliance::resource_litmus::test_litmus_lockbomb_single
 ```
 
 Run only `largefile`:
@@ -159,11 +171,27 @@ Run only `largefile`:
 LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
 ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
 cargo test --test webdav \
-  litmus_compliance::extended_litmus::test_litmus_largefile -- \
+  litmus_compliance::resource_litmus::test_litmus_largefile -- \
   --ignored --nocapture --test-threads=1
 ```
 
-Use `litmus_compliance::extended_litmus::` as the filter to run all three resource-intensive suites. `largefile` transfers about 2 GiB and has a 30-minute timeout. `lockbomb` runs 20 threads with 20,000 LOCK/UNLOCK iterations per thread and has a two-hour timeout. `lockbomb-single` runs 20,000 iterations in one thread and has a one-hour timeout. Reserve sufficient temporary-storage, database, and artifact capacity before running them, and keep `--test-threads=1`.
+Use `litmus_compliance::resource_litmus::` as the filter to run all three resource-intensive suites. `largefile` transfers about 2 GiB and has a 30-minute timeout. `lockbomb` runs 20 threads with 20,000 LOCK/UNLOCK iterations per thread and has a two-hour timeout. `lockbomb-single` runs 20,000 iterations in one thread and has a one-hour timeout. Reserve sufficient temporary-storage, database, and artifact capacity before running them, and keep `--test-threads=1`.
+
+The `protected` security-policy probe lives in `tests/webdav/litmus/security_policy.rs`. It pins both the 25-case count and `TEST_PROTECTED=.DAV`, so the namespace under test does not silently vary with the caller's environment:
+
+```bash
+LITMUS_BIN="$HOME/.local/webdav-compat/bin/litmus" \
+ASTER_WEBDAV_COMPAT_ARTIFACT_DIR="$PWD/artifacts/webdav-local" \
+cargo test --test webdav \
+  litmus_compliance::security_policy_litmus::test_litmus_protected -- \
+  --ignored --nocapture --test-threads=1
+```
+
+This command observes the difference between the current architecture and a server-reserved `.DAV` metadata-directory model. The current product decision is to keep `.DAV` available as an ordinary user directory and to omit these 15 model differences from the RFC known-difference baseline. AsterDrive's native protocol tests remain authoritative for blocking ordinary operating-system metadata names. Revisit the decision if the property-storage architecture changes.
+
+Interpret these `FAIL` results as a mismatch between Litmus's reserved-`.DAV` assumption and AsterDrive's product model, not as evidence that a WebDAV request reached internal dead-property storage. A real security regression requires evidence that WebDAV path resolution crossed the file/folder entity boundary into internal property, lock, or credential storage; the ability to create a path named `.DAV` is not sufficient evidence.
+
+The security-policy probe still enforces process-state consistency, timeout, and the 25-case count. Litmus `FAIL` and `WARNING` results are recorded under `observed_differences` in `result.json` instead of being evaluated against the default conformance baseline. This preserves the raw security signal without presenting an inapplicable Apache `.DAV` storage model as an AsterDrive RFC difference.
 
 When `LITMUS_BIN` is unset, the harness searches `PATH` for `litmus`. An explicit absolute path is still preferred because it prevents accidental use of another release.
 
@@ -206,7 +234,7 @@ Important files:
 
 Use this order when investigating a failure:
 
-1. inspect `result.json`, especially `errors`, `accepted_differences`, and failed case names;
+1. inspect `result.json`, especially `errors`, `observed_differences`, `accepted_differences`, and failed case names;
 2. inspect `stdout.log` for the expected and actual status reported by Litmus;
 3. compare the method, URI, WebDAV headers, response status, and XML body in `debug.log`;
 4. inspect `stderr.log` and `child.log` for timeouts or early process exits.
@@ -218,17 +246,19 @@ The harness redacts generated credentials, but artifacts may still contain filen
 | Status | Meaning | Baseline treatment |
 | --- | --- | --- |
 | `pass` | The case passed | Do not add it to known differences |
-| `FAIL` | Protocol behavior differs from the case expectation | Fix it first; a temporary entry requires an independent tracking issue |
+| `FAIL` | Protocol behavior differs from the case expectation | Fix it first for Baseline groups; Probe groups record it in `observed_differences` and classify the product-model difference |
 | `SKIPPED` | A prerequisite is missing or an earlier step prevented execution | Track it as a difference rather than silently ignoring it |
 | `WARNING` | The case completed with a compatibility warning | Track it as a difference |
 | `XFAIL` | Litmus declares the case an expected failure | Do not add it to AsterDrive known differences under the current policy |
 
-Evaluation is strict in both directions:
+Evaluation is strict in both directions for Baseline groups:
 
 - a `FAIL`, `SKIPPED`, or `WARNING` missing from the baseline fails the test;
 - a committed baseline entry that no longer occurs also fails the test and requests removal of the stale waiver;
 - a case count that differs from the pinned version fails the test;
 - disagreement between process exit status and parsed failures fails the test.
+
+`protected` uses Probe mode: it still checks process state, timeout, and the pinned case count, but its `FAIL` and `WARNING` results are recorded in `observed_differences` instead of entering AsterDrive's RFC known-difference baseline.
 
 The baseline is therefore not a blanket failure waiver. It is a compatibility-debt list that must keep shrinking.
 
@@ -377,7 +407,7 @@ Treat an upgrade to a later release as an independent change:
 7. update the installation source and tool-version recording in `.github/workflows/webdav-compatibility.yml`;
 8. run the complete workflow manually before merging the version bump.
 
-`largefile`, `lockbomb`, and `lockbomb-single` now exist as ignored resource tests in `tests/webdav/litmus/extended.rs`, but remain outside the ordinary pull-request gate. `protected` still requires a defined product policy. Connecting any extra suite to CI requires separate trigger, timeout, resource-use, and baseline design. In particular, keep large-file and lock-stress tests out of the ordinary fast pull-request check.
+`largefile`, `lockbomb`, and `lockbomb-single` now exist as ignored resource tests in `tests/webdav/litmus/resource.rs`; `protected` is an ignored security-policy probe in `tests/webdav/litmus/security_policy.rs`. All remain outside the ordinary pull-request gate. Connecting an optional suite to CI requires separate trigger, timeout, resource-use, architectural-applicability, and baseline design. In particular, keep large-file and lock-stress tests out of the ordinary fast pull-request check.
 
 ## Failure-location quick reference
 
@@ -388,8 +418,9 @@ Treat an upgrade to a later release as an independent change:
 | `props` 207/XML/namespace | `props/`, `responses.rs` |
 | `locks` token/owner/depth | `locks/`, `db_lock_system.rs`, `protocol.rs` |
 | `http` Expect/Range/connection behavior | `transfer/`, `responses.rs` |
+| `protected` reserved-path policy | `path_resolver.rs`, `fs/mod.rs`, `entity_property.rs`, and `property_repo.rs` |
 | Direct endpoint passes, proxy endpoint fails | Proxy method allowlist, header forwarding, body limits, and TLS |
 | Litmus passes, real client fails | Client-specific probing order, path encoding, retries, and sync semantics |
 | Local run passes, CI fails | Pinned tool versions, architecture, environment variables, and artifacts |
 
-Do not stop at a green process exit. A useful conformance result includes the pinned tool versions, explicit suite groups, structured results, request traces, and an independent tracking issue for every retained difference.
+Do not stop at a green process exit. A useful conformance result includes the pinned tool versions, explicit suite groups, structured results, request traces, and an independent tracking issue for every retained Baseline difference; Probe groups must preserve their raw `observed_differences` and applicability decision.
