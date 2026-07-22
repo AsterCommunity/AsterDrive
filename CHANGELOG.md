@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [v0.4.0] - 2026-07-23
+
+### Release Highlights
+
+**AsterDrive `0.4.0` 正式发布。** 在 `0.4.0` beta / RC 线（AsterForge 共享 crates 基础设施迁移、全新下载中心与统一传输面板、跨工作区批量移动、OneDrive 浏览器直连、外部认证 browser binding、WebDAV 认证限流与强制 setup、公开分享路由化导航，以及 rc.2 的 AsterForge 缺陷修复与安全加固）基础上，本版本引入 WebDAV RFC 4918 合规测试基线（Litmus Phase 0）并收口一批 WebDAV 协议合规修复，把 `0.4.0` 系列从 RC 阶段推进到稳定发布。
+
+- **WebDAV 合规测试基线** — 引入 Litmus Phase 0 合规测试框架，升级 Litmus 至 0.18，新增独立的 WebDAV 兼容性 CI（多客户端矩阵）
+- **WebDAV 协议合规修复** — MKCOL 对已存在资源返回 405、集合深度锁 token 可用于后代操作、PROPFIND 严格 `DAV:` 命名空间校验
+- **WebDAV 文档补齐** — 新增用户向 WebDAV 接入指南
+
+### Changed
+
+- **WebDAV PROPFIND 解析合规化**
+  - 元素匹配改为严格校验 `DAV:` 命名空间（`is_dav_element`），不再仅按本地名匹配
+  - 未知元素按 RFC 4918 §17 视作不存在并跳过，不再报错；重复 `include` 视为非法请求
+  - 缺少 `prop` / `allprop` / `propname` 时不再隐式回退到 `AllProp`，改为拒绝非法请求体
+- **WebDAV 测试结构模块化** — 原 `tests/test_webdav*.rs` 集成测试迁移到 `tests/webdav/` 模块目录，并按 Litmus suite 拆分 resource / security-policy 用例
+
+### Fixed
+
+- **WebDAV MKCOL 语义** — `MKCOL` 对已存在的资源返回 `405 Method Not Allowed`（先前会尝试创建），符合 RFC 4918
+- **WebDAV 集合锁后代操作** — 解锁校验改为逐个冲突锁用各自 href 匹配 submitted token：父目录持有深度锁（collection lock）时，后代资源操作提交同一锁 token 不再被错误判定为未授权
+
+### Notes
+
+- 本版本为 `0.4.0` 系列正式发布版
+- 从 `v0.4.0-rc.2` 升级到 `v0.4.0` 没有新增数据库 migration
+- 生产配置 schema 未新增必需项
+- Docker 用户建议使用 `v0.4.0`、`stable` 或 `latest` 镜像标签；`edge` 继续保留给后续预发布版本
+- 统计数据：37 files changed, 3461 insertions(+), 65 deletions(-)
+- 本次范围共 8 个提交
+
 ## [v0.4.0-rc.2] - 2026-07-21
 
 ### Release Highlights
@@ -5851,7 +5883,8 @@ OneDrive 存储策略新增浏览器直连能力：上传可选 Microsoft Graph 
 - 66 commits
 - Rust Edition 2024, MSRV 1.91.1
 
-[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...HEAD
+[Unreleased]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0...HEAD
+[v0.4.0]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.2...v0.4.0
 [v0.4.0-rc.2]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-rc.1...v0.4.0-rc.2
 [v0.4.0-rc.1]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.3...v0.4.0-rc.1
 [v0.4.0-beta.3]: https://github.com/AsterCommunity/AsterDrive/compare/v0.4.0-beta.2...v0.4.0-beta.3
