@@ -209,7 +209,7 @@ async fn assert_upload_session_kind_column(db: &DatabaseConnection, backend: DbB
     let is_nullable: String = row
         .try_get_by_index(0)
         .expect("session_kind metadata should include is_nullable");
-    assert_eq!(is_nullable, "YES");
+    assert_eq!(is_nullable, "NO");
 }
 
 async fn assert_background_task_display_name_column_len(

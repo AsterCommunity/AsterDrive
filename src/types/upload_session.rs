@@ -4,9 +4,6 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 /// Persisted data plane for an upload session.
-///
-/// `None` is reserved for sessions created before this column existed. New sessions must always
-/// persist a kind so lifecycle code does not infer the data plane from nullable provider fields.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[sea_orm(rs_type = "String", db_type = "String(StringLen::N(32))")]
@@ -30,8 +27,6 @@ pub enum UploadSessionKind {
     RemotePresignedMultipart,
     #[sea_orm(string_value = "provider_direct_resumable")]
     ProviderDirectResumable,
-    #[sea_orm(string_value = "legacy_chunk_files")]
-    LegacyChunkFiles,
 }
 
 impl UploadSessionKind {
@@ -46,7 +41,6 @@ impl UploadSessionKind {
             Self::RemotePresignedSingle => "remote_presigned_single",
             Self::RemotePresignedMultipart => "remote_presigned_multipart",
             Self::ProviderDirectResumable => "provider_direct_resumable",
-            Self::LegacyChunkFiles => "legacy_chunk_files",
         }
     }
 }

@@ -19,7 +19,7 @@ fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
         folder_id: None,
         policy_id: 1,
         status,
-        session_kind: None,
+        session_kind: UploadSessionKind::OffsetStaging,
         object_temp_key: None,
         object_multipart_id: None,
         provider_session_ciphertext: None,

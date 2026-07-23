@@ -27,9 +27,8 @@ pub struct Model {
     pub folder_id: Option<i64>,
     pub policy_id: i64,
     pub status: UploadSessionStatus,
-    /// Explicit data-plane kind. Null is only for pre-migration sessions resolved by compatibility
-    /// classification; every new session persists this value at init.
-    pub session_kind: Option<UploadSessionKind>,
+    /// Explicit data-plane kind selected and persisted during upload initialization.
+    pub session_kind: UploadSessionKind,
     /// Driver-agnostic temporary object key used by object/presigned multipart upload flows.
     pub object_temp_key: Option<String>,
     /// Driver-agnostic multipart upload id; empty for direct/stream upload transports.

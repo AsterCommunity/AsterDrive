@@ -111,7 +111,7 @@ async fn cleanup_remote_upload_state(
     session: &upload_session::Model,
     allow_corrupted_object_fields: bool,
 ) -> UploadRemoteCleanupOutcome {
-    let kind = match resolve_upload_session_kind(state, session).await {
+    let kind = match resolve_upload_session_kind(session) {
         Ok(kind) => Some(kind),
         Err(error) if allow_corrupted_object_fields => {
             // A corrupted classifier must not block administrative deletion. Recorded object
@@ -130,23 +130,19 @@ async fn cleanup_remote_upload_state(
             return UploadRemoteCleanupOutcome::DeferredIntervention;
         }
     };
-    if let Some(kind) = kind {
-        let has_legacy_remote_temp =
-            kind == UploadSessionKind::LegacyChunkFiles && session.object_temp_key.is_some();
-        if !has_legacy_remote_temp
-            && !matches!(
-                kind,
-                UploadSessionKind::ProviderRelayMultipart
-                    | UploadSessionKind::ProviderPresignedSingle
-                    | UploadSessionKind::ProviderPresignedMultipart
-                    | UploadSessionKind::RemoteRelayMultipart
-                    | UploadSessionKind::RemotePresignedSingle
-                    | UploadSessionKind::RemotePresignedMultipart
-                    | UploadSessionKind::ProviderDirectResumable
-            )
-        {
-            return UploadRemoteCleanupOutcome::Complete;
-        }
+    if let Some(kind) = kind
+        && !matches!(
+            kind,
+            UploadSessionKind::ProviderRelayMultipart
+                | UploadSessionKind::ProviderPresignedSingle
+                | UploadSessionKind::ProviderPresignedMultipart
+                | UploadSessionKind::RemoteRelayMultipart
+                | UploadSessionKind::RemotePresignedSingle
+                | UploadSessionKind::RemotePresignedMultipart
+                | UploadSessionKind::ProviderDirectResumable
+        )
+    {
+        return UploadRemoteCleanupOutcome::Complete;
     }
 
     let Some(temp_key) = session.object_temp_key.as_deref() else {
@@ -321,8 +317,7 @@ async fn upload_session_mode_label_for_cancel(
     match upload_session_mode_label(state, session).await {
         Ok(mode) => mode,
         Err(error) => {
-            // Cancellation must remain able to quarantine a corrupted legacy session. Metrics
-            // classification failure is recorded explicitly instead of blocking cleanup.
+            // Metrics classification failure is recorded explicitly instead of blocking cleanup.
             tracing::warn!(
                 upload_id = %session.id,
                 "failed to classify upload session for cancel metrics: {error}"
@@ -333,10 +328,10 @@ async fn upload_session_mode_label_for_cancel(
 }
 
 async fn upload_session_mode_label(
-    state: &PrimaryAppState,
+    _state: &PrimaryAppState,
     session: &upload_session::Model,
 ) -> Result<&'static str> {
-    Ok(resolve_upload_session_kind(state, session).await?.as_str())
+    Ok(resolve_upload_session_kind(session)?.as_str())
 }
 
 fn record_upload_cancel_metric(state: &impl SharedRuntimeState, mode: &'static str, success: bool) {

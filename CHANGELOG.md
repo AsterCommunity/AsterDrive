@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking
+
+- **上传 session 0.5.0 边界** — `upload_sessions.session_kind` 收紧为 `NOT NULL`，并删除 0.4.x payload-per-chunk `chunk_N`、`assembled` 拼装/relay、kind 推断和 assembly limiter。升级迁移遇到 null 或非法 kind 会停止且保留原行；部署方需要先清理已过期的旧上传 session。
+
+### Changed
+
+- Chunk PUT、Progress、Complete、Cancel/Cleanup 只接受持久化的显式 `UploadSessionKind`，仍会校验 multipart、temp key 和 provider session metadata 的组合不变量。
+- OffsetStaging、StreamStaging、provider/remote relay multipart、presigned 和 provider resumable 主路径保持不变；upload service 继续从 connector-owned transport 生成 Init plan，不引入 `DriverType` 分流矩阵。
+
 ## [v0.4.0] - 2026-07-23
 
 ### Release Highlights

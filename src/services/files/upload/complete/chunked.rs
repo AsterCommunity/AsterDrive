@@ -1,8 +1,6 @@
 //! Server-managed chunked-upload completion.
 //!
-//! `.offset-staging-v1` is the explicit format discriminator for current sessions. The generic
-//! `assembled` path belongs only to the deprecated payload-per-chunk compatibility path and may
-//! survive a retryable storage/DB failure; its presence must never select offset-staging validation.
+//! `.offset-staging-v1` is the explicit format discriminator for current sessions.
 
 use chrono::Utc;
 use sea_orm::DbBackend;
@@ -19,12 +17,9 @@ use crate::services::files::upload::shared::{
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
-use crate::storage::connectors::resolve_policy_upload_transport;
 use crate::types::{UploadSessionKind, UploadSessionStatus};
-use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64, usize_to_i64};
-use aster_forge_utils::paths;
+use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64};
 use tokio::io::AsyncReadExt;
-use tokio::io::AsyncWriteExt;
 
 use super::contract::{
     VerifiedUploadSource, VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure,
@@ -34,15 +29,6 @@ struct ChunkedTempFile {
     path: String,
     size: i64,
     file_hash: Option<String>,
-}
-
-fn warn_legacy_chunk_file_completion(session: &upload_session::Model, completion_mode: &str) {
-    tracing::warn!(
-        upload_id = %session.id,
-        completion_mode,
-        removal_version = "0.5.0",
-        "using deprecated legacy per-chunk file completion path"
-    );
 }
 
 pub(super) async fn complete_chunked_upload_with_actor_username(
@@ -86,42 +72,26 @@ async fn finalize_chunked_upload_session(
     session_kind: UploadSessionKind,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    // Only the pre-migration legacy kind may consult the connector fallback. New sessions already
-    // carry an explicit execution plan, so capability probing cannot redirect their completion.
-    let legacy_stream_relay = session_kind == UploadSessionKind::LegacyChunkFiles
-        && resolve_policy_upload_transport(policy)?.chunked_completion()
-            == crate::storage::connectors::StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload;
-    if matches!(session_kind, UploadSessionKind::StreamStaging) || legacy_stream_relay {
-        return finalize_stream_relay_chunked_upload_session(
+    if session_kind == UploadSessionKind::StreamStaging {
+        return finalize_offset_staging_stream_relay(
             state,
             session,
             policy,
             driver,
-            session_kind,
             actor_username,
         )
         .await;
     }
+    if session_kind != UploadSessionKind::OffsetStaging {
+        return Err(upload_assembly_error_with_code(
+            ApiErrorCode::UploadSessionCorrupted,
+            "chunked completion requires an offset or stream staging session",
+        ));
+    }
 
     let prepare_started_at = Instant::now();
     let should_dedup = storage::local_content_dedup_enabled(policy);
-    let (chunked_temp, used_offset_staging, legacy_assembly_wait_elapsed_ms) = if let Some(staged) =
-        load_offset_staging_file(state, session, session_kind, should_dedup).await?
-    {
-        (staged, true, 0)
-    } else {
-        warn_legacy_chunk_file_completion(session, "assemble_to_local_temp_file");
-        let assembly_wait_started_at = Instant::now();
-        let assembly_permit = state
-            .upload_runtime
-            .acquire_chunk_assembly_to_local_temp_file()
-            .await?;
-        let assembly_wait_elapsed_ms = assembly_wait_started_at.elapsed().as_millis();
-        let assembled =
-            assemble_legacy_local_chunks_to_temp_file(state, session, should_dedup).await?;
-        drop(assembly_permit);
-        (assembled, false, assembly_wait_elapsed_ms)
-    };
+    let chunked_temp = load_offset_staging_file(state, session, should_dedup).await?;
     let prepare_elapsed_ms = prepare_started_at.elapsed().as_millis();
 
     let stage_started_at = Instant::now();
@@ -137,8 +107,6 @@ async fn finalize_chunked_upload_session(
                 upload_id = %session.id,
                 file_id = file.id,
                 size = staged_size,
-                used_offset_staging,
-                legacy_assembly_wait_elapsed_ms,
                 prepare_elapsed_ms,
                 stage_elapsed_ms,
                 persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
@@ -200,29 +168,19 @@ async fn validate_offset_staging_file(
 async fn load_offset_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
-    session_kind: UploadSessionKind,
     should_dedup: bool,
-) -> Result<Option<ChunkedTempFile>> {
-    if !matches!(
-        session_kind,
-        UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
-    ) {
-        return Ok(None);
-    }
-
-    // A staging kind is an explicit execution contract. Missing or malformed staging must fail
-    // the session rather than silently switching to the legacy `chunk_N` assembly path.
+) -> Result<ChunkedTempFile> {
     let path = validate_offset_staging_file(state, session).await?;
     let file_hash = if should_dedup {
         Some(hash_staging_file(&path).await?)
     } else {
         None
     };
-    Ok(Some(ChunkedTempFile {
+    Ok(ChunkedTempFile {
         path,
         size: session.total_size,
         file_hash,
-    }))
+    })
 }
 
 async fn hash_staging_file(path: &str) -> Result<String> {
@@ -250,90 +208,6 @@ async fn hash_staging_file(path: &str) -> Result<String> {
         hasher.update(&buffer[..read]);
     }
     Ok(aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize()))
-}
-
-async fn finalize_stream_relay_chunked_upload_session(
-    state: &PrimaryAppState,
-    session: &upload_session::Model,
-    policy: &storage_policy::Model,
-    driver: &dyn StorageDriver,
-    session_kind: UploadSessionKind,
-    actor_username: Option<&str>,
-) -> Result<file::Model> {
-    if session_kind == UploadSessionKind::StreamStaging {
-        return finalize_offset_staging_stream_relay(
-            state,
-            session,
-            policy,
-            driver,
-            actor_username,
-        )
-        .await;
-    }
-
-    warn_legacy_chunk_file_completion(session, "stream_local_chunk_files");
-
-    const CHUNK_RELAY_BUFFER_SIZE: usize = 64 * 1024;
-
-    let prepared = storage::prepare_non_dedup_blob_upload(
-        policy,
-        session.total_size,
-        Some(&session.filename),
-    )?;
-    let (writer, reader) = tokio::io::duplex(CHUNK_RELAY_BUFFER_SIZE);
-    let relay_task = tokio::spawn(stream_legacy_local_chunks_into_writer(
-        state.config().server.upload_temp_dir.clone(),
-        session.id.clone(),
-        session.total_chunks,
-        writer,
-    ));
-
-    let upload_started_at = Instant::now();
-    let upload_result = storage::upload_reader_to_prepared_blob(
-        driver,
-        &prepared,
-        Box::new(reader),
-        session.total_size,
-    )
-    .await;
-    let upload_elapsed_ms = upload_started_at.elapsed().as_millis();
-
-    let relay_result = relay_task.await.map_err(|error| {
-        upload_assembly_error_with_code(
-            ApiErrorCode::UploadChunkRelayFailed,
-            format!("stream chunk relay task failed: {error}"),
-        )
-    })?;
-
-    if let Err(error) = upload_result {
-        storage::cleanup_preuploaded_blob_upload(
-            driver,
-            &prepared,
-            "chunked upload storage write error",
-        )
-        .await;
-        return Err(error);
-    }
-    if let Err(error) = relay_result {
-        storage::cleanup_preuploaded_blob_upload(driver, &prepared, "chunked upload relay error")
-            .await;
-        return Err(error);
-    }
-
-    let persist_started_at = Instant::now();
-    let verified = VerifiedUploadedBlob::preuploaded_non_dedup(prepared)?;
-    persist_verified_chunked_upload(state, session, driver, &verified, actor_username)
-        .await
-        .inspect(|file| {
-            tracing::debug!(
-                upload_id = %session.id,
-                file_id = file.id,
-                size = session.total_size,
-                upload_elapsed_ms,
-                persist_elapsed_ms = persist_started_at.elapsed().as_millis(),
-                "stream relay chunked upload finalized"
-            );
-        })
 }
 
 async fn finalize_offset_staging_stream_relay(
@@ -387,137 +261,6 @@ async fn finalize_offset_staging_stream_relay(
                 "offset staging stream relay chunked upload finalized"
             );
         })
-}
-
-/// Compatibility path for sessions created before offset staging was introduced.
-/// Scheduled for removal in 0.5.0 after all 24-hour upload sessions have expired.
-async fn stream_legacy_local_chunks_into_writer(
-    upload_temp_dir: String,
-    upload_id: String,
-    total_chunks: i32,
-    mut writer: tokio::io::DuplexStream,
-) -> Result<()> {
-    const STREAM_BUFFER_SIZE: usize = 64 * 1024;
-
-    let mut buffer = vec![0u8; STREAM_BUFFER_SIZE];
-    for chunk_number in 0..total_chunks {
-        let chunk_path = paths::upload_chunk_path(&upload_temp_dir, &upload_id, chunk_number);
-        let mut chunk_file = tokio::fs::File::open(&chunk_path).await.map_aster_err_ctx(
-            &format!("open chunk {chunk_number}"),
-            |message| {
-                upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-            },
-        )?;
-
-        loop {
-            let read = chunk_file.read(&mut buffer).await.map_aster_err_ctx(
-                &format!("read chunk {chunk_number}"),
-                |message| {
-                    upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-                },
-            )?;
-            if read == 0 {
-                break;
-            }
-            writer.write_all(&buffer[..read]).await.map_aster_err_ctx(
-                "relay upload chunk",
-                |message| {
-                    upload_assembly_error_with_code(ApiErrorCode::UploadChunkRelayFailed, message)
-                },
-            )?;
-        }
-    }
-
-    writer
-        .shutdown()
-        .await
-        .map_aster_err_ctx("shutdown stream chunk relay", |message| {
-            upload_assembly_error_with_code(ApiErrorCode::UploadChunkRelayFailed, message)
-        })?;
-    Ok(())
-}
-
-/// Compatibility path for sessions created before offset staging was introduced.
-/// Scheduled for removal in 0.5.0 after all 24-hour upload sessions have expired.
-async fn assemble_legacy_local_chunks_to_temp_file(
-    state: &PrimaryAppState,
-    session: &upload_session::Model,
-    should_dedup: bool,
-) -> Result<ChunkedTempFile> {
-    use sha2::{Digest, Sha256};
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-
-    const ASSEMBLY_BUFFER_SIZE: usize = 64 * 1024;
-
-    let upload_id = session.id.as_str();
-    let assembled_path =
-        paths::upload_assembled_path(&state.config().server.upload_temp_dir, upload_id);
-    let mut out_file = tokio::fs::File::create(&assembled_path)
-        .await
-        .map_aster_err_ctx("create assembled file", |message| {
-            upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-        })?;
-    let mut hasher = should_dedup.then(Sha256::new);
-    let mut size: i64 = 0;
-    let mut buffer = vec![0u8; ASSEMBLY_BUFFER_SIZE];
-
-    // 本地 chunk 模式：先按顺序把所有 chunk 拼成 assembled 文件。
-    // 如果 local 策略启用了 dedup，会在拼装过程中顺便流式计算 hash，
-    // 避免第二遍再把 assembled 文件完整读一遍。
-    for i in 0..session.total_chunks {
-        let chunk_path =
-            paths::upload_chunk_path(&state.config().server.upload_temp_dir, upload_id, i);
-        let mut chunk_file = tokio::fs::File::open(&chunk_path).await.map_aster_err_ctx(
-            &format!("open chunk {i}"),
-            |message| {
-                upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-            },
-        )?;
-
-        loop {
-            let n = chunk_file.read(&mut buffer).await.map_aster_err_ctx(
-                &format!("read chunk {i}"),
-                |message| {
-                    upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-                },
-            )?;
-            if n == 0 {
-                break;
-            }
-
-            let data = &buffer[..n];
-            if let Some(hasher) = hasher.as_mut() {
-                hasher.update(data);
-            }
-            let chunk_len = usize_to_i64(n, "assembled chunk length")?;
-            size = size.checked_add(chunk_len).ok_or_else(|| {
-                upload_assembly_error_with_code(
-                    ApiErrorCode::UploadAssemblySizeOverflow,
-                    "assembled upload size exceeds i64 range",
-                )
-            })?;
-            out_file
-                .write_all(data)
-                .await
-                .map_aster_err_ctx("write assembled", |message| {
-                    upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-                })?;
-        }
-    }
-    out_file
-        .flush()
-        .await
-        .map_aster_err_ctx("flush assembled", |message| {
-            upload_assembly_error_with_code(ApiErrorCode::UploadAssemblyIoFailed, message)
-        })?;
-    drop(out_file);
-
-    Ok(ChunkedTempFile {
-        path: assembled_path,
-        size,
-        file_hash: hasher
-            .map(|hasher| aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize())),
-    })
 }
 
 async fn stage_chunked_temp_file(

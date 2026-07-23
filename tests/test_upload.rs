@@ -174,7 +174,7 @@ struct UploadSessionSpec<'a> {
     expires_at: chrono::DateTime<chrono::Utc>,
     total_chunks: i32,
     received_count: i32,
-    session_kind: Option<aster_drive::types::UploadSessionKind>,
+    session_kind: aster_drive::types::UploadSessionKind,
     policy_id: Option<i64>,
     object_temp_key: Option<&'a str>,
     object_multipart_id: Option<&'a str>,
@@ -193,7 +193,7 @@ impl<'a> UploadSessionSpec<'a> {
             expires_at,
             total_chunks: 0,
             received_count: 0,
-            session_kind: None,
+            session_kind: aster_drive::types::UploadSessionKind::OffsetStaging,
             policy_id: None,
             object_temp_key: None,
             object_multipart_id: None,
@@ -213,7 +213,7 @@ impl<'a> UploadSessionSpec<'a> {
     }
 
     fn session_kind(mut self, kind: aster_drive::types::UploadSessionKind) -> Self {
-        self.session_kind = Some(kind);
+        self.session_kind = kind;
         self
     }
 
@@ -306,7 +306,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        session_kind: Set(None),
+        session_kind: Set(aster_drive::types::UploadSessionKind::OffsetStaging),
         object_temp_key: Set(None),
         object_multipart_id: Set(None),
         provider_session_ciphertext: Set(None),
@@ -369,7 +369,7 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         folder_id: Set(None),
         policy_id: Set(policy.id),
         status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        session_kind: Set(None),
+        session_kind: Set(aster_drive::types::UploadSessionKind::OffsetStaging),
         object_temp_key: Set(None),
         object_multipart_id: Set(None),
         provider_session_ciphertext: Set(None),
@@ -1950,6 +1950,15 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
         );
     }
 
+    let temp_dir =
+        aster_forge_utils::paths::upload_temp_dir(&state.config.server.upload_temp_dir, &upload_id);
+    tokio::fs::write(format!("{temp_dir}/chunk_0"), b"legacy payload")
+        .await
+        .unwrap();
+    tokio::fs::write(format!("{temp_dir}/assembled"), b"legacy assembled payload")
+        .await
+        .unwrap();
+
     let file = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
         .unwrap();
@@ -3000,7 +3009,7 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
         upload_session_repo::find_by_id(state.writer_db(), response.upload_id.as_deref().unwrap())
             .await
             .unwrap();
-    assert_eq!(session.session_kind, Some(UploadSessionKind::OffsetStaging));
+    assert_eq!(session.session_kind, UploadSessionKind::OffsetStaging);
 }
 
 #[tokio::test]
@@ -3040,15 +3049,15 @@ async fn test_explicit_session_kind_rejects_incompatible_fields() {
 }
 
 #[tokio::test]
-async fn test_legacy_relay_kind_rejects_missing_object_temp_key() {
+async fn test_relay_kind_rejects_missing_object_temp_key() {
     use aster_drive::services::files::upload;
     use aster_drive::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user = common::create_test_account(
         &state,
-        "legacykindbad",
-        "legacy-kind-corrupt@test.com",
+        "relaykindbad",
+        "relay-kind-corrupt@test.com",
         "password123",
     )
     .await
@@ -3065,12 +3074,13 @@ async fn test_legacy_relay_kind_rejects_missing_object_temp_key() {
         )
         .chunks(1, 0)
         .policy(policy.id)
+        .session_kind(aster_drive::types::UploadSessionKind::ProviderRelayMultipart)
         .object_upload(None, Some("multipart")),
     )
     .await;
 
     let error = match upload::get_progress(&state, &upload_id, user.id).await {
-        Ok(_) => panic!("legacy relay session without temp key must be rejected"),
+        Ok(_) => panic!("relay session without temp key must be rejected"),
         Err(error) => error,
     };
     assert_eq!(error.code(), "E057");
@@ -3210,7 +3220,7 @@ async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
 
     let error = upload::complete_upload(&state, &upload_id, user.id, None)
         .await
-        .expect_err("missing explicit staging file must not enter legacy assembly");
+        .expect_err("missing explicit staging file must fail completion");
     assert!(error.message().contains("stat chunk staging file"));
 }
 
@@ -3313,6 +3323,12 @@ async fn test_concurrent_chunk_upload_idempotent() {
     ))
     .await
     .unwrap();
+    let staging_path = upload::test_support::offset_staging_file_path(
+        &state.config.server.upload_temp_dir,
+        &upload_id,
+    );
+    let staging_file = tokio::fs::File::create(&staging_path).await.unwrap();
+    staging_file.set_len(10).await.unwrap();
 
     let chunk_data = b"12345".to_vec();
     let state1 = Arc::clone(&state);
@@ -3349,53 +3365,6 @@ async fn test_concurrent_chunk_upload_idempotent() {
         third.received_count, 1,
         "sequential duplicate should remain idempotent after concurrent uploads"
     );
-}
-
-#[tokio::test]
-async fn test_upload_chunk_replaces_stale_partial_local_chunk() {
-    use aster_drive::services::files::upload;
-
-    let state = common::setup().await;
-    let user =
-        common::create_test_account(&state, "stalechunk", "stale-chunk@test.com", "password123")
-            .await
-            .unwrap();
-    let upload_id = new_test_upload_id();
-    create_upload_session(
-        &state,
-        user.id,
-        UploadSessionSpec::new(
-            &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 0),
-    )
-    .await;
-
-    let chunk_dir =
-        aster_forge_utils::paths::upload_temp_dir(&state.config.server.upload_temp_dir, &upload_id);
-    tokio::fs::create_dir_all(&chunk_dir).await.unwrap();
-    let chunk_path = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        0,
-    );
-    tokio::fs::write(&chunk_path, b"bad").await.unwrap();
-
-    let response = upload::upload_chunk(&state, &upload_id, 0, user.id, b"12345")
-        .await
-        .unwrap();
-    assert_eq!(response.received_count, 1);
-
-    let stored = tokio::fs::read(&chunk_path).await.unwrap();
-    assert_eq!(stored, b"12345");
-
-    let progress = upload::get_progress(&state, &upload_id, user.id)
-        .await
-        .unwrap();
-    assert_eq!(progress.received_count, 1);
-    assert_eq!(progress.chunks_on_disk, vec![0]);
 }
 
 #[tokio::test]
@@ -3732,155 +3701,6 @@ async fn test_complete_upload_rejects_truncated_offset_staging_file() {
 }
 
 #[actix_web::test]
-async fn test_legacy_assembly_failure_releases_limiter() {
-    use aster_drive::services::files::upload;
-
-    let state = common::setup().await;
-    let user = common::create_test_account(
-        &state,
-        "legacyfailure",
-        "legacy-failure@test.com",
-        "password123",
-    )
-    .await
-    .unwrap();
-
-    let broken_upload_id = new_test_upload_id();
-    create_upload_session(
-        &state,
-        user.id,
-        UploadSessionSpec::new(
-            &broken_upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 2),
-    )
-    .await;
-    let broken_chunk0 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &broken_upload_id,
-        0,
-    );
-    tokio::fs::create_dir_all(std::path::Path::new(&broken_chunk0).parent().unwrap())
-        .await
-        .unwrap();
-    tokio::fs::write(&broken_chunk0, b"12345").await.unwrap();
-    upload::complete_upload(&state, &broken_upload_id, user.id, None)
-        .await
-        .unwrap_err();
-
-    let next_upload_id = new_test_upload_id();
-    create_upload_session(
-        &state,
-        user.id,
-        UploadSessionSpec::new(
-            &next_upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 2),
-    )
-    .await;
-    let next_chunk0 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &next_upload_id,
-        0,
-    );
-    let next_chunk1 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &next_upload_id,
-        1,
-    );
-    tokio::fs::create_dir_all(std::path::Path::new(&next_chunk0).parent().unwrap())
-        .await
-        .unwrap();
-    tokio::fs::write(&next_chunk0, b"12345").await.unwrap();
-    tokio::fs::write(&next_chunk1, b"67890").await.unwrap();
-
-    tokio::time::timeout(
-        std::time::Duration::from_secs(2),
-        upload::complete_upload(&state, &next_upload_id, user.id, None),
-    )
-    .await
-    .expect("legacy assembly failure must release the compatibility limiter")
-    .unwrap();
-}
-
-#[actix_web::test]
-async fn test_complete_legacy_chunk_files_after_upgrade() {
-    use aster_drive::db::repository::file_repo;
-    use aster_drive::services::files::upload;
-
-    let state = common::setup().await;
-    let user = common::create_test_account(
-        &state,
-        "legacychunk",
-        "legacy-chunk@test.com",
-        "password123",
-    )
-    .await
-    .unwrap();
-    let upload_id = new_test_upload_id();
-    create_upload_session(
-        &state,
-        user.id,
-        UploadSessionSpec::new(
-            &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 2),
-    )
-    .await;
-
-    let chunk0 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        0,
-    );
-    let chunk1 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        1,
-    );
-    tokio::fs::create_dir_all(std::path::Path::new(&chunk0).parent().unwrap())
-        .await
-        .unwrap();
-    tokio::fs::write(&chunk0, b"12345").await.unwrap();
-    tokio::fs::write(&chunk1, b"67890").await.unwrap();
-
-    // A retryable failure or process crash may leave the first legacy assembly behind. That
-    // artifact must not reclassify the session as offset staging on the next completion attempt.
-    let assembled_path = aster_forge_utils::paths::upload_assembled_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-    );
-    tokio::fs::write(&assembled_path, b"stale legacy assembly")
-        .await
-        .unwrap();
-
-    let file = upload::complete_upload(&state, &upload_id, user.id, None)
-        .await
-        .unwrap();
-    let blob = file_repo::find_blob_by_id(state.writer_db(), file.blob_id)
-        .await
-        .unwrap();
-    let policy =
-        aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), blob.policy_id)
-            .await
-            .unwrap();
-    let stored = state
-        .driver_registry
-        .get_driver(&policy)
-        .unwrap()
-        .get(&blob.storage_path)
-        .await
-        .unwrap();
-    assert_eq!(stored, b"1234567890");
-}
-
-#[actix_web::test]
 async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_storage_error() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
@@ -3908,6 +3728,7 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
         )
         .chunks(2, 0)
         .policy(remote_policy.id)
+        .session_kind(aster_drive::types::UploadSessionKind::RemotePresignedMultipart)
         .object_upload(
             Some("upload/data/files/presigned-retry-temp"),
             Some("presigned-retry-multipart"),
@@ -3939,77 +3760,6 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
         .await
         .unwrap();
     assert_eq!(session_after_retry.status, UploadSessionStatus::Presigned);
-    assert_eq!(session_after_retry.file_id, None);
-}
-
-#[actix_web::test]
-async fn test_complete_legacy_remote_chunk_files_remain_retryable_after_storage_error() {
-    use aster_drive::db::repository::upload_session_repo;
-    use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
-
-    let state = common::setup().await;
-    let user = common::create_test_account(
-        &state,
-        "rchunkretry",
-        "remote-chunk-retry@test.com",
-        "password123",
-    )
-    .await
-    .unwrap();
-    let remote_policy = create_dead_remote_policy(&state).await;
-    let upload_id = new_test_upload_id();
-
-    create_upload_session(
-        &state,
-        user.id,
-        UploadSessionSpec::new(
-            &upload_id,
-            UploadSessionStatus::Uploading,
-            chrono::Utc::now() + chrono::Duration::hours(1),
-        )
-        .chunks(2, 2)
-        .policy(remote_policy.id),
-    )
-    .await;
-
-    let chunk0 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        0,
-    );
-    let chunk1 = aster_forge_utils::paths::upload_chunk_path(
-        &state.config.server.upload_temp_dir,
-        &upload_id,
-        1,
-    );
-    let chunk_dir = std::path::Path::new(&chunk0)
-        .parent()
-        .expect("chunk path should have parent");
-    tokio::fs::create_dir_all(chunk_dir).await.unwrap();
-    tokio::fs::write(&chunk0, b"12345").await.unwrap();
-    tokio::fs::write(&chunk1, b"67890").await.unwrap();
-
-    let err = upload::complete_upload(&state, &upload_id, user.id, None)
-        .await
-        .unwrap_err();
-    assert_eq!(err.code(), "E031");
-
-    let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
-        .await
-        .unwrap();
-    assert_eq!(session.status, UploadSessionStatus::Uploading);
-    assert_eq!(session.file_id, None);
-
-    let retry_err = upload::complete_upload(&state, &upload_id, user.id, None)
-        .await
-        .unwrap_err();
-    assert_eq!(retry_err.code(), "E031");
-
-    let session_after_retry = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
-        .await
-        .unwrap();
-    assert_eq!(session_after_retry.status, UploadSessionStatus::Uploading);
     assert_eq!(session_after_retry.file_id, None);
 }
 
@@ -4167,6 +3917,7 @@ async fn test_file_upload_complete_presigned_multipart_requires_parts() {
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
         .chunks(2, 0)
+        .session_kind(aster_drive::types::UploadSessionKind::ProviderPresignedMultipart)
         .object_upload(Some("files/temp-key"), Some("multipart-id")),
     )
     .await;
@@ -4178,7 +3929,8 @@ async fn test_file_upload_complete_presigned_multipart_requires_parts() {
 }
 
 #[actix_web::test]
-async fn test_file_upload_get_progress_scans_and_sorts_local_chunks() {
+async fn test_file_upload_get_progress_lists_and_sorts_staging_receipts() {
+    use aster_drive::db::repository::upload_session_part_repo;
     use aster_drive::services::files::upload;
 
     let state = common::setup().await;
@@ -4195,33 +3947,29 @@ async fn test_file_upload_get_progress_scans_and_sorts_local_chunks() {
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
         )
-        .chunks(3, 2),
+        .chunks(2, 2),
     )
     .await;
 
-    let temp_dir =
-        aster_forge_utils::paths::upload_temp_dir(&state.config.server.upload_temp_dir, &upload_id);
-    tokio::fs::create_dir_all(&temp_dir).await.unwrap();
-    tokio::fs::write(format!("{temp_dir}/chunk_2"), b"two")
+    for part_number in [2, 1] {
+        upload_session_part_repo::upsert_part(
+            state.writer_db(),
+            &upload_id,
+            part_number,
+            upload::test_support::offset_staging_receipt_etag(),
+            5,
+        )
         .await
         .unwrap();
-    tokio::fs::write(format!("{temp_dir}/chunk_0"), b"zero")
-        .await
-        .unwrap();
-    tokio::fs::write(format!("{temp_dir}/chunk_bad"), b"ignored")
-        .await
-        .unwrap();
-    tokio::fs::write(format!("{temp_dir}/notes.txt"), b"ignored")
-        .await
-        .unwrap();
+    }
 
     let progress = upload::get_progress(&state, &upload_id, user.id)
         .await
         .unwrap();
     assert_eq!(progress.upload_id, upload_id);
     assert_eq!(progress.received_count, 2);
-    assert_eq!(progress.total_chunks, 3);
-    assert_eq!(progress.chunks_on_disk, vec![0, 2]);
+    assert_eq!(progress.total_chunks, 2);
+    assert_eq!(progress.chunks_on_disk, vec![0, 1]);
 }
 
 #[actix_web::test]
@@ -4274,9 +4022,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
                 folder_id: Set(None),
                 policy_id: Set(relay_policy.id),
                 status: Set(status),
-                session_kind: Set(Some(
-                    aster_drive::types::UploadSessionKind::ProviderRelayMultipart,
-                )),
+                session_kind: Set(aster_drive::types::UploadSessionKind::ProviderRelayMultipart),
                 object_temp_key: Set(Some(format!("files/{upload_id}"))),
                 object_multipart_id: Set(Some(format!("multipart-{status_name}"))),
                 provider_session_ciphertext: Set(None),

@@ -474,7 +474,11 @@ async fn create_policy_upload_session(
             status: Set(spec
                 .status
                 .unwrap_or(aster_drive::types::UploadSessionStatus::Uploading)),
-            session_kind: Set(None),
+            session_kind: Set(if spec.object_temp_key.is_some() {
+                aster_drive::types::UploadSessionKind::ProviderPresignedSingle
+            } else {
+                aster_drive::types::UploadSessionKind::OffsetStaging
+            }),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(None),
             provider_session_ciphertext: Set(None),
@@ -1445,7 +1449,7 @@ async fn test_policy_force_delete_removes_corrupted_session_without_temp_object(
         .await
         .unwrap()
         .into_active_model();
-    session.session_kind = Set(Some(UploadSessionKind::ProviderPresignedSingle));
+    session.session_kind = Set(UploadSessionKind::ProviderPresignedSingle);
     session.update(&db).await.unwrap();
 
     let req = test::TestRequest::delete()

@@ -119,7 +119,12 @@ async fn create_upload_session(
             folder_id: Set(None),
             policy_id: Set(policy.id),
             status: Set(spec.status),
-            session_kind: Set(None),
+            session_kind: Set(match (spec.object_temp_key, spec.object_multipart_id) {
+                (Some(_), Some(_)) => aster_drive::types::UploadSessionKind::ProviderRelayMultipart,
+                (Some(_), None) => aster_drive::types::UploadSessionKind::ProviderPresignedSingle,
+                (None, None) => aster_drive::types::UploadSessionKind::OffsetStaging,
+                (None, Some(_)) => panic!("multipart upload fixture requires a temp key"),
+            }),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(spec.object_multipart_id.map(str::to_string)),
             provider_session_ciphertext: Set(None),

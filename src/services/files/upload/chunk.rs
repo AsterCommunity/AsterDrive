@@ -7,7 +7,6 @@
 //! offset-staging 的提交边界是：先 `sync_data` 内容，再在只包含 SQL 的短 DB 事务中登记
 //! receipt/增加 `received_count`。receipt 是唯一 completion index；重试只需校验旧 receipt，
 //! 不会再次写文件或重复计数。
-//! 没有 `.offset-staging-v1` 的旧 session 继续使用独立 payload-sized chunk 文件。
 
 use aster_forge_db::transaction;
 use bytes::Bytes;
@@ -34,7 +33,7 @@ use crate::services::files::upload::shared::{
 };
 use crate::services::files::upload::staging;
 use crate::types::UploadSessionStatus;
-use aster_forge_utils::numbers::{i64_to_u64, usize_to_i64};
+use aster_forge_utils::numbers::usize_to_i64;
 use aster_forge_utils::paths;
 
 const RELAY_STREAM_PIPE_BUFFER_SIZE: usize = 64 * 1024;
@@ -45,13 +44,6 @@ static STAGING_WRITE_TEST_HOOKS: LazyLock<
         std::collections::HashMap<String, std::sync::Arc<test_support::StagingWriteTestHookState>>,
     >,
 > = LazyLock::new(|| StdMutex::new(std::collections::HashMap::new()));
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum ExistingLocalChunk {
-    Missing,
-    Complete,
-    RemovedCorrupt,
-}
 
 struct LocalChunkWriteLock {
     file: std::fs::File,
@@ -196,101 +188,6 @@ async fn has_staged_chunk_receipt(
     Ok(true)
 }
 
-async fn remove_local_chunk_file(path: &str, upload_id: &str, chunk_number: i32, reason: &str) {
-    match tokio::fs::remove_file(path).await {
-        Ok(()) => {}
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
-        Err(error) => {
-            tracing::warn!(
-                upload_id,
-                chunk_number,
-                path,
-                "failed to remove local chunk file after {reason}: {error}"
-            );
-        }
-    }
-}
-
-async fn inspect_existing_local_chunk(
-    chunk_path: &str,
-    expected_size: i64,
-    upload_id: &str,
-    chunk_number: i32,
-) -> Result<ExistingLocalChunk> {
-    let metadata = match tokio::fs::metadata(chunk_path).await {
-        Ok(metadata) => metadata,
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(ExistingLocalChunk::Missing);
-        }
-        Err(error) => {
-            return Err(chunk_upload_error_with_code(
-                ApiErrorCode::UploadChunkPersistFailed,
-                format!("stat existing chunk file: {error}"),
-            ));
-        }
-    };
-
-    let expected_size = i64_to_u64(expected_size, "expected chunk size")?;
-    if metadata.is_file() && metadata.len() == expected_size {
-        return Ok(ExistingLocalChunk::Complete);
-    }
-
-    tracing::warn!(
-        upload_id,
-        chunk_number,
-        chunk_path,
-        actual_size = metadata.len(),
-        expected_size,
-        is_file = metadata.is_file(),
-        "removing corrupt local upload chunk"
-    );
-    remove_local_chunk_file(chunk_path, upload_id, chunk_number, "corrupt local chunk").await;
-    Ok(ExistingLocalChunk::RemovedCorrupt)
-}
-
-async fn write_local_chunk_temp(
-    temp_path: &str,
-    data: &[u8],
-    upload_id: &str,
-    chunk_number: i32,
-) -> Result<()> {
-    use tokio::fs::OpenOptions;
-    use tokio::io::AsyncWriteExt;
-
-    let write_result = async {
-        let mut file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(temp_path)
-            .await
-            .map_err(|error| {
-                chunk_upload_error_with_code(
-                    ApiErrorCode::UploadChunkPersistFailed,
-                    format!("create temp chunk file: {error}"),
-                )
-            })?;
-
-        file.write_all(data)
-            .await
-            .map_aster_err_ctx("write chunk", |message| {
-                chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
-            })?;
-        file.flush()
-            .await
-            .map_aster_err_ctx("flush chunk", |message| {
-                chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
-            })?;
-        Ok::<(), AsterError>(())
-    }
-    .await;
-
-    if write_result.is_err() {
-        remove_local_chunk_file(temp_path, upload_id, chunk_number, "temp chunk write error").await;
-    }
-
-    write_result
-}
-
 async fn write_chunk_to_staging_file(
     state: &PrimaryAppState,
     session: &upload_session::Model,
@@ -396,59 +293,6 @@ async fn drain_chunk_payload_exact_size(
         ensure_chunk_body_not_too_large(size, expected_size, chunk_number)?;
     }
     ensure_chunk_body_exact_size(size, expected_size, chunk_number)
-}
-
-async fn write_local_chunk_temp_stream(
-    temp_path: &str,
-    payload: &mut actix_web::web::Payload,
-    expected_size: i64,
-    upload_id: &str,
-    chunk_number: i32,
-) -> Result<()> {
-    use tokio::fs::OpenOptions;
-    use tokio::io::BufWriter;
-
-    let write_result = async {
-        let file = OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(temp_path)
-            .await
-            .map_err(|error| {
-                chunk_upload_error_with_code(
-                    ApiErrorCode::UploadChunkPersistFailed,
-                    format!("create temp chunk file: {error}"),
-                )
-            })?;
-        let mut file = BufWriter::new(file);
-        let mut size = 0i64;
-
-        while let Some(chunk) = payload.next().await {
-            let chunk = chunk.map_aster_err_with(chunk_body_read_failed)?;
-            size = add_chunk_body_len(size, chunk.len())?;
-            ensure_chunk_body_not_too_large(size, expected_size, chunk_number)?;
-            file.write_all(&chunk)
-                .await
-                .map_aster_err_ctx("write chunk", |message| {
-                    chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
-                })?;
-        }
-
-        ensure_chunk_body_exact_size(size, expected_size, chunk_number)?;
-        file.flush()
-            .await
-            .map_aster_err_ctx("flush chunk", |message| {
-                chunk_upload_error_with_code(ApiErrorCode::UploadChunkPersistFailed, message)
-            })?;
-        Ok::<(), AsterError>(())
-    }
-    .await;
-
-    if write_result.is_err() {
-        remove_local_chunk_file(temp_path, upload_id, chunk_number, "temp chunk write error").await;
-    }
-
-    write_result
 }
 
 async fn write_chunk_payload_to_staging_file(
@@ -599,65 +443,6 @@ fn prioritize_multipart_part_results(
     }
 }
 
-async fn publish_local_chunk_temp(
-    temp_path: &str,
-    chunk_path: &str,
-    expected_size: i64,
-    upload_id: &str,
-    chunk_number: i32,
-) -> Result<bool> {
-    for _ in 0..2 {
-        match tokio::fs::hard_link(temp_path, chunk_path).await {
-            Ok(()) => {
-                remove_local_chunk_file(temp_path, upload_id, chunk_number, "chunk publish").await;
-                return Ok(true);
-            }
-            Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
-                match inspect_existing_local_chunk(
-                    chunk_path,
-                    expected_size,
-                    upload_id,
-                    chunk_number,
-                )
-                .await?
-                {
-                    ExistingLocalChunk::Complete => {
-                        remove_local_chunk_file(
-                            temp_path,
-                            upload_id,
-                            chunk_number,
-                            "duplicate chunk publish",
-                        )
-                        .await;
-                        return Ok(false);
-                    }
-                    ExistingLocalChunk::Missing | ExistingLocalChunk::RemovedCorrupt => continue,
-                }
-            }
-            Err(error) => {
-                remove_local_chunk_file(temp_path, upload_id, chunk_number, "chunk publish error")
-                    .await;
-                return Err(chunk_upload_error_with_code(
-                    ApiErrorCode::UploadChunkPersistFailed,
-                    format!("publish chunk file: {error}"),
-                ));
-            }
-        }
-    }
-
-    remove_local_chunk_file(
-        temp_path,
-        upload_id,
-        chunk_number,
-        "chunk publish retry exhausted",
-    )
-    .await;
-    Err(chunk_upload_error_with_code(
-        ApiErrorCode::UploadChunkPersistFailed,
-        "publish chunk file: existing chunk stayed unavailable",
-    ))
-}
-
 async fn upload_chunk_impl(
     state: &PrimaryAppState,
     session: upload_session::Model,
@@ -691,7 +476,7 @@ async fn upload_chunk_impl(
     }
 
     let expected_size = expected_chunk_size_for_upload(&session, chunk_number)?;
-    let session_kind = resolve_upload_session_kind(state, &session).await?;
+    let session_kind = resolve_upload_session_kind(&session)?;
     if matches!(
         session_kind,
         crate::types::UploadSessionKind::ProviderPresignedSingle
@@ -815,11 +600,6 @@ async fn upload_chunk_impl(
         });
     }
 
-    let chunk_path = paths::upload_chunk_path(
-        &state.config().server.upload_temp_dir,
-        upload_id,
-        chunk_number,
-    );
     let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
 
     if matches!(
@@ -867,73 +647,13 @@ async fn upload_chunk_impl(
         });
     }
 
-    if session_kind == crate::types::UploadSessionKind::LegacyChunkFiles
-        && inspect_existing_local_chunk(&chunk_path, expected_size, upload_id, chunk_number).await?
-            == ExistingLocalChunk::Complete
-    {
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "skipping already uploaded chunk"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
-
-    let temp_chunk_path = paths::temp_file_path(
-        &chunk_dir,
-        &format!(
-            ".chunk_{chunk_number}.{}.partial",
-            aster_forge_utils::id::new_uuid()
+    Err(crate::errors::upload_assembly_error_with_code(
+        ApiErrorCode::UploadSessionCorrupted,
+        format!(
+            "session kind {} does not accept server chunk PUT",
+            session_kind.as_str()
         ),
-    );
-
-    write_local_chunk_temp(&temp_chunk_path, data.as_ref(), upload_id, chunk_number).await?;
-
-    if !publish_local_chunk_temp(
-        &temp_chunk_path,
-        &chunk_path,
-        expected_size,
-        upload_id,
-        chunk_number,
-    )
-    .await?
-    {
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "skipping already uploaded chunk"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
-
-    // 本地 chunk 模式的幂等语义靠最终 chunk 路径的无覆盖发布保证：
-    // 同一块重复上传不会覆盖旧文件，而是直接回读 session 进度返回给客户端。
-    increment_session_received_count(db, upload_id).await?;
-
-    let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-    tracing::debug!(
-        upload_id,
-        chunk_number,
-        received_count = updated.received_count,
-        total_chunks = updated.total_chunks,
-        "stored upload chunk"
-    );
-    Ok(ChunkUploadResponse {
-        received_count: updated.received_count,
-        total_chunks: updated.total_chunks,
-    })
+    ))
 }
 
 async fn upload_chunk_payload_impl(
@@ -968,7 +688,7 @@ async fn upload_chunk_payload_impl(
     }
 
     let expected_size = expected_chunk_size_for_upload(&session, chunk_number)?;
-    let session_kind = resolve_upload_session_kind(state, &session).await?;
+    let session_kind = resolve_upload_session_kind(&session)?;
     if matches!(
         session_kind,
         crate::types::UploadSessionKind::ProviderPresignedSingle
@@ -1089,11 +809,6 @@ async fn upload_chunk_payload_impl(
         });
     }
 
-    let chunk_path = paths::upload_chunk_path(
-        &state.config().server.upload_temp_dir,
-        upload_id,
-        chunk_number,
-    );
     let chunk_dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
 
     if matches!(
@@ -1149,79 +864,13 @@ async fn upload_chunk_payload_impl(
         });
     }
 
-    if session_kind == crate::types::UploadSessionKind::LegacyChunkFiles
-        && inspect_existing_local_chunk(&chunk_path, expected_size, upload_id, chunk_number).await?
-            == ExistingLocalChunk::Complete
-    {
-        drain_chunk_payload_exact_size(&mut payload, expected_size, chunk_number).await?;
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "skipping already uploaded chunk"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
-
-    let temp_chunk_path = paths::temp_file_path(
-        &chunk_dir,
-        &format!(
-            ".chunk_{chunk_number}.{}.partial",
-            aster_forge_utils::id::new_uuid()
+    Err(crate::errors::upload_assembly_error_with_code(
+        ApiErrorCode::UploadSessionCorrupted,
+        format!(
+            "session kind {} does not accept server chunk PUT",
+            session_kind.as_str()
         ),
-    );
-
-    write_local_chunk_temp_stream(
-        &temp_chunk_path,
-        &mut payload,
-        expected_size,
-        upload_id,
-        chunk_number,
-    )
-    .await?;
-
-    if !publish_local_chunk_temp(
-        &temp_chunk_path,
-        &chunk_path,
-        expected_size,
-        upload_id,
-        chunk_number,
-    )
-    .await?
-    {
-        let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-        tracing::debug!(
-            upload_id,
-            chunk_number,
-            received_count = updated.received_count,
-            total_chunks = updated.total_chunks,
-            "skipping already uploaded chunk"
-        );
-        return Ok(ChunkUploadResponse {
-            received_count: updated.received_count,
-            total_chunks: updated.total_chunks,
-        });
-    }
-
-    increment_session_received_count(db, upload_id).await?;
-
-    let updated = upload_session_repo::find_by_id(db, upload_id).await?;
-    tracing::debug!(
-        upload_id,
-        chunk_number,
-        received_count = updated.received_count,
-        total_chunks = updated.total_chunks,
-        "stored upload chunk"
-    );
-    Ok(ChunkUploadResponse {
-        received_count: updated.received_count,
-        total_chunks: updated.total_chunks,
-    })
+    ))
 }
 
 /// 上传单个分片
@@ -1479,7 +1128,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Uploading,
-            session_kind: None,
+            session_kind: crate::types::UploadSessionKind::ProviderRelayMultipart,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
             provider_session_ciphertext: None,
