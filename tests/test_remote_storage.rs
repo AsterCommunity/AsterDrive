@@ -1086,10 +1086,11 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
         error.api_error_code(),
         ApiErrorCode::ManagedIngressDriverUnsupported
     );
-    assert!(
-        error.message().contains("remote storage request failed"),
-        "unexpected error message: {}",
-        error.message()
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(aster_drive::storage::StorageErrorKind::Transient),
+        "rename-only update should reach the remote transport: {}",
+        error.message(),
     );
 }
 

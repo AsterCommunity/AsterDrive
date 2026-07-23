@@ -8608,7 +8608,8 @@ export interface components {
             policy_id: number;
             /** Format: int32 */
             received_count: number;
-            session_kind?: null | components["schemas"]["UploadSessionKind"];
+            /** @description Explicit data-plane kind selected and persisted during upload initialization. */
+            session_kind: components["schemas"]["UploadSessionKind"];
             status: components["schemas"]["UploadSessionStatus"];
             /** Format: int64 */
             team_id?: number | null;
@@ -8622,12 +8623,9 @@ export interface components {
         };
         /**
          * @description Persisted data plane for an upload session.
-         *
-         *     `None` is reserved for sessions created before this column existed. New sessions must always
-         *     persist a kind so lifecycle code does not infer the data plane from nullable provider fields.
          * @enum {string}
          */
-        UploadSessionKind: "offset_staging" | "stream_staging" | "provider_relay_multipart" | "provider_presigned_single" | "provider_presigned_multipart" | "remote_relay_multipart" | "remote_presigned_single" | "remote_presigned_multipart" | "provider_direct_resumable" | "legacy_chunk_files";
+        UploadSessionKind: "offset_staging" | "stream_staging" | "provider_relay_multipart" | "provider_presigned_single" | "provider_presigned_multipart" | "remote_relay_multipart" | "remote_presigned_single" | "remote_presigned_multipart" | "provider_direct_resumable";
         /**
          * @description 上传 session 状态
          * @enum {string}

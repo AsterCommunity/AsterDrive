@@ -104,11 +104,11 @@
 
 当前新建的 server-managed chunked session 使用 offset staging：Init 在 session 临时目录预创建 `.offset-staging-v1`，每个 Chunk PUT 按 `chunk_number * chunk_size` 写入对应 range；`upload_session_parts` 中的本地 receipt 表示该 range 已 durable publish。新 session 不创建 `chunk_N` marker，Complete 也不会再次拼写整文件。
 
-每个需要 session 的 Init 都会在 `upload_sessions.session_kind` 持久化 connector-owned 执行计划（例如 `offset_staging`、`stream_staging`、`provider_relay_multipart`、`provider_presigned_multipart`）。上传服务不把 `DriverType` 硬编码到 Chunk/Complete 路径；兼容旧 row 时才根据 policy transport 和独立 staging 路径恢复 kind。kind 与 multipart 字段不一致会返回 `upload.session_corrupted`，不会静默切换到本地 chunk 文件路径。
+每个需要 session 的 Init 都会在 `upload_sessions.session_kind` 持久化 connector-owned 执行计划（例如 `offset_staging`、`stream_staging`、`provider_relay_multipart`、`provider_presigned_multipart`）。从 0.5.0 起该字段为非空强约束；上传服务不把 `DriverType` 硬编码到 Chunk/Complete 路径，也不为旧 row 推断 kind。kind 与 multipart 字段不一致会返回 `upload.session_corrupted`，不会静默切换到本地 chunk 文件路径。
 
 本地 Chunk PUT 会先对 staging range 执行 `sync_data`，再在只含 SQL 的短 writer transaction 中 insert-only 登记 chunk receipt 并更新 `received_count`。客户端重试只校验已有 receipt，不会重写已提交 range，也不会重复计数。
 
-升级前已经存在的 payload-per-chunk session 仍走 legacy compatibility path：这类 session 的 `chunk_N` 是实际 payload，Complete 可能创建 `assembled`。新旧格式通过 `.offset-staging-v1` 专用路径区分，不通过 `assembled` 是否存在判断；legacy `assembled` 即使在失败后残留，也仍按 legacy session 重试。
+0.5.0 不继续 payload-per-chunk session，也不创建或复用 `assembled`。升级时若数据库仍有 null/非法 `session_kind`，迁移会直接失败并保留原行，部署方需要先清理过期 session。
 
 完成阶段的服务端行为分两类：
 

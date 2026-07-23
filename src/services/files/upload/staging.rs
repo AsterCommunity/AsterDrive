@@ -1,14 +1,12 @@
 //! Local staging-file contract for server-managed chunked uploads.
 //!
-//! New sessions use a format-specific `.offset-staging-v1` file instead of the legacy `assembled`
-//! path. Init preallocates it to `total_size`; each Chunk PUT writes its range at
+//! Server-managed sessions use a format-specific `.offset-staging-v1` file. Init preallocates it
+//! to `total_size`; each Chunk PUT writes its range at
 //! `chunk_number * chunk_size`. The database receipt table is the durable completion index, while
 //! the staging file may still contain unwritten sparse ranges until every receipt exists.
 //!
-//! The distinct path is also the session-format discriminator used by Chunk PUT and Complete.
-//! Legacy completion may create `assembled` before a retryable storage/DB failure, so treating that
-//! generic output path as an offset-staging signal would misread payload-sized legacy chunks as
-//! completion records on retry.
+//! The persisted `session_kind` is the session-format discriminator used by Chunk PUT and Complete;
+//! temporary directory contents are never used to infer it.
 
 use std::io::SeekFrom;
 #[cfg(unix)]
@@ -88,17 +86,6 @@ async fn sync_parent_directory(path: &str) -> Result<()> {
 #[cfg(not(unix))]
 async fn sync_parent_directory(_path: &str) -> Result<()> {
     Ok(())
-}
-
-pub(crate) async fn exists(state: &impl SharedRuntimeState, upload_id: &str) -> Result<bool> {
-    match tokio::fs::metadata(file_path(state, upload_id)).await {
-        Ok(metadata) => Ok(metadata.is_file()),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(error) => Err(chunk_upload_error_with_code(
-            ApiErrorCode::UploadChunkPersistFailed,
-            format!("stat chunk staging file: {error}"),
-        )),
-    }
 }
 
 pub(crate) fn chunk_receipt_etag() -> &'static str {

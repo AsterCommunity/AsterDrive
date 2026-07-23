@@ -29,6 +29,7 @@ const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
     "m20260716_000001_bind_external_auth_login_flows";
 const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_session_kind";
 const ADD_UPLOAD_PROVIDER_SESSION_MIGRATION: &str = "m20260719_000001_add_upload_provider_session";
+const REQUIRE_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260723_000001_require_upload_session_kind";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -68,7 +69,7 @@ async fn external_auth_login_flow_browser_binding_migration_is_registered_and_re
 }
 
 #[tokio::test]
-async fn upload_session_kind_migration_is_nullable_and_reversible() {
+async fn upload_session_kind_column_migrations_are_reversible() {
     assert!(
         CurrentMigrator::migrations()
             .iter()
@@ -79,10 +80,7 @@ async fn upload_session_kind_migration_is_nullable_and_reversible() {
     let db = setup_current_schema().await;
     let current_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&current_columns, "session_kind"));
-    assert!(
-        !sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await,
-        "pre-0.5.0 rows must remain readable with a null session kind"
-    );
+    assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
 
     let rollback_steps = steps_to_roll_back_migration(ADD_UPLOAD_SESSION_KIND_MIGRATION);
     CurrentMigrator::down(&db, Some(rollback_steps))
@@ -96,6 +94,140 @@ async fn upload_session_kind_migration_is_nullable_and_reversible() {
         .expect("upload session kind migration should reapply");
     let reapplied_columns = sqlite_table_columns(&db, "upload_sessions").await;
     assert!(has_column(&reapplied_columns, "session_kind"));
+    assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
+}
+
+#[tokio::test]
+async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == REQUIRE_UPLOAD_SESSION_KIND_MIGRATION),
+        "required upload session kind migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("required upload session kind migration should roll back");
+    assert!(
+        !sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await,
+        "0.4.x rollback should restore nullable session kind"
+    );
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("required upload session kind migration should reapply");
+    assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
+}
+
+#[tokio::test]
+async fn required_upload_session_kind_migration_rejects_null_rows_without_deleting_them() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
+        .expect("migration count should fit u32");
+    CurrentMigrator::up(&db, Some(pre_boundary_steps))
+        .await
+        .expect("0.4.x-compatible migrations should apply");
+
+    db.execute_unprepared("PRAGMA foreign_keys = OFF")
+        .await
+        .expect("foreign keys should disable for isolated legacy fixture");
+    db.execute_unprepared(
+        "INSERT INTO upload_sessions (\
+            id, user_id, team_id, frontend_client_id, filename, total_size, chunk_size, \
+            total_chunks, received_count, folder_id, policy_id, status, session_kind, \
+            object_temp_key, object_multipart_id, provider_session_ciphertext, file_id, \
+            created_at, expires_at, updated_at\
+         ) VALUES (\
+            'legacy-null-kind', 1, NULL, NULL, 'legacy.bin', 1, 1, 1, 0, NULL, 1, \
+            'uploading', NULL, NULL, NULL, NULL, NULL, \
+            '2026-07-23T00:00:00Z', '2026-07-24T00:00:00Z', '2026-07-23T00:00:00Z'\
+         )",
+    )
+    .await
+    .expect("legacy null-kind upload session should insert");
+    db.execute_unprepared("PRAGMA foreign_keys = ON")
+        .await
+        .expect("foreign keys should re-enable");
+
+    let error = CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect_err("null-kind upload session must block the 0.5.0 migration");
+    assert!(
+        error
+            .to_string()
+            .contains("legacy or invalid upload session")
+    );
+
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM upload_sessions WHERE id = 'legacy-null-kind'",
+        ))
+        .await
+        .expect("legacy row count should query")
+        .expect("legacy row count should return one row");
+    assert_eq!(row.try_get_by_index::<i64>(0).unwrap(), 1);
+}
+
+#[tokio::test]
+async fn required_upload_session_kind_migration_rejects_invalid_values_without_deleting_them() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
+        .expect("migration count should fit u32");
+    CurrentMigrator::up(&db, Some(pre_boundary_steps))
+        .await
+        .expect("0.4.x-compatible migrations should apply");
+
+    db.execute_unprepared("PRAGMA foreign_keys = OFF")
+        .await
+        .expect("foreign keys should disable for isolated legacy fixture");
+    db.execute_unprepared(
+        "INSERT INTO upload_sessions (\
+            id, user_id, team_id, frontend_client_id, filename, total_size, chunk_size, \
+            total_chunks, received_count, folder_id, policy_id, status, session_kind, \
+            object_temp_key, object_multipart_id, provider_session_ciphertext, file_id, \
+            created_at, expires_at, updated_at\
+         ) VALUES (\
+            'invalid-kind', 1, NULL, NULL, 'invalid.bin', 1, 1, 1, 0, NULL, 1, \
+            'uploading', 'legacy_chunk_files', NULL, NULL, NULL, NULL, \
+            '2026-07-23T00:00:00Z', '2026-07-24T00:00:00Z', '2026-07-23T00:00:00Z'\
+         )",
+    )
+    .await
+    .expect("legacy invalid-kind upload session should insert");
+    db.execute_unprepared("PRAGMA foreign_keys = ON")
+        .await
+        .expect("foreign keys should re-enable");
+
+    let error = CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect_err("invalid session kind must block the 0.5.0 migration");
+    assert!(
+        error
+            .to_string()
+            .contains("legacy or invalid upload session")
+    );
+
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT session_kind FROM upload_sessions WHERE id = 'invalid-kind'",
+        ))
+        .await
+        .expect("invalid row query should succeed")
+        .expect("invalid row should remain present");
+    assert_eq!(
+        row.try_get_by_index::<String>(0).unwrap(),
+        "legacy_chunk_files"
+    );
 }
 
 #[tokio::test]
