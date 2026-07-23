@@ -8,6 +8,7 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::policy_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
+use aster_drive::types::UploadSessionKind;
 use serde_json::Value;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::task::JoinSet;
@@ -186,6 +187,7 @@ impl<'a> UploadSessionSpec<'a> {
         upload_id: &'a str,
         status: aster_drive::types::UploadSessionStatus,
         expires_at: chrono::DateTime<chrono::Utc>,
+        session_kind: UploadSessionKind,
     ) -> Self {
         Self {
             upload_id,
@@ -193,7 +195,7 @@ impl<'a> UploadSessionSpec<'a> {
             expires_at,
             total_chunks: 0,
             received_count: 0,
-            session_kind: aster_drive::types::UploadSessionKind::OffsetStaging,
+            session_kind,
             policy_id: None,
             object_temp_key: None,
             object_multipart_id: None,
@@ -209,11 +211,6 @@ impl<'a> UploadSessionSpec<'a> {
 
     fn policy(mut self, policy_id: i64) -> Self {
         self.policy_id = Some(policy_id);
-        self
-    }
-
-    fn session_kind(mut self, kind: aster_drive::types::UploadSessionKind) -> Self {
-        self.session_kind = kind;
         self
     }
 
@@ -2071,6 +2068,11 @@ async fn test_concurrent_duplicate_staged_chunk_keeps_one_complete_payload() {
         .expect("duplicate chunk uploads must finish while the exclusion observer is installed");
     first_result.unwrap();
     second_result.unwrap();
+    assert_eq!(
+        exclusion.entry_count(),
+        2,
+        "both duplicate requests must reach the staging write lock entry"
+    );
     assert!(
         !exclusion.overlap_observed(),
         "duplicate chunk uploads entered the staging write critical section together"
@@ -3034,9 +3036,9 @@ async fn test_explicit_session_kind_rejects_incompatible_fields() {
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayMultipart,
         )
-        .chunks(1, 0)
-        .session_kind(UploadSessionKind::ProviderRelayMultipart),
+        .chunks(1, 0),
     )
     .await;
 
@@ -3071,10 +3073,10 @@ async fn test_relay_kind_rejects_missing_object_temp_key() {
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayMultipart,
         )
         .chunks(1, 0)
         .policy(policy.id)
-        .session_kind(aster_drive::types::UploadSessionKind::ProviderRelayMultipart)
         .object_upload(None, Some("multipart")),
     )
     .await;
@@ -3112,9 +3114,9 @@ async fn test_relay_chunk_endpoint_rejects_missing_object_temp_key() {
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayMultipart,
         )
         .chunks(1, 0)
-        .session_kind(UploadSessionKind::ProviderRelayMultipart)
         .object_upload(None, Some("multipart")),
     )
     .await;
@@ -3156,9 +3158,9 @@ async fn test_relay_progress_rejects_zero_and_out_of_range_part_numbers() {
                 &upload_id,
                 UploadSessionStatus::Uploading,
                 chrono::Utc::now() + chrono::Duration::hours(1),
+                UploadSessionKind::ProviderRelayMultipart,
             )
             .chunks(2, 1)
-            .session_kind(UploadSessionKind::ProviderRelayMultipart)
             .object_upload(Some("files/temp"), Some("multipart")),
         )
         .await;
@@ -3203,9 +3205,9 @@ async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
-        .chunks(1, 1)
-        .session_kind(UploadSessionKind::OffsetStaging),
+        .chunks(1, 1),
     )
     .await;
     upload_session_part_repo::upsert_part(
@@ -3247,9 +3249,9 @@ async fn test_presigned_session_kind_rejects_server_chunk_put() {
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderPresignedMultipart,
         )
         .chunks(1, 0)
-        .session_kind(UploadSessionKind::ProviderPresignedMultipart)
         .object_upload(Some("files/temp"), Some("multipart")),
     )
     .await;
@@ -3269,9 +3271,9 @@ async fn test_presigned_session_kind_rejects_server_chunk_put() {
             &payload_upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderPresignedMultipart,
         )
         .chunks(1, 0)
-        .session_kind(UploadSessionKind::ProviderPresignedMultipart)
         .object_upload(Some("files/temp"), Some("multipart")),
     )
     .await;
@@ -3313,6 +3315,7 @@ async fn test_concurrent_chunk_upload_idempotent() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 0),
     )
@@ -3337,11 +3340,16 @@ async fn test_concurrent_chunk_upload_idempotent() {
     let upload_id2 = upload_id.clone();
     let chunk1 = chunk_data.clone();
     let chunk2 = chunk_data.clone();
+    let concurrency = upload::test_support::install_same_chunk_exclusion_observer(&upload_id);
 
-    let (first, second) = tokio::join!(
-        upload::upload_chunk(&state1, &upload_id1, 0, user.id, &chunk1),
-        upload::upload_chunk(&state2, &upload_id2, 0, user.id, &chunk2),
-    );
+    let (first, second) = tokio::time::timeout(std::time::Duration::from_secs(2), async {
+        tokio::join!(
+            upload::upload_chunk(&state1, &upload_id1, 0, user.id, &chunk1),
+            upload::upload_chunk(&state2, &upload_id2, 0, user.id, &chunk2),
+        )
+    })
+    .await
+    .expect("duplicate requests must rendezvous at the staging write lock entry");
 
     let first = first.unwrap();
     let second = second.unwrap();
@@ -3349,6 +3357,15 @@ async fn test_concurrent_chunk_upload_idempotent() {
         .await
         .unwrap();
 
+    assert_eq!(
+        concurrency.entry_count(),
+        2,
+        "both duplicate requests must reach the staging write lock entry"
+    );
+    assert!(
+        !concurrency.overlap_observed(),
+        "same-chunk writes must remain mutually exclusive"
+    );
     assert!(
         [first.received_count, second.received_count].contains(&1),
         "at least one concurrent upload should observe received_count=1"
@@ -3358,6 +3375,27 @@ async fn test_concurrent_chunk_upload_idempotent() {
         "duplicate concurrent chunk upload should not increment count twice"
     );
 
+    let receipts = aster_drive::db::repository::upload_session_part_repo::list_all_by_upload(
+        state.writer_db(),
+        &upload_id,
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        receipts.len(),
+        1,
+        "duplicate chunk must persist one receipt"
+    );
+    assert_eq!(receipts[0].part_number, 1);
+    assert_eq!(
+        receipts[0].etag,
+        upload::test_support::offset_staging_receipt_etag()
+    );
+    assert_eq!(receipts[0].size, chunk_data.len() as i64);
+    let staged = tokio::fs::read(&staging_path).await.unwrap();
+    assert_eq!(&staged[..chunk_data.len()], chunk_data.as_slice());
+
+    drop(concurrency);
     let third = upload::upload_chunk(&state, &upload_id, 0, user.id, &chunk_data)
         .await
         .unwrap();
@@ -3384,6 +3422,7 @@ async fn test_upload_session_part_upsert_updates_existing_row_without_duplicates
             &upload_id,
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 0),
     )
@@ -3725,10 +3764,10 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
             &upload_id,
             UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::RemotePresignedMultipart,
         )
         .chunks(2, 0)
         .policy(remote_policy.id)
-        .session_kind(aster_drive::types::UploadSessionKind::RemotePresignedMultipart)
         .object_upload(
             Some("upload/data/files/presigned-retry-temp"),
             Some("presigned-retry-multipart"),
@@ -3787,6 +3826,7 @@ async fn test_complete_offset_staging_stream_relay_remains_retryable_after_stora
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 0)
         .policy(remote_policy.id),
@@ -3854,6 +3894,7 @@ async fn test_file_upload_complete_rejects_assembling_session() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Assembling,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 2),
     )
@@ -3882,6 +3923,7 @@ async fn test_file_upload_complete_completed_without_file_id_returns_refresh_hin
             &upload_id,
             aster_drive::types::UploadSessionStatus::Completed,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(0, 0),
     )
@@ -3915,9 +3957,9 @@ async fn test_file_upload_complete_presigned_multipart_requires_parts() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderPresignedMultipart,
         )
         .chunks(2, 0)
-        .session_kind(aster_drive::types::UploadSessionKind::ProviderPresignedMultipart)
         .object_upload(Some("files/temp-key"), Some("multipart-id")),
     )
     .await;
@@ -3946,6 +3988,7 @@ async fn test_file_upload_get_progress_lists_and_sorts_staging_receipts() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 2),
     )
@@ -4085,6 +4128,7 @@ async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(3, 2),
     )
@@ -4142,6 +4186,7 @@ async fn test_file_upload_presign_parts_rejects_non_multipart_session() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderPresignedSingle,
         )
         .chunks(1, 0)
         .object_upload(Some("files/temp-key"), None),
@@ -4175,6 +4220,7 @@ async fn test_file_upload_presign_parts_validates_part_number_batch() {
             &upload_id,
             aster_drive::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderPresignedMultipart,
         )
         .chunks(3, 0)
         .object_upload(Some("files/temp-key"), Some("multipart-id")),
@@ -4220,6 +4266,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             &expired_id,
             aster_drive::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() - chrono::Duration::minutes(5),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 1),
     )
@@ -4233,6 +4280,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             &completed_id,
             aster_drive::types::UploadSessionStatus::Completed,
             chrono::Utc::now() - chrono::Duration::minutes(5),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(0, 0)
         .file_id(123),
@@ -4247,6 +4295,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
             &assembling_id,
             aster_drive::types::UploadSessionStatus::Assembling,
             chrono::Utc::now() - chrono::Duration::minutes(5),
+            UploadSessionKind::OffsetStaging,
         )
         .chunks(2, 2),
     )
@@ -4318,6 +4367,7 @@ async fn test_file_upload_cleanup_expired_keeps_remote_sessions_when_storage_is_
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() - chrono::Duration::minutes(5),
+            UploadSessionKind::RemoteRelayMultipart,
         )
         .chunks(2, 1)
         .policy(remote_policy.id)
@@ -4511,6 +4561,7 @@ async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavaila
             &upload_id,
             UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::RemotePresignedSingle,
         )
         .chunks(2, 0)
         .policy(remote_policy.id)
@@ -4572,6 +4623,7 @@ async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session(
             &upload_id,
             UploadSessionStatus::Failed,
             chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayMultipart,
         )
         .chunks(2, 0)
         .object_upload(Some("files/temp-key"), Some("multipart-id")),

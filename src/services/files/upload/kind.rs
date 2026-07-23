@@ -8,13 +8,13 @@ use crate::types::{UploadMode, UploadSessionKind};
 pub(crate) fn resolve_upload_session_kind(
     session: &upload_session::Model,
 ) -> Result<UploadSessionKind> {
-    validate_persisted_kind(session, session.session_kind)
+    validate_persisted_kind(session)
 }
 
 pub(crate) fn validate_persisted_kind(
     session: &upload_session::Model,
-    kind: UploadSessionKind,
 ) -> Result<UploadSessionKind> {
+    let kind = session.session_kind;
     let has_multipart_id = session.object_multipart_id.is_some();
     let expects_multipart_id = matches!(
         kind,
@@ -134,32 +134,27 @@ mod tests {
     #[test]
     fn persisted_kind_validation_rejects_incompatible_fields() {
         assert!(
-            validate_persisted_kind(
-                &session(
-                    UploadSessionKind::ProviderRelayMultipart,
-                    Some("files/temp"),
-                    None
-                ),
-                UploadSessionKind::ProviderRelayMultipart
-            )
+            validate_persisted_kind(&session(
+                UploadSessionKind::ProviderRelayMultipart,
+                Some("files/temp"),
+                None
+            ))
             .is_err()
         );
         assert!(
-            validate_persisted_kind(
-                &session(
-                    UploadSessionKind::ProviderRelayMultipart,
-                    None,
-                    Some("multipart")
-                ),
-                UploadSessionKind::ProviderRelayMultipart
-            )
+            validate_persisted_kind(&session(
+                UploadSessionKind::ProviderRelayMultipart,
+                None,
+                Some("multipart")
+            ))
             .is_err()
         );
         assert!(
-            validate_persisted_kind(
-                &session(UploadSessionKind::ProviderPresignedSingle, None, None),
-                UploadSessionKind::ProviderPresignedSingle
-            )
+            validate_persisted_kind(&session(
+                UploadSessionKind::ProviderPresignedSingle,
+                None,
+                None
+            ))
             .is_err()
         );
     }
@@ -172,18 +167,13 @@ mod tests {
             None,
         );
         valid.provider_session_ciphertext = Some("encrypted-upload-url".to_string());
+        assert!(validate_persisted_kind(&valid).is_ok());
         assert!(
-            validate_persisted_kind(&valid, UploadSessionKind::ProviderDirectResumable).is_ok()
-        );
-        assert!(
-            validate_persisted_kind(
-                &session(
-                    UploadSessionKind::ProviderDirectResumable,
-                    Some("files/temp"),
-                    None
-                ),
-                UploadSessionKind::ProviderDirectResumable
-            )
+            validate_persisted_kind(&session(
+                UploadSessionKind::ProviderDirectResumable,
+                Some("files/temp"),
+                None
+            ))
             .is_err()
         );
     }

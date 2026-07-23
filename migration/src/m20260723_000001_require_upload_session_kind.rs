@@ -165,6 +165,7 @@ fn upload_sessions_table<T>(table: T, nullable: bool) -> TableCreateStatement
 where
     T: IntoIden,
 {
+    let table = table.into_iden();
     let mut session_kind = ColumnDef::new(UploadSessions::SessionKind);
     session_kind.string_len(32);
     if nullable {
@@ -174,7 +175,7 @@ where
     }
 
     Table::create()
-        .table(table)
+        .table(table.clone())
         .col(
             ColumnDef::new(UploadSessions::Id)
                 .string_len(36)
@@ -252,7 +253,7 @@ where
         .col(ColumnDef::new(UploadSessions::UpdatedAt).text().not_null())
         .foreign_key(
             ForeignKey::create()
-                .from(Alias::new(SQLITE_REBUILT_TABLE), UploadSessions::UserId)
+                .from(table, UploadSessions::UserId)
                 .to(Users::Table, Users::Id)
                 .on_delete(ForeignKeyAction::Cascade),
         )

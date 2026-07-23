@@ -607,6 +607,8 @@ async fn upload_chunk_impl(
         crate::types::UploadSessionKind::OffsetStaging
             | crate::types::UploadSessionKind::StreamStaging
     ) {
+        #[cfg(debug_assertions)]
+        test_support::rendezvous_before_staging_write_lock(upload_id).await;
         let _chunk_write_lock =
             acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
         #[cfg(debug_assertions)]
@@ -816,6 +818,8 @@ async fn upload_chunk_payload_impl(
         crate::types::UploadSessionKind::OffsetStaging
             | crate::types::UploadSessionKind::StreamStaging
     ) {
+        #[cfg(debug_assertions)]
+        test_support::rendezvous_before_staging_write_lock(upload_id).await;
         let _chunk_write_lock =
             acquire_local_chunk_write_lock(&chunk_dir, upload_id, chunk_number).await?;
         #[cfg(debug_assertions)]
@@ -955,9 +959,8 @@ pub mod test_support {
         Arc,
         atomic::{AtomicBool, AtomicUsize, Ordering},
     };
-    use std::time::Duration;
 
-    use tokio::sync::{Barrier, Notify};
+    use tokio::sync::Barrier;
 
     use super::STAGING_WRITE_TEST_HOOKS;
 
@@ -971,10 +974,10 @@ pub mod test_support {
     }
 
     struct ExclusiveObservation {
+        entry_barrier: Barrier,
+        entry_count: AtomicUsize,
         active: AtomicUsize,
         overlap_observed: AtomicBool,
-        first_entry_wait_pending: AtomicBool,
-        overlap: Notify,
     }
 
     pub struct StagingWriteTestHook {
@@ -988,6 +991,15 @@ pub mod test_support {
                 StagingWriteTestHookMode::Rendezvous(_) => false,
                 StagingWriteTestHookMode::ObserveExclusive(observation) => {
                     observation.overlap_observed.load(Ordering::SeqCst)
+                }
+            }
+        }
+
+        pub fn entry_count(&self) -> usize {
+            match &self.state.mode {
+                StagingWriteTestHookMode::Rendezvous(_) => 0,
+                StagingWriteTestHookMode::ObserveExclusive(observation) => {
+                    observation.entry_count.load(Ordering::SeqCst)
                 }
             }
         }
@@ -1021,10 +1033,10 @@ pub mod test_support {
         install_hook(
             upload_id,
             StagingWriteTestHookMode::ObserveExclusive(Arc::new(ExclusiveObservation {
+                entry_barrier: Barrier::new(2),
+                entry_count: AtomicUsize::new(0),
                 active: AtomicUsize::new(0),
                 overlap_observed: AtomicBool::new(false),
-                first_entry_wait_pending: AtomicBool::new(true),
-                overlap: Notify::new(),
             })),
         )
     }
@@ -1074,22 +1086,28 @@ pub mod test_support {
                 let previous = observation.active.fetch_add(1, Ordering::SeqCst);
                 if previous > 0 {
                     observation.overlap_observed.store(true, Ordering::SeqCst);
-                    observation.overlap.notify_waiters();
-                } else if observation
-                    .first_entry_wait_pending
-                    .swap(false, Ordering::SeqCst)
-                {
-                    let _ = tokio::time::timeout(
-                        Duration::from_millis(250),
-                        observation.overlap.notified(),
-                    )
-                    .await;
                 }
                 StagingWriteTestGuard {
                     exclusive: Some(Arc::clone(observation)),
                 }
             }
         }
+    }
+
+    pub(super) async fn rendezvous_before_staging_write_lock(upload_id: &str) {
+        let hook = STAGING_WRITE_TEST_HOOKS
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .get(upload_id)
+            .cloned();
+        let Some(hook) = hook else {
+            return;
+        };
+        let StagingWriteTestHookMode::ObserveExclusive(observation) = &hook.mode else {
+            return;
+        };
+        observation.entry_count.fetch_add(1, Ordering::SeqCst);
+        observation.entry_barrier.wait().await;
     }
 
     pub fn offset_staging_file_path(upload_temp_dir: &str, upload_id: &str) -> String {
