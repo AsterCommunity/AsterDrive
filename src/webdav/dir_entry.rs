@@ -1,8 +1,8 @@
 //! WebDAV 子模块：`dir_entry`。
 
 use crate::entities::{file, file_blob, folder};
-use crate::webdav::dav::{DavDirEntry, DavMetaData, FsFuture};
 use crate::webdav::metadata::AsterDavMeta;
+use aster_forge_webdav::dav::{DavDirEntry, DavMetaData, FsFuture};
 
 #[derive(Debug)]
 pub struct AsterDavDirEntry {

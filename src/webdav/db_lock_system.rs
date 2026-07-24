@@ -15,11 +15,15 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
-use crate::webdav::dav::{
+use crate::webdav::path_resolver::{self, ResolvedNode};
+use aster_forge_webdav::dav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
 };
-use crate::webdav::parse_webdav_element;
-use crate::webdav::path_resolver::{self, ResolvedNode};
+use aster_forge_webdav::lock_paths::{
+    lock_path_ancestors as path_ancestors, lock_path_is_under, lock_paths_overlap,
+    normalized_lock_path as normalize_path, unlock_request_targets_lock_scope,
+};
+use aster_forge_webdav::parse_webdav_element;
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
 
@@ -606,36 +610,6 @@ impl DavLockSystem for DbLockSystem {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-fn normalize_path(path: &DavPath) -> String {
-    let raw = String::from_utf8_lossy(path.as_bytes()).to_string();
-    if raw.is_empty() || raw == "/" {
-        "/".to_string()
-    } else {
-        raw
-    }
-}
-
-fn path_ancestors(path: &str) -> Vec<String> {
-    let mut ancestors = vec!["/".to_string()];
-    let trimmed = path.trim_start_matches('/');
-    let mut current = String::from("/");
-    for seg in trimmed.split('/') {
-        if seg.is_empty() {
-            continue;
-        }
-        current.push_str(seg);
-        current.push('/');
-        if current != "/" {
-            ancestors.push(current.clone());
-        }
-    }
-    if path != "/" && !path.ends_with('/') {
-        ancestors.push(path.to_string());
-    }
-    ancestors.dedup();
-    ancestors
-}
-
 /// 从 WebDAV 路径解析出 (entity_type, entity_id)
 async fn resolve_path_to_entity<C: ConnectionTrait>(
     db: &C,
@@ -703,47 +677,6 @@ async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_l
             "failed to sync is_locked after WebDAV lock deletion"
         );
     }
-}
-
-fn lock_paths_overlap(
-    existing_path: &str,
-    existing_deep: bool,
-    requested_path: &str,
-    requested_deep: bool,
-) -> bool {
-    if existing_path == requested_path {
-        return true;
-    }
-    if path_is_ancestor(existing_path, requested_path) {
-        return existing_deep;
-    }
-    if path_is_ancestor(requested_path, existing_path) {
-        return requested_deep;
-    }
-    false
-}
-
-fn lock_path_is_under(parent: &str, child: &str) -> bool {
-    parent == child || path_is_ancestor(parent, child)
-}
-
-fn unlock_request_targets_lock_scope(lock_path: &str, lock_deep: bool, request_path: &str) -> bool {
-    lock_path == request_path || lock_deep && path_is_ancestor(lock_path, request_path)
-}
-
-fn path_is_ancestor(parent: &str, child: &str) -> bool {
-    if parent == child {
-        return false;
-    }
-    if parent == "/" {
-        return child.starts_with('/');
-    }
-    if parent.ends_with('/') {
-        return child.starts_with(parent);
-    }
-    child
-        .strip_prefix(parent)
-        .is_some_and(|suffix| suffix.starts_with('/'))
 }
 
 fn lock_timeout_at(

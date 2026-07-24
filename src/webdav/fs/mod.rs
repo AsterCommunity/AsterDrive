@@ -3,14 +3,15 @@
 use aster_forge_db::transaction;
 use std::{collections::HashMap, pin::Pin, time::Instant};
 
-use futures::stream;
+use bytes::Bytes;
+use futures::{StreamExt, stream};
 use tokio::io::AsyncRead;
+use tokio_util::io::ReaderStream;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
 use crate::entities::{file, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
-    content::property,
     events::storage_change,
     files::{file as file_ops, folder},
     ops::audit::{self, AuditContext},
@@ -18,10 +19,6 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
-use crate::webdav::dav::{
-    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, FsError, FsFuture,
-    FsStream, OpenOptions, ReadDirMeta,
-};
 use crate::webdav::dir_entry::AsterDavDirEntry;
 use crate::webdav::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
@@ -31,6 +28,13 @@ use crate::webdav::metadata::AsterDavMeta;
 use crate::webdav::path_resolver::{self, ResolvedNode};
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::i64_to_u64;
+use aster_forge_webdav::dav::{
+    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, DavPropertyTarget,
+    DavResourceKind, FsError, FsFuture, FsStream, OpenOptions, ReadDirMeta,
+};
+use aster_forge_webdav::is_protected_namespace;
+
+const DOWNLOAD_CHUNK_SIZE: usize = 64 * 1024;
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
 #[derive(Clone)]
@@ -43,10 +47,9 @@ pub struct AsterDavFs {
     audit_ctx: AuditContext,
 }
 
-pub(crate) struct AsterDavDownloadFile {
-    pub(crate) file: file::Model,
-    pub(crate) blob: file_blob::Model,
-    pub(crate) meta: AsterDavMeta,
+struct AsterDavDownloadFile {
+    file: file::Model,
+    blob: file_blob::Model,
 }
 
 impl std::fmt::Debug for AsterDavFs {
@@ -97,7 +100,7 @@ impl AsterDavFs {
         self.scope
     }
 
-    pub(crate) async fn resolve_download_target(
+    async fn resolve_download_target(
         &self,
         path: &DavPath,
     ) -> Result<Option<AsterDavDownloadFile>, FsError> {
@@ -119,12 +122,10 @@ impl AsterDavFs {
         let blob = file_repo::find_blob_by_id(self.state.reader_db(), file.blob_id)
             .await
             .map_err(|_| FsError::GeneralFailure)?;
-        let meta = AsterDavMeta::from_file(&file, &blob);
-
-        Ok(Some(AsterDavDownloadFile { file, blob, meta }))
+        Ok(Some(AsterDavDownloadFile { file, blob }))
     }
 
-    pub(crate) async fn open_download_stream_for_file(
+    async fn open_download_stream_for_file(
         &self,
         file: &file::Model,
         blob: &file_blob::Model,
@@ -397,6 +398,26 @@ impl DavFileSystem for AsterDavFs {
         })
     }
 
+    fn open_download_stream<'a>(
+        &'a self,
+        path: &'a DavPath,
+        offset: Option<u64>,
+        length: Option<u64>,
+    ) -> FsFuture<'a, FsStream<Bytes>> {
+        Box::pin(async move {
+            let target = self
+                .resolve_download_target(path)
+                .await?
+                .ok_or(FsError::Forbidden)?;
+            let reader = self
+                .open_download_stream_for_file(&target.file, &target.blob, offset, length)
+                .await?;
+            let stream = ReaderStream::with_capacity(reader, DOWNLOAD_CHUNK_SIZE)
+                .map(|result| result.map_err(|_| FsError::GeneralFailure));
+            Ok(Box::pin(stream) as FsStream<Bytes>)
+        })
+    }
+
     fn create_dir<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, ()> {
         Box::pin(async move {
             match path_resolver::resolve_path_cached_in_scope(
@@ -666,6 +687,10 @@ impl DavFileSystem for AsterDavFs {
         })
     }
 
+    fn copy_dir_shallow<'a>(&'a self, from: &'a DavPath, to: &'a DavPath) -> FsFuture<'a, ()> {
+        Box::pin(async move { AsterDavFs::copy_dir_shallow(self, from, to).await })
+    }
+
     fn get_quota(&self) -> FsFuture<'_, (u64, Option<u64>)> {
         Box::pin(async move {
             let (storage_used, storage_quota) = match self.scope {
@@ -715,7 +740,7 @@ impl DavFileSystem for AsterDavFs {
                 .map(|props| {
                     props
                         .iter()
-                        .any(|prop| !property::is_protected_namespace(&prop.namespace))
+                        .any(|prop| !is_protected_namespace(&prop.namespace))
                 })
                 .unwrap_or(false)
         })
@@ -761,7 +786,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
+                if is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -783,14 +808,14 @@ impl DavFileSystem for AsterDavFs {
 
     fn get_props_many_for_entities<'a>(
         &'a self,
-        targets: &'a [(DavPath, EntityType, i64)],
+        targets: &'a [(DavPath, DavPropertyTarget)],
         do_content: bool,
     ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
         Box::pin(async move {
             let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
             let mut entity_targets = Vec::with_capacity(targets.len());
-            for (path, entity_type, entity_id) in targets {
-                let target = (*entity_type, *entity_id);
+            for (path, target) in targets {
+                let target = (entity_type_from_dav_target(*target), target.id);
                 target_paths.entry(target).or_default().push(path.clone());
                 entity_targets.push(target);
             }
@@ -800,7 +825,7 @@ impl DavFileSystem for AsterDavFs {
                 .map_err(|_| FsError::GeneralFailure)?;
             let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
             for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
+                if is_protected_namespace(&prop.namespace) {
                     continue;
                 }
                 props_by_target
@@ -834,7 +859,7 @@ impl DavFileSystem for AsterDavFs {
             let mut protected_failure = false;
             for (_, prop) in &patches {
                 let ns = prop.namespace.as_deref().unwrap_or("");
-                if property::is_protected_namespace(ns) {
+                if is_protected_namespace(ns) {
                     protected_failure = true;
                     break;
                 }
@@ -845,7 +870,7 @@ impl DavFileSystem for AsterDavFs {
                     .into_iter()
                     .map(|(_, prop)| {
                         let ns = prop.namespace.as_deref().unwrap_or("");
-                        let status = if property::is_protected_namespace(ns) {
+                        let status = if is_protected_namespace(ns) {
                             http::StatusCode::FORBIDDEN
                         } else {
                             http::StatusCode::FAILED_DEPENDENCY
@@ -917,13 +942,20 @@ impl DavFileSystem for AsterDavFs {
     }
 }
 
+fn entity_type_from_dav_target(target: DavPropertyTarget) -> EntityType {
+    match target.kind {
+        DavResourceKind::File => EntityType::File,
+        DavResourceKind::Folder => EntityType::Folder,
+    }
+}
+
 fn entity_props_to_dav_props(
     props: Vec<crate::entities::entity_property::Model>,
     do_content: bool,
 ) -> Vec<DavProp> {
     props
         .into_iter()
-        .filter(|p| !property::is_protected_namespace(&p.namespace))
+        .filter(|p| !is_protected_namespace(&p.namespace))
         .map(|p| entity_prop_to_dav_prop(p, do_content))
         .collect()
 }
@@ -989,7 +1021,7 @@ async fn copy_visible_entity_properties(
         .map_err(|_| FsError::GeneralFailure)?;
 
     for prop in props {
-        if property::is_protected_namespace(&prop.namespace) {
+        if is_protected_namespace(&prop.namespace) {
             continue;
         }
         property_repo::upsert(

@@ -123,6 +123,7 @@ aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", pack
 aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
 aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
 aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
+aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav" }
 async-stream = "0.3"
 async-trait = "0.1"
 base64 = "0.22"

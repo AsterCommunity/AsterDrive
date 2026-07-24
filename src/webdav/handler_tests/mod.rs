@@ -9,15 +9,16 @@ use crate::types::{
     DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
     UserRole, UserStatus, serialize_storage_policy_options,
 };
-use crate::webdav::dav::{DavLock, DavLockError, DavLockSystem, LsFuture};
 use crate::webdav::fs::AsterDavFs;
-use crate::webdav::props::handle_propfind;
-use crate::webdav::transfer::{handle_get_head, handle_put};
 use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, web};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
+use aster_forge_webdav::dav::{DavLock, DavLockError, DavLockSystem, LsFuture};
+use aster_forge_webdav::encode_href;
+use aster_forge_webdav::props::handle_propfind;
+use aster_forge_webdav::transfer::{handle_get_head, handle_put};
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -210,7 +211,7 @@ struct NoopLockSystem;
 impl DavLockSystem for NoopLockSystem {
     fn lock(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::dav::DavPath,
         _principal: Option<&str>,
         _owner: Option<&xmltree::Element>,
         _timeout: Option<Duration>,
@@ -222,7 +223,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn unlock(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::dav::DavPath,
         _token: &str,
     ) -> LsFuture<'_, Result<(), ()>> {
         Box::pin(async { Ok(()) })
@@ -230,7 +231,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn refresh(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::dav::DavPath,
         _token: &str,
         _timeout: Option<Duration>,
     ) -> LsFuture<'_, Result<DavLock, ()>> {
@@ -239,7 +240,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn check(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::dav::DavPath,
         _principal: Option<&str>,
         _ignore_principal: bool,
         _deep: bool,
@@ -248,19 +249,19 @@ impl DavLockSystem for NoopLockSystem {
         Box::pin(async { Ok(()) })
     }
 
-    fn discover(&self, _path: &crate::webdav::dav::DavPath) -> LsFuture<'_, Vec<DavLock>> {
+    fn discover(&self, _path: &aster_forge_webdav::dav::DavPath) -> LsFuture<'_, Vec<DavLock>> {
         Box::pin(async { Vec::new() })
     }
 
     fn conflicting_locks(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::dav::DavPath,
         _deep: bool,
     ) -> LsFuture<'_, Vec<DavLock>> {
         Box::pin(async { Vec::new() })
     }
 
-    fn delete(&self, _path: &crate::webdav::dav::DavPath) -> LsFuture<'_, Result<(), ()>> {
+    fn delete(&self, _path: &aster_forge_webdav::dav::DavPath) -> LsFuture<'_, Result<(), ()>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -574,7 +575,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
     let lock_system = NoopLockSystem;
-    let encoded_uri = format!("/webdav{}", super::encode_href(&format!("/{filename}")));
+    let encoded_uri = format!("/webdav{}", encode_href(&format!("/{filename}")));
     let req = actix_web::test::TestRequest::default()
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").expect("valid method"))
         .uri(&encoded_uri)

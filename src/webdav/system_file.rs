@@ -47,6 +47,12 @@ impl SystemFileBlockPolicy {
     }
 }
 
+impl aster_forge_webdav::dav::DavNamePolicy for SystemFileBlockPolicy {
+    fn is_blocked_name(&self, name: &str) -> bool {
+        SystemFileBlockPolicy::is_blocked_name(self, name)
+    }
+}
+
 pub fn is_blocked_by_runtime_config(runtime_config: &RuntimeConfig, name: &str) -> bool {
     SystemFileBlockPolicy::from_runtime_config(runtime_config).is_blocked_name(name)
 }
