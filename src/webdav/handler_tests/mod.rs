@@ -1,3 +1,4 @@
+use super::completed_event;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
@@ -9,15 +10,18 @@ use crate::types::{
     DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
     UserRole, UserStatus, serialize_storage_policy_options,
 };
-use crate::webdav::dav::{DavLock, DavLockError, DavLockSystem, LsFuture};
-use crate::webdav::fs::AsterDavFs;
-use crate::webdav::props::handle_propfind;
-use crate::webdav::transfer::{handle_get_head, handle_put};
+use crate::webdav::backend::AsterDavFs;
+use crate::webdav::handlers::properties::handle_propfind;
+use crate::webdav::handlers::transfer::{handle_get_head, handle_put};
 use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
-use actix_web::{FromRequest, web};
+use actix_web::{FromRequest, HttpRequest, web};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
+use aster_forge_webdav::{
+    DavEventOutcome, DavOperation, DavXmlElement as Element, DavXmlNode as XMLNode,
+};
+use aster_forge_webdav::{DavLock, DavLockError, DavLockSystem, LsFuture};
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -33,7 +37,44 @@ use std::sync::{
 use std::task::{Context, Poll};
 use std::time::Duration;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
-use xmltree::{Element, XMLNode};
+
+fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead {
+    aster_forge_webdav::actix::request_head(req, "/webdav")
+        .expect("test request head should parse")
+        .expect("test method should be supported")
+}
+
+#[test]
+fn completed_event_uses_the_forge_request_head_without_sensitive_request_data() {
+    let req = actix_web::test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"COPY").expect("valid COPY method"))
+        .uri("/webdav/source.txt")
+        .insert_header(("Destination", "/webdav/destination.txt"))
+        .insert_header(("If", "(<urn:uuid:sensitive-lock-token>)"))
+        .to_http_request();
+    let request_head = parsed_request_head(&req);
+
+    let event = completed_event(&request_head, StatusCode::LOCKED, Duration::from_millis(12));
+
+    assert_eq!(event.request_id, None);
+    assert_eq!(event.operation, DavOperation::Copy);
+    assert_eq!(event.source.as_str(), "/source.txt");
+    assert_eq!(
+        event.destination.as_ref().map(|path| path.as_str()),
+        Some("/destination.txt")
+    );
+    assert_eq!(
+        event.outcome,
+        DavEventOutcome::Failed {
+            status: 423,
+            backend_error: None,
+        }
+    );
+    assert_eq!(event.elapsed, Duration::from_millis(12));
+    let debug = format!("{event:?}");
+    assert!(debug.contains("source.txt"));
+    assert!(!debug.contains("sensitive-lock-token"));
+}
 
 async fn build_webdav_test_state(
     driver_type: DriverType,
@@ -210,9 +251,9 @@ struct NoopLockSystem;
 impl DavLockSystem for NoopLockSystem {
     fn lock(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::DavPath,
         _principal: Option<&str>,
-        _owner: Option<&xmltree::Element>,
+        _owner: Option<&Element>,
         _timeout: Option<Duration>,
         _shared: bool,
         _deep: bool,
@@ -222,7 +263,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn unlock(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::DavPath,
         _token: &str,
     ) -> LsFuture<'_, Result<(), ()>> {
         Box::pin(async { Ok(()) })
@@ -230,7 +271,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn refresh(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::DavPath,
         _token: &str,
         _timeout: Option<Duration>,
     ) -> LsFuture<'_, Result<DavLock, ()>> {
@@ -239,7 +280,7 @@ impl DavLockSystem for NoopLockSystem {
 
     fn check(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::DavPath,
         _principal: Option<&str>,
         _ignore_principal: bool,
         _deep: bool,
@@ -248,19 +289,19 @@ impl DavLockSystem for NoopLockSystem {
         Box::pin(async { Ok(()) })
     }
 
-    fn discover(&self, _path: &crate::webdav::dav::DavPath) -> LsFuture<'_, Vec<DavLock>> {
+    fn discover(&self, _path: &aster_forge_webdav::DavPath) -> LsFuture<'_, Vec<DavLock>> {
         Box::pin(async { Vec::new() })
     }
 
     fn conflicting_locks(
         &self,
-        _path: &crate::webdav::dav::DavPath,
+        _path: &aster_forge_webdav::DavPath,
         _deep: bool,
     ) -> LsFuture<'_, Vec<DavLock>> {
         Box::pin(async { Vec::new() })
     }
 
-    fn delete(&self, _path: &crate::webdav::dav::DavPath) -> LsFuture<'_, Result<(), ()>> {
+    fn delete(&self, _path: &aster_forge_webdav::DavPath) -> LsFuture<'_, Result<(), ()>> {
         Box::pin(async { Ok(()) })
     }
 }
@@ -494,7 +535,9 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
         .uri("/webdav/streamed.txt")
         .to_http_request();
     let lock_system = NoopLockSystem;
-    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", false).await;
+    let request_head = parsed_request_head(&req);
+    let response =
+        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", false).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -534,7 +577,9 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
         .insert_header((header::RANGE, "bytes=1-2"))
         .to_http_request();
     let lock_system = NoopLockSystem;
-    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", false).await;
+    let request_head = parsed_request_head(&req);
+    let response =
+        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", false).await;
 
     assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
     assert_eq!(
@@ -581,7 +626,8 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
         .insert_header((header::HeaderName::from_static("depth"), "0"))
         .to_http_request();
 
-    let response = handle_propfind(&req, &dav_fs, &lock_system, "/webdav", &[]).await;
+    let request_head = parsed_request_head(&req);
+    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", &[]).await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -589,8 +635,8 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
         .expect("PROPFIND response body should be readable");
 
     let mut hrefs = Vec::new();
-    let root =
-        Element::parse(Cursor::new(body.as_ref())).expect("PROPFIND XML should parse cleanly");
+    let root = Element::parse_reader(Cursor::new(body.as_ref()))
+        .expect("PROPFIND XML should parse cleanly");
     collect_href_text(&root, &mut hrefs);
 
     assert_eq!(hrefs.len(), 1);
@@ -640,7 +686,8 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
   </d:prop>
 </d:propfind>"#;
 
-    let response = handle_propfind(&req, &dav_fs, &lock_system, "/webdav", body).await;
+    let request_head = parsed_request_head(&req);
+    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", body).await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -659,7 +706,8 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
         body_text.contains("<d:quota-used-bytes xmlns:d=\"DAV:\" />"),
         "missing DAV props should also declare the echoed lowercase DAV prefix: {body_text}"
     );
-    Element::parse(Cursor::new(body_text.as_bytes())).expect("PROPFIND XML should parse cleanly");
+    Element::parse_reader(Cursor::new(body_text.as_bytes()))
+        .expect("PROPFIND XML should parse cleanly");
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
@@ -692,7 +740,8 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
         .insert_header((header::HeaderName::from_static("depth"), "0"))
         .to_http_request();
 
-    let response = handle_propfind(&req, &dav_fs, &lock_system, "/webdav", &[]).await;
+    let request_head = parsed_request_head(&req);
+    let response = handle_propfind(&request_head, &dav_fs, &lock_system, "/webdav", &[]).await;
 
     assert_eq!(response.status(), StatusCode::from_u16(207).unwrap());
     let body = to_bytes(response.into_body())
@@ -711,7 +760,8 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
         !body_text.contains("xmlns:D=\"DAV:\" xmlns:D=\"DAV:\""),
         "allprop response should not duplicate the canonical DAV namespace declaration: {body_text}"
     );
-    Element::parse(Cursor::new(body_text.as_bytes())).expect("PROPFIND XML should parse cleanly");
+    Element::parse_reader(Cursor::new(body_text.as_bytes()))
+        .expect("PROPFIND XML should parse cleanly");
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);
@@ -719,9 +769,9 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
 
 fn collect_href_text(element: &Element, hrefs: &mut Vec<String>) {
     if (element.name == "href" || element.name == "D:href")
-        && let Some(text) = element.get_text()
+        && let Some(text) = element.text()
     {
-        hrefs.push(text.into_owned());
+        hrefs.push(text);
     }
 
     for child in &element.children {
@@ -749,7 +799,9 @@ async fn handle_head_does_not_open_the_storage_stream() {
         .uri("/webdav/head.txt")
         .to_http_request();
     let lock_system = NoopLockSystem;
-    let response = handle_get_head(&req, &dav_fs, &lock_system, "/webdav", true).await;
+    let request_head = parsed_request_head(&req);
+    let response =
+        handle_get_head(&req, &request_head, &dav_fs, &lock_system, "/webdav", true).await;
 
     assert_eq!(response.status(), StatusCode::OK);
     assert_eq!(
@@ -789,8 +841,10 @@ async fn handle_put_with_content_length_uses_direct_s3_stream_upload() {
     let mut payload = web::Payload::from_request(&req, &mut dev_payload)
         .await
         .expect("webdav test payload should extract");
+    let request_head = parsed_request_head(&req);
     let response = handle_put(
         &req,
+        &request_head,
         &dav_fs,
         &lock_system,
         "/webdav",

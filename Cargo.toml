@@ -123,6 +123,7 @@ aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", pack
 aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
 aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
 aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
+aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav", features = ["actix"] }
 async-stream = "0.3"
 async-trait = "0.1"
 base64 = "0.22"
@@ -205,6 +206,10 @@ webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] 
 
 [build-dependencies]
 chrono = "0.4"
+
+[patch."https://github.com/AsterCommunity/AsterForge"]
+aster_forge_utils = { path = "../AsterForge/crates/aster_forge_utils" }
+aster_forge_webdav = { path = "../AsterForge/crates/aster_forge_webdav" }
 
 [lib]
 doctest = false

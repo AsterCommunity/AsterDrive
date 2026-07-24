@@ -780,6 +780,7 @@ dependencies = [
  "aster_forge_tasks",
  "aster_forge_utils",
  "aster_forge_validation",
+ "aster_forge_webdav",
  "async-stream",
  "async-trait",
  "aws-credential-types",
@@ -1138,13 +1139,11 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
 dependencies = [
  "http 1.4.2",
  "httpdate",
  "ipnet",
  "md-5",
- "quick-xml",
  "rand 0.10.2",
  "serde_json",
  "thiserror 2.0.19",
@@ -1161,6 +1160,23 @@ source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e408
 dependencies = [
  "thiserror 2.0.19",
  "unicode-normalization",
+]
+
+[[package]]
+name = "aster_forge_webdav"
+version = "0.1.0"
+dependencies = [
+ "actix-web",
+ "aster_forge_utils",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "http 1.4.2",
+ "percent-encoding",
+ "thiserror 2.0.19",
+ "urlencoding",
+ "xmltree",
 ]
 
 [[package]]

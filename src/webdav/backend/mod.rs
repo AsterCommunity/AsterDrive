@@ -1,4 +1,11 @@
-//! WebDAV 子模块：`fs`。
+//! AsterDrive storage, database, property, lock, and audit adapters for WebDAV.
+
+mod dir_entry;
+mod download_audit;
+pub mod file;
+pub mod lock;
+mod metadata;
+pub mod path_resolver;
 
 use aster_forge_db::transaction;
 use std::{collections::HashMap, pin::Pin, time::Instant};
@@ -7,7 +14,7 @@ use futures::stream;
 use tokio::io::AsyncRead;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
-use crate::entities::{file, file_blob};
+use crate::entities::{file as file_entity, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     content::property,
@@ -18,19 +25,21 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::types::EntityType;
-use crate::webdav::dav::{
-    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, FsError, FsFuture,
-    FsStream, OpenOptions, ReadDirMeta,
-};
-use crate::webdav::dir_entry::AsterDavDirEntry;
-use crate::webdav::download_audit::{
+use crate::webdav::backend::dir_entry::AsterDavDirEntry;
+use crate::webdav::backend::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
 };
-use crate::webdav::file::AsterDavFile;
-use crate::webdav::metadata::AsterDavMeta;
-use crate::webdav::path_resolver::{self, ResolvedNode};
+use crate::webdav::backend::file::AsterDavFile;
+use crate::webdav::backend::metadata::AsterDavMeta;
+use crate::webdav::backend::path_resolver::ResolvedNode;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::i64_to_u64;
+use aster_forge_webdav::DavResourceKind;
+use aster_forge_webdav::plan_atomic_proppatch;
+use aster_forge_webdav::{
+    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, DavPropertyTarget, FsError,
+    FsFuture, FsStream, OpenOptions, ReadDirMeta,
+};
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
 #[derive(Clone)]
@@ -44,7 +53,7 @@ pub struct AsterDavFs {
 }
 
 pub(crate) struct AsterDavDownloadFile {
-    pub(crate) file: file::Model,
+    pub(crate) file: file_entity::Model,
     pub(crate) blob: file_blob::Model,
     pub(crate) meta: AsterDavMeta,
 }
@@ -126,7 +135,7 @@ impl AsterDavFs {
 
     pub(crate) async fn open_download_stream_for_file(
         &self,
-        file: &file::Model,
+        file: &file_entity::Model,
         blob: &file_blob::Model,
         offset: Option<u64>,
         length: Option<u64>,
@@ -781,16 +790,20 @@ impl DavFileSystem for AsterDavFs {
         })
     }
 
-    fn get_props_many_for_entities<'a>(
+    fn get_props_many_for_targets<'a>(
         &'a self,
-        targets: &'a [(DavPath, EntityType, i64)],
+        targets: &'a [(DavPath, DavPropertyTarget)],
         do_content: bool,
     ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
         Box::pin(async move {
             let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
             let mut entity_targets = Vec::with_capacity(targets.len());
-            for (path, entity_type, entity_id) in targets {
-                let target = (*entity_type, *entity_id);
+            for (path, property_target) in targets {
+                let entity_type = match property_target.kind {
+                    DavResourceKind::File => EntityType::File,
+                    DavResourceKind::Collection => EntityType::Folder,
+                };
+                let target = (entity_type, property_target.id);
                 target_paths.entry(target).or_default().push(path.clone());
                 entity_targets.push(target);
             }
@@ -831,27 +844,14 @@ impl DavFileSystem for AsterDavFs {
                     .await
                     .ok_or(FsError::NotFound)?;
 
-            let mut protected_failure = false;
-            for (_, prop) in &patches {
-                let ns = prop.namespace.as_deref().unwrap_or("");
-                if property::is_protected_namespace(ns) {
-                    protected_failure = true;
-                    break;
-                }
-            }
-
-            if protected_failure {
+            let protocol_plan = plan_atomic_proppatch(patches.iter().map(|(_, prop)| {
+                property::is_protected_namespace(prop.namespace.as_deref().unwrap_or(""))
+            }));
+            if !protocol_plan.apply {
                 return Ok(patches
                     .into_iter()
-                    .map(|(_, prop)| {
-                        let ns = prop.namespace.as_deref().unwrap_or("");
-                        let status = if property::is_protected_namespace(ns) {
-                            http::StatusCode::FORBIDDEN
-                        } else {
-                            http::StatusCode::FAILED_DEPENDENCY
-                        };
-                        (status, prop)
-                    })
+                    .zip(protocol_plan.statuses)
+                    .map(|((_, prop), status)| (status, prop))
                     .collect());
             }
 
@@ -911,7 +911,8 @@ impl DavFileSystem for AsterDavFs {
 
             Ok(patches
                 .into_iter()
-                .map(|(_, prop)| (http::StatusCode::OK, prop))
+                .zip(protocol_plan.statuses)
+                .map(|((_, prop), status)| (status, prop))
                 .collect())
         })
     }

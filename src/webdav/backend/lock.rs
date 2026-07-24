@@ -4,9 +4,9 @@ use aster_forge_db::transaction;
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime};
 
+use aster_forge_webdav::DavXmlElement;
 use chrono::Utc;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
-use xmltree::Element;
 
 use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
@@ -15,11 +15,10 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::types::EntityType;
-use crate::webdav::dav::{
+use crate::webdav::backend::path_resolver::{self, ResolvedNode};
+use aster_forge_webdav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
 };
-use crate::webdav::parse_webdav_element;
-use crate::webdav::path_resolver::{self, ResolvedNode};
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
 
@@ -201,7 +200,7 @@ impl DavLockSystem for DbLockSystem {
         &self,
         path: &DavPath,
         principal: Option<&str>,
-        owner: Option<&Element>,
+        owner: Option<&DavXmlElement>,
         timeout: Option<Duration>,
         shared: bool,
         deep: bool,
@@ -783,14 +782,12 @@ fn model_to_dav_lock(lock: &resource_lock::Model) -> DavLock {
     }
 }
 
-fn serialize_element(elem: &Element) -> String {
-    let mut buf = Vec::new();
-    elem.write(&mut buf).unwrap_or_default();
-    String::from_utf8_lossy(&buf).to_string()
+fn serialize_element(elem: &DavXmlElement) -> String {
+    String::from_utf8_lossy(&elem.to_bytes().unwrap_or_default()).into_owned()
 }
 
-fn deserialize_element(xml: &str) -> Option<Element> {
-    parse_webdav_element(xml.as_bytes()).ok()
+fn deserialize_element(xml: &str) -> Option<DavXmlElement> {
+    DavXmlElement::parse(xml.as_bytes()).ok()
 }
 
 fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {

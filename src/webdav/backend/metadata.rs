@@ -3,8 +3,8 @@
 use std::time::SystemTime;
 
 use crate::entities::{file, file_blob, folder};
-use crate::types::EntityType;
-use crate::webdav::dav::{DavMetaData, FsResult};
+use aster_forge_webdav::DavResourceKind;
+use aster_forge_webdav::{DavMetaData, DavPropertyTarget, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime
 fn to_system_time(dt: chrono::DateTime<chrono::Utc>) -> SystemTime {
@@ -23,7 +23,7 @@ pub struct AsterDavMeta {
     created: SystemTime,
     etag: Option<String>,
     content_type: Option<String>,
-    property_entity: Option<(EntityType, i64)>,
+    property_target: Option<DavPropertyTarget>,
 }
 
 impl AsterDavMeta {
@@ -35,7 +35,7 @@ impl AsterDavMeta {
             created: SystemTime::UNIX_EPOCH,
             etag: None,
             content_type: None,
-            property_entity: None,
+            property_target: None,
         }
     }
 
@@ -47,7 +47,10 @@ impl AsterDavMeta {
             created: to_system_time(folder.created_at),
             etag: Some(format!("dir-{}", folder.updated_at.timestamp())),
             content_type: None,
-            property_entity: Some((EntityType::Folder, folder.id)),
+            property_target: Some(DavPropertyTarget {
+                kind: DavResourceKind::Collection,
+                id: folder.id,
+            }),
         }
     }
 
@@ -59,7 +62,10 @@ impl AsterDavMeta {
             created: to_system_time(file.created_at),
             etag: Some(file_etag(file)),
             content_type: Some(file.mime_type.clone()),
-            property_entity: Some((EntityType::File, file.id)),
+            property_target: Some(DavPropertyTarget {
+                kind: DavResourceKind::File,
+                id: file.id,
+            }),
         }
     }
 
@@ -71,7 +77,10 @@ impl AsterDavMeta {
             created: to_system_time(file.created_at),
             etag: Some(file_etag(file)),
             content_type: Some(file.mime_type.clone()),
-            property_entity: Some((EntityType::File, file.id)),
+            property_target: Some(DavPropertyTarget {
+                kind: DavResourceKind::File,
+                id: file.id,
+            }),
         }
     }
 }
@@ -114,7 +123,7 @@ impl DavMetaData for AsterDavMeta {
         Ok(self.created)
     }
 
-    fn property_entity(&self) -> Option<(EntityType, i64)> {
-        self.property_entity
+    fn property_target(&self) -> Option<DavPropertyTarget> {
+        self.property_target
     }
 }

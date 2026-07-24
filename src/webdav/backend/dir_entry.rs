@@ -1,8 +1,8 @@
 //! WebDAV 子模块：`dir_entry`。
 
-use crate::entities::{file, file_blob, folder};
-use crate::webdav::dav::{DavDirEntry, DavMetaData, FsFuture};
-use crate::webdav::metadata::AsterDavMeta;
+use crate::entities::{file, folder};
+use crate::webdav::backend::metadata::AsterDavMeta;
+use aster_forge_webdav::{DavDirEntry, DavMetaData, FsFuture};
 
 #[derive(Debug)]
 pub struct AsterDavDirEntry {
@@ -15,13 +15,6 @@ impl AsterDavDirEntry {
         Self {
             name: folder.name.as_bytes().to_vec(),
             metadata: AsterDavMeta::from_folder(folder),
-        }
-    }
-
-    pub fn from_file(file: &file::Model, blob: &file_blob::Model) -> Self {
-        Self {
-            name: file.name.as_bytes().to_vec(),
-            metadata: AsterDavMeta::from_file(file, blob),
         }
     }
 

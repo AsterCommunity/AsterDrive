@@ -12,4 +12,3 @@ mod litmus_compliance;
 mod lock_system;
 mod path_resolver;
 mod protocol;
-mod xml_depth_probe;

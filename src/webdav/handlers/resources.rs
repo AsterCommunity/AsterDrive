@@ -2,27 +2,23 @@
 
 use std::collections::HashMap;
 
-use actix_web::http::{StatusCode, header};
-use actix_web::{HttpRequest, HttpResponse, web};
+use actix_web::http::StatusCode;
+use actix_web::{HttpRequest, HttpResponse};
+use aster_forge_webdav::{
+    DavCopyMoveMethod, DavMutationFailure, DavMutationPlanError, DavRequestHead, DavResourceKind,
+    collection_created_response, delete_success_response, mutation_multistatus_response,
+    mutation_plan_error_response, mutation_success_response, plan_copy_move_request,
+    resource_identity_path, validate_collection_create_target, validate_delete_target,
+};
 use futures::{StreamExt, pin_mut};
-use xmltree::XMLNode;
 
-use crate::webdav::dav::{DavFileSystem, DavLockSystem, DavPath, FsError, ReadDirMeta};
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::{
-    child_relative_path, dav_element, decoded_path_string, ensure_parent_unlocked,
-    ensure_system_file_name_allowed, ensure_unlocked, fs, fs_error_response, href_for_dav_path,
-    href_for_relative, lock_token_submitted_element, multi_status, parent_relative_path,
-    request_origin, request_path, responses, status_element, system_file, text_element,
-    xml_response,
+    backend, child_relative_path, decoded_path_string, ensure_parent_unlocked,
+    ensure_system_file_name_allowed, ensure_unlocked, fs_error_response, href_for_dav_path,
+    parent_relative_path, responses, system_file,
 };
-
-#[derive(Clone)]
-struct MultiStatusFailure {
-    path: DavPath,
-    status: StatusCode,
-    lock_path: Option<DavPath>,
-}
+use aster_forge_webdav::{DavFileSystem, DavLockSystem, DavPath, FsError, ReadDirMeta};
 
 struct DavChild {
     path: DavPath,
@@ -31,14 +27,14 @@ struct DavChild {
 }
 
 struct PartialMutationOutcome {
-    failures: Vec<MultiStatusFailure>,
+    failures: Vec<DavMutationFailure>,
     destination_exists: bool,
 }
 
 struct PartialMutationContext<'a> {
-    dav_fs: &'a fs::AsterDavFs,
+    dav_fs: &'a backend::AsterDavFs,
     lock_system: &'a dyn DavLockSystem,
-    req: &'a HttpRequest,
+    request_head: &'a DavRequestHead,
     prefix: &'a str,
     is_move: bool,
 }
@@ -67,23 +63,16 @@ enum PartialMutationWork {
 }
 
 pub(crate) async fn handle_mkcol(
-    req: &HttpRequest,
-    dav_fs: &fs::AsterDavFs,
+    request_head: &DavRequestHead,
+    dav_fs: &backend::AsterDavFs,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     system_file_policy: &system_file::SystemFileBlockPolicy,
-    payload: &mut web::Payload,
 ) -> HttpResponse {
-    if let Err(resp) = ensure_empty_body(payload).await {
-        return resp;
-    }
-
-    let (path, relative) = match request_path(req, prefix) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    if relative == "/" {
-        return responses::empty(StatusCode::METHOD_NOT_ALLOWED);
+    let path = request_head.target.clone();
+    let relative = path.as_str().to_owned();
+    if let Err(error) = validate_collection_create_target(&relative) {
+        return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
     }
     if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &relative) {
         return resp;
@@ -92,15 +81,16 @@ pub(crate) async fn handle_mkcol(
     if let Err(resp) = ensure_parent_exists(dav_fs, &relative).await {
         return resp;
     }
-    let (request_scheme, request_host) = request_origin(req);
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     if let Err(resp) = protocol::ensure_if_header(
-        req.headers(),
+        request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
         &path,
         prefix,
-        &request_scheme,
-        &request_host,
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -111,9 +101,9 @@ pub(crate) async fn handle_mkcol(
         &path,
         false,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -123,9 +113,9 @@ pub(crate) async fn handle_mkcol(
         lock_system,
         &relative,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -133,40 +123,44 @@ pub(crate) async fn handle_mkcol(
     }
 
     match dav_fs.create_dir(&path).await {
-        Ok(()) => HttpResponse::Created()
-            .insert_header((
-                header::CONTENT_LOCATION,
-                href_for_relative(prefix, &relative),
-            ))
-            .finish(),
-        Err(FsError::Exists) => responses::empty(StatusCode::METHOD_NOT_ALLOWED),
-        Err(FsError::NotFound) => responses::conflict(),
+        Ok(()) => match collection_created_response(prefix, &path) {
+            Ok(response) => aster_forge_webdav::actix::into_response(response),
+            Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
+        },
+        Err(FsError::Exists) => aster_forge_webdav::actix::into_response(
+            mutation_plan_error_response(DavMutationPlanError::MethodNotAllowed),
+        ),
+        Err(FsError::NotFound) => aster_forge_webdav::actix::into_response(
+            mutation_plan_error_response(DavMutationPlanError::Conflict),
+        ),
         Err(err) => fs_error_response(err),
     }
 }
 
 pub(crate) async fn handle_delete(
     req: &HttpRequest,
-    dav_fs: &fs::AsterDavFs,
+    request_head: &DavRequestHead,
+    dav_fs: &backend::AsterDavFs,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
 ) -> HttpResponse {
-    let depth = match protocol::parse_delete_depth(req.headers()) {
-        Ok(depth) => depth,
-        Err(resp) => return resp,
+    let Some(depth) = request_head.depth else {
+        return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
-
-    let (path, relative) = match request_path(req, prefix) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let path = request_head.target.clone();
+    let relative = path.as_str().to_owned();
 
     let meta = match dav_fs.metadata(&path).await {
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
-    if meta.is_dir() && !depth.is_infinity() {
-        return responses::bad_request();
+    let resource_kind = if meta.is_dir() {
+        DavResourceKind::Collection
+    } else {
+        DavResourceKind::File
+    };
+    if let Err(error) = validate_delete_target(resource_kind, depth) {
+        return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
     }
     if let Err(resp) = protocol::evaluate_http_etag_preconditions(
         req.headers(),
@@ -176,15 +170,16 @@ pub(crate) async fn handle_delete(
     ) {
         return resp;
     }
-    let (request_scheme, request_host) = request_origin(req);
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     if let Err(resp) = protocol::ensure_if_header(
-        req.headers(),
+        request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
         &path,
         prefix,
-        &request_scheme,
-        &request_host,
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -192,7 +187,7 @@ pub(crate) async fn handle_delete(
     }
     if meta.is_dir() {
         if let Some(resp) =
-            locked_multi_status_response(lock_system, &path, true, prefix, req).await
+            locked_multi_status_response(lock_system, &path, true, prefix, request_head).await
         {
             return resp;
         }
@@ -201,9 +196,9 @@ pub(crate) async fn handle_delete(
         &path,
         false,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -213,9 +208,9 @@ pub(crate) async fn handle_delete(
         lock_system,
         &relative,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -235,7 +230,7 @@ pub(crate) async fn handle_delete(
                     "failed to delete WebDAV locks after resource deletion"
                 );
             }
-            HttpResponse::NoContent().finish()
+            aster_forge_webdav::actix::into_response(delete_success_response())
         }
         Err(err) => fs_error_response(err),
     }
@@ -243,42 +238,25 @@ pub(crate) async fn handle_delete(
 
 pub(crate) async fn handle_copy_move(
     req: &HttpRequest,
-    dav_fs: &fs::AsterDavFs,
+    request_head: &DavRequestHead,
+    dav_fs: &backend::AsterDavFs,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     system_file_policy: &system_file::SystemFileBlockPolicy,
     is_move: bool,
 ) -> HttpResponse {
-    let depth = if is_move {
-        match protocol::parse_move_depth(req.headers()) {
-            Ok(depth) => depth,
-            Err(resp) => return resp,
-        }
-    } else {
-        match protocol::parse_copy_depth(req.headers()) {
-            Ok(depth) => depth,
-            Err(resp) => return resp,
-        }
+    let Some(depth) = request_head.depth else {
+        return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
+    let source = request_head.target.clone();
+    let source_relative = source.as_str().to_owned();
 
-    let (source, source_relative) = match request_path(req, prefix) {
-        Ok(v) => v,
-        Err(resp) => return resp,
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
+    let Some(destination) = request_head.destination.as_ref() else {
+        return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
-
-    let (request_scheme, request_host) = request_origin(req);
-    let destination_relative = match protocol::destination_relative_path(
-        req.headers(),
-        prefix,
-        &request_scheme,
-        &request_host,
-    ) {
-        Ok(path) => path,
-        Err(resp) => return resp,
-    };
-    if same_resource_path(&source_relative, &destination_relative) {
-        return responses::forbidden();
-    }
+    let destination_relative = destination.relative.clone();
     if let Err(resp) = ensure_system_file_name_allowed(system_file_policy, &destination_relative) {
         return resp;
     }
@@ -286,10 +264,7 @@ pub(crate) async fn handle_copy_move(
         return resp;
     }
 
-    let destination = match DavPath::new(&destination_relative) {
-        Ok(path) => path,
-        Err(_) => return responses::bad_request_text("Invalid destination path"),
-    };
+    let destination = destination.path.clone();
 
     let source_meta = match dav_fs.metadata(&source).await {
         Ok(meta) => meta,
@@ -303,29 +278,14 @@ pub(crate) async fn handle_copy_move(
     ) {
         return resp;
     }
-    if source_meta.is_dir() {
-        if is_move && !depth.is_infinity() {
-            return responses::bad_request();
-        }
-        if !is_move && depth == Depth::One {
-            return responses::bad_request();
-        }
-    }
-    let recursive_collection_copy_or_move =
-        source_meta.is_dir() && (is_move || depth != Depth::Zero);
-    if recursive_collection_copy_or_move
-        && is_descendant_path(&source_relative, &destination_relative)
-    {
-        return responses::forbidden();
-    }
     if let Err(resp) = protocol::ensure_if_header(
-        req.headers(),
+        request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
         &source,
         prefix,
-        &request_scheme,
-        &request_host,
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -337,9 +297,9 @@ pub(crate) async fn handle_copy_move(
             &source,
             false,
             prefix,
-            req.headers(),
-            &request_scheme,
-            &request_host,
+            request_head.if_header.as_ref(),
+            request_scheme,
+            request_host,
         )
         .await
     {
@@ -350,9 +310,9 @@ pub(crate) async fn handle_copy_move(
             lock_system,
             &source_relative,
             prefix,
-            req.headers(),
-            &request_scheme,
-            &request_host,
+            request_head.if_header.as_ref(),
+            request_scheme,
+            request_host,
         )
         .await
     {
@@ -365,25 +325,50 @@ pub(crate) async fn handle_copy_move(
         Err(err) => return fs_error_response(err),
     };
     let destination_exists = destination_meta.is_some();
-    let overwrite = match protocol::parse_overwrite(req.headers()) {
-        Ok(overwrite) => overwrite,
-        Err(resp) => return resp,
+    let Some(overwrite) = request_head.overwrite else {
+        return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
-    if !overwrite && destination_exists {
-        return responses::precondition_failed();
-    }
     let destination_is_collection = destination_meta.as_ref().is_some_and(|meta| meta.is_dir());
-    let destination_deep =
-        destination_is_collection || source_meta.is_dir() && (is_move || depth != Depth::Zero);
-    if !destination_deep
+    let source_kind = if source_meta.is_dir() {
+        DavResourceKind::Collection
+    } else {
+        DavResourceKind::File
+    };
+    let destination_kind = destination_meta.as_ref().map(|meta| {
+        if meta.is_dir() {
+            DavResourceKind::Collection
+        } else {
+            DavResourceKind::File
+        }
+    });
+    let method = if is_move {
+        DavCopyMoveMethod::Move
+    } else {
+        DavCopyMoveMethod::Copy
+    };
+    let plan = match plan_copy_move_request(
+        method,
+        depth,
+        source_kind,
+        destination_kind,
+        &source_relative,
+        &destination_relative,
+        overwrite,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
+        }
+    };
+    if !plan.destination_deep
         && let Err(resp) = ensure_unlocked(
             lock_system,
             &destination,
             false,
             prefix,
-            req.headers(),
-            &request_scheme,
-            &request_host,
+            request_head.if_header.as_ref(),
+            request_scheme,
+            request_host,
         )
         .await
     {
@@ -393,28 +378,28 @@ pub(crate) async fn handle_copy_move(
         lock_system,
         &destination_relative,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
         return resp;
     }
 
-    if recursive_collection_copy_or_move {
+    if plan.recursive_collection {
         let source_conflicts = if is_move {
-            unsubmitted_lock_conflicts(lock_system, &source, true, prefix, req).await
+            unsubmitted_lock_conflicts(lock_system, &source, true, prefix, request_head).await
         } else {
             Vec::new()
         };
         let destination_conflicts =
-            unsubmitted_lock_conflicts(lock_system, &destination, true, prefix, req).await;
+            unsubmitted_lock_conflicts(lock_system, &destination, true, prefix, request_head).await;
         if !source_conflicts.is_empty() || !destination_conflicts.is_empty() {
             let ctx = PartialMutationContext {
                 dav_fs,
                 lock_system,
-                req,
+                request_head,
                 prefix,
                 is_move,
             };
@@ -436,18 +421,18 @@ pub(crate) async fn handle_copy_move(
                 Err(err) => return fs_error_response(err),
             };
             if !outcome.failures.is_empty() {
-                return multi_status_failure_response(prefix, &outcome.failures);
+                return mutation_failure_response(prefix, &outcome.failures);
             }
-            if outcome.destination_exists {
-                return no_store_response(StatusCode::NO_CONTENT);
-            }
-            return no_store_response(StatusCode::CREATED);
+            return aster_forge_webdav::actix::into_response(mutation_success_response(
+                outcome.destination_exists,
+            ));
         }
     }
 
-    if destination_deep
+    if plan.destination_deep
         && let Some(resp) =
-            locked_multi_status_response(lock_system, &destination, true, prefix, req).await
+            locked_multi_status_response(lock_system, &destination, true, prefix, request_head)
+                .await
     {
         return resp;
     }
@@ -468,18 +453,10 @@ pub(crate) async fn handle_copy_move(
                     "failed to delete WebDAV locks after move"
                 );
             }
-            if destination_exists {
-                no_store_response(StatusCode::NO_CONTENT)
-            } else {
-                no_store_response(StatusCode::CREATED)
-            }
+            aster_forge_webdav::actix::into_response(mutation_success_response(destination_exists))
         }
         Err(err) => fs_error_response(err),
     }
-}
-
-fn no_store_response(status: StatusCode) -> HttpResponse {
-    responses::no_store(status)
 }
 
 async fn locked_multi_status_response(
@@ -487,17 +464,18 @@ async fn locked_multi_status_response(
     path: &DavPath,
     deep: bool,
     prefix: &str,
-    req: &HttpRequest,
+    request_head: &DavRequestHead,
 ) -> Option<HttpResponse> {
     let mut conflicts = lock_system.conflicting_locks(path, deep).await;
-    let (request_scheme, request_host) = request_origin(req);
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     conflicts.retain(|lock| {
         let href = href_for_dav_path(prefix, &lock.path);
         let tokens = protocol::submitted_lock_tokens_for_path(
-            req.headers(),
+            request_head.if_header.as_ref(),
             &href,
-            &request_scheme,
-            &request_host,
+            request_scheme,
+            request_host,
         );
         !tokens.iter().any(|token| token == &lock.token)
     });
@@ -510,33 +488,13 @@ async fn locked_multi_status_response(
 
 fn multi_status_locked_response(
     prefix: &str,
-    locks: &[crate::webdav::dav::DavLock],
+    locks: &[aster_forge_webdav::DavLock],
 ) -> HttpResponse {
-    let mut multistatus = dav_element("multistatus");
-    multistatus
-        .attributes
-        .insert("xmlns:D".to_string(), "DAV:".to_string());
-
-    for lock in locks {
-        let mut response = dav_element("response");
-        response.children.push(XMLNode::Element(text_element(
-            "D:href",
-            &href_for_dav_path(prefix, &lock.path),
-        )));
-        response
-            .children
-            .push(XMLNode::Element(status_element(StatusCode::LOCKED)));
-        let mut error = dav_element("error");
-        error
-            .children
-            .push(XMLNode::Element(lock_token_submitted_element(
-                prefix, &lock.path,
-            )));
-        response.children.push(XMLNode::Element(error));
-        multistatus.children.push(XMLNode::Element(response));
-    }
-
-    responses::with_no_store(xml_response(multistatus, multi_status()))
+    let failures = locks
+        .iter()
+        .map(|lock| DavMutationFailure::locked((*lock.path).clone(), (*lock.path).clone()))
+        .collect::<Vec<_>>();
+    mutation_failure_response(prefix, &failures)
 }
 
 async fn unsubmitted_lock_conflicts(
@@ -544,17 +502,18 @@ async fn unsubmitted_lock_conflicts(
     path: &DavPath,
     deep: bool,
     prefix: &str,
-    req: &HttpRequest,
-) -> Vec<crate::webdav::dav::DavLock> {
+    request_head: &DavRequestHead,
+) -> Vec<aster_forge_webdav::DavLock> {
     let mut conflicts = lock_system.conflicting_locks(path, deep).await;
-    let (request_scheme, request_host) = request_origin(req);
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     conflicts.retain(|lock| {
         let href = href_for_dav_path(prefix, &lock.path);
         let tokens = protocol::submitted_lock_tokens_for_path(
-            req.headers(),
+            request_head.if_header.as_ref(),
             &href,
-            &request_scheme,
-            &request_host,
+            request_scheme,
+            request_host,
         );
         !tokens.iter().any(|token| token == &lock.token)
     });
@@ -768,7 +727,7 @@ async fn push_destination_children(
 async fn partial_copy_move_file(
     ctx: &PartialMutationContext<'_>,
     node: &PartialMutationNode,
-    failures: &mut Vec<MultiStatusFailure>,
+    failures: &mut Vec<DavMutationFailure>,
 ) -> Result<(), FsError> {
     if ctx.is_move {
         let conflicts = collect_lock_failures(ctx, &node.source, false).await;
@@ -800,15 +759,11 @@ async fn partial_copy_move_file(
 }
 
 fn extend_unique_failures(
-    failures: &mut Vec<MultiStatusFailure>,
-    additions: impl IntoIterator<Item = MultiStatusFailure>,
+    failures: &mut Vec<DavMutationFailure>,
+    additions: impl IntoIterator<Item = DavMutationFailure>,
 ) {
     for failure in additions {
-        if failures.iter().any(|existing| {
-            existing.path == failure.path
-                && existing.status == failure.status
-                && existing.lock_path == failure.lock_path
-        }) {
+        if failures.contains(&failure) {
             continue;
         }
         failures.push(failure);
@@ -819,20 +774,16 @@ async fn collect_lock_failures(
     ctx: &PartialMutationContext<'_>,
     path: &DavPath,
     deep: bool,
-) -> Vec<MultiStatusFailure> {
-    unsubmitted_lock_conflicts(ctx.lock_system, path, deep, ctx.prefix, ctx.req)
+) -> Vec<DavMutationFailure> {
+    unsubmitted_lock_conflicts(ctx.lock_system, path, deep, ctx.prefix, ctx.request_head)
         .await
         .into_iter()
-        .map(|lock| MultiStatusFailure {
-            path: (*lock.path).clone(),
-            status: StatusCode::LOCKED,
-            lock_path: Some((*lock.path).clone()),
-        })
+        .map(|lock| DavMutationFailure::locked((*lock.path).clone(), (*lock.path).clone()))
         .collect()
 }
 
 async fn collect_children(
-    dav_fs: &fs::AsterDavFs,
+    dav_fs: &backend::AsterDavFs,
     path: &DavPath,
     relative: &str,
 ) -> Result<Vec<DavChild>, FsError> {
@@ -867,50 +818,21 @@ fn replace_relative_prefix(path: &str, source_prefix: &str, destination_prefix: 
     }
 }
 
-fn multi_status_failure_response(prefix: &str, failures: &[MultiStatusFailure]) -> HttpResponse {
-    let mut multistatus = dav_element("multistatus");
-    multistatus
-        .attributes
-        .insert("xmlns:D".to_string(), "DAV:".to_string());
-
-    for failure in failures {
-        let mut response = dav_element("response");
-        response.children.push(XMLNode::Element(text_element(
-            "D:href",
-            &href_for_dav_path(prefix, &failure.path),
-        )));
-        response
-            .children
-            .push(XMLNode::Element(status_element(failure.status)));
-        if failure.status == StatusCode::LOCKED {
-            let lock_path = failure.lock_path.as_ref().unwrap_or(&failure.path);
-            let mut error = dav_element("error");
-            error
-                .children
-                .push(XMLNode::Element(lock_token_submitted_element(
-                    prefix, lock_path,
-                )));
-            response.children.push(XMLNode::Element(error));
-        }
-        multistatus.children.push(XMLNode::Element(response));
+fn mutation_failure_response(prefix: &str, failures: &[DavMutationFailure]) -> HttpResponse {
+    match mutation_multistatus_response(prefix, failures) {
+        Ok(response) => aster_forge_webdav::actix::into_response(response),
+        Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
     }
-
-    responses::with_no_store(xml_response(multistatus, multi_status()))
 }
 
-pub(crate) async fn ensure_empty_body(payload: &mut web::Payload) -> Result<(), HttpResponse> {
-    while let Some(chunk) = payload.next().await {
-        let chunk = chunk.map_err(|_| responses::request_body_read_error())?;
-        if !chunk.is_empty() {
-            return Err(responses::unsupported_media_type());
-        }
-    }
-    Ok(())
-}
-
-async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result<(), HttpResponse> {
+async fn ensure_parent_exists(
+    dav_fs: &backend::AsterDavFs,
+    relative: &str,
+) -> Result<(), HttpResponse> {
     let Some(parent) = parent_relative_path(relative) else {
-        return Err(responses::empty(StatusCode::METHOD_NOT_ALLOWED));
+        return Err(aster_forge_webdav::actix::into_response(
+            mutation_plan_error_response(DavMutationPlanError::MethodNotAllowed),
+        ));
     };
     if parent == "/" {
         return Ok(());
@@ -918,109 +840,16 @@ async fn ensure_parent_exists(dav_fs: &fs::AsterDavFs, relative: &str) -> Result
     let parent_path = DavPath::new(&parent).map_err(|_| responses::bad_request())?;
     match dav_fs.metadata(&parent_path).await {
         Ok(meta) if meta.is_dir() => Ok(()),
-        Ok(_) => Err(responses::conflict()),
-        Err(FsError::NotFound) => Err(responses::conflict()),
+        Ok(_) | Err(FsError::NotFound) => Err(aster_forge_webdav::actix::into_response(
+            mutation_plan_error_response(DavMutationPlanError::Conflict),
+        )),
         Err(err) => Err(fs_error_response(err)),
-    }
-}
-
-fn same_resource_path(left: &str, right: &str) -> bool {
-    resource_identity_path(left) == resource_identity_path(right)
-}
-
-fn is_descendant_path(parent: &str, child: &str) -> bool {
-    let parent = resource_identity_path(parent);
-    let child = resource_identity_path(child);
-    if parent == "/" || parent == child {
-        return false;
-    }
-    let parent_prefix = format!("{parent}/");
-    child.starts_with(&parent_prefix)
-}
-
-fn resource_identity_path(path: &str) -> String {
-    let trimmed = path.trim_end_matches('/');
-    if trimmed.is_empty() {
-        "/".to_string()
-    } else {
-        trimmed.to_string()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        ensure_empty_body, is_descendant_path, replace_relative_prefix, same_resource_path,
-    };
-    use actix_web::FromRequest;
-    use actix_web::http::StatusCode;
-    use actix_web::web;
-    use bytes::Bytes;
-
-    async fn payload_from_bytes(bytes: Bytes) -> web::Payload {
-        let (req, mut dev_payload) = actix_web::test::TestRequest::default()
-            .set_payload(bytes)
-            .to_http_parts();
-        web::Payload::from_request(&req, &mut dev_payload)
-            .await
-            .expect("test payload should extract")
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_accepts_empty_payload() {
-        let mut payload = payload_from_bytes(Bytes::new()).await;
-
-        ensure_empty_body(&mut payload)
-            .await
-            .expect("empty MKCOL body should be accepted");
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_ignores_empty_chunks() {
-        let mut payload = payload_from_bytes(Bytes::new()).await;
-
-        ensure_empty_body(&mut payload)
-            .await
-            .expect("empty MKCOL body chunks should be accepted");
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_rejects_first_non_empty_chunk() {
-        let mut payload = payload_from_bytes(Bytes::from_static(b"x")).await;
-
-        let response = ensure_empty_body(&mut payload)
-            .await
-            .expect_err("non-empty MKCOL body should be rejected");
-
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    }
-
-    #[actix_web::test]
-    async fn ensure_empty_body_stops_after_first_non_empty_chunk() {
-        let mut payload = payload_from_bytes(Bytes::from(vec![b'x'; 2 * 1024 * 1024])).await;
-
-        let response = ensure_empty_body(&mut payload)
-            .await
-            .expect_err("large non-empty MKCOL body should be rejected");
-
-        assert_eq!(response.status(), StatusCode::UNSUPPORTED_MEDIA_TYPE);
-    }
-
-    #[test]
-    fn resource_identity_ignores_collection_trailing_slash() {
-        assert!(same_resource_path("/docs", "/docs/"));
-        assert!(same_resource_path("/", "/"));
-        assert!(!same_resource_path("/docs", "/docs/sub"));
-    }
-
-    #[test]
-    fn descendant_identity_requires_path_boundary() {
-        assert!(is_descendant_path("/docs", "/docs/sub"));
-        assert!(is_descendant_path("/docs/", "/docs/sub/file.txt"));
-        assert!(!is_descendant_path("/docs", "/docs"));
-        assert!(!is_descendant_path("/docs", "/docs2/sub"));
-        assert!(!is_descendant_path("/", "/docs"));
-    }
+    use super::replace_relative_prefix;
 
     #[test]
     fn replace_relative_prefix_strips_only_one_source_prefix() {

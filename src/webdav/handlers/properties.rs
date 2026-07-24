@@ -1,42 +1,31 @@
 //! WebDAV PROPFIND / PROPPATCH handlers.
 
-use std::collections::BTreeSet;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::time::Instant;
 
+use actix_web::HttpResponse;
 use actix_web::http::StatusCode;
-use actix_web::{HttpRequest, HttpResponse};
 use aster_forge_utils::http_validators::format_http_date;
-use aster_forge_utils::xml::XmlSafetyError;
+use aster_forge_webdav::{
+    DavMultiStatusItem, DavPropfindRequest, DavRequestHead, DavRequestedProperty, DavXmlElement,
+    DavXmlError, build_propfind_item, build_proppatch_item, dav_dead_property_element, dav_element,
+    dav_property_child_element, dav_property_name_element, dav_property_text_element,
+    format_creation_date, property_multistatus_response, propfind_finite_depth_response,
+    propfind_request_label, propfind_xml_error_response, proppatch_xml_error_response,
+};
 use futures::{StreamExt, pin_mut};
-use xmltree::{Element, XMLNode};
 
 use crate::services::content::property;
-use crate::webdav::dav::{
-    DavFileSystem, DavLock, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, ReadDirMeta,
-};
-use crate::webdav::locks::{lockdiscovery_element, supportedlock_element};
+use crate::webdav::handlers::locks::{lockdiscovery_element, supportedlock_element};
 use crate::webdav::protocol::{self, Depth};
 use crate::webdav::responses;
 use crate::webdav::{
-    child_elements, child_relative_path, dav_element, display_name, ensure_unlocked,
-    format_creation_date, fs_error_response, href_for_dav_path, href_for_relative, multi_status,
-    parse_webdav_element, request_origin, request_path, status_element, text_element, xml_bytes,
-    xml_response,
+    child_relative_path, display_name, ensure_unlocked, fs_error_response, href_for_dav_path,
+    href_for_relative,
 };
-
-#[derive(Clone)]
-struct RequestedProp {
-    name: String,
-    namespace: Option<String>,
-    prefix: Option<String>,
-}
-
-enum PropfindKind {
-    AllProp { include: Vec<RequestedProp> },
-    PropName,
-    Prop(Vec<RequestedProp>),
-}
+use aster_forge_webdav::{
+    DavFileSystem, DavLock, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, ReadDirMeta,
+};
 
 struct PropfindResource {
     path: Option<DavPath>,
@@ -44,65 +33,17 @@ struct PropfindResource {
     meta: Box<dyn DavMetaData>,
 }
 
-type PropKey = (String, Option<String>);
-type PropKeySet = BTreeSet<PropKey>;
-
 #[derive(Default)]
 struct PropfindPreload {
     dead_props: HashMap<DavPath, Vec<DavProp>>,
     locks: HashMap<DavPath, Vec<DavLock>>,
 }
 
-impl RequestedProp {
-    fn from(element: &Element) -> Self {
-        Self {
-            name: element.name.clone(),
-            namespace: element.namespace.clone(),
-            prefix: element.prefix.clone(),
-        }
-    }
-
-    fn empty_element(&self) -> Element {
-        let prefix = self
-            .prefix
-            .as_deref()
-            .unwrap_or_else(|| default_prefix(self.namespace.as_deref()));
-        let tag = if self.namespace.is_some() {
-            format!("{prefix}:{}", self.name)
-        } else {
-            self.name.clone()
-        };
-        let mut element = Element::new(&tag);
-        if let Some(namespace) = &self.namespace
-            && should_declare_namespace(prefix, namespace)
-        {
-            element
-                .attributes
-                .insert(format!("xmlns:{prefix}"), namespace.clone());
-        }
-        element
-    }
-
-    fn matches(&self, prop: &DavProp) -> bool {
-        self.name == prop.name && self.namespace.as_deref() == prop.namespace.as_deref()
-    }
-
-    fn key(&self) -> (String, Option<String>) {
-        (self.name.clone(), self.namespace.clone())
-    }
-
-    fn is_system_namespace(&self) -> bool {
-        self.namespace
-            .as_deref()
-            .is_some_and(property::is_system_namespace)
-    }
-}
-
 impl PropfindPreload {
     async fn load(
         dav_fs: &dyn DavFileSystem,
         lock_system: &dyn DavLockSystem,
-        request_kind: &PropfindKind,
+        request_kind: &DavPropfindRequest,
         resources: &[PropfindResource],
     ) -> Result<Self, HttpResponse> {
         let mut preload = Self::default();
@@ -112,12 +53,12 @@ impl PropfindPreload {
                 .iter()
                 .filter(|resource| !is_root_resource(resource))
                 .filter_map(|resource| {
-                    let (entity_type, entity_id) = resource.meta.property_entity()?;
-                    Some((resource.path.clone()?, entity_type, entity_id))
+                    let target = resource.meta.property_target()?;
+                    Some((resource.path.clone()?, target))
                 })
                 .collect::<Vec<_>>();
             preload.dead_props = dav_fs
-                .get_props_many_for_entities(
+                .get_props_many_for_targets(
                     &targets,
                     propfind_kind_needs_dead_prop_content(request_kind),
                 )
@@ -156,33 +97,31 @@ impl PropfindPreload {
 }
 
 pub(crate) async fn handle_propfind(
-    req: &HttpRequest,
+    request_head: &DavRequestHead,
     dav_fs: &dyn DavFileSystem,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     body: &[u8],
 ) -> HttpResponse {
-    let (path, relative) = match request_path(req, prefix) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
-    let (request_scheme, request_host) = request_origin(req);
+    let path = request_head.target.clone();
+    let relative = path.as_str().to_owned();
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     if let Err(resp) = protocol::ensure_if_header(
-        req.headers(),
+        request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
         &path,
         prefix,
-        &request_scheme,
-        &request_host,
+        request_scheme,
+        request_host,
     )
     .await
     {
         return resp;
     }
-    let depth = match protocol::parse_propfind_depth(req.headers()) {
-        Ok(depth) => depth,
-        Err(resp) => return resp,
+    let Some(depth) = request_head.depth else {
+        return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
     };
     let request_kind = match parse_propfind_request(body) {
         Ok(kind) => kind,
@@ -197,7 +136,7 @@ pub(crate) async fn handle_propfind(
     };
     let metadata_elapsed_ms = metadata_started_at.elapsed().as_millis();
     if depth == Depth::Infinity && root_meta.is_dir() {
-        return responses::propfind_finite_depth_response();
+        return forge_xml_response(propfind_finite_depth_response());
     }
     let collect_started_at = Instant::now();
     let preload_needs_paths = propfind_kind_needs_dead_props(&request_kind)
@@ -226,22 +165,18 @@ pub(crate) async fn handle_propfind(
     };
     let preload_elapsed_ms = preload_started_at.elapsed().as_millis();
 
-    let mut multistatus = dav_element("multistatus");
-    multistatus
-        .attributes
-        .insert("xmlns:D".to_string(), "DAV:".to_string());
-
     let render_started_at = Instant::now();
+    let mut responses = Vec::with_capacity(resource_count);
     for resource in resources {
         let response = match build_propfind_response(prefix, &request_kind, &preload, resource) {
             Ok(response) => response,
             Err(resp) => return resp,
         };
-        multistatus.children.push(XMLNode::Element(response));
+        responses.push(response);
     }
     tracing::debug!(
         depth = ?depth,
-        kind = propfind_kind_label(&request_kind),
+        kind = propfind_request_label(&request_kind),
         resource_count,
         metadata_elapsed_ms,
         collect_elapsed_ms,
@@ -251,35 +186,33 @@ pub(crate) async fn handle_propfind(
         "WebDAV PROPFIND completed"
     );
 
-    xml_response(multistatus, multi_status())
+    forge_xml_response(property_multistatus_response(responses))
 }
 
 pub(crate) async fn handle_proppatch(
-    req: &HttpRequest,
+    request_head: &DavRequestHead,
     dav_fs: &dyn DavFileSystem,
     lock_system: &dyn DavLockSystem,
     prefix: &str,
     body: &[u8],
 ) -> HttpResponse {
-    let (path, _) = match request_path(req, prefix) {
-        Ok(v) => v,
-        Err(resp) => return resp,
-    };
+    let path = request_head.target.clone();
     if path.as_str() == "/" {
         // The WebDAV mount root is a virtual listing boundary, not a persisted
         // file/folder entity. Dead properties are intentionally unavailable
         // there instead of being backed by an implicit root row.
         return responses::unsupported_root_proppatch();
     }
-    let (request_scheme, request_host) = request_origin(req);
+    let request_scheme = request_head.origin.scheme.as_str();
+    let request_host = request_head.origin.host.as_str();
     if let Err(resp) = protocol::ensure_if_header(
-        req.headers(),
+        request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
         &path,
         prefix,
-        &request_scheme,
-        &request_host,
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -290,9 +223,9 @@ pub(crate) async fn handle_proppatch(
         &path,
         false,
         prefix,
-        req.headers(),
-        &request_scheme,
-        &request_host,
+        request_head.if_header.as_ref(),
+        request_scheme,
+        request_host,
     )
     .await
     {
@@ -309,163 +242,50 @@ pub(crate) async fn handle_proppatch(
         Err(err) => return fs_error_response(err),
     };
 
-    let mut multistatus = dav_element("multistatus");
-    multistatus
-        .attributes
-        .insert("xmlns:D".to_string(), "DAV:".to_string());
-
-    let mut response = dav_element("response");
-    response.children.push(XMLNode::Element(text_element(
-        "D:href",
-        &href_for_dav_path(prefix, &path),
-    )));
-
-    let mut groups: BTreeMap<u16, Vec<DavProp>> = BTreeMap::new();
-    for (status, prop) in results {
-        groups.entry(status.as_u16()).or_default().push(prop);
-    }
-
-    for (status_code, props) in groups {
-        let status = StatusCode::from_u16(status_code).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-        let mut propstat = dav_element("propstat");
-        let mut prop = dav_element("prop");
-        for item in props {
-            prop.children
-                .push(XMLNode::Element(prop_element(&item, None)));
-        }
-        propstat.children.push(XMLNode::Element(prop));
-        propstat
-            .children
-            .push(XMLNode::Element(status_element(status)));
-        response.children.push(XMLNode::Element(propstat));
-    }
-
-    multistatus.children.push(XMLNode::Element(response));
-    xml_response(multistatus, multi_status())
+    let response = build_proppatch_item(
+        href_for_dav_path(prefix, &path),
+        results
+            .into_iter()
+            .map(|(status, prop)| (status.as_u16(), prop_element(&prop, None))),
+    );
+    forge_xml_response(property_multistatus_response(vec![response]))
 }
 
-fn parse_propfind_request(body: &[u8]) -> Result<PropfindKind, HttpResponse> {
-    if body.is_empty() {
-        return Ok(PropfindKind::AllProp {
-            include: Vec::new(),
-        });
-    }
-
-    let root = match parse_webdav_element(body) {
-        Ok(root) => root,
-        Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
-        Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
-        ) => {
-            return Err(responses::invalid_xml_body());
-        }
-    };
-    if !is_dav_element(&root, "propfind") {
-        return Err(invalid_propfind_body());
-    }
-
-    let mut kind = None;
-    let mut include = Vec::new();
-    let mut include_seen = false;
-
-    for child in child_elements(&root) {
-        if is_dav_element(child, "propname") {
-            if kind.is_some() {
-                return Err(invalid_propfind_body());
-            }
-            kind = Some(PropfindKind::PropName);
-        } else if is_dav_element(child, "allprop") {
-            if kind.is_some() {
-                return Err(invalid_propfind_body());
-            }
-            kind = Some(PropfindKind::AllProp {
-                include: Vec::new(),
-            });
-        } else if is_dav_element(child, "include") {
-            if include_seen {
-                return Err(invalid_propfind_body());
-            }
-            include_seen = true;
-            include.extend(child_elements(child).map(RequestedProp::from));
-        } else if is_dav_element(child, "prop") {
-            if kind.is_some() {
-                return Err(invalid_propfind_body());
-            }
-            let props = child_elements(child).map(RequestedProp::from).collect();
-            kind = Some(PropfindKind::Prop(props));
-        } else {
-            // RFC 4918 section 17 requires unknown XML elements, including
-            // their complete subtrees, to be processed as if they were absent.
-            // Only direct DAV: children above can select PROPFIND behavior.
-            continue;
-        }
-    }
-
-    match kind {
-        Some(PropfindKind::AllProp { .. }) => Ok(PropfindKind::AllProp { include }),
-        Some(kind) => {
-            if !include_seen {
-                Ok(kind)
-            } else {
-                Err(invalid_propfind_body())
-            }
-        }
-        None => Err(invalid_propfind_body()),
-    }
-}
-
-fn is_dav_element(element: &Element, local_name: &str) -> bool {
-    element.name == local_name && element.namespace.as_deref() == Some("DAV:")
+fn parse_propfind_request(body: &[u8]) -> Result<DavPropfindRequest, HttpResponse> {
+    aster_forge_webdav::parse_propfind_request(body)
+        .map_err(|error| forge_xml_response(propfind_xml_error_response(error)))
 }
 
 fn parse_proppatch_request(body: &[u8]) -> Result<Vec<(bool, DavProp)>, HttpResponse> {
-    let root = match parse_webdav_element(body) {
-        Ok(root) => root,
-        Err(XmlSafetyError::ExternalEntity) => return Err(responses::no_external_entities()),
-        Err(
-            XmlSafetyError::TooDeep | XmlSafetyError::Malformed | XmlSafetyError::InvalidPolicy,
-        ) => {
-            return Err(responses::invalid_xml_body());
-        }
-    };
-    if root.name != "propertyupdate" {
-        return Err(invalid_proppatch_body());
-    }
-
-    let root_lang = xml_lang_value(&root).map(str::to_string);
-    let mut patches = Vec::new();
-    for action in child_elements(&root) {
-        let action_lang = xml_lang_value(action).or(root_lang.as_deref());
-        let set = match action.name.as_str() {
-            "set" => true,
-            "remove" => false,
-            _ => return Err(invalid_proppatch_body()),
-        };
-        let mut action_children = child_elements(action);
-        let Some(prop_container) = action_children.next() else {
-            return Err(invalid_proppatch_body());
-        };
-        if prop_container.name != "prop" || action_children.next().is_some() {
-            return Err(invalid_proppatch_body());
-        }
-        let prop_container_lang = xml_lang_value(prop_container).or(action_lang);
-        for prop in child_elements(prop_container) {
-            let inherited_lang = xml_lang_value(prop).or(prop_container_lang);
-            patches.push((set, prop_from_xml(prop, inherited_lang)));
-        }
-    }
-    if patches.is_empty() {
-        return Err(invalid_proppatch_body());
-    }
-    Ok(patches)
+    aster_forge_webdav::parse_proppatch_request(body)
+        .map_err(|error| forge_xml_response(proppatch_xml_error_response(error)))?
+        .into_iter()
+        .map(|patch| {
+            let xml = patch
+                .property
+                .element
+                .to_bytes()
+                .map_err(|_| responses::empty(StatusCode::INTERNAL_SERVER_ERROR))?;
+            Ok((
+                patch.set,
+                DavProp {
+                    name: patch.property.name,
+                    prefix: patch.property.prefix,
+                    namespace: patch.property.namespace,
+                    xml: Some(xml),
+                },
+            ))
+        })
+        .collect()
 }
 
-fn invalid_propfind_body() -> HttpResponse {
-    responses::bad_request_text("Invalid PROPFIND body")
-}
-
-fn invalid_proppatch_body() -> HttpResponse {
-    responses::bad_request_text("Invalid PROPPATCH body")
+fn forge_xml_response(
+    response: Result<aster_forge_webdav::DavResponse, DavXmlError>,
+) -> HttpResponse {
+    match response {
+        Ok(response) => aster_forge_webdav::actix::into_response(response),
+        Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
+    }
 }
 
 async fn collect_propfind_resources(
@@ -506,207 +326,90 @@ async fn collect_propfind_resources(
     Ok(resources)
 }
 
-fn propfind_kind_label(kind: &PropfindKind) -> &'static str {
-    match kind {
-        PropfindKind::AllProp { .. } => "allprop",
-        PropfindKind::PropName => "propname",
-        PropfindKind::Prop(_) => "prop",
-    }
-}
-
 fn build_propfind_response(
     prefix: &str,
-    request_kind: &PropfindKind,
+    request_kind: &DavPropfindRequest,
     preload: &PropfindPreload,
     resource: PropfindResource,
-) -> Result<Element, HttpResponse> {
-    let mut response = dav_element("response");
-    response.children.push(XMLNode::Element(text_element(
-        "D:href",
-        &href_for_relative(prefix, &resource.relative),
-    )));
-
-    let propstats = match request_kind {
-        PropfindKind::AllProp { include } => {
-            all_propstat_elements(prefix, &resource, include, preload)?
-        }
-        PropfindKind::PropName => {
-            vec![(StatusCode::OK, prop_name_elements(&resource, preload))]
-        }
-        PropfindKind::Prop(requested) => {
-            requested_prop_elements(prefix, &resource, requested, preload)?
-        }
-    };
-
-    for (status, props) in propstats {
-        if props.is_empty() {
-            continue;
-        }
-        let mut propstat = dav_element("propstat");
-        let mut prop = dav_element("prop");
-        for item in props {
-            prop.children.push(XMLNode::Element(item));
-        }
-        propstat.children.push(XMLNode::Element(prop));
-        propstat
-            .children
-            .push(XMLNode::Element(status_element(status)));
-        response.children.push(XMLNode::Element(propstat));
-    }
-
-    Ok(response)
+) -> Result<DavMultiStatusItem, HttpResponse> {
+    let available = available_property_names(&resource, preload);
+    build_propfind_item(
+        href_for_relative(prefix, &resource.relative),
+        request_kind,
+        &available,
+        |requested| resolve_property(prefix, &resource, requested, preload),
+    )
 }
 
-fn all_prop_elements(
-    prefix: &str,
+fn available_property_names(
     resource: &PropfindResource,
     preload: &PropfindPreload,
-) -> Result<(Vec<Element>, PropKeySet), HttpResponse> {
-    let mut props = standard_prop_name_list(resource)
+) -> Vec<DavRequestedProperty> {
+    let mut properties = standard_prop_name_list(resource)
         .into_iter()
-        .map(|prop| RequestedProp {
-            name: prop.to_string(),
+        .map(|name| DavRequestedProperty {
+            name: name.to_string(),
             namespace: Some("DAV:".to_string()),
             prefix: Some("D".to_string()),
         })
         .collect::<Vec<_>>();
-    let mut keys = props
-        .iter()
-        .map(RequestedProp::key)
-        .collect::<BTreeSet<_>>();
-    let custom_props = preload.dead_props_for(resource);
-    let mut elements = Vec::new();
-    for requested in props.drain(..) {
-        if let Some(element) = standard_prop_element(prefix, resource, &requested, preload)? {
-            elements.push(element);
-        }
-    }
-    for prop in custom_props {
-        keys.insert(dav_prop_key(prop));
-        elements.push(prop_element(prop, None));
-    }
-    Ok((elements, keys))
-}
-
-fn all_propstat_elements(
-    prefix: &str,
-    resource: &PropfindResource,
-    include: &[RequestedProp],
-    preload: &PropfindPreload,
-) -> Result<Vec<(StatusCode, Vec<Element>)>, HttpResponse> {
-    let (all_props, all_prop_keys) = all_prop_elements(prefix, resource, preload)?;
-    if include.is_empty() {
-        return Ok(vec![(StatusCode::OK, all_props)]);
-    }
-
-    let include = include
-        .iter()
-        .filter(|prop| !all_prop_keys.contains(&prop.key()))
-        .cloned()
-        .collect::<Vec<_>>();
-    if include.is_empty() {
-        return Ok(vec![(StatusCode::OK, all_props)]);
-    }
-
-    let mut result = vec![(StatusCode::OK, all_props)];
-    let requested = requested_prop_elements(prefix, resource, &include, preload)?;
-    for (status, props) in requested {
-        if !props.is_empty() {
-            result.push((status, props));
-        }
-    }
-    Ok(result)
-}
-
-fn prop_name_elements(resource: &PropfindResource, preload: &PropfindPreload) -> Vec<Element> {
-    let mut elements = Vec::new();
-    for name in standard_prop_name_list(resource) {
-        let requested = RequestedProp {
-            name: name.to_string(),
-            namespace: Some("DAV:".to_string()),
-            prefix: Some("D".to_string()),
-        };
-        elements.push(requested.empty_element());
-    }
-    for prop in preload.dead_props_for(resource) {
-        elements.push(prop_element(
-            prop,
-            Some(&RequestedProp {
+    properties.extend(
+        preload
+            .dead_props_for(resource)
+            .iter()
+            .map(|prop| DavRequestedProperty {
                 name: prop.name.clone(),
                 namespace: prop.namespace.clone(),
                 prefix: prop.prefix.clone(),
             }),
-        ));
-    }
-    elements
+    );
+    properties
 }
 
-fn requested_prop_elements(
+fn resolve_property(
     prefix: &str,
     resource: &PropfindResource,
-    requested: &[RequestedProp],
+    requested: &DavRequestedProperty,
     preload: &PropfindPreload,
-) -> Result<Vec<(StatusCode, Vec<Element>)>, HttpResponse> {
-    let custom_props = preload.dead_props_for(resource);
-    let mut ok = Vec::new();
-    let mut missing = Vec::new();
-
-    for prop in requested {
-        if prop.is_system_namespace() {
-            missing.push(prop.empty_element());
-            continue;
-        }
-
-        if let Some(element) = standard_prop_element(prefix, resource, prop, preload)? {
-            ok.push(element);
-            continue;
-        }
-
-        if let Some(stored) = custom_props
-            .iter()
-            .find(|candidate| prop.matches(candidate))
-        {
-            ok.push(prop_element(stored, Some(prop)));
-        } else {
-            missing.push(prop.empty_element());
-        }
+) -> Result<Option<DavXmlElement>, HttpResponse> {
+    if is_system_property(requested) {
+        return Ok(None);
     }
-
-    let mut result = Vec::new();
-    if !ok.is_empty() {
-        result.push((StatusCode::OK, ok));
+    if let Some(element) = standard_prop_element(prefix, resource, requested, preload)? {
+        return Ok(Some(element));
     }
-    if !missing.is_empty() {
-        result.push((StatusCode::NOT_FOUND, missing));
-    }
-    Ok(result)
+    Ok(preload
+        .dead_props_for(resource)
+        .iter()
+        .find(|candidate| requested_property_matches(requested, candidate))
+        .map(|stored| prop_element(stored, Some(requested))))
 }
 
-fn requested_props_may_need_dead_lookup(requested: &[RequestedProp]) -> bool {
+fn requested_props_may_need_dead_lookup(requested: &[DavRequestedProperty]) -> bool {
     requested.iter().any(requested_prop_may_be_dead_property)
 }
 
-fn propfind_kind_needs_dead_props(kind: &PropfindKind) -> bool {
+fn propfind_kind_needs_dead_props(kind: &DavPropfindRequest) -> bool {
     match kind {
-        PropfindKind::AllProp { .. } | PropfindKind::PropName => true,
-        PropfindKind::Prop(requested) => requested_props_may_need_dead_lookup(requested),
+        DavPropfindRequest::AllProp { .. } | DavPropfindRequest::PropName => true,
+        DavPropfindRequest::Prop(requested) => requested_props_may_need_dead_lookup(requested),
     }
 }
 
-fn propfind_kind_needs_dead_prop_content(kind: &PropfindKind) -> bool {
-    !matches!(kind, PropfindKind::PropName)
+fn propfind_kind_needs_dead_prop_content(kind: &DavPropfindRequest) -> bool {
+    !matches!(kind, DavPropfindRequest::PropName)
 }
 
-fn propfind_kind_needs_lockdiscovery(kind: &PropfindKind) -> bool {
+fn propfind_kind_needs_lockdiscovery(kind: &DavPropfindRequest) -> bool {
     match kind {
-        PropfindKind::AllProp { .. } => true,
-        PropfindKind::PropName => false,
-        PropfindKind::Prop(requested) => requested.iter().any(is_lockdiscovery_prop),
+        DavPropfindRequest::AllProp { .. } => true,
+        DavPropfindRequest::PropName => false,
+        DavPropfindRequest::Prop(requested) => requested.iter().any(is_lockdiscovery_prop),
     }
 }
 
-fn requested_prop_may_be_dead_property(prop: &RequestedProp) -> bool {
-    if prop.is_system_namespace() {
+fn requested_prop_may_be_dead_property(prop: &DavRequestedProperty) -> bool {
+    if is_system_property(prop) {
         return false;
     }
     match prop.namespace.as_deref() {
@@ -716,45 +419,43 @@ fn requested_prop_may_be_dead_property(prop: &RequestedProp) -> bool {
     }
 }
 
-fn is_lockdiscovery_prop(prop: &RequestedProp) -> bool {
+fn is_lockdiscovery_prop(prop: &DavRequestedProperty) -> bool {
     prop.namespace.as_deref().unwrap_or("DAV:") == "DAV:" && prop.name == "lockdiscovery"
 }
 
 fn standard_prop_element(
     prefix: &str,
     resource: &PropfindResource,
-    requested: &RequestedProp,
+    requested: &DavRequestedProperty,
     preload: &PropfindPreload,
-) -> Result<Option<Element>, HttpResponse> {
+) -> Result<Option<DavXmlElement>, HttpResponse> {
     if requested.namespace.as_deref().unwrap_or("DAV:") != "DAV:" {
         return Ok(None);
     }
 
-    let mut element = requested.empty_element();
+    let property_name = requested.clone();
     match requested.name.as_str() {
         "displayname" => {
             let display = display_name(&resource.relative);
-            if !display.is_empty() {
-                element.children.push(XMLNode::Text(display.to_string()));
-            }
-            Ok(Some(element))
+            Ok(Some(if display.is_empty() {
+                dav_property_name_element(&property_name)
+            } else {
+                dav_property_text_element(&property_name, display)
+            }))
         }
-        "resourcetype" => {
-            if resource.meta.is_dir() {
-                element
-                    .children
-                    .push(XMLNode::Element(dav_element("collection")));
-            }
-            Ok(Some(element))
-        }
+        "resourcetype" => Ok(Some(if resource.meta.is_dir() {
+            dav_property_child_element(&property_name, dav_element("collection"))
+        } else {
+            dav_property_name_element(&property_name)
+        })),
         "getcontentlength" => {
             if resource.meta.is_dir() {
                 return Ok(None);
             }
-            element
-                .children
-                .push(XMLNode::Text(resource.meta.len().to_string()));
-            Ok(Some(element))
+            Ok(Some(dav_property_text_element(
+                &property_name,
+                resource.meta.len().to_string(),
+            )))
         }
         "getcontenttype" => {
             if resource.meta.is_dir() {
@@ -767,31 +468,29 @@ fn standard_prop_element(
             else {
                 return Ok(None);
             };
-            element
-                .children
-                .push(XMLNode::Text(content_type.to_string()));
-            Ok(Some(element))
+            Ok(Some(dav_property_text_element(
+                &property_name,
+                content_type,
+            )))
         }
         "getlastmodified" => {
             let modified = resource.meta.modified().map_err(fs_error_response)?;
-            element
-                .children
-                .push(XMLNode::Text(format_http_date(modified)));
-            Ok(Some(element))
+            Ok(Some(dav_property_text_element(
+                &property_name,
+                format_http_date(modified),
+            )))
         }
         "creationdate" => {
             let created = resource.meta.created().map_err(fs_error_response)?;
-            element
-                .children
-                .push(XMLNode::Text(format_creation_date(created)));
-            Ok(Some(element))
+            Ok(Some(dav_property_text_element(
+                &property_name,
+                format_creation_date(created),
+            )))
         }
-        "getetag" => {
-            if let Some(etag) = resource.meta.etag() {
-                element.children.push(XMLNode::Text(format!("\"{etag}\"")));
-            }
-            Ok(Some(element))
-        }
+        "getetag" => Ok(Some(resource.meta.etag().map_or_else(
+            || dav_property_name_element(&property_name),
+            |etag| dav_property_text_element(&property_name, format!("\"{etag}\"")),
+        ))),
         "supportedlock" => {
             let supported = supportedlock_element();
             Ok(Some(supported))
@@ -804,97 +503,24 @@ fn standard_prop_element(
     }
 }
 
-fn prop_from_xml(prop: &Element, inherited_lang: Option<&str>) -> DavProp {
-    let mut prop = prop.clone();
-    if let Some(lang) = inherited_lang
-        && !lang.is_empty()
-    {
-        prop.attributes
-            .entry("xml:lang".to_string())
-            .or_insert_with(|| lang.to_string());
-    }
-
-    DavProp {
+fn prop_element(prop: &DavProp, requested: Option<&DavRequestedProperty>) -> DavXmlElement {
+    let stored_name = DavRequestedProperty {
         name: prop.name.clone(),
-        prefix: prop.prefix.clone(),
         namespace: prop.namespace.clone(),
-        xml: xml_bytes(&prop).ok(),
-    }
-}
-
-fn prop_element(prop: &DavProp, requested: Option<&RequestedProp>) -> Element {
-    let requested_prefix = requested.and_then(|prop| prop.prefix.as_deref());
-    let requested_namespace = requested.and_then(|prop| prop.namespace.as_deref());
-    let namespace = requested_namespace.or(prop.namespace.as_deref());
-    let prefix = requested_prefix
-        .or(prop.prefix.as_deref())
-        .unwrap_or_else(|| default_prefix(namespace));
-    let tag = if namespace.is_some() {
-        format!("{prefix}:{}", prop.name)
-    } else {
-        prop.name.clone()
+        prefix: prop.prefix.clone(),
     };
-    let mut element = Element::new(&tag);
-    if let Some(namespace) = namespace
-        && should_declare_namespace(prefix, namespace)
-    {
-        element
-            .attributes
-            .insert(format!("xmlns:{prefix}"), namespace.to_string());
-    }
-    append_stored_property_data(&mut element, prop);
-    element
+    dav_dead_property_element(&stored_name, requested, prop.xml.as_deref())
 }
 
-fn dav_prop_key(prop: &DavProp) -> (String, Option<String>) {
-    (prop.name.clone(), prop.namespace.clone())
+fn requested_property_matches(requested: &DavRequestedProperty, stored: &DavProp) -> bool {
+    requested.name == stored.name && requested.namespace.as_deref() == stored.namespace.as_deref()
 }
 
-fn append_stored_property_data(element: &mut Element, prop: &DavProp) {
-    let Some(xml) = &prop.xml else {
-        return;
-    };
-    if xml.is_empty() {
-        return;
-    }
-
-    if let Ok(stored) = parse_webdav_element(xml)
-        && stored.name == prop.name
-        && stored.namespace.as_deref() == prop.namespace.as_deref()
-    {
-        copy_dead_property_attributes(element, &stored);
-        element.children.extend(stored.children);
-        return;
-    }
-
-    element
-        .children
-        .push(XMLNode::Text(String::from_utf8_lossy(xml).into_owned()));
-}
-
-fn copy_dead_property_attributes(target: &mut Element, stored: &Element) {
-    for (key, value) in &stored.attributes {
-        if key.starts_with("xmlns") {
-            continue;
-        }
-        let key = if key == "lang" {
-            "xml:lang"
-        } else {
-            key.as_str()
-        };
-        target
-            .attributes
-            .entry(key.to_string())
-            .or_insert_with(|| value.clone());
-    }
-}
-
-fn xml_lang_value(element: &Element) -> Option<&str> {
-    element
-        .attributes
-        .get("xml:lang")
-        .or_else(|| element.attributes.get("lang"))
-        .map(String::as_str)
+fn is_system_property(property_name: &DavRequestedProperty) -> bool {
+    property_name
+        .namespace
+        .as_deref()
+        .is_some_and(property::is_system_namespace)
 }
 
 fn is_root_resource(resource: &PropfindResource) -> bool {
@@ -935,18 +561,6 @@ fn is_standard_live_prop_name(name: &str) -> bool {
     )
 }
 
-fn default_prefix(namespace: Option<&str>) -> &str {
-    match namespace {
-        Some("DAV:") => "D",
-        Some(_) => "A",
-        None => "",
-    }
-}
-
-fn should_declare_namespace(prefix: &str, namespace: &str) -> bool {
-    namespace != "DAV:" || prefix != "D"
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
@@ -959,14 +573,13 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::http::{Method, StatusCode, header};
     use actix_web::test::TestRequest;
-    use xmltree::Element;
+    use aster_forge_webdav::{DavResourceKind, DavXmlElement};
 
     use super::handle_propfind;
-    use crate::types::EntityType;
-    use crate::webdav::dav::{
+    use aster_forge_webdav::{
         DavDirEntry, DavFile, DavFileSystem, DavLock, DavLockError, DavLockSystem, DavMetaData,
-        DavPath, DavProp, FsError, FsFuture, FsResult, FsStream, LsFuture, OpenOptions,
-        ReadDirMeta,
+        DavPath, DavProp, DavPropertyTarget, FsError, FsFuture, FsResult, FsStream, LsFuture,
+        OpenOptions, ReadDirMeta,
     };
 
     struct PropfindTestFs {
@@ -979,7 +592,7 @@ mod tests {
         is_dir: bool,
         len: u64,
         content_type: Option<&'static str>,
-        property_entity: Option<(EntityType, i64)>,
+        property_target: Option<DavPropertyTarget>,
     }
 
     impl DavMetaData for PropfindTestMeta {
@@ -1011,8 +624,8 @@ mod tests {
             Ok(SystemTime::UNIX_EPOCH)
         }
 
-        fn property_entity(&self) -> Option<(EntityType, i64)> {
-            self.property_entity
+        fn property_target(&self) -> Option<DavPropertyTarget> {
+            self.property_target
         }
     }
 
@@ -1032,10 +645,10 @@ mod tests {
                     is_dir: false,
                     len: self.len,
                     content_type: Some("text/plain"),
-                    property_entity: Some((
-                        EntityType::File,
-                        i64::try_from(self.len).expect("test len should fit i64"),
-                    )),
+                    property_target: Some(DavPropertyTarget {
+                        kind: DavResourceKind::File,
+                        id: i64::try_from(self.len).expect("test len should fit i64"),
+                    }),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -1080,7 +693,7 @@ mod tests {
                         is_dir: true,
                         len: 0,
                         content_type: None,
-                        property_entity: None,
+                        property_target: None,
                     }) as Box<dyn DavMetaData>);
                 }
 
@@ -1088,7 +701,10 @@ mod tests {
                     is_dir: false,
                     len: 1,
                     content_type: Some("text/plain"),
-                    property_entity: Some((EntityType::File, 1)),
+                    property_target: Some(DavPropertyTarget {
+                        kind: DavResourceKind::File,
+                        id: 1,
+                    }),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -1144,7 +760,7 @@ mod tests {
             &self,
             _path: &DavPath,
             _principal: Option<&str>,
-            _owner: Option<&Element>,
+            _owner: Option<&DavXmlElement>,
             _timeout: Option<std::time::Duration>,
             _shared: bool,
             _deep: bool,
@@ -1227,7 +843,11 @@ mod tests {
             .insert_header((header::HeaderName::from_static("depth"), "1"))
             .to_http_request();
 
-        let response = handle_propfind(&req, &fs, &lock_system, "/webdav", body.as_bytes()).await;
+        let request_head = aster_forge_webdav::actix::request_head(&req, "/webdav")
+            .expect("test request head should parse")
+            .expect("PROPFIND should be supported");
+        let response =
+            handle_propfind(&request_head, &fs, &lock_system, "/webdav", body.as_bytes()).await;
         assert_eq!(response.status(), StatusCode::MULTI_STATUS);
         let body = to_bytes(response.into_body())
             .await
