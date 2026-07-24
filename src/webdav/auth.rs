@@ -5,15 +5,15 @@ mod cache;
 #[path = "auth/rate_limit.rs"]
 mod rate_limit;
 
-use base64::Engine;
 use serde::{Deserialize, Serialize};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{user_repo, webdav_account_repo};
-use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_code};
+use crate::errors::{AsterError, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use aster_forge_crypto as hash;
+use aster_forge_webdav::auth::{BasicAuthParseError, parse_basic_authorization};
 
 /// WebDAV 认证结果
 #[derive(Debug)]
@@ -110,36 +110,35 @@ pub(crate) async fn authenticate_webdav(
     request: &actix_web::HttpRequest,
     state: &impl SharedRuntimeState,
 ) -> Result<WebdavAuthResult, WebdavAuthError> {
-    let auth_header = request
-        .headers()
-        .get(actix_web::http::header::AUTHORIZATION)
-        .and_then(|v: &actix_web::http::header::HeaderValue| v.to_str().ok())
-        .ok_or_else(|| AsterError::auth_token_invalid("missing Authorization header"))?;
+    let credentials =
+        parse_basic_authorization(request.headers()).map_err(|error| match error {
+            BasicAuthParseError::Missing => {
+                AsterError::auth_token_invalid("missing Authorization header")
+            }
+            BasicAuthParseError::UnsupportedScheme => {
+                AsterError::auth_token_invalid("unsupported auth scheme")
+            }
+            BasicAuthParseError::InvalidEncoding => {
+                AsterError::auth_invalid_credentials("invalid base64")
+            }
+            BasicAuthParseError::InvalidUtf8 => {
+                AsterError::auth_invalid_credentials("invalid utf8")
+            }
+            BasicAuthParseError::InvalidFormat => {
+                AsterError::auth_invalid_credentials("invalid basic auth format")
+            }
+        })?;
 
-    if let Some(basic) = auth_header.strip_prefix("Basic ") {
-        authenticate_basic(basic.trim(), request, state).await
-    } else {
-        Err(AsterError::auth_token_invalid("unsupported auth scheme").into())
-    }
+    authenticate_basic(&credentials.username, &credentials.password, request, state).await
 }
 
 /// Basic Auth: 查 webdav_accounts 表（独立于登录密码）
 async fn authenticate_basic(
-    encoded: &str,
+    username: &str,
+    password: &str,
     request: &actix_web::HttpRequest,
     state: &impl SharedRuntimeState,
 ) -> Result<WebdavAuthResult, WebdavAuthError> {
-    let decoded = base64::engine::general_purpose::STANDARD
-        .decode(encoded)
-        .map_aster_err_with(|| AsterError::auth_invalid_credentials("invalid base64"))?;
-
-    let credentials = String::from_utf8(decoded)
-        .map_aster_err_with(|| AsterError::auth_invalid_credentials("invalid utf8"))?;
-
-    let (username, password) = credentials
-        .split_once(':')
-        .ok_or_else(|| AsterError::auth_invalid_credentials("invalid basic auth format"))?;
-
     if let Some(cached) = cache::load_auth(state, username, password).await {
         tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
         return Ok(WebdavAuthResult {

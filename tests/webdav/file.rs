@@ -5,7 +5,7 @@ use crate::common;
 use std::io::SeekFrom;
 
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::webdav::dav::{DavFile, DavFileSystem, FsError, OpenOptions};
+use aster_forge_webdav::dav::{DavFile, DavFileSystem, FsError, OpenOptions};
 use bytes::Bytes;
 
 fn write_temp_fixture(name: &str, contents: &str) -> String {
@@ -132,8 +132,8 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::files::file;
     use aster_drive::types::EntityType;
-    use aster_drive::webdav::dav::{DavFileSystem, DavPath, DavProp};
     use aster_drive::webdav::fs::AsterDavFs;
+    use aster_forge_webdav::dav::{DavFileSystem, DavPath, DavProp};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -271,8 +271,8 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 #[actix_web::test]
 async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
     use aster_drive::services::files::file;
-    use aster_drive::webdav::dav::DavPath;
     use aster_drive::webdav::fs::AsterDavFs;
+    use aster_forge_webdav::dav::DavPath;
 
     let state = common::setup().await;
     let user =

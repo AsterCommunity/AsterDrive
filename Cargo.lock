@@ -780,6 +780,7 @@ dependencies = [
  "aster_forge_tasks",
  "aster_forge_utils",
  "aster_forge_validation",
+ "aster_forge_webdav",
  "async-stream",
  "async-trait",
  "aws-credential-types",
@@ -861,7 +862,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_middleware"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "actix-governor",
  "actix-web",
@@ -881,7 +882,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_observability"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "actix-web",
  "aster_forge_metrics",
@@ -891,7 +892,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_alloc"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "tikv-jemalloc-ctl",
  "tracing",
@@ -900,7 +901,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "chrono",
  "serde",
@@ -911,7 +912,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api_docs_macros"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -921,7 +922,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_audit"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_db",
  "aster_forge_mail",
@@ -933,7 +934,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_cache"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_runtime",
  "async-trait",
@@ -950,7 +951,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_config"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_events",
  "aster_forge_utils",
@@ -970,7 +971,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_crypto"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "argon2 0.5.3",
  "rand_core 0.6.4",
@@ -981,7 +982,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_api",
  "aster_forge_config",
@@ -1001,7 +1002,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_events"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1016,7 +1017,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_external_auth"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_crypto",
  "aster_forge_utils",
@@ -1039,7 +1040,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_file_classification"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "sea-orm",
  "serde",
@@ -1050,7 +1051,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_logging"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "serde",
  "tracing-appender",
@@ -1060,7 +1061,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_mail"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_tasks",
@@ -1078,7 +1079,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_metrics"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_alloc",
  "aster_forge_runtime",
@@ -1093,7 +1094,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_panic"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "chrono",
 ]
@@ -1101,7 +1102,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_runtime"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1118,7 +1119,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_tasks"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_utils",
@@ -1138,7 +1139,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "http 1.4.2",
  "httpdate",
@@ -1157,10 +1158,30 @@ dependencies = [
 [[package]]
 name = "aster_forge_validation"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#19e82ace639c606a6e4082651897daa5586f6e7e"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
 dependencies = [
  "thiserror 2.0.19",
  "unicode-normalization",
+]
+
+[[package]]
+name = "aster_forge_webdav"
+version = "0.1.0"
+source = "git+https://github.com/AsterCommunity/AsterForge#dcdf1b2da4fcf516d97b5f2ebebbee8a685f8db2"
+dependencies = [
+ "actix-web",
+ "aster_forge_utils",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "http 1.4.2",
+ "mime_guess",
+ "percent-encoding",
+ "thiserror 2.0.19",
+ "tracing",
+ "urlencoding",
+ "xmltree",
 ]
 
 [[package]]
@@ -1220,7 +1241,7 @@ checksum = "ae36dc4177970ef04fde5178d3e2429882def40e57a451f919c098f72baa6cec"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -1282,9 +1303,9 @@ dependencies = [
 
 [[package]]
 name = "aws-runtime"
-version = "1.8.1"
+version = "1.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7816e98ee912159f45d307e5ee6bfea4a335a55aee15f7f3e32f81a6f3000f1d"
+checksum = "a6b50a43f3ccdf331521c6d6c68b7cc9668b6e09d439ebda9569df5722324d76"
 dependencies = [
  "aws-credential-types",
  "aws-sigv4",
@@ -1310,9 +1331,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-s3"
-version = "1.138.1"
+version = "1.139.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8fa59420755799fec8aac71f562aa37ba82263f5b1926bba8b5d3465d2f7a73f"
+checksum = "a159b9721a6a41468f967d1029bece78f410b0beb0594498435deb6ff72bfe48"
 dependencies = [
  "arc-swap",
  "aws-credential-types",
@@ -1508,9 +1529,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime"
-version = "1.12.0"
+version = "1.12.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "bea94a9ff8464016338c851e24b472d7131c388c88898a502e781815b2ee6045"
+checksum = "07505b34e8f4b3591a4fa69e9792b52289b95488dbbc68c3c0075b7bedb245e1"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-http",
@@ -1534,9 +1555,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-runtime-api"
-version = "1.13.0"
+version = "1.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "22ed1ebe6e0a95ea84570225f5a8208dec4b8f77e61a9b0d6f51773fcb4612f0"
+checksum = "3b98f2e1fd67ec06618f9c291e5e495a468e60519e44c9c1979cd0521f3affdb"
 dependencies = [
  "aws-smithy-async",
  "aws-smithy-runtime-api-macros",
@@ -1600,9 +1621,9 @@ dependencies = [
 
 [[package]]
 name = "aws-smithy-xml"
-version = "0.61.1"
+version = "0.62.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ea3f68eec3607f02acd24067969ce2abc6ba16aa7d5ce59ca450ed2fb5f78957"
+checksum = "ce84f71c72fee2cbbadde6e7d082f5fb466e3a84733855295fa7aafd1b31b7d8"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-schema",
@@ -1612,9 +1633,9 @@ dependencies = [
 
 [[package]]
 name = "aws-types"
-version = "1.4.0"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e957a6c6dbce82b7a91f44231c09273159703769f447cbe85e854dfe9cf67f86"
+checksum = "eec1cd5469f328c782dc3e33d4153cf118a54e33cbb3356d60d16f89883e1f94"
 dependencies = [
  "aws-credential-types",
  "aws-smithy-async",
@@ -2254,9 +2275,9 @@ dependencies = [
 
 [[package]]
 name = "clap"
-version = "4.6.3"
+version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0fb99565819980999fb7b4a1796046a5c949e6d4ff132cf5fadf5a641e20d776"
+checksum = "d91e0c145792ef73a6ad36d27c75ac09f1832222a3c209689d90f534685ee5b7"
 dependencies = [
  "clap_builder",
  "clap_derive",
@@ -2276,14 +2297,14 @@ dependencies = [
 
 [[package]]
 name = "clap_derive"
-version = "4.6.3"
+version = "4.6.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32f2392eae7f16557a3d727ef3a12e57b2b2ca6f98566a5f4fb41ffe305df077"
+checksum = "d012d2b9d65aca7f18f4d9878a045bc17899bba951561ba5ec3c2ba1eed9a061"
 dependencies = [
  "heck 0.5.0",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3639,9 +3660,9 @@ dependencies = [
 
 [[package]]
 name = "glob"
-version = "0.3.3"
+version = "0.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+checksum = "e4eba85ea1d0a966a983acd07deee566e67395d2d96b6fb39e62b5a833f1eb0b"
 
 [[package]]
 name = "gloo-timers"
@@ -4218,9 +4239,9 @@ dependencies = [
 
 [[package]]
 name = "impl-more"
-version = "0.3.1"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35a84fd5aa25fae5c0f4a33d9cac2ca017fc622cbd089be2229993514990f870"
+checksum = "277ff51754a3f68f12f58446c5d006aa8baa4914ea273cce24a599cfaff33d4f"
 
 [[package]]
 name = "indexmap"
@@ -4565,9 +4586,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.187"
+version = "0.2.189"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a7743783ea728ef5c31194c6590797eed286449b4a4e87d626d8a51f0a94e732"
+checksum = "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"
 
 [[package]]
 name = "libm"
@@ -5820,9 +5841,9 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-error-attr3"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "34e4dd828515431dd6c4a030d26f7eaed7dd4778226e9d2bb968d65ca4ec3d4d"
+checksum = "be5bfc63c4dc85083c9daaf7112d0261701d4058677c3bff7f2afc44e30ef3e1"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -5830,14 +5851,14 @@ dependencies = [
 
 [[package]]
 name = "proc-macro-error3"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ee475e440453418ff1335189eddf7101ba502cd818ab7ae04209bc83aa925aa"
+checksum = "dd0d42490f6b7b143eef32b9e3522e42bf25dadc02c69ed72236f80adb949b5c"
 dependencies = [
  "proc-macro-error-attr3",
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -6275,7 +6296,7 @@ checksum = "2c9283685feec7d69af75fb0e858d5e7378f33fe4fc699383b2916ab9273e03c"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -6517,9 +6538,9 @@ dependencies = [
 
 [[package]]
 name = "russh"
-version = "0.62.3"
+version = "0.62.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "059dd24c0fe20721639f7acad7b82cd51ec3dd3254ed8cf7a0b7df6c20eaff1c"
+checksum = "b8b67b5a0d8068c89dcbe9d95df986af7a851d1f3c604525274c37468e60464f"
 dependencies = [
  "aes 0.9.1",
  "aws-lc-rs",
@@ -6751,9 +6772,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pki-types"
-version = "1.15.0"
+version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "764899a24af3980067ee14bc143654f297b22eaebfe3c7b6b211920a5a59b046"
+checksum = "2f4925028c7eb5d1fcdaf196971378ed9d2c1c4efc7dc5d011256f76c99c0a96"
 dependencies = [
  "web-time",
  "zeroize",
@@ -7211,7 +7232,7 @@ checksum = "e7a5d71263a5a7d47b41f6b3f06ba276f10cc18b0931f1799f710578e2309348"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -7256,7 +7277,7 @@ checksum = "8d3b1629de253c70a0508c3899572da79ca359fdab27c7920ff00406df418906"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -7912,9 +7933,9 @@ dependencies = [
 
 [[package]]
 name = "syn"
-version = "3.0.2"
+version = "3.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a207d6d6a2b7fc470b80443726053f18a2481b7e1eee970597051596567987a3"
+checksum = "53e9bae58849f64dfa4f5d5ae372c8341f7305f82a3868709269343628b659a3"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -8069,7 +8090,7 @@ checksum = "43cbfe0cf76104d42a574802844187e84a305e531ed54455f11fbde0f10541cd"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 3.0.2",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -8261,9 +8282,9 @@ dependencies = [
 
 [[package]]
 name = "tokio-stream"
-version = "0.1.18"
+version = "0.1.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "32da49809aab5c3bc678af03902d4ccddea2a87d028d86392a4b1560c6906c70"
+checksum = "a3d06f0b082ba57c26b79407372e57cf2a1e28124f78e9479fe80322cf53420b"
 dependencies = [
  "futures-core",
  "pin-project-lite",
@@ -8289,14 +8310,15 @@ dependencies = [
 
 [[package]]
 name = "tokio-util"
-version = "0.7.18"
+version = "0.7.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9ae9cec805b01e8fc3fd2fe289f89149a9b66dd16786abd8b19cfa7b48cb0098"
+checksum = "494815d09bf52b5548659851081238f0ca39ff638363907596da739561c62c52"
 dependencies = [
  "bytes",
  "futures-core",
  "futures-sink",
  "futures-util",
+ "libc",
  "pin-project-lite",
  "tokio",
 ]
@@ -9454,9 +9476,9 @@ dependencies = [
 
 [[package]]
 name = "xxhash-rust"
-version = "0.8.17"
+version = "0.8.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "985eec839aaf2a1270af8f4ebcf63cf9401cfd90f0902f97c28d9f104ffbde72"
+checksum = "aee1b19627c7c60102ab80d3a9cbe18de90bfe03bfa6c3715447681f0e8c8af6"
 
 [[package]]
 name = "yansi"

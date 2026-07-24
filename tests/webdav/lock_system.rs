@@ -2,7 +2,7 @@
 
 use crate::common;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::webdav::dav::DavLockError;
+use aster_forge_webdav::dav::DavLockError;
 
 use std::io::Cursor;
 use std::time::Duration;
@@ -19,8 +19,8 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
 async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delete() {
     use aster_drive::db::repository::{folder_repo, lock_repo};
     use aster_drive::services::{files::file, files::folder};
-    use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
+    use aster_forge_webdav::dav::{DavLockSystem, DavPath};
     use xmltree::Element;
 
     let state = common::setup().await;
@@ -140,8 +140,8 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
 async fn test_db_lock_system_rejects_unrepresentable_timeout() {
     use aster_drive::db::repository::lock_repo;
     use aster_drive::services::files::file;
-    use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
+    use aster_forge_webdav::dav::{DavLockSystem, DavPath};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -197,8 +197,8 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
     use aster_drive::db::repository::{file_repo, lock_repo};
     use aster_drive::services::{files::file, files::lock};
     use aster_drive::types::EntityType;
-    use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
+    use aster_forge_webdav::dav::{DavLockSystem, DavPath};
     use chrono::Duration as ChronoDuration;
 
     let state = common::setup().await;
@@ -324,8 +324,8 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
     use aster_drive::db::repository::{file_repo, lock_repo};
     use aster_drive::services::files::file;
     use aster_drive::types::EntityType;
-    use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
+    use aster_forge_webdav::dav::{DavLockSystem, DavPath};
 
     let state = common::setup().await;
     let user =
@@ -420,8 +420,8 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
 #[actix_web::test]
 async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
     use aster_drive::services::files::file;
-    use aster_drive::webdav::dav::{DavLockSystem, DavPath};
     use aster_drive::webdav::db_lock_system::DbLockSystem;
+    use aster_forge_webdav::dav::{DavLockSystem, DavPath};
 
     let state = common::setup().await;
     let user = common::create_test_account(

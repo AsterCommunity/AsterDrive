@@ -10,7 +10,7 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-pub const SYSTEM_PROPERTY_NAMESPACE_PREFIX: &str = "system.";
+use aster_forge_webdav::{is_dav_namespace, is_protected_namespace, is_system_namespace};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -34,18 +34,6 @@ impl From<entity_property::Model> for EntityProperty {
             value: model.value,
         }
     }
-}
-
-pub fn is_system_namespace(namespace: &str) -> bool {
-    namespace.starts_with(SYSTEM_PROPERTY_NAMESPACE_PREFIX)
-}
-
-pub fn is_dav_namespace(namespace: &str) -> bool {
-    namespace == "DAV:"
-}
-
-pub fn is_protected_namespace(namespace: &str) -> bool {
-    is_dav_namespace(namespace) || is_system_namespace(namespace)
 }
 
 fn ensure_user_namespace_mutable(namespace: &str) -> Result<()> {
