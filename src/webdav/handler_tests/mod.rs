@@ -703,7 +703,7 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
         "PROPFIND response should expose file size under the requested DAV prefix: {body_text}"
     );
     assert!(
-        body_text.contains("<d:quota-used-bytes xmlns:d=\"DAV:\" />"),
+        body_text.contains("<d:quota-used-bytes xmlns:d=\"DAV:\""),
         "missing DAV props should also declare the echoed lowercase DAV prefix: {body_text}"
     );
     Element::parse_reader(Cursor::new(body_text.as_bytes()))

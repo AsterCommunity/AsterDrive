@@ -634,6 +634,13 @@ mod tests {
         len: u64,
     }
 
+    fn contains_element(element: &DavXmlElement, namespace: &str, name: &str) -> bool {
+        (element.name == name && element.namespace.as_deref() == Some(namespace))
+            || element
+                .child_elements()
+                .any(|child| contains_element(child, namespace, name))
+    }
+
     impl DavDirEntry for PropfindTestEntry {
         fn name(&self) -> Vec<u8> {
             self.name.clone()
@@ -956,8 +963,10 @@ mod tests {
 
         let (xml, _, _, discover_calls, discover_many_calls) = propfind_depth_one(body).await;
 
+        let response = DavXmlElement::parse(xml.as_bytes())
+            .expect("PROPFIND propname response should be valid XML");
         assert!(
-            xml.contains("<D:lockdiscovery />"),
+            contains_element(&response, "DAV:", "lockdiscovery"),
             "propname should list lockdiscovery as a live property name: {xml}"
         );
         assert_eq!(

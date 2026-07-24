@@ -1168,6 +1168,7 @@ version = "0.1.0"
 dependencies = [
  "actix-web",
  "aster_forge_utils",
+ "aster_forge_xml",
  "async-trait",
  "bytes",
  "chrono",
@@ -1176,7 +1177,14 @@ dependencies = [
  "percent-encoding",
  "thiserror 2.0.19",
  "urlencoding",
- "xmltree",
+]
+
+[[package]]
+name = "aster_forge_xml"
+version = "0.1.0"
+dependencies = [
+ "aster_forge_utils",
+ "quick-xml",
 ]
 
 [[package]]
