@@ -424,17 +424,13 @@ pub(crate) async fn handle_copy_move(
                 destination,
                 destination_relative,
             };
-            let outcome = match partial_recursive_copy_move(
+            let outcome = partial_recursive_copy_move(
                 &ctx,
                 root,
                 destination_exists,
                 destination_is_collection,
             )
-            .await
-            {
-                Ok(outcome) => outcome,
-                Err(err) => return fs_error_response(err),
-            };
+            .await;
             if !outcome.failures.is_empty() {
                 return mutation_failure_response(prefix, &outcome.failures);
             }
@@ -511,52 +507,78 @@ async fn partial_recursive_copy_move(
     root: PartialMutationNode,
     destination_exists: bool,
     destination_is_collection: bool,
-) -> Result<PartialMutationOutcome, FsError> {
+) -> PartialMutationOutcome {
     let mut failures = Vec::new();
     if destination_exists && !destination_is_collection {
         let conflicts = collect_lock_failures(ctx, &root.destination, false).await;
         if !conflicts.is_empty() {
             extend_unique_failures(&mut failures, conflicts);
-            return Ok(PartialMutationOutcome {
+            return PartialMutationOutcome {
                 failures,
                 destination_exists,
-            });
+            };
         }
-        ctx.dav_fs.remove_file(&root.destination).await?;
-        ctx.dav_fs
+        if let Err(error) = ctx.dav_fs.remove_file(&root.destination).await {
+            push_fs_failure(&mut failures, &root.destination, error);
+            return PartialMutationOutcome {
+                failures,
+                destination_exists,
+            };
+        }
+        if let Err(error) = ctx
+            .dav_fs
             .copy_dir_shallow(&root.source, &root.destination)
-            .await?;
+            .await
+        {
+            push_fs_failure(&mut failures, &root.destination, error);
+            return PartialMutationOutcome {
+                failures,
+                destination_exists,
+            };
+        }
     } else if destination_exists && destination_is_collection {
         let conflicts = collect_lock_failures(ctx, &root.destination, false).await;
         if !conflicts.is_empty() {
             extend_unique_failures(&mut failures, conflicts);
-            return Ok(PartialMutationOutcome {
+            return PartialMutationOutcome {
                 failures,
                 destination_exists,
-            });
+            };
         }
     }
 
-    if !destination_exists {
-        ctx.dav_fs
+    if !destination_exists
+        && let Err(error) = ctx
+            .dav_fs
             .copy_dir_shallow(&root.source, &root.destination)
-            .await?;
+            .await
+    {
+        push_fs_failure(&mut failures, &root.destination, error);
+        return PartialMutationOutcome {
+            failures,
+            destination_exists,
+        };
     }
 
     let mut work = Vec::new();
     work.push(PartialMutationWork::FinalizeDirectory(root.clone()));
-    push_directory_children(ctx, &root, &mut work).await?;
+    if !push_directory_children(ctx, &root, &mut work, &mut failures).await {
+        work.pop();
+    }
 
     while let Some(work_item) = work.pop() {
         match work_item {
             PartialMutationWork::ProcessFile(node) => {
-                partial_copy_move_file(ctx, &node, &mut failures).await?;
+                partial_copy_move_file(ctx, &node, &mut failures).await;
             }
             PartialMutationWork::VisitDirectory(node) => {
                 let dest_meta = match ctx.dav_fs.metadata(&node.destination).await {
                     Ok(meta) => Some(meta),
                     Err(FsError::NotFound) => None,
-                    Err(err) => return Err(err),
+                    Err(error) => {
+                        push_fs_failure(&mut failures, &node.destination, error);
+                        continue;
+                    }
                 };
                 if dest_meta.as_ref().is_some_and(|meta| !meta.is_dir()) {
                     let conflicts = collect_lock_failures(ctx, &node.destination, false).await;
@@ -564,10 +586,18 @@ async fn partial_recursive_copy_move(
                         extend_unique_failures(&mut failures, conflicts);
                         continue;
                     }
-                    ctx.dav_fs.remove_file(&node.destination).await?;
-                    ctx.dav_fs
+                    if let Err(error) = ctx.dav_fs.remove_file(&node.destination).await {
+                        push_fs_failure(&mut failures, &node.destination, error);
+                        continue;
+                    }
+                    if let Err(error) = ctx
+                        .dav_fs
                         .copy_dir_shallow(&node.source, &node.destination)
-                        .await?;
+                        .await
+                    {
+                        push_fs_failure(&mut failures, &node.destination, error);
+                        continue;
+                    }
                 } else if dest_meta.as_ref().is_some_and(|meta| meta.is_dir()) {
                     let conflicts = collect_lock_failures(ctx, &node.destination, false).await;
                     if !conflicts.is_empty() {
@@ -575,13 +605,20 @@ async fn partial_recursive_copy_move(
                         continue;
                     }
                 } else {
-                    ctx.dav_fs
+                    if let Err(error) = ctx
+                        .dav_fs
                         .copy_dir_shallow(&node.source, &node.destination)
-                        .await?;
+                        .await
+                    {
+                        push_fs_failure(&mut failures, &node.destination, error);
+                        continue;
+                    }
                 }
 
                 work.push(PartialMutationWork::FinalizeDirectory(node.clone()));
-                push_directory_children(ctx, &node, &mut work).await?;
+                if !push_directory_children(ctx, &node, &mut work, &mut failures).await {
+                    work.pop();
+                }
             }
             PartialMutationWork::FinalizeDirectory(node) if ctx.is_move => {
                 let conflicts = collect_lock_failures(ctx, &node.source, false).await;
@@ -590,9 +627,18 @@ async fn partial_recursive_copy_move(
                     continue;
                 }
                 let remaining =
-                    collect_children(ctx.dav_fs, &node.source, &node.source_relative).await?;
+                    match collect_children(ctx.dav_fs, &node.source, &node.source_relative).await {
+                        Ok(remaining) => remaining,
+                        Err(error) => {
+                            push_fs_failure(&mut failures, &node.source, error);
+                            continue;
+                        }
+                    };
                 if remaining.is_empty() {
-                    ctx.dav_fs.remove_dir(&node.source).await?;
+                    if let Err(error) = ctx.dav_fs.remove_dir(&node.source).await {
+                        push_fs_failure(&mut failures, &node.source, error);
+                        continue;
+                    }
                     if let Err(error) = ctx.lock_system.delete(&node.source).await {
                         tracing::warn!(path = %node.source_relative, error = ?error, "failed to delete WebDAV locks after partial move");
                     }
@@ -605,13 +651,17 @@ async fn partial_recursive_copy_move(
                     extend_unique_failures(&mut failures, conflicts);
                     continue;
                 }
-                ctx.dav_fs.remove_file(&node.path).await?;
+                if let Err(error) = ctx.dav_fs.remove_file(&node.path).await {
+                    push_fs_failure(&mut failures, &node.path, error);
+                }
             }
             PartialMutationWork::VisitDestinationDirectory(node) => {
                 work.push(PartialMutationWork::FinalizeDestinationDirectory(
                     node.clone(),
                 ));
-                push_destination_children(ctx, &node, &mut work).await?;
+                if !push_destination_children(ctx, &node, &mut work, &mut failures).await {
+                    work.pop();
+                }
             }
             PartialMutationWork::FinalizeDestinationDirectory(node) => {
                 let conflicts = collect_lock_failures(ctx, &node.path, false).await;
@@ -619,9 +669,19 @@ async fn partial_recursive_copy_move(
                     extend_unique_failures(&mut failures, conflicts);
                     continue;
                 }
-                let remaining = collect_children(ctx.dav_fs, &node.path, &node.relative).await?;
+                let remaining = match collect_children(ctx.dav_fs, &node.path, &node.relative).await
+                {
+                    Ok(remaining) => remaining,
+                    Err(error) => {
+                        push_fs_failure(&mut failures, &node.path, error);
+                        continue;
+                    }
+                };
                 if remaining.is_empty() {
-                    ctx.dav_fs.remove_dir(&node.path).await?;
+                    if let Err(error) = ctx.dav_fs.remove_dir(&node.path).await {
+                        push_fs_failure(&mut failures, &node.path, error);
+                        continue;
+                    }
                     if let Err(error) = ctx.lock_system.delete(&node.path).await {
                         tracing::warn!(path = %node.relative, error = ?error, "failed to delete WebDAV locks after destination overwrite");
                     }
@@ -630,18 +690,25 @@ async fn partial_recursive_copy_move(
         }
     }
 
-    Ok(PartialMutationOutcome {
+    PartialMutationOutcome {
         failures,
         destination_exists,
-    })
+    }
 }
 
 async fn push_directory_children(
     ctx: &PartialMutationContext<'_>,
     node: &PartialMutationNode,
     work: &mut Vec<PartialMutationWork>,
-) -> Result<(), FsError> {
-    let children = collect_children(ctx.dav_fs, &node.source, &node.source_relative).await?;
+    failures: &mut Vec<DavMutationFailure>,
+) -> bool {
+    let children = match collect_children(ctx.dav_fs, &node.source, &node.source_relative).await {
+        Ok(children) => children,
+        Err(error) => {
+            push_fs_failure(failures, &node.source, error);
+            return false;
+        }
+    };
     let mut destination_nodes = HashMap::with_capacity(children.len());
     let mut source_work = Vec::with_capacity(children.len());
     for child in children {
@@ -650,7 +717,13 @@ async fn push_directory_children(
             &node.source_relative,
             &node.destination_relative,
         );
-        let dest_path = DavPath::new(&dest_relative).map_err(|_| FsError::BadRequest)?;
+        let dest_path = match DavPath::new(&dest_relative) {
+            Ok(path) => path,
+            Err(_) => {
+                push_fs_failure(failures, &node.source, FsError::BadRequest);
+                return false;
+            }
+        };
         let child_node = PartialMutationNode {
             source: child.path,
             source_relative: child.relative,
@@ -672,7 +745,13 @@ async fn push_directory_children(
     }
 
     let destination_children =
-        collect_children(ctx.dav_fs, &node.destination, &node.destination_relative).await?;
+        match collect_children(ctx.dav_fs, &node.destination, &node.destination_relative).await {
+            Ok(children) => children,
+            Err(error) => {
+                push_fs_failure(failures, &node.destination, error);
+                return true;
+            }
+        };
     for child in destination_children.into_iter().rev() {
         if destination_nodes.get(&resource_identity_path(&child.relative)) == Some(&child.is_dir) {
             continue;
@@ -687,15 +766,22 @@ async fn push_directory_children(
             PartialMutationWork::RemoveDestinationFile(node)
         });
     }
-    Ok(())
+    true
 }
 
 async fn push_destination_children(
     ctx: &PartialMutationContext<'_>,
     node: &DestinationMutationNode,
     work: &mut Vec<PartialMutationWork>,
-) -> Result<(), FsError> {
-    let children = collect_children(ctx.dav_fs, &node.path, &node.relative).await?;
+    failures: &mut Vec<DavMutationFailure>,
+) -> bool {
+    let children = match collect_children(ctx.dav_fs, &node.path, &node.relative).await {
+        Ok(children) => children,
+        Err(error) => {
+            push_fs_failure(failures, &node.path, error);
+            return false;
+        }
+    };
     for child in children.into_iter().rev() {
         let child_node = DestinationMutationNode {
             path: child.path,
@@ -707,41 +793,62 @@ async fn push_destination_children(
             PartialMutationWork::RemoveDestinationFile(child_node)
         });
     }
-    Ok(())
+    true
 }
 
 async fn partial_copy_move_file(
     ctx: &PartialMutationContext<'_>,
     node: &PartialMutationNode,
     failures: &mut Vec<DavMutationFailure>,
-) -> Result<(), FsError> {
+) {
     if ctx.is_move {
         let conflicts = collect_lock_failures(ctx, &node.source, false).await;
         if !conflicts.is_empty() {
             extend_unique_failures(failures, conflicts);
-            return Ok(());
+            return;
         }
     }
     let destination_is_collection = match ctx.dav_fs.metadata(&node.destination).await {
         Ok(meta) => meta.is_dir(),
         Err(FsError::NotFound) => false,
-        Err(err) => return Err(err),
+        Err(error) => {
+            push_fs_failure(failures, &node.destination, error);
+            return;
+        }
     };
     let dest_conflicts =
         collect_lock_failures(ctx, &node.destination, destination_is_collection).await;
     if !dest_conflicts.is_empty() {
         extend_unique_failures(failures, dest_conflicts);
-        return Ok(());
+        return;
     }
     if ctx.is_move {
-        ctx.dav_fs.rename(&node.source, &node.destination).await?;
+        if let Err(error) = ctx.dav_fs.rename(&node.source, &node.destination).await {
+            push_fs_failure(failures, &node.destination, error);
+            return;
+        }
         if let Err(error) = ctx.lock_system.delete(&node.source).await {
             tracing::warn!(path = %node.source.as_str(), error = ?error, "failed to delete WebDAV locks after partial file move");
         }
-    } else {
-        ctx.dav_fs.copy(&node.source, &node.destination).await?;
+    } else if let Err(error) = ctx.dav_fs.copy(&node.source, &node.destination).await {
+        push_fs_failure(failures, &node.destination, error);
     }
-    Ok(())
+}
+
+fn push_fs_failure(failures: &mut Vec<DavMutationFailure>, path: &DavPath, error: FsError) {
+    let status = match error {
+        FsError::NotFound => StatusCode::NOT_FOUND,
+        FsError::Forbidden => StatusCode::FORBIDDEN,
+        FsError::Exists => StatusCode::CONFLICT,
+        FsError::InsufficientStorage => StatusCode::INSUFFICIENT_STORAGE,
+        FsError::TooLarge => StatusCode::PAYLOAD_TOO_LARGE,
+        FsError::BadRequest => StatusCode::BAD_REQUEST,
+        FsError::GeneralFailure => StatusCode::INTERNAL_SERVER_ERROR,
+    };
+    extend_unique_failures(
+        failures,
+        [DavMutationFailure::status(path.clone(), status.as_u16())],
+    );
 }
 
 fn extend_unique_failures(
@@ -803,5 +910,38 @@ fn mutation_failure_response(prefix: &str, failures: &[DavMutationFailure]) -> H
     match mutation_multistatus_response(prefix, failures) {
         Ok(response) => aster_forge_webdav::actix::into_response(response),
         Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::push_fs_failure;
+    use actix_web::http::StatusCode;
+    use aster_forge_webdav::{DavMutationFailure, DavPath, FsError};
+
+    #[test]
+    fn recursive_mutation_fs_errors_keep_resource_statuses() {
+        let path = DavPath::new("/failed.txt").unwrap();
+        let cases = [
+            (FsError::NotFound, StatusCode::NOT_FOUND),
+            (FsError::Forbidden, StatusCode::FORBIDDEN),
+            (FsError::Exists, StatusCode::CONFLICT),
+            (
+                FsError::InsufficientStorage,
+                StatusCode::INSUFFICIENT_STORAGE,
+            ),
+            (FsError::TooLarge, StatusCode::PAYLOAD_TOO_LARGE),
+            (FsError::BadRequest, StatusCode::BAD_REQUEST),
+            (FsError::GeneralFailure, StatusCode::INTERNAL_SERVER_ERROR),
+        ];
+
+        for (error, status) in cases {
+            let mut failures = Vec::new();
+            push_fs_failure(&mut failures, &path, error);
+            assert_eq!(
+                failures,
+                vec![DavMutationFailure::status(path.clone(), status.as_u16())]
+            );
+        }
     }
 }

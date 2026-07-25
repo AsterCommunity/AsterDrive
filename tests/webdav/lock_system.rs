@@ -193,6 +193,124 @@ async fn test_db_lock_system_rejects_unrepresentable_timeout() {
 }
 
 #[actix_web::test]
+async fn test_db_lock_system_uses_one_canonical_path_for_encoded_special_names() {
+    use aster_drive::db::repository::lock_repo;
+    use aster_drive::services::{files::file, files::folder};
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavLockSystem, DavPath};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "dav-special-path",
+        "dav-special-path@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let folder = folder::create(&state, user.id, "目录 空间", None)
+        .await
+        .unwrap();
+    let temp_path = write_temp_fixture("special-name.txt", "special lock content");
+    file::store_from_temp(
+        &state,
+        user.id,
+        file::StoreFromTempRequest::new(
+            Some(folder.id),
+            "# 文件.txt",
+            &temp_path,
+            "special lock content".len() as i64,
+        ),
+    )
+    .await
+    .unwrap();
+
+    let folder_raw = DavPath::new("/目录 空间/").unwrap();
+    let folder_encoded = DavPath::new("/%E7%9B%AE%E5%BD%95%20%E7%A9%BA%E9%97%B4/").unwrap();
+    let file_raw = DavPath::new("/目录 空间/# 文件.txt").unwrap();
+    let file_encoded =
+        DavPath::new("/%E7%9B%AE%E5%BD%95%20%E7%A9%BA%E9%97%B4/%23%20%E6%96%87%E4%BB%B6.txt")
+            .unwrap();
+    assert_eq!(folder_raw, folder_encoded);
+    assert_eq!(file_raw, file_encoded);
+    assert_eq!(file_raw.as_bytes(), file_raw.as_str().as_bytes());
+
+    let lock_system = DbLockSystem::new(state.writer_db().clone(), user.id, None);
+    let deep_lock = lock_system
+        .lock(
+            &folder_raw,
+            Some("tester"),
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            true,
+        )
+        .await
+        .unwrap();
+    let persisted = lock_repo::find_by_token(state.writer_db(), &deep_lock.token)
+        .await
+        .unwrap()
+        .expect("deep special-name lock should be persisted");
+    assert_eq!(persisted.path, folder_raw.as_str());
+
+    let conflict = lock_system
+        .check(&file_encoded, None, false, false, &[])
+        .await
+        .unwrap_err();
+    assert_eq!(conflict.token, deep_lock.token);
+    lock_system
+        .check(
+            &file_encoded,
+            None,
+            false,
+            false,
+            std::slice::from_ref(&deep_lock.token),
+        )
+        .await
+        .unwrap();
+    assert_eq!(lock_system.discover(&file_encoded).await.len(), 1);
+    lock_system
+        .refresh(
+            &folder_encoded,
+            &deep_lock.token,
+            Some(Duration::from_secs(30)),
+        )
+        .await
+        .unwrap();
+    lock_system.delete(&folder_encoded).await.unwrap();
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &deep_lock.token)
+            .await
+            .unwrap()
+            .is_none(),
+        "deleting an encoded collection path must delete its canonical deep lock"
+    );
+
+    let file_lock = lock_system
+        .lock(
+            &file_raw,
+            Some("tester"),
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+    lock_system
+        .unlock(&file_encoded, &file_lock.token)
+        .await
+        .unwrap();
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &file_lock.token)
+            .await
+            .unwrap()
+            .is_none(),
+        "UNLOCK must match the same canonical lock after URI percent-decoding"
+    );
+}
+
+#[actix_web::test]
 async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts() {
     use aster_drive::db::repository::{file_repo, lock_repo};
     use aster_drive::services::{files::file, files::lock};
@@ -281,18 +399,22 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
     };
     assert_eq!(conflict.token, replacement.token);
 
-    assert!(
+    assert!(matches!(
         lock_system
             .unlock(&file_path, "missing-token")
             .await
-            .is_err()
-    );
+            .unwrap_err(),
+        DavLockError::TokenMismatch
+    ));
     let other_path = DavPath::new("/other-expired.txt").unwrap();
     assert!(
-        lock_system
-            .unlock(&other_path, &replacement.token)
-            .await
-            .is_err(),
+        matches!(
+            lock_system
+                .unlock(&other_path, &replacement.token)
+                .await
+                .unwrap_err(),
+            DavLockError::TokenMismatch
+        ),
         "UNLOCK must target the locked resource or a resource covered by a deep lock"
     );
     assert!(

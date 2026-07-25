@@ -145,7 +145,7 @@ pub async fn webdav_handler(
             handlers::deltav::handle_report(
                 &request_head,
                 request_body.xml(),
-                state.get_ref().writer_db(),
+                state.get_ref().reader_db(),
                 &auth_result,
                 &webdav.prefix,
             )
@@ -154,7 +154,7 @@ pub async fn webdav_handler(
         DavMethod::VersionControl => {
             handlers::deltav::handle_version_control(
                 &request_head,
-                state.get_ref().writer_db(),
+                state.get_ref().reader_db(),
                 &auth_result,
             )
             .await

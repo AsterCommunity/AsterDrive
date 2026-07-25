@@ -208,11 +208,18 @@ impl DavLockSystem for DbLockSystem {
         let path_str = normalize_path(path);
         let path_owned = path.clone();
         let principal_owned = principal.map(|s| s.to_string());
-        let owner_xml = owner.map(serialize_element);
         let owner_clone = owner.cloned();
         let timeout_dur = timeout;
 
         Box::pin(async move {
+            let owner_xml = owner_clone
+                .as_ref()
+                .map(serialize_element)
+                .transpose()
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to serialize WebDAV lock owner XML");
+                    DavLockError::Backend
+                })?;
             let txn = transaction::begin(&self.db)
                 .await
                 .map_err(|error| {
@@ -375,7 +382,10 @@ impl DavLockSystem for DbLockSystem {
             // 查锁拿 entity 信息
             let lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| DavLockError::Backend)?
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for unlock");
+                    DavLockError::Backend
+                })?
                 .ok_or(DavLockError::TokenMismatch)?;
             if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
                 return Err(DavLockError::TokenMismatch);
@@ -383,7 +393,10 @@ impl DavLockSystem for DbLockSystem {
 
             lock_repo::delete_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| DavLockError::Backend)?;
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to delete WebDAV lock for unlock");
+                    DavLockError::Backend
+                })?;
 
             if let Err(e) = crate::services::files::lock::clear_entity_locked_if_unlocked(
                 &self.db,
@@ -416,7 +429,10 @@ impl DavLockSystem for DbLockSystem {
 
             let current_lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| DavLockError::Backend)?
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for refresh");
+                    DavLockError::Backend
+                })?
                 .ok_or(DavLockError::TokenMismatch)?;
             if !unlock_request_targets_lock_scope(&current_lock.path, current_lock.deep, &path_str)
             {
@@ -427,7 +443,10 @@ impl DavLockSystem for DbLockSystem {
 
             let lock = lock_repo::refresh(&self.db, &token_owned, new_timeout_at)
                 .await
-                .map_err(|_| DavLockError::Backend)?
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to refresh WebDAV lock");
+                    DavLockError::Backend
+                })?
                 .ok_or(DavLockError::TokenMismatch)?;
             self.log_lock_action(lock.entity_type, lock.entity_id, true)
                 .await;
@@ -785,8 +804,8 @@ fn model_to_dav_lock(lock: &resource_lock::Model) -> DavLock {
     }
 }
 
-fn serialize_element(elem: &DavXmlElement) -> String {
-    String::from_utf8_lossy(&elem.to_bytes().unwrap_or_default()).into_owned()
+fn serialize_element(elem: &DavXmlElement) -> Result<String, aster_forge_webdav::DavXmlError> {
+    String::from_utf8(elem.to_bytes()?).map_err(|_| aster_forge_webdav::DavXmlError::Malformed)
 }
 
 fn deserialize_element(xml: &str) -> Option<DavXmlElement> {
@@ -799,5 +818,18 @@ fn lock_owner_xml(lock: &resource_lock::Model) -> Option<String> {
             Some(payload.xml)
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::serialize_element;
+    use aster_forge_webdav::DavXmlElement;
+
+    #[test]
+    fn serialize_element_preserves_xml_writer_errors() {
+        let element = DavXmlElement::new("invalid element name");
+
+        assert!(serialize_element(&element).is_err());
     }
 }

@@ -48,10 +48,7 @@ struct CachedResolvedParent {
 
 /// 从 DavPath 提取路径段（已解码）
 fn path_segments(path: &DavPath) -> Vec<String> {
-    // as_bytes() 返回不含前缀、已解码的原始字节
-    let raw = path.as_bytes();
-    let path_str = String::from_utf8_lossy(raw);
-    path_str
+    path.as_str()
         .split('/')
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())

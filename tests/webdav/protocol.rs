@@ -11,7 +11,7 @@ use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
 use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_db::system_config;
-use aster_forge_webdav::DavXmlElement as Element;
+use aster_forge_webdav::{DavEventOutcome, DavXmlElement as Element};
 use base64::Engine;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
@@ -59,6 +59,74 @@ fn runtime_number_config(key: &str, value: &str) -> system_config::Model {
         description: "test runtime config".to_string(),
         updated_at: Utc::now(),
         updated_by: None,
+    }
+}
+
+fn runtime_bool_config(key: &str, value: &str) -> system_config::Model {
+    system_config::Model {
+        id: 0,
+        key: key.to_string(),
+        value: value.to_string(),
+        value_type: ConfigValueType::Boolean,
+        requires_restart: false,
+        is_sensitive: false,
+        source: ConfigSource::System,
+        visibility: ConfigVisibility::Private,
+        namespace: String::new(),
+        category: "webdav".to_string(),
+        description: "test runtime config".to_string(),
+        updated_at: Utc::now(),
+        updated_by: None,
+    }
+}
+
+fn proppatch_statuses_by_property(xml: &str) -> Vec<(String, String)> {
+    let multistatus = Element::parse_reader(Cursor::new(xml.as_bytes()))
+        .expect("PROPPATCH Multi-Status XML should parse");
+    let mut statuses = Vec::new();
+
+    for response in multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+    {
+        for propstat in response
+            .child_elements()
+            .filter(|element| element.name == "propstat")
+        {
+            let status = propstat
+                .child_elements()
+                .find(|element| element.name == "status")
+                .and_then(Element::text)
+                .expect("every PROPPATCH propstat should contain a status");
+            let properties = propstat
+                .child_elements()
+                .find(|element| element.name == "prop")
+                .expect("every PROPPATCH propstat should contain properties");
+            statuses.extend(
+                properties
+                    .child_elements()
+                    .map(|property| (property.name.clone(), status.clone())),
+            );
+        }
+    }
+
+    statuses
+}
+
+#[actix_web::test]
+async fn dav_event_failures_include_routine_client_responses() {
+    assert!(matches!(
+        DavEventOutcome::from_status(399, None),
+        DavEventOutcome::Succeeded { status: 399 }
+    ));
+    for status in [400, 401, 404, 409, 412, 423, 499, 500] {
+        assert!(matches!(
+            DavEventOutcome::from_status(status, None),
+            DavEventOutcome::Failed {
+                status: observed,
+                backend_error: None,
+            } if observed == status
+        ));
     }
 }
 
@@ -1134,25 +1202,44 @@ async fn test_webdav_get_supports_binary_range_requests() {
         assert_eq!(body.as_ref(), data.as_slice());
     }
 
-    for malformed_range in ["bytes=-0", "bytes=9-5"] {
-        let req = test::TestRequest::get()
-            .uri("/webdav/range-image.bin")
-            .insert_header(("Authorization", auth.clone()))
-            .insert_header(("Range", malformed_range))
-            .to_request();
-        let resp = test::call_service(&app, req).await;
-        assert_eq!(
-            resp.status(),
-            actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
-            "unsatisfiable range {malformed_range} should return 416"
-        );
-        assert_eq!(
-            resp.headers()
-                .get("Content-Range")
-                .and_then(|value| value.to_str().ok()),
-            Some("bytes */4099")
-        );
-    }
+    let req = test::TestRequest::get()
+        .uri("/webdav/range-image.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=-0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
+        "a zero-length suffix byte range should return 416"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */4099")
+    );
+
+    // Forge's pinned single-range contract classifies an inverted range as
+    // unsatisfiable. Keep Drive's 416 behavior explicit until that shared
+    // RFC/Litmus policy changes upstream.
+    let req = test::TestRequest::get()
+        .uri("/webdav/range-image.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=9-5"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
+        "an inverted byte range should follow the pinned Forge 416 contract"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */4099")
+    );
 
     let req = test::TestRequest::put()
         .uri("/webdav/empty-range.bin")
@@ -1300,6 +1387,24 @@ async fn test_webdav_range_download_audit_is_coalesced_by_default() {
         after_disabled_coalescing - after_full_reads,
         2,
         "setting the WebDAV download audit coalescing window to 0 should record every read"
+    );
+
+    state.runtime_config().apply(runtime_bool_config(
+        aster_drive::config::definitions::AUDIT_LOG_ENABLED_KEY,
+        "false",
+    ));
+    let before_disabled_audit = count_file_download_audit_rows(&state, file_name).await;
+    let req = test::TestRequest::get()
+        .uri(&format!("/webdav/{file_name}"))
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let _ = test::read_body(resp).await;
+    assert_eq!(
+        count_file_download_audit_rows(&state, file_name).await,
+        before_disabled_audit,
+        "service-level should_record must skip WebDAV download audit writes"
     );
 }
 
@@ -4616,6 +4721,7 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
   <D:set>
     <D:prop>
       <A:color>green</A:color>
+      <A:size>large</A:size>
     </D:prop>
   </D:set>
   <D:set>
@@ -4638,6 +4744,24 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
         xml.contains("403") && xml.contains("424"),
         "mixed PROPPATCH failure should mark the protected property and dependent properties: {xml}"
     );
+    let statuses = proppatch_statuses_by_property(&xml);
+    assert_eq!(
+        statuses.len(),
+        3,
+        "the adapter must not drop any property while pairing Forge's atomic statuses"
+    );
+    for expected in [
+        ("color", "HTTP/1.1 424 Failed Dependency"),
+        ("size", "HTTP/1.1 424 Failed Dependency"),
+        ("displayname", "HTTP/1.1 403 Forbidden"),
+    ] {
+        assert!(
+            statuses
+                .iter()
+                .any(|(property, status)| property == expected.0 && status == expected.1),
+            "missing PROPPATCH property/status pair {expected:?}: {statuses:?}"
+        );
+    }
 
     let propfind_body = r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:propfind xmlns:D="DAV:" xmlns:A="urn:aster:">
@@ -6748,17 +6872,17 @@ async fn test_webdav_if_header_uses_or_between_tagged_resource_groups() {
         .insert_header((
             "If",
             format!(
-                r#"</webdav/if-tagged-a.txt> ([{}]) </webdav/if-tagged-b.txt> (["wrong"])"#,
-                etags[0]
+                r#"</webdav/if-tagged-a.txt> (["wrong-a"]) </webdav/if-tagged-b.txt> ([{}])"#,
+                etags[1]
             ),
         ))
         .set_payload("one group matches")
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert!(
-        resp.status() == 201 || resp.status() == 204,
-        "one matching tagged-list production should satisfy the If header, got {}",
-        resp.status()
+    assert_eq!(
+        resp.status(),
+        204,
+        "a matching tagged-list production for another resource should satisfy the If header"
     );
 
     let req = test::TestRequest::put()
