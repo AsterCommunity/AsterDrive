@@ -64,7 +64,7 @@ use sftp::SftpConnector;
 use tencent_cos::TencentCosConnector;
 pub use upload::StorageConnectorUploadTransport;
 
-#[async_trait(?Send)]
+#[async_trait]
 trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized {
     /// 当前 connector 对应的持久化 driver type。
     fn driver_type() -> DriverType;

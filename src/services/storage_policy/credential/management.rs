@@ -95,6 +95,7 @@ pub async fn validate_policy_credential(
         .driver_registry()
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
         .await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
 
     Ok(StoragePolicyCredentialValidationResult {
         credential: credential.into(),

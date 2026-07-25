@@ -7,6 +7,7 @@ title: "Deployment Overview"
 Jump directly by deployment method:
 - **Docker / NAS / small team** -> [Docker Deployment](/en/deployment/docker/)
 - **Long-running Linux server** -> [systemd Deployment](/en/deployment/systemd/)
+- **Kubernetes / multiple Primaries** -> [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/)
 - **Want command-line checks, offline config changes, or cross-database migration** -> [Operations CLI](/en/deployment/ops-cli/)
 
 This page walks through the "four things to decide before deployment" for first-time deployers.
@@ -34,6 +35,7 @@ The three most important deployment concerns are:
 | [Docker](/en/deployment/docker/) | NAS, single-machine, small-team, and existing container environments |
 | [Docker follower node](/en/deployment/docker-follower/) | Attaching another AsterDrive instance directly as a Docker follower |
 | [Follower node network topologies](/en/deployment/follower-network-topologies/) | Choosing between public HTTPS, Tailscale / VPN, Docker networks, and reverse tunnel |
+| [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) | Kubernetes, Ingress, multiple Primaries, and a shared data plane |
 | [systemd](/en/deployment/systemd/) | Cloud hosts, physical machines, long-running stable services |
 | Run the binary directly | Local testing and temporary validation |
 
@@ -104,7 +106,7 @@ After the service starts successfully, it automatically completes these preparat
 
 - generates the default `data/config.toml`
 - connects to the database and updates the database structure automatically
-- creates the default local storage policy `Local Default`
+- in the single profile, creates the default local storage policy `Local Default`; the cluster profile skips the local default and waits for an administrator to create shared storage
 - creates the default policy group `Default Policy Group`
 - initializes default system setting entries
 - starts mail dispatch, background task dispatch, periodic cleanup, and low-level file consistency check tasks
@@ -131,6 +133,7 @@ Validate other role-specific areas (WebDAV, WOPI, mail, trash, and so on) accord
 - Preparing backups, restore, and post-restore validation: see [Backup and Restore](/en/deployment/backup/)
 - Want command-line deployment checks, offline configuration, or cross-database migration: see [Operations CLI](/en/deployment/ops-cli/)
 - Preparing HTTPS: see [Reverse Proxy](/en/deployment/reverse-proxy/)
+- Preparing Kubernetes, Ingress, or multiple Primaries: see [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/)
 - Preparing Prometheus / Grafana: see [Monitoring and Grafana](/en/deployment/monitoring/)
 - Estimating file count, database size, memory, and temporary disk: see [Capacity Planning](/en/deployment/capacity-planning/)
 - Want to confirm exactly what first startup does automatically: see [First-Start Checklist](/en/deployment/runtime-behavior/)

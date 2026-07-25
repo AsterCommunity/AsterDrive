@@ -147,7 +147,9 @@ where
         .create_table(
             Table::create()
                 .table(table)
-                .col(big_integer_pk(AuditLogs::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    AuditLogs::Id,
+                ))
                 .col(ColumnDef::new(AuditLogs::UserId).big_integer().not_null())
                 .col(ColumnDef::new(AuditLogs::Action).string_len(64).not_null())
                 .col(entity_type)
@@ -156,7 +158,10 @@ where
                 .col(ColumnDef::new(AuditLogs::Details).text().null())
                 .col(ColumnDef::new(AuditLogs::IpAddress).string_len(45).null())
                 .col(ColumnDef::new(AuditLogs::UserAgent).string_len(512).null())
-                .col(crate::time::utc_date_time_column(manager, AuditLogs::CreatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, AuditLogs::CreatedAt)
+                        .not_null(),
+                )
                 .to_owned(),
         )
         .await
@@ -233,19 +238,6 @@ async fn create_audit_log_indexes(manager: &SchemaManager<'_>) -> Result<(), DbE
     }
 
     Ok(())
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

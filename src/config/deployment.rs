@@ -70,7 +70,7 @@ pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Ve
         issues.push("cluster profile requires a shared PostgreSQL or MySQL database".to_string());
     }
 
-    if !config.cache.backend.trim().eq_ignore_ascii_case("redis") {
+    if config.cache.normalized_backend() != "redis" {
         issues.push("cluster profile requires cache.backend = \"redis\"".to_string());
     } else if config.cache.endpoint.trim().is_empty() {
         issues.push(

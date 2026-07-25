@@ -7,6 +7,7 @@ title: "部署概览"
 按部署方式直接跳走：
 - **Docker / NAS / 小团队** → [Docker 部署](/deployment/docker/)
 - **Linux 服务器长期运行** → [systemd 部署](/deployment/systemd/)
+- **Kubernetes / 多 Primary** → [负载均衡与多实例](/deployment/load-balancing/)
 - **想命令行做检查、离线改配置、跨数据库迁移** → [运维 CLI](/deployment/ops-cli/)
 
 本页把"部署前要想清楚的四件事"梳一遍，是给第一次部署的人看的。
@@ -34,6 +35,7 @@ AsterDrive 是单服务交付：
 | [Docker](/deployment/docker/) | NAS、单机、小团队、已有容器环境 |
 | [Docker 从节点](/deployment/docker-follower/) | 想把另一台 AsterDrive 直接接成 Docker follower |
 | [从节点网络部署方式](/deployment/follower-network-topologies/) | 需要在公网、Tailscale / VPN、Docker 网络或反向通道之间做选择 |
+| [负载均衡与多实例](/deployment/load-balancing/) | Kubernetes、Ingress、多个 Primary 和共享数据面 |
 | [systemd](/deployment/systemd/) | 云主机、物理机、长期稳定运行 |
 | 直接运行二进制 | 本地测试、临时验证 |
 
@@ -104,7 +106,7 @@ bootstrap_insecure_cookies = false
 
 - 生成默认 `data/config.toml`
 - 连接数据库并自动更新数据库结构
-- 自动创建默认本地存储策略 `Local Default`
+- single profile 自动创建默认本地存储策略 `Local Default`；cluster profile 跳过本地默认策略，等待管理员创建共享策略
 - 自动创建默认策略组 `Default Policy Group`
 - 初始化系统设置默认项
 - 启动邮件派发、后台任务派发、周期清理和底层文件一致性检查任务
@@ -131,6 +133,7 @@ bootstrap_insecure_cookies = false
 - 准备备份、恢复和恢复后校验：看 [备份与恢复](/deployment/backup/)
 - 想在命令行里做部署检查、离线配置或跨数据库迁移：看 [运维 CLI](/deployment/ops-cli/)
 - 准备挂 HTTPS：看 [反向代理](/deployment/reverse-proxy/)
+- 准备 Kubernetes、Ingress 或多个 Primary：看 [负载均衡与多实例](/deployment/load-balancing/)
 - 准备接 Prometheus / Grafana：看 [监控与 Grafana](/deployment/monitoring/)
 - 想估算文件数量、数据库大小、内存和临时磁盘：看 [容量规划参考](/deployment/capacity-planning/)
 - 想确认首次启动到底自动做了哪些事：看 [首次启动检查](/deployment/runtime-behavior/)

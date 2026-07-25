@@ -16,7 +16,7 @@ Before making AsterDrive available to real users, use this page for the final ch
 | Login security | `jwt_secret` is fixed, and HTTPS-only Cookies are enabled | [Login and Sessions](/en/config/auth/) |
 | Storage route | Default storage policy, default policy group, and user/team bindings match expectations | [Storage Policies](/en/config/storage/) |
 | Mail | Registration activation, password reset, and email rebinding messages can be delivered | [Mail](/en/config/mail/) |
-| Multi-instance configuration sync | Instances share one database, Redis endpoint, and topic, and cross-instance updates have been verified | [Configuration Synchronization](/en/config/config-sync/) |
+| Load balancing and multi-instance | Primaries share the database, Redis, static secrets, and a supported storage data plane, and cross-instance switching has been verified | [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) |
 | Monitoring | If Prometheus is needed, the `metrics` feature is compiled as needed, and `/health/metrics` access sources are restricted | [Monitoring and Grafana](/en/deployment/monitoring/) |
 | Backup | At least one backup has been completed, and the restore sequence is known | [Backup and Restore](/en/deployment/backup/) |
 | Upgrade | The current version source is known, and release notes have been reviewed before upgrade | [Upgrade and Version Migration](/en/deployment/upgrade/) |
@@ -189,30 +189,28 @@ AsterDrive currently does not apply application-layer authentication to `/health
 
 Grafana dashboard and local Prometheus + Grafana examples are in [Monitoring and Grafana](/en/deployment/monitoring/).
 
-## 10. Multi-Instance Configuration Synchronization
+## 10. Load Balancing and Multi-Instance Deployments
 
 If only one AsterDrive process runs, keep `[config_sync].backend = "disabled"`.
 
 For multiple instances, confirm:
 
 - every primary instance explicitly sets `[deployment].profile = "cluster"`
-- every instance connects to the same authoritative database
-- every instance can reach the configured Redis endpoint
-- every instance uses exactly the same `aster_drive.config_reload` topic
-- every storage policy uses shared storage rather than independent `local` roots
-- if reverse tunnels are enabled, every primary sets its own `deployment.internal_endpoint` and the same `deployment.internal_proxy_secret`
-- the reverse-tunnel owner directory exposes a live lease/fencing token, and a failover drill confirms stale tokens are rejected before the standby takes over
-- changing a system setting through instance A becomes visible through instance B promptly
-- the Redis outage and recovery procedure has been rehearsed
+- the database, cache Redis, configuration-sync Redis/topic, and authentication/encryption static secrets are identical on every Primary
+- the default policy and every policy reachable by users or teams match the cluster support matrix, with no `local` policy or Pod-local staging dependency
+- when avatar uploads are enabled, `avatar_dir` is shared read-write storage for every Primary
+- the load balancer sends traffic only to instances whose `/health/ready` succeeds and supports streaming, SSE, WebSocket Upgrade, and graceful traffic removal
+- reverse tunnels, migrations, Redis recovery, scheduler-owner takeover, background-task fencing, and cross-instance uploads have passed the authoritative acceptance checklist
+- strict global rate limits run at the Ingress/LB layer rather than treating per-process application counters as global quota
 
-See [Deployment Profile](/en/config/deployment/) for the deployment contract and [Configuration Synchronization](/en/config/config-sync/) for notification failure behavior.
+See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the complete limits and acceptance steps, and [Configuration Synchronization](/en/config/config-sync/) for notification failure behavior.
 
 ## 11. Final Acceptance Pass
 
 Before launch, use the real domain, real accounts, and real clients to run through:
 
 1. `/health` returns 200.
-2. `/health/ready` returns 200.
+2. `/health/ready` returns 200; in a cluster, also verify that it becomes 503 when Redis is stopped and returns to 200 after Redis recovers.
 3. If metrics are enabled, restricted-source access to `/health/metrics` returns Prometheus text.
 4. Login, page refresh, and logout all work.
 5. Upload one small file and one large file.

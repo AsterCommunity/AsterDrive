@@ -16,6 +16,8 @@ If you plan to expose the site to the public internet, enable WebDAV, or connect
 Do not expose `:3000` directly to the public internet.  
 That is only suitable for temporary local or intranet bootstrap. For production launch, bind AsterDrive to an internal address, then expose `443` externally through Caddy / Nginx / Traefik.
 
+The examples on this page proxy to one Primary. Before distributing one public entry across multiple Primaries, follow [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the shared database, Redis, storage, static secrets, readiness, and graceful-drain contract. Do not hide single-instance state behind sticky sessions first.
+
 ## Align These Values Before Launch
 
 - Set `Admin -> System Settings -> Site Configuration -> Public Site URL` to a real `https://` origin. Add multiple public domains one by one, for example `https://drive.example.com`.

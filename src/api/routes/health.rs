@@ -5,8 +5,10 @@ use crate::api::response::{ApiResponse, HealthResponse, MemoryStatsResponse, Sys
 use crate::runtime::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::health;
 use actix_web::{HttpResponse, web};
+use aster_forge_runtime::HealthStatus;
 
 const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
+const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Shared cache unavailable";
 const READY_STORAGE_UNAVAILABLE_MESSAGE: &str = "Storage unavailable";
 
 pub fn primary_routes() -> actix_web::Scope {
@@ -63,6 +65,9 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
+    if let Err(error) = check_cluster_cache_ready(state.get_ref()).await {
+        return ready_cache_error(error);
+    }
 
     match health::check_primary_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
@@ -74,10 +79,33 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
+    if let Err(error) = check_cluster_cache_ready(state.get_ref()).await {
+        return ready_cache_error(error);
+    }
 
     match health::check_follower_ready(state.get_ref()).await {
         Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
         Err(error) => ready_storage_error(error),
+    }
+}
+
+async fn check_cluster_cache_ready<S: SharedRuntimeState>(state: &S) -> Result<(), String> {
+    if !state.config().deployment.profile.is_cluster() {
+        return Ok(());
+    }
+    if state.config().cache.normalized_backend() != "redis" {
+        return Err(format!(
+            "cluster profile requires redis cache, configured backend is {}",
+            state.config().cache.normalized_backend()
+        ));
+    }
+
+    let report =
+        aster_forge_cache::check_cache_component(&state.config().cache, state.cache().as_ref())
+            .await;
+    match report.status {
+        HealthStatus::Healthy => Ok(()),
+        HealthStatus::Degraded | HealthStatus::Unhealthy => Err(report.message),
     }
 }
 
@@ -86,6 +114,14 @@ fn ready_database_error(error: impl std::fmt::Display) -> HttpResponse {
     HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
         ApiErrorCode::DatabaseError,
         READY_DB_UNAVAILABLE_MESSAGE,
+    ))
+}
+
+fn ready_cache_error(error: impl std::fmt::Display) -> HttpResponse {
+    tracing::error!(error = %error, "health readiness shared cache check failed");
+    HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
+        ApiErrorCode::ConfigError,
+        READY_CACHE_UNAVAILABLE_MESSAGE,
     ))
 }
 
@@ -126,7 +162,7 @@ fn status_response(status: &str) -> HealthResponse {
 
 #[cfg(test)]
 mod tests {
-    use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, ready};
+    use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, follower_ready, ready};
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::entities::storage_policy;
     use crate::runtime::PrimaryAppState;
@@ -136,7 +172,7 @@ mod tests {
     use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use actix_web::{body, http::StatusCode, web};
     use aster_forge_cache as cache;
-    use aster_forge_cache::CacheConfig;
+    use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
     use chrono::Utc;
     use migration::Migrator;
@@ -153,6 +189,49 @@ mod tests {
         ready_calls: Arc<AtomicUsize>,
         put_calls: Arc<AtomicUsize>,
         delete_calls: Arc<AtomicUsize>,
+    }
+
+    struct FakeCache {
+        backend_name: &'static str,
+        healthy: bool,
+    }
+
+    #[async_trait]
+    impl CacheBackend for FakeCache {
+        fn backend_name(&self) -> &'static str {
+            self.backend_name
+        }
+
+        async fn health_check(&self) -> cache::Result<()> {
+            if self.healthy {
+                Ok(())
+            } else {
+                Err(CacheError::RedisHealthCheck("probe failed".to_string()))
+            }
+        }
+
+        async fn get_bytes(&self, _key: &str) -> Option<Vec<u8>> {
+            None
+        }
+
+        async fn take_bytes(&self, _key: &str) -> Option<Vec<u8>> {
+            None
+        }
+
+        async fn set_bytes(&self, _key: &str, _value: Vec<u8>, _ttl_secs: Option<u64>) {}
+
+        async fn set_bytes_if_absent(
+            &self,
+            _key: &str,
+            _value: Vec<u8>,
+            _ttl_secs: Option<u64>,
+        ) -> bool {
+            false
+        }
+
+        async fn delete(&self, _key: &str) {}
+
+        async fn invalidate_prefix(&self, _prefix: &str) {}
     }
 
     impl ProbeDriver {
@@ -292,6 +371,18 @@ mod tests {
         }
     }
 
+    fn configure_cluster(state: &mut PrimaryAppState) {
+        let mut config = state.config.as_ref().clone();
+        config.deployment.profile = crate::config::DeploymentProfile::Cluster;
+        config.cache.backend = "redis".to_string();
+        config.cache.endpoint = "redis://cache.test:6379/0".to_string();
+        state.config = Arc::new(config);
+        state.cache = Arc::new(FakeCache {
+            backend_name: "redis",
+            healthy: true,
+        });
+    }
+
     #[actix_web::test]
     async fn ready_checks_default_storage_readiness_without_write_probe() {
         let driver = ProbeDriver::healthy();
@@ -348,6 +439,77 @@ mod tests {
     async fn ready_rejects_local_storage_under_cluster_profile() {
         let driver = ProbeDriver::healthy();
         let mut state = build_test_state(Some(driver.clone())).await;
+        configure_cluster(&mut state);
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[actix_web::test]
+    async fn cluster_ready_rejects_memory_fallback_before_storage_probe() {
+        let driver = ProbeDriver::healthy();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        configure_cluster(&mut state);
+        state.cache = Arc::new(FakeCache {
+            backend_name: "memory",
+            healthy: true,
+        });
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["code"], "config.error");
+        assert_eq!(payload["msg"], super::READY_CACHE_UNAVAILABLE_MESSAGE);
+    }
+
+    #[actix_web::test]
+    async fn cluster_ready_rejects_failed_redis_health_check_before_storage_probe() {
+        let driver = ProbeDriver::healthy();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        configure_cluster(&mut state);
+        state.cache = Arc::new(FakeCache {
+            backend_name: "redis",
+            healthy: false,
+        });
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[actix_web::test]
+    async fn cluster_follower_ready_rejects_memory_fallback() {
+        let mut state = build_test_state(None).await;
+        configure_cluster(&mut state);
+        state.cache = Arc::new(FakeCache {
+            backend_name: "memory",
+            healthy: true,
+        });
+
+        let response = follower_ready(web::Data::new(state.follower_view())).await;
+
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["code"], "config.error");
+        assert_eq!(payload["msg"], super::READY_CACHE_UNAVAILABLE_MESSAGE);
+    }
+
+    #[actix_web::test]
+    async fn cluster_ready_rejects_non_redis_configuration() {
+        let mut state = build_test_state(None).await;
         let mut config = state.config.as_ref().clone();
         config.deployment.profile = crate::config::DeploymentProfile::Cluster;
         state.config = Arc::new(config);
@@ -355,6 +517,27 @@ mod tests {
         let response = ready(web::Data::new(state)).await;
 
         assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["code"], "config.error");
+        assert_eq!(payload["msg"], super::READY_CACHE_UNAVAILABLE_MESSAGE);
+    }
+
+    #[actix_web::test]
+    async fn single_ready_does_not_depend_on_shared_cache_health() {
+        let driver = ProbeDriver::healthy();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        state.cache = Arc::new(FakeCache {
+            backend_name: "memory",
+            healthy: false,
+        });
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
     }
 }

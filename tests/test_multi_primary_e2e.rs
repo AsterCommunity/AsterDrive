@@ -33,6 +33,7 @@ use aster_drive::storage::remote_protocol::{
 
 const RUNTIME_LEASE_ID: &str = "aster_drive.background_tasks";
 const ADMIN_PASSWORD: &str = "AsterDrive-E2E-Password-399!";
+const POLICY_GROUP_USER_PASSWORD: &str = "AsterDrive-Policy-User-399!";
 const SHARED_SECRET: &str = "asterdrive399abcdef0123456789abcdef0123456789abcdef0123456789abcd";
 const INTERNAL_PROXY_SECRET: &str =
     "asterdrive399proxyabcdef0123456789abcdef0123456789abcdef012345";
@@ -49,49 +50,68 @@ struct SharedServices {
 
 impl SharedServices {
     async fn start() -> Self {
-        let postgres = PostgresTestContainer::start(test_suite()).await;
-        let smtp = SmtpTestContainer::start(test_suite()).await;
+        Self::start_with_seeded_database_in_suite(true, test_suite()).await
+    }
+
+    async fn start_empty() -> Self {
+        Self::start_with_seeded_database_in_suite(false, test_suite()).await
+    }
+
+    async fn start_for_redis_readiness_outage() -> Self {
+        Self::start_with_seeded_database_in_suite(true, redis_readiness_test_suite()).await
+    }
+
+    async fn start_with_seeded_database_in_suite(
+        seed_database: bool,
+        suite: &TestContainerSuite,
+    ) -> Self {
+        let postgres = PostgresTestContainer::start(suite).await;
+        let smtp = SmtpTestContainer::start(suite).await;
         smtp.clear_messages().await;
         let database_name = format!("asterdrive_multi_primary_{}", uuid::Uuid::new_v4().simple());
         let test_database = postgres.create_database(&database_name).await;
         let database_url = test_database.url().to_string();
         let database = test_database.connect().await;
-        Migrator::up(&database, None)
+        if seed_database {
+            Migrator::up(&database, None)
+                .await
+                .expect("apply migrations to isolated multi-primary database");
+            let now = Utc::now();
+            aster_drive::db::repository::policy_repo::create(
+                &database,
+                aster_drive::entities::storage_policy::ActiveModel {
+                    name: Set("E2E Shared Object Storage".to_string()),
+                    driver_type: Set(aster_drive::types::DriverType::S3),
+                    endpoint: Set("http://127.0.0.1:9000".to_string()),
+                    bucket: Set("asterdrive-e2e".to_string()),
+                    access_key: Set("e2e-access".to_string()),
+                    secret_key: Set("e2e-secret".to_string()),
+                    base_path: Set(String::new()),
+                    max_file_size: Set(0),
+                    allowed_types: Set(
+                        aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
+                    ),
+                    options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+                    is_default: Set(true),
+                    chunk_size: Set(5_242_880),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                },
+            )
             .await
-            .expect("apply migrations to isolated multi-primary database");
-        let now = Utc::now();
-        aster_drive::db::repository::policy_repo::create(
-            &database,
-            aster_drive::entities::storage_policy::ActiveModel {
-                name: Set("E2E Shared Object Storage".to_string()),
-                driver_type: Set(aster_drive::types::DriverType::S3),
-                endpoint: Set("http://127.0.0.1:9000".to_string()),
-                bucket: Set("asterdrive-e2e".to_string()),
-                access_key: Set("e2e-access".to_string()),
-                secret_key: Set("e2e-secret".to_string()),
-                base_path: Set(String::new()),
-                max_file_size: Set(0),
-                allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
-                is_default: Set(true),
-                chunk_size: Set(5_242_880),
-                created_at: Set(now),
-                updated_at: Set(now),
-                ..Default::default()
-            },
-        )
-        .await
-        .expect("create shared E2E storage policy");
-        aster_drive::services::storage_policy::policy::ensure_policy_groups_seeded(&database)
-            .await
-            .expect("seed default E2E storage policy group");
-        seed_runtime_config(&database, smtp.smtp_address().port()).await;
+            .expect("create shared E2E storage policy");
+            aster_drive::services::storage_policy::policy::ensure_policy_groups_seeded(&database)
+                .await
+                .expect("seed default E2E storage policy group");
+            seed_runtime_config(&database, smtp.smtp_address().port()).await;
+        }
         database
             .close()
             .await
             .expect("close isolated database seed connection");
 
-        let redis = RedisTestContainer::start(test_suite()).await;
+        let redis = RedisTestContainer::start(suite).await;
 
         Self {
             database_url,
@@ -169,9 +189,32 @@ async fn seed_runtime_config(database: &DatabaseConnection, smtp_port: u16) {
     }
 }
 
+async fn configure_default_sftp_policy(database: &DatabaseConnection) -> i64 {
+    let policy = aster_drive::db::repository::policy_repo::find_default(database)
+        .await
+        .expect("load default E2E storage policy")
+        .expect("default E2E storage policy should exist");
+    let policy_id = policy.id;
+    let mut active: aster_drive::entities::storage_policy::ActiveModel = policy.into();
+    active.driver_type = Set(aster_drive::types::DriverType::Sftp);
+    active.endpoint = Set("sftp://127.0.0.1:22".to_string());
+    active.access_key = Set("asterdrive-e2e".to_string());
+    active.secret_key = Set("unused-before-staging-validation".to_string());
+    active
+        .update(database)
+        .await
+        .expect("configure default SFTP policy for cluster staging E2E");
+    policy_id
+}
+
 fn test_suite() -> &'static TestContainerSuite {
     static SUITE: OnceLock<TestContainerSuite> = OnceLock::new();
     SUITE.get_or_init(|| TestContainerSuite::new("asterdrive-multi-primary"))
+}
+
+fn redis_readiness_test_suite() -> &'static TestContainerSuite {
+    static SUITE: OnceLock<TestContainerSuite> = OnceLock::new();
+    SUITE.get_or_init(|| TestContainerSuite::new("asterdrive-redis-readiness"))
 }
 
 fn e2e_lock() -> &'static tokio::sync::Mutex<()> {
@@ -186,6 +229,14 @@ struct ServerProcess {
 
 impl ServerProcess {
     fn spawn(name: &str, services: &SharedServices) -> Self {
+        Self::spawn_with_database_pool_size(name, services, 5)
+    }
+
+    fn spawn_with_database_pool_size(
+        name: &str,
+        services: &SharedServices,
+        database_pool_size: u32,
+    ) -> Self {
         let port = available_loopback_port();
         let mut command = Command::new(env!("CARGO_BIN_EXE_aster_drive"));
         for (key, _) in std::env::vars_os() {
@@ -207,7 +258,7 @@ impl ServerProcess {
             .env("ASTER__SERVER__PORT", port.to_string())
             .env("ASTER__SERVER__WORKERS", "1")
             .env("ASTER__DATABASE__URL", &services.database_url)
-            .env("ASTER__DATABASE__POOL_SIZE", "5")
+            .env("ASTER__DATABASE__POOL_SIZE", database_pool_size.to_string())
             .env("ASTER__CACHE__BACKEND", "redis")
             .env("ASTER__CACHE__ENDPOINT", &services.redis_url)
             .env("ASTER__CONFIG_SYNC__BACKEND", "redis")
@@ -279,6 +330,76 @@ async fn wait_for_health(client: &reqwest::Client, server: &mut ServerProcess) {
     }
 }
 
+async fn wait_for_ready_code(
+    client: &reqwest::Client,
+    server: &mut ServerProcess,
+    expected_code: &str,
+    timeout: Duration,
+) -> Value {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        server.assert_running();
+        let last_response = match client
+            .get(format!("{}/health/ready", server.base_url()))
+            .send()
+            .await
+        {
+            Ok(response) => {
+                let status = response.status();
+                match response.json::<Value>().await {
+                    Ok(body) if body["code"] == expected_code => return body,
+                    Ok(body) => format!("{status}: {body}"),
+                    Err(error) => format!("{status}: {error}"),
+                }
+            }
+            Err(error) => error.to_string(),
+        };
+
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for readiness code {expected_code} from {}: {}",
+            server.name(),
+            last_response
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
+async fn wait_for_ready_status(
+    client: &reqwest::Client,
+    server: &mut ServerProcess,
+    expected_status: reqwest::StatusCode,
+    timeout: Duration,
+) -> Value {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        server.assert_running();
+        let response = client
+            .get(format!("{}/health/ready", server.base_url()))
+            .send()
+            .await;
+        let last_response = match response {
+            Ok(response) => {
+                let status = response.status();
+                match response.json::<Value>().await {
+                    Ok(body) if status == expected_status => return body,
+                    Ok(body) => format!("{status}: {body}"),
+                    Err(error) => format!("{status}: {error}"),
+                }
+            }
+            Err(error) => error.to_string(),
+        };
+
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out waiting for readiness status {expected_status} from {}: {}",
+            server.name(),
+            last_response
+        );
+        tokio::time::sleep(Duration::from_millis(250)).await;
+    }
+}
+
 async fn setup_and_login(client: &reqwest::Client, server: &ServerProcess) -> String {
     let setup_response = client
         .post(format!("{}/api/v1/auth/setup", server.base_url()))
@@ -298,23 +419,34 @@ async fn setup_and_login(client: &reqwest::Client, server: &ServerProcess) -> St
         "admin setup failed: {setup_body}"
     );
 
+    login(client, server, "admin", ADMIN_PASSWORD).await
+}
+
+async fn login(
+    client: &reqwest::Client,
+    server: &ServerProcess,
+    identifier: &str,
+    password: &str,
+) -> String {
     let login_response = client
         .post(format!("{}/api/v1/auth/login", server.base_url()))
         .json(&json!({
-            "identifier": "admin",
-            "password": ADMIN_PASSWORD,
+            "identifier": identifier,
+            "password": password,
         }))
         .send()
         .await
-        .expect("send admin login request");
+        .expect("send login request");
     let login_status = login_response.status();
     let access_token = cookie_value(&login_response, "aster_access");
     let login_body = login_response.text().await.expect("read login response");
     assert!(
         login_status.is_success(),
-        "admin login failed with {login_status}: {login_body}"
+        "login for {identifier} failed with {login_status}: {login_body}"
     );
-    access_token.unwrap_or_else(|| panic!("login response omitted aster_access: {login_body}"))
+    access_token.unwrap_or_else(|| {
+        panic!("login response for {identifier} omitted aster_access: {login_body}")
+    })
 }
 
 fn cookie_value(response: &reqwest::Response, name: &str) -> Option<String> {
@@ -982,6 +1114,409 @@ async fn stale_fencing_proxy_response(
         .await
         .expect("read stale fencing proxy response");
     (status, body)
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two real AsterDrive primary processes"]
+async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    let policy_id = configure_default_sftp_policy(&database).await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build cluster upload E2E HTTP client");
+
+    let mut primary_a = ServerProcess::spawn("primary-a", &services);
+    wait_for_health(&client, &mut primary_a).await;
+    let access_token = setup_and_login(&client, &primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+
+    let response = client
+        .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+        .bearer_auth(&access_token)
+        .json(&json!({
+            "filename": "cluster-stream-staging.bin",
+            "total_size": 10 * 1024 * 1024,
+        }))
+        .send()
+        .await
+        .expect("send upload init to second primary");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode cluster staging rejection response");
+    assert_eq!(status, reqwest::StatusCode::BAD_REQUEST, "{body}");
+    assert_eq!(body["code"], "bad_request");
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("stream_staging")
+    );
+    assert!(
+        body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("Pod-local staging")
+    );
+    assert_eq!(
+        aster_drive::db::repository::upload_session_repo::count_by_policy(&database, policy_id)
+            .await
+            .expect("count cluster staging sessions"),
+        0,
+        "rejected cluster staging init must not persist a session"
+    );
+
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close cluster upload E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two real AsterDrive primary processes"]
+async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start_empty().await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build concurrent startup E2E HTTP client");
+
+    let mut primary_a = ServerProcess::spawn_with_database_pool_size("primary-a", &services, 1);
+    let mut primary_b = ServerProcess::spawn_with_database_pool_size("primary-b", &services, 1);
+    let ((), ()) = tokio::join!(
+        wait_for_health(&client, &mut primary_a),
+        wait_for_health(&client, &mut primary_b),
+    );
+
+    let database = services.connect_database().await;
+    let history = migration::inspect_migration_history(&database)
+        .await
+        .expect("inspect migration history after concurrent startup");
+    assert_eq!(history.track, migration::MigrationTrack::Current);
+    assert!(history.pending_current.is_empty());
+    assert!(history.unknown_applied.is_empty());
+    assert_eq!(history.applied, migration::current_migration_names());
+
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close concurrent startup E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and a real AsterDrive primary process"]
+async fn redis_outage_only_marks_cluster_readiness_unavailable_and_recovers() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start_for_redis_readiness_outage().await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build Redis readiness E2E HTTP client");
+    let mut primary = ServerProcess::spawn("primary-redis-readiness", &services);
+    wait_for_health(&client, &mut primary).await;
+
+    let initial_ready = wait_for_ready_status(
+        &client,
+        &mut primary,
+        reqwest::StatusCode::OK,
+        Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(initial_ready["data"]["status"], "ready");
+
+    services.redis.stop().await;
+    let unavailable = wait_for_ready_code(
+        &client,
+        &mut primary,
+        "config.error",
+        Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(unavailable["msg"], "Shared cache unavailable");
+    assert!(
+        client
+            .get(format!("{}/health", primary.base_url()))
+            .send()
+            .await
+            .expect("request liveness during Redis outage")
+            .status()
+            .is_success(),
+        "Redis outage must not make the liveness endpoint fail"
+    );
+
+    services.redis.restart().await;
+    let recovered = wait_for_ready_status(
+        &client,
+        &mut primary,
+        reqwest::StatusCode::OK,
+        Duration::from_secs(60),
+    )
+    .await;
+    assert_eq!(recovered["data"]["status"], "ready");
+    assert!(
+        client
+            .get(format!("{}/health", primary.base_url()))
+            .send()
+            .await
+            .expect("request liveness after Redis recovery")
+            .status()
+            .is_success(),
+        "liveness endpoint must remain healthy after Redis recovery"
+    );
+
+    primary.terminate();
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two real AsterDrive primary processes"]
+async fn storage_policy_update_propagates_to_second_primary_without_restart() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    let policy_id = aster_drive::db::repository::policy_repo::find_default(&database)
+        .await
+        .expect("load default E2E storage policy")
+        .expect("default E2E storage policy should exist")
+        .id;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build storage topology E2E HTTP client");
+
+    let mut primary_a = ServerProcess::spawn("primary-a", &services);
+    wait_for_health(&client, &mut primary_a).await;
+    let access_token = setup_and_login(&client, &primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/admin/policies/{policy_id}",
+            primary_a.base_url()
+        ))
+        .bearer_auth(&access_token)
+        .json(&json!({ "max_file_size": 1 }))
+        .send()
+        .await
+        .expect("update storage policy through primary A");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode storage policy update response");
+    assert!(
+        status.is_success(),
+        "policy update failed with {status}: {body}"
+    );
+
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        primary_b.assert_running();
+        let response = client
+            .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+            .bearer_auth(&access_token)
+            .json(&json!({
+                "filename": "cross-primary-policy-limit.bin",
+                "total_size": 2,
+            }))
+            .send()
+            .await
+            .expect("send upload init through primary B");
+        let status = response.status();
+        let body: Value = response
+            .json()
+            .await
+            .expect("decode upload init response from primary B");
+        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "primary B did not reload the updated policy, last response {status}: {body}\n{}",
+                primary_b.diagnostics()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close storage topology E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two real AsterDrive primary processes"]
+async fn user_policy_group_assignment_propagates_to_second_primary_without_restart() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    let now = Utc::now();
+    let constrained_policy = aster_drive::db::repository::policy_repo::create(
+        &database,
+        aster_drive::entities::storage_policy::ActiveModel {
+            name: Set("E2E User Policy Group Limit".to_string()),
+            driver_type: Set(aster_drive::types::DriverType::S3),
+            endpoint: Set("http://127.0.0.1:9000".to_string()),
+            bucket: Set("asterdrive-e2e".to_string()),
+            access_key: Set("e2e-access".to_string()),
+            secret_key: Set("e2e-secret".to_string()),
+            base_path: Set(String::new()),
+            max_file_size: Set(1),
+            allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+            is_default: Set(false),
+            chunk_size: Set(5_242_880),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create constrained E2E policy group policy");
+    let constrained_group = aster_drive::db::repository::policy_group_repo::create_group(
+        &database,
+        aster_drive::entities::storage_policy_group::ActiveModel {
+            name: Set("E2E User Policy Group".to_string()),
+            description: Set("Targeted config-sync E2E fixture".to_string()),
+            is_enabled: Set(true),
+            is_default: Set(false),
+            created_at: Set(now),
+            updated_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("create constrained E2E policy group");
+    aster_drive::db::repository::policy_group_repo::create_group_item(
+        &database,
+        aster_drive::entities::storage_policy_group_item::ActiveModel {
+            group_id: Set(constrained_group.id),
+            policy_id: Set(constrained_policy.id),
+            priority: Set(1),
+            min_file_size: Set(0),
+            max_file_size: Set(0),
+            created_at: Set(now),
+            ..Default::default()
+        },
+    )
+    .await
+    .expect("add constrained E2E policy group item");
+    database
+        .close()
+        .await
+        .expect("close user policy group E2E fixture database connection");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build user policy group E2E HTTP client");
+    let mut primary_a = ServerProcess::spawn("primary-a", &services);
+    wait_for_health(&client, &mut primary_a).await;
+    let admin_access_token = setup_and_login(&client, &primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+
+    let response = client
+        .post(format!("{}/api/v1/admin/users", primary_a.base_url()))
+        .bearer_auth(&admin_access_token)
+        .json(&json!({
+            "username": "policy-user",
+            "email": "policy-user@example.com",
+            "password": POLICY_GROUP_USER_PASSWORD,
+            "must_change_password": false,
+        }))
+        .send()
+        .await
+        .expect("create user on primary A");
+    let status = response.status();
+    let body: Value = response.json().await.expect("decode created user response");
+    assert!(
+        status.is_success(),
+        "user creation failed with {status}: {body}"
+    );
+    let user_id = body["data"]["user"]["id"]
+        .as_i64()
+        .expect("created user response should contain an id");
+
+    let response = client
+        .patch(format!(
+            "{}/api/v1/admin/users/{user_id}",
+            primary_a.base_url()
+        ))
+        .bearer_auth(&admin_access_token)
+        .json(&json!({ "policy_group_id": constrained_group.id }))
+        .send()
+        .await
+        .expect("assign constrained policy group on primary A");
+    let status = response.status();
+    let body: Value = response
+        .json()
+        .await
+        .expect("decode updated user policy group response");
+    assert!(
+        status.is_success(),
+        "policy group assignment failed with {status}: {body}"
+    );
+    assert_eq!(body["data"]["policy_group_id"], constrained_group.id);
+
+    let user_access_token = login(
+        &client,
+        &primary_b,
+        "policy-user",
+        POLICY_GROUP_USER_PASSWORD,
+    )
+    .await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
+    loop {
+        primary_b.assert_running();
+        let response = client
+            .post(format!("{}/api/v1/files/upload/init", primary_b.base_url()))
+            .bearer_auth(&user_access_token)
+            .json(&json!({
+                "filename": "targeted-user-policy-group-limit.bin",
+                "total_size": 2,
+            }))
+            .send()
+            .await
+            .expect("send user upload init through primary B");
+        let status = response.status();
+        let body: Value = response
+            .json()
+            .await
+            .expect("decode user upload init response from primary B");
+        if status == reqwest::StatusCode::BAD_REQUEST && body["code"] == "file.too_large" {
+            break;
+        }
+        if tokio::time::Instant::now() >= deadline {
+            panic!(
+                "primary B did not apply the targeted user policy group update, last response \
+                 {status}: {body}\n{}",
+                primary_b.diagnostics()
+            );
+        }
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+
+    primary_a.terminate();
+    primary_b.terminate();
+    services.cleanup_database().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

@@ -35,15 +35,18 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(
+                        aster_forge_db_migration::utc_date_time_column(
                             manager,
                             RemoteTunnelOwners::LeaseExpiresAt,
                         )
                         .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(manager, RemoteTunnelOwners::UpdatedAt)
-                            .not_null(),
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            RemoteTunnelOwners::UpdatedAt,
+                        )
+                        .not_null(),
                     )
                     .foreign_key(
                         ForeignKey::create()

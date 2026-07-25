@@ -18,7 +18,6 @@ use sea_orm_migration::sea_orm::{
     ConnectionTrait as SeaConnectionTrait, DatabaseConnection, DbBackend, Statement,
 };
 
-mod column;
 mod m20260512_000001_baseline_schema;
 mod m20260515_000001_add_passkeys;
 mod m20260517_000001_add_external_auth;
@@ -59,12 +58,12 @@ mod m20260717_000001_add_upload_session_kind;
 mod m20260719_000001_add_upload_provider_session;
 mod m20260723_000001_require_upload_session_kind;
 mod m20260725_000001_remote_tunnel_owners;
-mod search_acceleration;
-mod time;
-
 pub const BASELINE_MIGRATION_NAME: &str = "m20260512_000001_baseline_schema";
 
 const MIGRATION_TABLE: &str = "seaql_migrations";
+const POSTGRES_MIGRATION_LOCK_KEY: i64 = 0x4153_5445_5244_5249;
+const MYSQL_MIGRATION_LOCK_NAME: &str = "aster_drive:database_migrations";
+const MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS: u64 = 300;
 const APPLICATION_SCHEMA_SENTINELS: &[&str] = &[
     "users",
     "storage_policies",
@@ -259,6 +258,20 @@ where
 }
 
 pub async fn apply_database_migrations(database: &DatabaseConnection) -> Result<(), DbErr> {
+    let options = aster_forge_db_migration::MigrationLockOptions::new(MYSQL_MIGRATION_LOCK_NAME)
+        .with_postgres_advisory_key(POSTGRES_MIGRATION_LOCK_KEY)
+        .with_mysql_timeout_seconds(MYSQL_MIGRATION_LOCK_TIMEOUT_SECONDS);
+    aster_forge_db_migration::with_migration_lock(database, &options, |connection| {
+        Box::pin(apply_database_migrations_unlocked(connection))
+    })
+    .await
+}
+
+async fn apply_database_migrations_unlocked<'c, C>(database: &'c C) -> Result<(), DbErr>
+where
+    C: SeaConnectionTrait,
+    &'c C: IntoSchemaManagerConnection<'c>,
+{
     let history = inspect_migration_history(database).await?;
     if history.track == MigrationTrack::Unknown {
         return Err(migration_state_error(format!(

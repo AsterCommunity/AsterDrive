@@ -58,8 +58,8 @@ async fn create_tags(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default(0),
                 )
-                .col(crate::time::utc_date_time_column(manager, Tags::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, Tags::UpdatedAt).not_null())
+                .col(aster_forge_db_migration::utc_date_time_column(manager, Tags::CreatedAt).not_null())
+                .col(aster_forge_db_migration::utc_date_time_column(manager, Tags::UpdatedAt).not_null())
                 .check((
                     Alias::new("ck_tags_scope_owner"),
                     Expr::cust(

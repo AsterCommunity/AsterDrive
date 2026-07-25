@@ -185,17 +185,15 @@ pub fn spawn_primary_background_tasks(
     tasks
 }
 
-fn spawn_storage_change_subscription(
+async fn spawn_storage_change_subscription(
     shutdown_token: CancellationToken,
     state: web::Data<PrimaryAppState>,
-) -> impl Future<Output = ()> + Send + 'static {
-    async move {
-        crate::services::events::storage_change::run_cross_instance_subscription(
-            state.into_inner(),
-            shutdown_token,
-        )
-        .await;
-    }
+) {
+    crate::services::events::storage_change::run_cross_instance_subscription(
+        state.into_inner(),
+        shutdown_token,
+    )
+    .await;
 }
 
 async fn run_primary_runtime_group(

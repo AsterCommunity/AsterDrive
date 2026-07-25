@@ -19,6 +19,10 @@ Local disk storage is suitable when:
 
 If you want object storage to carry capacity and bandwidth, see [S3 / MinIO / R2](/en/storage/s3-minio-r2/), [Azure Blob Storage](/en/storage/azure-blob/), or [Tencent COS](/en/storage/tencent-cos/). If you want the control plane and real object placement split across nodes, see [Follower Node Storage Policy](/en/storage/remote-follower/).
 
+:::caution[Cluster does not support `local` policies]
+`deployment.profile = "cluster"` rejects local storage policies by driver type, even when every Pod mounts the same path or an RWX/NFS volume. Use object storage or a remote Follower for multiple Primaries. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/#storage-and-upload-limits) for the complete limits.
+:::
+
 ## First, Separate the Layers
 
 ```mermaid

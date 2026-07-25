@@ -732,3 +732,45 @@ async fn test_mysql_smoke_search_and_admin_overview() {
 
     exercise_backend_smoke(&database_url, DbBackend::MySql).await;
 }
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
+    let database_url = common::mysql_test_database_url().await;
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url,
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database_a =
+        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+            .await
+            .expect("first MySQL migration connection should succeed");
+    let database_b =
+        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+            .await
+            .expect("second MySQL migration connection should succeed");
+
+    let (migration_a, migration_b) = tokio::join!(
+        migration::Migrator::up(&database_a, None),
+        migration::Migrator::up(&database_b, None),
+    );
+    migration_a.expect("first concurrent MySQL migration should succeed");
+    migration_b.expect("second concurrent MySQL migration should succeed");
+
+    let history = migration::inspect_migration_history(&database_a)
+        .await
+        .expect("concurrent MySQL migration history should be readable");
+    assert_eq!(history.track, migration::MigrationTrack::Current);
+    assert!(history.pending_current.is_empty());
+    assert!(history.unknown_applied.is_empty());
+    assert_eq!(history.applied, migration::current_migration_names());
+
+    database_a
+        .close()
+        .await
+        .expect("first MySQL migration connection should close cleanly");
+    database_b
+        .close()
+        .await
+        .expect("second MySQL migration connection should close cleanly");
+}

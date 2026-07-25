@@ -89,7 +89,7 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for LocalConnector {
     fn driver_type() -> DriverType {
         DriverType::Local

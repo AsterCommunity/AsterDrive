@@ -21,6 +21,7 @@ required-features = ["cli"]
 
 [dependencies]
 aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db", features = ["audit-log", "mail-outbox", "runtime-lease", "scheduled-task", "system-config"] }
+aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db_migration" }
 aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification" }
 serde_json = "1"
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

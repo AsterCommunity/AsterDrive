@@ -148,6 +148,11 @@ const sidebar = assertUniqueSidebarLinks([
       { label: 'systemd', translations: { en: 'systemd' }, link: '/deployment/systemd/' },
       { label: '反向代理', translations: { en: 'Reverse Proxy' }, link: '/deployment/reverse-proxy/' },
       {
+        label: '负载均衡与多实例',
+        translations: { en: 'Load Balancing and Multi-Instance' },
+        link: '/deployment/load-balancing/'
+      },
+      {
         label: '从节点网络拓扑',
         translations: { en: 'Follower Network Topologies' },
         link: '/deployment/follower-network-topologies/'

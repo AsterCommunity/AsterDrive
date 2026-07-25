@@ -36,7 +36,9 @@ async fn create_external_auth_providers(manager: &SchemaManager<'_>) -> Result<(
             Table::create()
                 .table(ExternalAuthProviders::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ExternalAuthProviders::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ExternalAuthProviders::Id,
+                ))
                 .col(
                     ColumnDef::new(ExternalAuthProviders::Key)
                         .string_len(64)
@@ -163,12 +165,18 @@ async fn create_external_auth_providers(manager: &SchemaManager<'_>) -> Result<(
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthProviders::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthProviders::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthProviders::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthProviders::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -181,7 +189,9 @@ async fn create_external_auth_identities(manager: &SchemaManager<'_>) -> Result<
             Table::create()
                 .table(ExternalAuthIdentities::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ExternalAuthIdentities::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ExternalAuthIdentities::Id,
+                ))
                 .col(
                     ColumnDef::new(ExternalAuthIdentities::UserId)
                         .big_integer()
@@ -213,16 +223,25 @@ async fn create_external_auth_identities(manager: &SchemaManager<'_>) -> Result<
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthIdentities::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthIdentities::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthIdentities::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthIdentities::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthIdentities::LastLoginAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthIdentities::LastLoginAt,
+                    )
+                    .null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -253,7 +272,9 @@ async fn create_external_auth_login_flows(manager: &SchemaManager<'_>) -> Result
             Table::create()
                 .table(ExternalAuthLoginFlows::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ExternalAuthLoginFlows::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ExternalAuthLoginFlows::Id,
+                ))
                 .col(
                     ColumnDef::new(ExternalAuthLoginFlows::ProviderId)
                         .big_integer()
@@ -285,16 +306,25 @@ async fn create_external_auth_login_flows(manager: &SchemaManager<'_>) -> Result
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthLoginFlows::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthLoginFlows::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthLoginFlows::ExpiresAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthLoginFlows::ExpiresAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ExternalAuthLoginFlows::ConsumedAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ExternalAuthLoginFlows::ConsumedAt,
+                    )
+                    .null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -318,7 +348,9 @@ async fn create_external_auth_email_verification_flows(
             Table::create()
                 .table(ExternalAuthEmailVerificationFlows::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ExternalAuthEmailVerificationFlows::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ExternalAuthEmailVerificationFlows::Id,
+                ))
                 .col(
                     ColumnDef::new(ExternalAuthEmailVerificationFlows::ProviderId)
                         .big_integer()
@@ -365,28 +397,28 @@ async fn create_external_auth_email_verification_flows(
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ExternalAuthEmailVerificationFlows::EmailRequestedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ExternalAuthEmailVerificationFlows::CreatedAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ExternalAuthEmailVerificationFlows::ExpiresAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ExternalAuthEmailVerificationFlows::ConsumedAt,
                     )
@@ -479,19 +511,6 @@ async fn create_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         manager.create_index(index).await?;
     }
     Ok(())
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

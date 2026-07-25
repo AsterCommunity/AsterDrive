@@ -219,7 +219,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for OneDriveConnector {
     fn driver_type() -> DriverType {
         DriverType::OneDrive

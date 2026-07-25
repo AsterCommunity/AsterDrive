@@ -175,6 +175,7 @@ pub async fn create_group(
     }
     transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     let group = policy_group_repo::find_group_by_id(state.writer_db(), group.id).await?;
     Ok(build_group_info(state, &group))
 }
@@ -268,6 +269,7 @@ pub async fn update_group(
 
     transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     let group = policy_group_repo::find_group_by_id(state.writer_db(), group.id).await?;
     Ok(build_group_info(state, &group))
 }
@@ -303,6 +305,7 @@ pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()
 
     policy_group_repo::delete_group(state.writer_db(), id).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     tracing::info!(
         policy_group_id = id,
         policy_group_name = %group.name,
@@ -364,6 +367,7 @@ pub async fn migrate_group_assignments(
         });
     }
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
 
     Ok(PolicyGroupAssignmentMigrationResult {
         source_group_id,

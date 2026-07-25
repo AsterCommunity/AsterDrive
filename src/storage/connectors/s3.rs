@@ -65,7 +65,7 @@ impl StorageConnectorDescriptorProvider for S3Connector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for S3Connector {
     fn driver_type() -> DriverType {
         DriverType::S3

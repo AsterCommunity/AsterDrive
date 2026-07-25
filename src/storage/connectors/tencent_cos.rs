@@ -111,7 +111,7 @@ fn resolve_cos_cors_allowed_origins(
     Ok(origins)
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for TencentCosConnector {
     fn driver_type() -> DriverType {
         DriverType::TencentCos

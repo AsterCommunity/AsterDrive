@@ -202,6 +202,7 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
     .map_err(map_remote_node_db_err)?;
 
     refresh_registry(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     remote_node_info(state, created).await
 }
 
@@ -252,6 +253,7 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         .await
         .map_err(map_remote_node_db_err)?;
     refresh_registry(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     if enrollment_status_for_node(state, updated.id).await? == RemoteNodeEnrollmentStatus::Completed
         && let Err(error) =
             sync_remote_binding_config_with_timeout(state, &updated, REMOTE_BINDING_SYNC_TIMEOUT)
@@ -275,6 +277,7 @@ pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result
     }
     managed_follower_repo::delete(state.writer_db(), id).await?;
     refresh_registry(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     tracing::info!(remote_node_id = id, "deleted remote node");
     Ok(())
 }

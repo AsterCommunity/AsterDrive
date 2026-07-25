@@ -31,7 +31,7 @@ impl MigrationTrait for Migration {
             // SQLite accepts the Forge schema as a backwards-compatible superset in practice.
             DatabaseBackend::Sqlite => Ok(()),
             DatabaseBackend::MySql | DatabaseBackend::Postgres => {
-                aster_forge_db::drop_index_if_exists(
+                aster_forge_db_migration::drop_index_if_exists(
                     manager.get_connection(),
                     aster_forge_db::SYSTEM_CONFIG_TABLE,
                     aster_forge_db::SYSTEM_CONFIG_KEY_UNIQUE_INDEX,

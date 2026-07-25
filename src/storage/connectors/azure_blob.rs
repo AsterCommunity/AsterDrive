@@ -53,7 +53,7 @@ impl StorageConnectorDescriptorProvider for AzureBlobConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for AzureBlobConnector {
     fn driver_type() -> DriverType {
         DriverType::AzureBlob

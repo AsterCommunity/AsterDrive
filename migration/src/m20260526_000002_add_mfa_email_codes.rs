@@ -31,7 +31,9 @@ async fn create_mfa_email_codes(manager: &SchemaManager<'_>) -> Result<(), DbErr
             Table::create()
                 .table(MfaEmailCodes::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MfaEmailCodes::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MfaEmailCodes::Id,
+                ))
                 .col(
                     ColumnDef::new(MfaEmailCodes::FlowId)
                         .big_integer()
@@ -48,11 +50,25 @@ async fn create_mfa_email_codes(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaEmailCodes::ExpiresAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaEmailCodes::ExpiresAt,
+                    )
+                    .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, MfaEmailCodes::ConsumedAt).null())
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaEmailCodes::CreatedAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaEmailCodes::ConsumedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaEmailCodes::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -124,19 +140,6 @@ async fn create_mfa_email_codes_single_active_index(
         .execute_unprepared(statement)
         .await
         .map(|_| ())
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

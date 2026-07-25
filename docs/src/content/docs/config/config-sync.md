@@ -5,6 +5,8 @@ title: "配置同步"
 
 :::tip[这一篇覆盖 `[config_sync]`]
 单实例部署保持默认关闭即可。只有多个 AsterDrive 进程共享同一份数据库，并且需要让后台系统设置和 `aster_drive config` 修改及时传播到其他实例时，才需要启用配置同步。
+
+本页只解释通知和恢复机制；共享依赖、存储、上传、健康检查和负载均衡限制见[负载均衡与多实例](/deployment/load-balancing/)。
 :::
 
 ```toml
@@ -97,8 +99,10 @@ ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 - `aster_drive config set`
 - `aster_drive config delete`
 - `aster_drive config import`
+- 存储策略、策略组、存储凭据和远程节点的拓扑变更
+- 新用户创建、邀请接受、外部认证自动建号，以及管理员调整或删除用户策略组绑定
 
-一次操作联动修改多个配置项时，只发布一条包含全部 changed keys 的通知。实例启动时的 migration、默认值补种和配置修复不会发布通知；实例会在启动流程中直接加载完整 snapshot。
+系统设置通知会让接收实例从权威数据库重载运行时配置。存储拓扑通知会额外重载 policy snapshot、connector/driver state 和相关公开配置缓存；用户策略组通知只刷新对应用户的策略组映射，不扫描所有用户。一次操作联动修改多个配置项时，只发布一条包含全部 changed keys 的通知。实例启动时的 migration、默认值补种和配置修复不会发布通知；实例会在启动流程中直接加载完整 snapshot。
 
 ## Redis 故障时会怎样
 
@@ -109,7 +113,7 @@ ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 - Redis URL 合法但服务暂时不可达时，实例可以完成启动；订阅 supervisor 会记录 `disconnected`，使用有界指数退避和抖动自动重连
 - 管理 API 或 CLI 已完成数据库写入，但随后发布通知失败时，命令会返回错误；本地值已经写入，其他实例可能要等重启或下一条成功通知后才重新加载
 
-运行期间 Redis 短暂断开时，config reload 和 Storage SSE 的订阅都会进入 `disconnected` / `reconnecting` 状态。Drive 会向本地存活的 SSE 客户端发送一次 `sync.required`，提示前端从权威 API 刷新。Redis 恢复后无需重启实例：订阅进入 `recovered`，config reload 会从权威数据库执行一次完整 snapshot reconcile，Storage SSE 则继续接收新的跨实例事件。Redis pub/sub 不提供历史回放，断线窗口内丢失的具体 Storage SSE 事件由 `sync.required` 的全量刷新覆盖。
+运行期间 Redis 短暂断开时，config reload 和 Storage SSE 的订阅都会进入 `disconnected` / `reconnecting` 状态。Drive 会向本地存活的 SSE 客户端发送一次 `sync.required`，提示前端从权威 API 刷新。Redis 恢复后无需重启实例：订阅进入 `recovered`，config reload 会从权威数据库执行完整 runtime config 与 storage topology reconcile，Storage SSE 则继续接收新的跨实例事件。Redis pub/sub 不提供历史回放，断线窗口内丢失的具体 Storage SSE 事件由 `sync.required` 的全量刷新覆盖。
 
 :::caution[Redis pub/sub 不补发历史消息]
 Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知不会在它恢复后重放；但实例每次启动都会从数据库全量加载，所以重启后会回到权威状态。
@@ -134,7 +138,7 @@ Redis pub/sub 不是持久消息队列。某个实例离线期间错过的通知
 4. 用 CLI 修改一个测试用自定义配置，再从另一实例读取。
 5. 暂停 Redis，确认出现 `disconnected` / `reconnecting`，且 SSE 客户端收到 `sync.required`；恢复 Redis 后确认出现 `recovered`，并验证下一次配置修改和文件变更都能继续同步。
 
-上线前也应把 Redis 可用性和所有实例的 topic 一致性加入 [生产上线检查](/deployment/production-checklist/)。
+上线前也应把 Redis 可用性和所有实例的 topic 一致性加入 [生产上线检查](/deployment/production-checklist/)，并按[负载均衡与多实例](/deployment/load-balancing/#上线验收)完成跨实例验收。
 
 ## 常见问题
 

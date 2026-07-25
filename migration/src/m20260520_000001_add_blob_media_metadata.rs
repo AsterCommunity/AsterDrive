@@ -13,7 +13,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(BlobMediaMetadata::Table)
                     .if_not_exists()
-                    .col(big_integer_pk(BlobMediaMetadata::Id))
+                    .col(aster_forge_db_migration::big_integer_primary_key(
+                        BlobMediaMetadata::Id,
+                    ))
                     .col(
                         ColumnDef::new(BlobMediaMetadata::BlobId)
                             .big_integer()
@@ -56,12 +58,18 @@ impl MigrationTrait for Migration {
                             .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(manager, BlobMediaMetadata::CreatedAt)
-                            .not_null(),
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            BlobMediaMetadata::CreatedAt,
+                        )
+                        .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(manager, BlobMediaMetadata::UpdatedAt)
-                            .not_null(),
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            BlobMediaMetadata::UpdatedAt,
+                        )
+                        .not_null(),
                     )
                     .foreign_key(
                         ForeignKey::create()
@@ -94,19 +102,6 @@ impl MigrationTrait for Migration {
             )
             .await
     }
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

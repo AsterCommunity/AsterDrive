@@ -38,21 +38,11 @@ endpoint = "redis://redis:6379/0"
 topic = "aster_drive.config_reload"
 ```
 
-Every primary instance must also:
+`internal_endpoint` must be an absolute `http`/`https` URL directly reachable from every other Primary and uniquely identify this instance, without a query or fragment. Do not use the shared load-balancer address. `internal_proxy_secret` must contain at least 32 characters and be identical on every Primary. Leaving both empty creates a direct-only cluster; setting only one fails static configuration validation.
 
-- Connect to the same authoritative PostgreSQL or MySQL database
-- Use the same Redis cache endpoint
-- Use the same config-sync endpoint and topic
-- Use storage reachable by every instance, such as S3, Azure Blob, OneDrive, or SFTP; a `local` policy is not shared storage
-- If `reverse_tunnel` or an `auto` node with an empty `base_url` is used, configure a per-primary `internal_endpoint` and the same `internal_proxy_secret` on every primary
+The `cluster` profile checks the shared database, Redis, and storage topology during startup, `/health/ready`, and `aster_drive doctor`. A fresh cluster database does not create `Local Default`; create a shared storage policy and make it the default through the admin console.
 
-Reverse-tunnel connections, lanes, and pending requests remain process-local. In the cluster profile, a shared database owner directory stores the owner lease and fencing token, and an authenticated streaming proxy forwards requests from a non-owner primary to the owner. File bodies stay on the owner primary HTTP data plane; Redis and the database carry control state only.
-
-`internal_endpoint` must be an absolute `http`/`https` URL reachable from every other primary, without a query or fragment. `internal_proxy_secret` must contain at least 32 characters and be identical on all primaries. Leaving both empty keeps a direct-only cluster topology; setting only one fails static configuration validation.
-
-The `cluster` profile checks these combinations during startup, `/health/ready`, and `aster_drive doctor`. It declares deployment intent and blocks known incompatible topologies; load balancing and cross-instance storage SSE remain separate capabilities. Reverse-tunnel owner routing is enabled by the owner directory and proxy settings above.
-
-A fresh cluster database does not seed a local default policy. Create a shared storage policy and make it the default through the admin console; `/health/ready` remains not ready until that step is complete.
+See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the authoritative shared-dependency, static-secret, upload and SFTP limit, reverse-tunnel owner routing, health-check, migration-lock, task-lease, and Ingress contract. See [Uploads and Large Files](/en/guide/upload-modes/#choosing-uploads-for-a-cluster-deployment) for upload-mode selection.
 
 Environment variable form:
 

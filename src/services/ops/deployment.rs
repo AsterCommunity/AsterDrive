@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use crate::config::{Config, DeploymentProfile};
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
-use crate::types::{DriverType, RemoteNodeTransportMode};
+use crate::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClusterTopologyReport {
@@ -51,6 +51,21 @@ pub fn validate_storage_policy_driver(config: &Config, driver_type: DriverType) 
         return Err(AsterError::validation_error(
             "cluster deployment profile requires storage shared by every primary; local storage policies belong to the single profile",
         ));
+    }
+    Ok(())
+}
+
+pub fn validate_upload_session_kind(config: &Config, kind: UploadSessionKind) -> Result<()> {
+    if config.deployment.profile.is_cluster()
+        && matches!(
+            kind,
+            UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
+        )
+    {
+        return Err(AsterError::validation_error(format!(
+            "cluster deployment profile cannot initialize upload session kind '{}': Pod-local staging is not shared across primaries; use a connector-native multipart, presigned, or frontend-direct resumable upload mode",
+            kind.as_str()
+        )));
     }
     Ok(())
 }
@@ -128,10 +143,11 @@ mod tests {
     use super::{
         ClusterTopologyReport, inspect_primary_topology, validate_primary_topology,
         validate_remote_node_transport, validate_storage_policy_driver,
+        validate_upload_session_kind,
     };
     use crate::config::{Config, DeploymentProfile};
     use crate::entities::managed_follower;
-    use crate::types::RemoteNodeTransportMode;
+    use crate::types::{RemoteNodeTransportMode, UploadSessionKind};
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -188,6 +204,54 @@ mod tests {
             "cluster-secret-for-tests-at-least-32-bytes".to_string();
         validate_remote_node_transport(&config, RemoteNodeTransportMode::ReverseTunnel, "", true)
             .expect("configured cluster proxy should accept reverse tunnel nodes");
+    }
+
+    #[test]
+    fn single_profile_accepts_every_upload_session_kind() {
+        let config = Config::default();
+
+        for kind in all_upload_session_kinds() {
+            validate_upload_session_kind(&config, kind).unwrap_or_else(|error| {
+                panic!("single profile rejected {}: {error}", kind.as_str())
+            });
+        }
+    }
+
+    #[test]
+    fn cluster_profile_rejects_only_pod_local_staging_upload_sessions() {
+        let mut config = Config::default();
+        config.deployment.profile = DeploymentProfile::Cluster;
+
+        for kind in all_upload_session_kinds() {
+            let result = validate_upload_session_kind(&config, kind);
+            if matches!(
+                kind,
+                UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
+            ) {
+                let error = result.unwrap_err().to_string();
+                assert!(error.contains(kind.as_str()));
+                assert!(error.contains("Pod-local staging"));
+                assert!(error.contains("connector-native"));
+            } else {
+                result.unwrap_or_else(|error| {
+                    panic!("cluster profile rejected {}: {error}", kind.as_str())
+                });
+            }
+        }
+    }
+
+    fn all_upload_session_kinds() -> [UploadSessionKind; 9] {
+        [
+            UploadSessionKind::OffsetStaging,
+            UploadSessionKind::StreamStaging,
+            UploadSessionKind::ProviderRelayMultipart,
+            UploadSessionKind::ProviderPresignedSingle,
+            UploadSessionKind::ProviderPresignedMultipart,
+            UploadSessionKind::RemoteRelayMultipart,
+            UploadSessionKind::RemotePresignedSingle,
+            UploadSessionKind::RemotePresignedMultipart,
+            UploadSessionKind::ProviderDirectResumable,
+        ]
     }
 
     #[tokio::test]

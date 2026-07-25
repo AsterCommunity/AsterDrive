@@ -210,6 +210,7 @@ pub async fn create(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
         .map(Into::into)
@@ -310,6 +311,7 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
     tracing::info!(
         policy_id = id,
         policy_name = %policy.name,
@@ -504,6 +506,7 @@ pub async fn update(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
@@ -589,6 +592,7 @@ pub async fn promote_s3_compatible_driver(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
+    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
 
     policy_repo::find_by_id(state.writer_db(), id)
         .await

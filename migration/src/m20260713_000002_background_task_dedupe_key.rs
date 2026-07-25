@@ -34,7 +34,7 @@ impl MigrationTrait for Migration {
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        aster_forge_db::drop_index_if_exists(
+        aster_forge_db_migration::drop_index_if_exists(
             manager.get_connection(),
             "background_tasks",
             "idx_background_tasks_dedupe_key_unique",

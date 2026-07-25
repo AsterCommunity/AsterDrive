@@ -66,6 +66,16 @@ Watch the capacity of these directories:
 - `data/.tmp`
 - `data/.uploads`
 
+## Choosing Uploads for a Cluster Deployment
+
+A multi-primary cluster cannot treat one Pod's local staging area as shared upload state. Load balancing can send upload creation, later upload data, and upload recovery requests to different primaries.
+
+- Local resumable uploads that require offset/stream staging are rejected before a session is created, so a rejected request leaves neither a session nor a staging file.
+- Policies using connector-native multipart, object-storage presigned uploads, browser-direct uploads, or follower relay/presigned uploads can be used in a cluster.
+- This is not a ban on large files. It is a boundary around Pod-local staging.
+
+When moving from one instance to a cluster, first move user and team policy groups to shared-storage policies whose upload sessions are cluster-compatible, then shift traffic to multiple Primaries. Single-request SFTP uploads work, but resumable chunks requiring stream staging are rejected. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/#storage-and-upload-limits) for the full storage matrix, shared dependencies, and readiness contract.
+
 ## The Two Common Object Storage Paths
 
 ### Server Relay

@@ -3015,6 +3015,72 @@ async fn test_chunked_init_persists_explicit_offset_staging_kind() {
 }
 
 #[tokio::test]
+async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects() {
+    use aster_drive::config::DeploymentProfile;
+    use aster_drive::db::repository::{policy_repo, upload_session_repo};
+    use aster_drive::services::files::upload;
+    use std::sync::Arc;
+
+    let base_state = common::setup().await;
+    let mut config = (*base_state.config).clone();
+    config.deployment.profile = DeploymentProfile::Cluster;
+    let state = aster_drive::runtime::PrimaryAppState {
+        config: Arc::new(config),
+        ..base_state
+    };
+    let user = common::create_test_account(
+        &state,
+        "clusterstaging",
+        "cluster-staging@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let policy = policy_repo::find_default(state.writer_db())
+        .await
+        .unwrap()
+        .expect("default local policy should exist");
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0
+    );
+
+    let error = match upload::init_upload(
+        &state,
+        user.id,
+        "cluster-staging.bin",
+        10 * 1024 * 1024,
+        None,
+        None,
+    )
+    .await
+    {
+        Ok(_) => panic!("cluster profile should reject Pod-local staging"),
+        Err(error) => error,
+    };
+
+    assert_eq!(error.api_error_code(), ApiErrorCode::BadRequest);
+    assert!(error.to_string().contains("offset_staging"));
+    assert!(error.to_string().contains("Pod-local staging"));
+    assert_eq!(
+        upload_session_repo::count_by_policy(state.writer_db(), policy.id)
+            .await
+            .unwrap(),
+        0,
+        "cluster staging rejection must happen before session persistence"
+    );
+    let mut entries = tokio::fs::read_dir(&state.config.server.upload_temp_dir)
+        .await
+        .unwrap();
+    assert!(
+        entries.next_entry().await.unwrap().is_none(),
+        "cluster staging rejection must happen before temp directory creation"
+    );
+}
+
+#[tokio::test]
 async fn test_explicit_session_kind_rejects_incompatible_fields() {
     use aster_drive::services::files::upload;
     use aster_drive::types::{UploadSessionKind, UploadSessionStatus};

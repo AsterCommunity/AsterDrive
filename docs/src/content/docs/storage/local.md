@@ -19,6 +19,10 @@ title: "本地磁盘存储策略教程"
 
 如果你希望把容量和带宽交给对象存储，看 [S3 / MinIO / R2](/storage/s3-minio-r2/)、[Azure Blob Storage](/storage/azure-blob/) 或 [腾讯云 COS](/storage/tencent-cos/)。如果你希望主控节点和真实对象落点拆开，看 [远程节点存储策略](/storage/remote-follower/)。
 
+:::caution[cluster 不支持 `local` policy]
+`deployment.profile = "cluster"` 会按驱动类型拒绝本地存储策略，即使所有 Pod 挂载了同一路径或 RWX/NFS 卷也一样。多 Primary 请使用对象存储或远程 Follower，完整限制见[负载均衡与多实例](/deployment/load-balancing/#存储与上传限制)。
+:::
+
 ## 先分清你要配哪几层
 
 ```mermaid

@@ -66,6 +66,16 @@ flowchart TD
 - `data/.tmp`
 - `data/.uploads`
 
+## Cluster 部署时的上传选择
+
+多 primary cluster 不能把某一台 Pod 的本地暂存当成共享上传状态。负载均衡可能让创建会话、上传后续数据和恢复上传的请求落到不同 primary。
+
+- 需要 offset / stream staging 的本地可恢复上传会在创建会话前被拒绝，返回错误时不会留下会话或暂存文件。
+- 使用 connector-native multipart、对象存储预签名、浏览器直传，或远程节点 relay / presigned 的策略可以在 cluster 中使用。
+- 不要把这个限制理解成“不能上传大文件”：限制的是 Pod-local staging，不是文件大小本身。
+
+如果你从单机切到 cluster，先把用户和团队策略组切到支持 cluster 上传会话的共享存储策略，再把流量切给多个 primary。SFTP 的单请求直传可用，但需要 stream staging 的可恢复分片会被拒绝；完整存储矩阵、共享依赖与 readiness 契约见[负载均衡与多实例](/deployment/load-balancing/#存储与上传限制)。
+
 ## 如果你使用对象存储，最常见的两种方式
 
 ### 服务端转发

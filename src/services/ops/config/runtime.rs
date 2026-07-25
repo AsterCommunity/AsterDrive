@@ -11,6 +11,82 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 
 pub const CONFIG_RELOAD_NAMESPACE: &str = "aster_drive";
+pub const STORAGE_TOPOLOGY_RELOAD_KEY: &str = "__aster_drive.storage_topology";
+const USER_POLICY_GROUP_RELOAD_KEY_PREFIX: &str = "__aster_drive.user_policy_group.";
+
+pub async fn reconcile_storage_topology(state: &impl SharedRuntimeState) -> Result<()> {
+    state.driver_registry().invalidate_all();
+    match state.config().server.start_mode {
+        crate::config::node_mode::NodeRuntimeMode::Primary => {
+            state
+                .driver_registry()
+                .reload_primary_state(state.writer_db(), state.config())
+                .await?;
+        }
+        crate::config::node_mode::NodeRuntimeMode::Follower => {
+            state
+                .driver_registry()
+                .reload_follower_state(state.writer_db())
+                .await?;
+        }
+    }
+    state.policy_snapshot().reload(state.writer_db()).await?;
+    state.driver_registry().invalidate_all();
+    super::system::invalidate_all_dependent_public_config_caches();
+    Ok(())
+}
+
+pub async fn publish_storage_topology_reload(state: &impl SharedRuntimeState) -> Result<()> {
+    state
+        .config_sync()
+        .publish_reload(
+            [STORAGE_TOPOLOGY_RELOAD_KEY],
+            aster_forge_config::ConfigNotificationSource::Other("storage_topology".to_string()),
+        )
+        .await
+        .map_err(map_config_core_error)
+}
+
+pub async fn publish_user_policy_group_reload(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<()> {
+    state
+        .config_sync()
+        .publish_reload(
+            [format!("{USER_POLICY_GROUP_RELOAD_KEY_PREFIX}{user_id}")],
+            aster_forge_config::ConfigNotificationSource::Other("user_policy_group".to_string()),
+        )
+        .await
+        .map_err(map_config_core_error)
+}
+
+async fn reconcile_user_policy_groups(
+    state: &impl SharedRuntimeState,
+    keys: &[String],
+) -> Result<()> {
+    for key in keys {
+        let Some(user_id) = key
+            .strip_prefix(USER_POLICY_GROUP_RELOAD_KEY_PREFIX)
+            .and_then(|value| value.parse::<i64>().ok())
+        else {
+            continue;
+        };
+        match crate::db::repository::user_repo::find_by_id(state.writer_db(), user_id).await {
+            Ok(user) => match user.policy_group_id {
+                Some(group_id) => state
+                    .policy_snapshot()
+                    .set_user_policy_group(user_id, group_id),
+                None => state.policy_snapshot().remove_user_policy_group(user_id),
+            },
+            Err(crate::errors::AsterError::RecordNotFound(_)) => {
+                state.policy_snapshot().remove_user_policy_group(user_id);
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(())
+}
 
 pub async fn run_config_reload_subscription<S>(
     state: Arc<S>,
@@ -56,6 +132,11 @@ where
                         .map_err(|error| {
                             aster_forge_config::ConfigCoreError::store(error.to_string())
                         })?;
+                    reconcile_storage_topology(state.as_ref())
+                        .await
+                        .map_err(|error| {
+                            aster_forge_config::ConfigCoreError::store(error.to_string())
+                        })?;
                     super::system::invalidate_all_dependent_public_config_caches();
                     Ok(())
                 }
@@ -71,6 +152,22 @@ where
                     state
                         .runtime_config()
                         .reload(state.writer_db())
+                        .await
+                        .map_err(|error| {
+                            aster_forge_config::ConfigCoreError::store(error.to_string())
+                        })?;
+                    if message
+                        .keys
+                        .iter()
+                        .any(|key| key == STORAGE_TOPOLOGY_RELOAD_KEY)
+                    {
+                        reconcile_storage_topology(state.as_ref())
+                            .await
+                            .map_err(|error| {
+                                aster_forge_config::ConfigCoreError::store(error.to_string())
+                            })?;
+                    }
+                    reconcile_user_policy_groups(state.as_ref(), &message.keys)
                         .await
                         .map_err(|error| {
                             aster_forge_config::ConfigCoreError::store(error.to_string())
@@ -103,12 +200,17 @@ mod tests {
 
     use aster_forge_config::ConfigSyncConfig;
     use migration::Migrator;
+    use sea_orm::{ActiveModelTrait, Set};
 
     use crate::runtime::SharedRuntimeState;
 
     struct ReloadTestState {
         db: sea_orm::DatabaseConnection,
         runtime_config: Arc<crate::config::RuntimeConfig>,
+        driver_registry: Arc<crate::storage::DriverRegistry>,
+        policy_snapshot: Arc<crate::storage::PolicySnapshot>,
+        config: Arc<crate::config::Config>,
+        cache: Arc<dyn aster_forge_cache::CacheBackend>,
         config_sync: aster_forge_config::ConfigSyncRuntime,
         metrics: crate::metrics::SharedMetricsRecorder,
     }
@@ -123,7 +225,7 @@ mod tests {
         }
 
         fn driver_registry(&self) -> &Arc<crate::storage::DriverRegistry> {
-            panic!("config reload test must not access driver_registry")
+            &self.driver_registry
         }
 
         fn runtime_config(&self) -> &Arc<crate::config::RuntimeConfig> {
@@ -131,15 +233,15 @@ mod tests {
         }
 
         fn policy_snapshot(&self) -> &Arc<crate::storage::PolicySnapshot> {
-            panic!("config reload test must not access policy_snapshot")
+            &self.policy_snapshot
         }
 
         fn config(&self) -> &Arc<crate::config::Config> {
-            panic!("config reload test must not access static config")
+            &self.config
         }
 
         fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
-            panic!("config reload test must not access cache")
+            &self.cache
         }
 
         fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime {
@@ -203,15 +305,57 @@ mod tests {
         crate::db::repository::config_repo::ensure_defaults_with_env(&db, &|_| None)
             .await
             .expect("config reload test defaults should load");
+        let now = chrono::Utc::now();
+        let policy = crate::db::repository::policy_repo::create(
+            &db,
+            crate::entities::storage_policy::ActiveModel {
+                name: Set("config reload policy".to_string()),
+                driver_type: Set(crate::types::DriverType::S3),
+                endpoint: Set("https://old.example.com".to_string()),
+                bucket: Set("test".to_string()),
+                access_key: Set("access".to_string()),
+                secret_key: Set("secret".to_string()),
+                base_path: Set(String::new()),
+                max_file_size: Set(0),
+                allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
+                options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+                is_default: Set(true),
+                chunk_size: Set(5_242_880),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("config reload test policy should insert");
+        crate::services::storage_policy::policy::ensure_policy_groups_seeded(&db)
+            .await
+            .expect("config reload test policy groups should seed");
 
         let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
         runtime_config
             .reload(&db)
             .await
             .expect("initial runtime config should load");
+        let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
+        policy_snapshot
+            .reload(&db)
+            .await
+            .expect("initial policy snapshot should load");
+        let config = Arc::new(crate::config::Config::default());
+        let driver_registry = Arc::new(crate::storage::DriverRegistry::noop());
+        driver_registry
+            .reload_primary_state(&db, config.as_ref())
+            .await
+            .expect("initial driver registry state should load");
         let state = Arc::new(ReloadTestState {
             db: db.clone(),
             runtime_config: runtime_config.clone(),
+            driver_registry,
+            policy_snapshot: policy_snapshot.clone(),
+            config,
+            cache: aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default())
+                .await,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
             metrics: crate::metrics::NoopMetrics::arc(),
         });
@@ -263,6 +407,43 @@ mod tests {
         })
         .await
         .expect("remote notification should reload runtime config");
+
+        let policy_id = policy.id;
+        let mut active: crate::entities::storage_policy::ActiveModel = policy.into();
+        active.max_file_size = Set(1);
+        active
+            .update(&db)
+            .await
+            .expect("authoritative storage policy should update");
+        assert_eq!(
+            policy_snapshot
+                .get_policy(policy_id)
+                .expect("policy should remain in old snapshot")
+                .max_file_size,
+            0
+        );
+        publisher
+            .publish_reload(
+                [super::STORAGE_TOPOLOGY_RELOAD_KEY],
+                aster_forge_config::ConfigNotificationSource::Other(
+                    "storage_topology_test".to_string(),
+                ),
+            )
+            .await
+            .expect("storage topology reload notification should publish");
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if policy_snapshot
+                    .get_policy(policy_id)
+                    .is_some_and(|policy| policy.max_file_size == 1)
+                {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            }
+        })
+        .await
+        .expect("storage topology notification should reload policy snapshot");
 
         shutdown.cancel();
         worker

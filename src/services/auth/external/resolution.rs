@@ -298,6 +298,10 @@ async fn create_external_auth_user_and_identity(
                     state
                         .policy_snapshot()
                         .set_user_policy_group(user.id, policy_group_id);
+                    crate::services::ops::config::runtime::publish_user_policy_group_reload(
+                        state, user.id,
+                    )
+                    .await?;
                 }
                 return Ok(ResolvedExternalAuthUser {
                     user,

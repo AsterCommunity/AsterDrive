@@ -245,6 +245,11 @@ pub async fn confirm_email_verification(
                 state
                     .policy_snapshot()
                     .set_user_policy_group(resolved.user.id, policy_group_id);
+                crate::services::ops::config::runtime::publish_user_policy_group_reload(
+                    state,
+                    resolved.user.id,
+                )
+                .await?;
             }
             resolved
         }

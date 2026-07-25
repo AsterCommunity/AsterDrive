@@ -148,7 +148,7 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for SftpConnector {
     fn driver_type() -> DriverType {
         DriverType::Sftp

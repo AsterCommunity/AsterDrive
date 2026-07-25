@@ -10,13 +10,13 @@ pub struct Migration;
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         if manager.get_database_backend() != DbBackend::MySql {
-            aster_forge_db::drop_index_if_exists(
+            aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 "managed_ingress_profiles",
                 "idx_managed_ingress_profiles_binding_profile_key",
             )
             .await?;
-            aster_forge_db::drop_index_if_exists(
+            aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 "managed_ingress_profiles",
                 "idx_managed_ingress_profiles_binding_default",
@@ -45,14 +45,14 @@ impl MigrationTrait for Migration {
             .await?;
 
         if manager.get_database_backend() == DbBackend::MySql {
-            aster_forge_db::rename_mysql_index_if_exists(
+            aster_forge_db_migration::rename_mysql_index_if_exists(
                 manager.get_connection(),
                 "remote_storage_targets",
                 "idx_managed_ingress_profiles_binding_profile_key",
                 "idx_remote_storage_targets_binding_target_key",
             )
             .await?;
-            aster_forge_db::rename_mysql_index_if_exists(
+            aster_forge_db_migration::rename_mysql_index_if_exists(
                 manager.get_connection(),
                 "remote_storage_targets",
                 "idx_managed_ingress_profiles_binding_default",
@@ -66,13 +66,13 @@ impl MigrationTrait for Migration {
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         if manager.get_database_backend() != DbBackend::MySql {
-            aster_forge_db::drop_index_if_exists(
+            aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 "remote_storage_targets",
                 "idx_remote_storage_targets_binding_target_key",
             )
             .await?;
-            aster_forge_db::drop_index_if_exists(
+            aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 "remote_storage_targets",
                 "idx_remote_storage_targets_binding_default",
@@ -101,14 +101,14 @@ impl MigrationTrait for Migration {
             .await?;
 
         if manager.get_database_backend() == DbBackend::MySql {
-            aster_forge_db::rename_mysql_index_if_exists(
+            aster_forge_db_migration::rename_mysql_index_if_exists(
                 manager.get_connection(),
                 "managed_ingress_profiles",
                 "idx_remote_storage_targets_binding_target_key",
                 "idx_managed_ingress_profiles_binding_profile_key",
             )
             .await?;
-            aster_forge_db::rename_mysql_index_if_exists(
+            aster_forge_db_migration::rename_mysql_index_if_exists(
                 manager.get_connection(),
                 "managed_ingress_profiles",
                 "idx_remote_storage_targets_binding_default",

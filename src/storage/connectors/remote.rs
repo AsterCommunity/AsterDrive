@@ -120,7 +120,7 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for RemoteConnector {
     fn driver_type() -> DriverType {
         DriverType::Remote

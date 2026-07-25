@@ -5,6 +5,8 @@ title: "Configuration Synchronization"
 
 :::tip[This page covers `[config_sync]`]
 Keep it disabled for a single instance. Enable it only when multiple AsterDrive processes share one database and changes from system settings or `aster_drive config` must propagate promptly to the other instances.
+
+This page explains notification and recovery behavior only. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for shared dependencies, storage, uploads, health checks, and load-balancer limits.
 :::
 
 ```toml
@@ -97,8 +99,10 @@ These paths publish a reload notification after the database write succeeds:
 - `aster_drive config set`
 - `aster_drive config delete`
 - `aster_drive config import`
+- storage-policy, policy-group, storage-credential, and remote-node topology changes
+- new-user creation, invitation acceptance, external-auth auto-provisioning, and administrator changes or deletion of a user's policy-group binding
 
-If one operation changes multiple dependent settings, one notification contains all changed keys. Startup migrations, default seeding, and startup configuration repairs do not publish notifications; each instance loads a full snapshot during startup.
+System-setting notifications make receivers reload runtime configuration from the authoritative database. Storage-topology notifications additionally reload the policy snapshot, connector/driver state, and dependent public configuration caches. A user-policy-group notification refreshes only that user's mapping and does not scan every user. If one operation changes multiple dependent settings, one notification contains all changed keys. Startup migrations, default seeding, and startup configuration repairs do not publish notifications; each instance loads a full snapshot during startup.
 
 ## What Happens When Redis Fails
 
@@ -109,7 +113,7 @@ If one operation changes multiple dependent settings, one notification contains 
 - when the Redis URL is valid but the service is temporarily unreachable, the instance may finish startup; the subscription worker records the disconnect and reconnects automatically with backoff, so a process restart is not required
 - if an admin API or CLI database write succeeds but notification publishing then fails, the command returns an error; the local value is already stored, while other instances may remain stale until restart or a later successful notification
 
-During a runtime Redis outage, the subscription worker reports `disconnected` and `reconnecting`. Drive emits one `sync.required` event to each local SSE stream so the frontend can refresh from authoritative APIs. Once Redis is available again, the worker reports `recovered` and continues receiving new cross-instance events. Redis pub/sub does not replay the concrete events missed during the outage; the `sync.required` refresh covers that gap.
+During a runtime Redis outage, the subscription worker reports `disconnected` and `reconnecting`. Drive emits one `sync.required` event to each local SSE stream so the frontend can refresh from authoritative APIs. Once Redis is available again, the worker reports `recovered`, performs a full runtime-configuration and storage-topology reconcile from the authoritative database, and continues receiving new cross-instance events. Redis pub/sub does not replay the concrete events missed during the outage; the `sync.required` refresh covers that gap.
 
 :::caution[Redis pub/sub does not replay history]
 Redis pub/sub is not a durable message queue. Notifications missed while an instance is offline are not replayed. Every instance performs a full database load at startup, so restarting returns it to authoritative state.
@@ -134,7 +138,7 @@ Start at least two instances connected to the same database and Redis, then:
 4. Change a test custom configuration entry through the CLI and read it from another instance.
 5. Pause Redis and verify the reconnect warning plus a `sync.required` SSE event; restore Redis and confirm the subscription recovers automatically and the next change synchronizes again.
 
-Add Redis availability and topic consistency across instances to the [production launch checklist](/en/deployment/production-checklist/).
+Add Redis availability and topic consistency across instances to the [production launch checklist](/en/deployment/production-checklist/), and complete the cross-instance checks in [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/#launch-validation).
 
 ## Common Problems
 

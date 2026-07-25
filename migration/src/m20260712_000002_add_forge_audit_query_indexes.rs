@@ -22,7 +22,7 @@ impl MigrationTrait for Migration {
             aster_forge_db::AUDIT_LOG_CREATED_ID_INDEX,
             aster_forge_db::AUDIT_LOG_ACTION_CREATED_USER_INDEX,
         ] {
-            aster_forge_db::drop_index_if_exists(
+            aster_forge_db_migration::drop_index_if_exists(
                 manager.get_connection(),
                 aster_forge_db::AUDIT_LOGS_TABLE,
                 index_name,
