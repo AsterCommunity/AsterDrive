@@ -1,6 +1,14 @@
 ---
-import Default from '@astrojs/starlight/components/Head.astro'
 import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro'
+
+const openAPIBasePath = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/openapi`
+const isOpenAPIReference =
+	Astro.url.pathname === openAPIBasePath || Astro.url.pathname.startsWith(`${openAPIBasePath}/`)
+const head = isOpenAPIReference
+	? Astro.locals.starlightRoute.head.filter(
+			(entry) => !(entry.tag === 'link' && entry.attrs?.rel === 'alternate')
+		)
+	: Astro.locals.starlightRoute.head
 ---
 
 <!--
@@ -9,7 +17,7 @@ import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro'
   搜索/侧边栏当前页等状态在软导航后的重建。
 -->
 <VtbotStarlight>
-	<Default {...Astro.props}><slot /></Default>
+	{head.map(({ tag: Tag, attrs, content }) => <Tag {...attrs} set:html={content} />)}
 </VtbotStarlight>
 
 <script>
@@ -66,7 +74,9 @@ import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro'
 		const isSplash = !document.documentElement.hasAttribute('data-has-sidebar')
 		document.querySelectorAll('a[href^="/"]').forEach((link) => {
 			const href = link.getAttribute('href') ?? ''
-			const toHome = href === '/' || href === '/en/' || href === '/en'
+			const toHome = ['/', '/en', '/en/', '/developer', '/developer/', '/developer/en', '/developer/en/'].includes(
+				href
+			)
 			if (isSplash || toHome) {
 				link.setAttribute('data-astro-reload', '')
 			} else {
@@ -75,4 +85,26 @@ import VtbotStarlight from 'astro-vtbot/components/starlight/Base.astro'
 		})
 	}
 	document.addEventListener('astro:page-load', markBoundaryLinks)
+
+	let announcementObserver: ResizeObserver | undefined
+	function syncAnnouncementOffset() {
+		announcementObserver?.disconnect()
+		const announcements = document.querySelector('.sl-announcements-container')
+		if (!(announcements instanceof HTMLElement)) {
+			document.documentElement.style.setProperty('--aster-announcement-height', '0px')
+			return
+		}
+
+		const updateHeight = () => {
+			document.documentElement.style.setProperty(
+				'--aster-announcement-height',
+				`${announcements.getBoundingClientRect().height}px`
+			)
+		}
+
+		announcementObserver = new ResizeObserver(updateHeight)
+		announcementObserver.observe(announcements)
+		updateHeight()
+	}
+	document.addEventListener('astro:page-load', syncAnnouncementOffset)
 </script>

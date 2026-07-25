@@ -105,7 +105,7 @@ bun run generate-api
 ## Architecture
 
 See the [developer documentation](developer-docs/README.md) and
-[architecture overview](developer-docs/en/architecture.md) for the current module and runtime boundaries.
+[architecture overview](developer-docs/en/architecture/index.md) for the current module and runtime boundaries.
 
 ## License
 

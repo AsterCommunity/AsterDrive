@@ -16,8 +16,8 @@
   <a href="README.md"><img alt="English README" src="https://img.shields.io/badge/README-English-E11D48?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/guide/getting-started/"><img alt="快速开始" src="https://img.shields.io/badge/快速开始-guide-2563EB?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/deployment/ops-cli/"><img alt="运维 CLI" src="https://img.shields.io/badge/运维-CLI-0EA5E9?style=for-the-badge"></a>
-  <a href="developer-docs/zh-CN/architecture.md"><img alt="架构文档" src="https://img.shields.io/badge/架构-总览-0F172A?style=for-the-badge"></a>
-  <a href="developer-docs/zh-CN/api/index.md"><img alt="API 文档" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/developer/architecture/"><img alt="架构文档" src="https://img.shields.io/badge/架构-总览-0F172A?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/developer/api/"><img alt="API 文档" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/deployment/docker/"><img alt="Docker 部署" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
@@ -193,9 +193,9 @@ AsterDrive首次启动时会自动：
 - [生产检查清单](https://drive.astercosm.com/deployment/production-checklist/)
 - [备份与恢复](https://drive.astercosm.com/deployment/backup/)
 - [运维 CLI](https://drive.astercosm.com/deployment/ops-cli/)
-- [开发者文档](developer-docs/README.md)
-- [架构文档](developer-docs/zh-CN/architecture.md)
-- [API 概览](developer-docs/zh-CN/api/index.md)
+- [开发者文档](https://drive.astercosm.com/developer/)
+- [架构文档](https://drive.astercosm.com/developer/architecture/)
+- [API 概览](https://drive.astercosm.com/developer/api/)
 
 ## 安全
 

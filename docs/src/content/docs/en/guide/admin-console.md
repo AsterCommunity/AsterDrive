@@ -134,6 +134,7 @@ The current admin console supports these policy types:
 - `azure_blob`: Azure Blob Storage containers through the Azure Blob SDK and SAS URLs
 - `tencent_cos`: Tencent COS; base object operations reuse S3-compatible behavior, with additional Tencent-native capabilities such as COS CI
 - `one_drive`: Microsoft Graph-accessible OneDrive, SharePoint, or Microsoft 365 group drives
+- `sftp`: server-side streaming reads and writes to an SSH/SFTP file server
 - `remote`: bound to a follower node, where another AsterDrive follower handles real object reads and writes
 
 Here you can:
@@ -144,12 +145,13 @@ Here you can:
 - Control the single-file size limit
 - Control chunk size
 - Choose upload and download modes for S3 / Azure Blob / COS, such as `relay_stream` or `presigned`
-- Save Microsoft Graph app credentials for OneDrive, start authorization or reauthorization, and validate saved credentials
+- Save Microsoft Graph app credentials for OneDrive, start authorization or reauthorization, and choose server relay or Microsoft Graph browser-direct upload/download independently
+- Fill the endpoint, SSH username, password, and remote root for SFTP, then confirm the server host-key fingerprint after the first connection test
 - Control path-style access for generic S3 policies, matching endpoint behavior across MinIO, RustFS, R2, AWS S3, and other providers
 - When conditions are safe, promote a Tencent COS policy that was originally created as generic `s3` to `tencent_cos`
 - Create a storage policy data migration task that copies existing objects from a source policy to a target policy
 
-When editing an existing policy, the left side shows the current capacity observation. `local` policies read total, available, and used bytes from the underlying filesystem; `one_drive` policies read Microsoft Graph drive quota; `remote` policies ask the follower for the capacity of the remote storage target bound to the policy; `s3` / `tencent_cos` / `azure_blob` do not expose a standardized, reliable free-capacity API, so they are shown as unsupported instead of using guessed values.
+When editing an existing policy, the left side shows the current capacity observation. `local` policies read total, available, and used bytes from the underlying filesystem; `one_drive` policies read Microsoft Graph drive quota; `remote` policies ask the follower for the capacity of the remote storage target bound to the policy; `s3` / `tencent_cos` / `azure_blob` / `sftp` do not expose a standardized, reliable free-capacity API, so they are shown as unsupported instead of using guessed values.
 
 `Path-style access` on a generic `s3` policy controls the request URL shape. Compatible services such as MinIO and RustFS usually need it enabled; services that support virtual-hosted style, such as AWS S3, can usually leave it disabled. Test the connection before saving instead of guessing only from the provider name.
 
@@ -357,6 +359,7 @@ Commonly changed items include:
 - Thumbnail source file size limit
 - Online extraction source, staging, uncompressed size, entry count, path, and compression-ratio limits
 - Global switch for online archive compression
+- Independent ZIP archive-download switches for signed-in users and public shares
 - Entry count, total source size, and output size limits for online compression and archive downloads
 - Archive preview switches and limits
 - Media processors, vips / ffmpeg / ffprobe commands, and extension bindings

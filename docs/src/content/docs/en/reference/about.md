@@ -131,6 +131,7 @@ But I will keep writing it into a place I am willing to trust with files.
 
 - **Run it first**: start from [Getting Started](/en/guide/getting-started/).
 - **Hit a problem**: describe the reproduction path clearly in [GitHub Issues](https://github.com/AsterCommunity/AsterDrive/issues).
+- **Find a security issue**: do not open a public issue first. Report it privately through the [security policy](https://github.com/AsterCommunity/AsterDrive/security/policy); automated tools can also discover the site's [`security.txt`](https://drive.astercosm.com/.well-known/security.txt).
 - **Want to change code**: fork, change, and open a PR. Changes driven by real problems are the most valuable.
 - **Want to support the project**: you can [Sponsor](https://afdian.com/a/AptS_1547), or help improve it through issues, documentation feedback, and deployment cases.
 - **Commercial deployment / custom development**: contact the author from the GitHub homepage.

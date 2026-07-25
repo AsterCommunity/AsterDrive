@@ -245,8 +245,8 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 ## 参考资料
 
-- 架构概览: `developer-docs/zh-CN/architecture.md`
-- 模块设计: `developer-docs/zh-CN/module-designs.md`
+- 架构概览: `developer-docs/zh-CN/architecture/index.md`
+- 模块设计: `developer-docs/zh-CN/architecture/module-designs.md`
 - 前端约束: `frontend-panel/AGENTS.md`
 - 用户文档: `docs/index.md`
 - 配置示例: `config.example.toml`

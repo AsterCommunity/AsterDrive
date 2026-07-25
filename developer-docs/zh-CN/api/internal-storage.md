@@ -52,7 +52,7 @@ primary 侧 reverse tunnel 当前入口：
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/capabilities` | 读取 follower 声明的协议能力 |
-| `GET` | `/capacity` | 读取 follower 当前接收落点的容量观测状态 |
+| `GET` | `/capacity` | 读取 follower 当前远端存储目标的容量观测状态 |
 | `PUT` | `/binding` | 同步主节点维护的远端节点绑定信息 |
 | `GET` | `/targets` | 列出当前绑定可用的远程存储目标 |
 | `POST` | `/targets` | 创建远程存储目标 |
@@ -83,11 +83,19 @@ primary 侧 reverse tunnel 当前入口：
 - `supports_stream_upload`
 - `supports_capacity`
 
-当前协议版本是 `v4`，最小支持版本也是 `v4`。`v4` 和 `v2` / `v3` 不再 wire-compatible：内部存储 JSON 包装里的顶层 `code` 已经从旧数字码改成稳定字符串 `ApiErrorCode`。跨过这个边界时，先同时升级 primary 和 follower，再绑定 remote 策略。
+当前协议版本是 `v5`，最低兼容版本是 `v4`，所以当前节点声明的本地支持区间是 `v4-v5`。`v4` / `v5` 和 `v2` / `v3` 不再 wire-compatible：内部存储 JSON 包装里的顶层 `code` 已经从旧数字码改成稳定字符串 `ApiErrorCode`。跨过这个边界时，先同时升级 primary 和 follower，再绑定 remote 策略。
+
+`v5` 在能力响应中增加了远程存储目标 driver 能力。Rust 模型字段名是 `remote_storage_target`，但为了兼容 `v4` / `v5` 节点，wire JSON 仍序列化为 `managed_ingress`，同时接受 `remote_storage_target` 作为反序列化 alias。不要根据 wire 字段的旧名字把它重新解释成另一套产品模型。
+
+兼容规则是显式且有边界的：
+
+- `v4` follower 没有声明这组能力时，primary 会按旧协议语义把 Local 和 S3 视为可用 driver。
+- `v5` follower 必须显式声明远程存储目标能力；能力缺失或禁用时，不再套用 `v4` 的隐式 Local / S3 fallback。
+- primary 只展示 follower 声明且当前版本已注册 descriptor 的 driver；未知的未来 driver id 会被保留为协议数据，但不会自动变成可配置项。
 
 主节点在加载远端策略或刷新绑定时会做能力协商：
 
-- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前就是 `v4-v4`
+- `protocol_version` / `min_supported_protocol_version` 必须和本地支持区间有交集，当前本地区间是 `v4-v5`
 - 基础远端策略要求 `object_get`、`object_head`、`object_put`、`object_delete`、`metadata`、`range_get`、`accept_ranges_header`、`list`、`compose`
 - 如果远端策略启用浏览器预签名下载，`browser_cors` 必须声明允许 `range` 请求头，并暴露 `Accept-Ranges`、`Content-Range`、`Content-Length`
 - 如果远端策略启用浏览器预签名上传，`browser_cors` 必须声明允许 `content-type` 请求头，并暴露 `ETag`
@@ -96,7 +104,7 @@ primary 侧 reverse tunnel 当前入口：
 
 ## `GET /capacity`
 
-返回 follower 当前 ingress driver 的 `StorageCapacityInfo`：
+返回 follower 当前远端存储目标 driver 的 `StorageCapacityInfo`：
 
 ```json
 {
@@ -117,9 +125,9 @@ primary 侧 reverse tunnel 当前入口：
 
 实现约定：
 
-- follower 直接调用当前 ingress driver 的 `capacity_info()`
-- local ingress 通常返回真实文件系统容量
-- S3 ingress 明确返回 `StorageErrorKind::Unsupported`，primary 侧会把它转换成用户可见的 `unsupported` 容量状态
+- follower 直接调用当前 target driver 的 `capacity_info()`
+- local target 通常返回真实文件系统容量
+- S3 target 明确返回 `StorageErrorKind::Unsupported`，primary 侧会把它转换成用户可见的 `unsupported` 容量状态
 - 这个接口只用于管理端容量观测和迁移 preflight，不在上传 / 下载热路径里调用
 
 ## `PUT /binding`
@@ -142,12 +150,11 @@ primary 侧 reverse tunnel 当前入口：
   "driver_type": "local",
   "name": "local-default",
   "base_path": "data/storage",
-  "max_file_size": 0,
   "is_default": true
 }
 ```
 
-创建 S3 profile 的请求体形态：
+创建 S3 目标的请求体形态：
 
 ```json
 {
@@ -158,12 +165,11 @@ primary 侧 reverse tunnel 当前入口：
   "access_key": "AKIA...",
   "secret_key": "...",
   "base_path": "objects/",
-  "max_file_size": 0,
   "is_default": false
 }
 ```
 
-更新接口使用扁平字段，支持修改 `name`、`driver_type`、连接参数、`base_path`、`max_file_size` 和 `is_default`。这些控制面接口只接受主节点签名头，不使用预签名 query。
+更新接口使用扁平字段，支持修改 `name`、`driver_type`、连接参数、`base_path` 和 `is_default`。当前 target driver 只有 `local` 和 `s3`；实际可选项还会受到 follower 的 `remote_storage_target` 能力声明约束。这些控制面接口只接受主节点签名头，不使用预签名 query。
 
 ## `POST /compose`
 
@@ -214,7 +220,26 @@ primary 侧 reverse tunnel 当前入口：
 
 ### `GET /objects`
 
-支持 `prefix` query，返回匹配前缀下的对象 key 列表。
+支持以下 query：
+
+- `prefix`：只返回匹配前缀的对象 key。
+- `cursor`：从相对位置继续列举；通常使用上一页返回的 `next_cursor`。
+- `limit`：请求页大小，必须大于 `0`；服务端会把它钳制到内部页大小上限。
+
+新客户端应始终发送 `limit`。响应形态如下：
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "items": ["files/part-001", "files/part-002"],
+    "next_cursor": 2
+  }
+}
+```
+
+只有后面仍有数据时才会返回 `next_cursor`。不传 `limit` 时，follower 保留旧客户端使用的无分页响应，并一次返回全部匹配项。
 
 当前返回体里的 `items` 是 follower 绑定命名空间下的相对 key，不会把 provider 内部前缀原样暴露回去。
 

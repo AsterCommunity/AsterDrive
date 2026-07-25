@@ -4,7 +4,11 @@
   "scripts": {
     "docs:dev": "astro dev",
     "docs:build": "astro build",
-    "docs:preview": "astro preview"
+    "docs:preview": "astro preview",
+    "developer-docs:generate-openapi": "cargo test --manifest-path ../Cargo.toml --features openapi --test generate_openapi generate_openapi -- --exact",
+    "developer-docs:prepare": "node scripts/prepare-developer-docs.mjs",
+    "developer-docs:dev": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro dev --config astro.developer.config.mts",
+    "developer-docs:build": "bun run developer-docs:generate-openapi && bun run developer-docs:prepare && astro build --config astro.developer.config.mts"
   },
   "dependencies": {
     "@astrojs/sitemap": "^3.7.3",
@@ -15,6 +19,7 @@
     "starlight-copy-button": "github:dionysuzx/starlight-copy-button#d570fcab6824127f80076eb419f39fb4fbd9de09",
     "starlight-links-validator": "^0.25.2",
     "starlight-llms-txt": "^0.11.0",
+    "starlight-openapi": "^0.26.0",
     "starlight-scroll-to-top": "^1.0.1"
   },
   "devDependencies": {

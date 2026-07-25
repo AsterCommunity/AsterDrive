@@ -1,0 +1,183 @@
+name: WebDAV Compatibility
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/webdav/**'
+      - 'src/services/files/**'
+      - 'tests/common/**'
+      - 'tests/webdav/**'
+      - 'scripts/ci/webdav-compat/**'
+      - '.github/workflows/webdav-compatibility.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'src/webdav/**'
+      - 'src/services/files/**'
+      - 'tests/common/**'
+      - 'tests/webdav/**'
+      - 'scripts/ci/webdav-compat/**'
+      - '.github/workflows/webdav-compatibility.yml'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+  schedule:
+    - cron: '17 4 * * 2'
+  workflow_dispatch:
+
+concurrency:
+  group: webdav-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_TEST_CODEGEN_UNITS: '16'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+
+jobs:
+  litmus:
+    name: Litmus 0.18 baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install pinned Litmus and runtime dependencies
+        env:
+          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            autoconf \
+            automake \
+            build-essential \
+            ca-certificates \
+            curl \
+            ffmpeg \
+            libexpat1-dev \
+            libssl-dev \
+            libvips-tools \
+            pkg-config
+          scripts/ci/webdav-compat/install-litmus.sh
+
+      - name: Record Litmus toolchain
+        env:
+          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
+        run: |
+          source scripts/ci/webdav-compat/versions.env
+          mkdir -p artifacts/tool-versions
+          {
+            "${WEBDAV_COMPAT_TOOLS_DIR}/bin/litmus" --version
+            echo "litmus_commit=${LITMUS_SOURCE_COMMIT}"
+            echo "litmus_source_sha256=${LITMUS_SOURCE_SHA256}"
+            echo "neon_commit=${LITMUS_NEON_COMMIT}"
+            echo "neon_source_sha256=${LITMUS_NEON_SOURCE_SHA256}"
+            openssl version
+            rustc --version
+            cargo --version
+          } | tee artifacts/tool-versions/litmus.txt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: webdav-litmus-0.18-v1
+
+      - name: Run Litmus conformance baseline
+        env:
+          LITMUS_BIN: ${{ runner.temp }}/webdav-compat-tools/bin/litmus
+          ASTER_WEBDAV_COMPAT_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          set -o pipefail
+          cargo test --test webdav litmus_compliance::test_litmus_ -- \
+            --ignored \
+            --skip resource_litmus:: \
+            --skip security_policy_litmus:: \
+            --nocapture --test-threads=1 \
+            2>&1 | tee artifacts/litmus-test.log
+
+      - name: Upload Litmus results and request logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: webdav-litmus-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          path: artifacts
+
+  external-clients:
+    name: Pinned rclone, curl, and cadaver clients
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install client build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            ffmpeg \
+            libneon27-dev \
+            libvips-tools \
+            pkg-config \
+            unzip \
+            xz-utils
+
+      - name: Install pinned WebDAV clients
+        env:
+          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
+        run: scripts/ci/webdav-compat/install-clients.sh
+
+      - name: Add pinned clients to PATH
+        run: echo "${{ runner.temp }}/webdav-compat-tools/bin" >> "$GITHUB_PATH"
+
+      - name: Record client toolchain
+        run: |
+          mkdir -p artifacts/tool-versions
+          {
+            rclone version
+            curl --version
+            cadaver --version || true
+            rustc --version
+            cargo --version
+          } 2>&1 | tee artifacts/tool-versions/external-clients.txt
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: webdav-external-clients-v1
+
+      - name: Run real-client compatibility tests
+        run: |
+          set -o pipefail
+          cargo test --test webdav client_e2e:: -- \
+            --ignored --nocapture --test-threads=1 \
+            2>&1 | tee artifacts/external-client-tests.log
+
+      - name: Upload external-client results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: webdav-external-clients-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          path: artifacts

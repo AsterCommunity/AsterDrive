@@ -11,6 +11,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
+  ASTER_BUILD_REVISION: ${{ github.sha }}
 
 jobs:
   build-frontend:
@@ -83,9 +84,7 @@ jobs:
           esac
 
       - name: Build
-        run: |
-          RUSTFLAGS="-C link-arg=-s" \
-          cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary
         run: |
@@ -160,8 +159,6 @@ jobs:
           esac
 
       - name: Build
-        env:
-          RUSTFLAGS: "-C link-arg=-s"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary
@@ -207,8 +204,6 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: Build
-        env:
-          RUSTFLAGS: "-C link-arg=-s"
         run: cargo build --release --target ${{ matrix.target }}
 
       - name: Rename binary

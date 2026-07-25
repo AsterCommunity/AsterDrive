@@ -10,6 +10,8 @@ title: "WebDAV"
 普通用户用 WebDAV 一般只关心：在要连接的工作空间里创建专用账号，把地址塞进 Finder / Windows / rclone。个人空间和团队空间的 WebDAV 地址相同，账号凭据决定进入哪个工作空间。
 :::
 
+协议方法、客户端验收以及文件名、同名资源、属性、锁和 DeltaV 限制，见 [WebDAV 功能与限制](/guide/webdav/)。
+
 ## `config.toml` 里的静态配置
 
 ```toml

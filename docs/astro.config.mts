@@ -59,7 +59,8 @@ const sidebar = assertUniqueSidebarLinks([
       { label: '快速开始', translations: { en: 'Quick Start' }, link: '/guide/getting-started/' },
       { label: '部署方式选择', translations: { en: 'Choose Deployment' }, link: '/guide/installation/' },
       { label: '用户手册', translations: { en: 'User Manual' }, link: '/guide/user-guide/' },
-      { label: '常用流程', translations: { en: 'Common Workflows' }, link: '/guide/core-workflows/' }
+      { label: '常用流程', translations: { en: 'Common Workflows' }, link: '/guide/core-workflows/' },
+      { label: 'WebDAV 功能与限制', translations: { en: 'WebDAV Features and Limits' }, link: '/guide/webdav/' }
     ]
   },
   {

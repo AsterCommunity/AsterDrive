@@ -15,6 +15,9 @@ import NavMenu from './NavMenu.astro'
  */
 const shouldRenderSearch =
 	config.pagefind || config.components.Search !== '@astrojs/starlight/components/Search.astro'
+const openAPIBasePath = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/openapi`
+const isOpenAPIReference =
+	Astro.url.pathname === openAPIBasePath || Astro.url.pathname.startsWith(`${openAPIBasePath}/`)
 ---
 
 <div class="header" transition:persist>
@@ -30,7 +33,7 @@ const shouldRenderSearch =
 			<SocialIcons />
 		</div>
 		<ThemeSelect />
-		<LanguageSelect />
+		{!isOpenAPIReference && <LanguageSelect />}
 	</div>
 </div>
 

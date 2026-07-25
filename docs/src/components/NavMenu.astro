@@ -4,6 +4,7 @@ import { getNav, isActiveLink } from '../lib/nav-menu'
 const locale = Astro.locals.starlightRoute?.locale
 const nav = getNav(locale)
 const currentPath = Astro.url.pathname
+const developerLink = locale === 'en' ? '/developer/en/' : '/developer/'
 
 function entryActive(entry: (typeof nav)[number]): boolean {
 	if ('link' in entry) return isActiveLink(currentPath, entry.link)
@@ -11,6 +12,7 @@ function entryActive(entry: (typeof nav)[number]): boolean {
 }
 ---
 
+<a class="aster-developer-mobile" href={developerLink}>{locale === 'en' ? 'Developer' : '开发者'}</a>
 <nav class="aster-nav" aria-label={locale === 'en' ? 'Sections' : '站点栏目'}>
 	{
 		nav.map((entry) =>
@@ -43,11 +45,30 @@ function entryActive(entry: (typeof nav)[number]): boolean {
 
 <style>
 	@layer starlight.core {
+		.aster-developer-mobile {
+			display: inline-flex;
+			align-items: center;
+			padding: 0.25rem 0.4rem;
+			border-radius: 0.375rem;
+			color: var(--sl-color-gray-2);
+			font-size: var(--sl-text-xs);
+			text-decoration: none;
+			white-space: nowrap;
+		}
+
+		.aster-developer-mobile:hover {
+			color: var(--sl-color-white);
+		}
+
 		.aster-nav {
 			display: none;
 		}
 
 		@media (min-width: 50rem) {
+			.aster-developer-mobile {
+				display: none;
+			}
+
 			.aster-nav {
 				display: flex;
 				align-items: center;

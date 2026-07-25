@@ -32,8 +32,11 @@ Default ordering varies by DTO. Common defaults:
 | Method | Path | Description |
 | --- | --- | --- |
 | `GET` | `/admin/overview` | Read aggregated admin dashboard data |
+| `GET` | `/admin/system-info` | Read authenticated version and build time |
 
 The overview response includes user, file, blob, share, audit, and task summaries plus recent activity. Query parameters include `days`, `timezone`, and `event_limit`.
+
+`GET /admin/system-info` returns `{ "version": "...", "build_time": "..." }`. Build fingerprints are exposed only through this authenticated admin route; anonymous `/health` reports service status without version or build details.
 
 ## Storage policies
 
@@ -88,6 +91,9 @@ Current notes:
   - storage-native thumbnails / image previews with `storage_native_processing_enabled`, `thumbnail_processor`, and `thumbnail_extensions`
   - storage-native media metadata with `storage_native_media_metadata_enabled` and `media_metadata_extensions`
   - OneDrive location options: `onedrive_account_mode`, `onedrive_tenant`, `onedrive_site_id`, `onedrive_drive_id`, `onedrive_group_id`, and `onedrive_root_item_id`
+  - OneDrive large-upload strategy through `provider_resumable_upload_strategy`: `server_relay` (default) or `frontend_direct`
+  - OneDrive download strategy through `provider_download_strategy`: `server_relay` (default) or `frontend_direct`
+  - OneDrive download filename semantics through `provider_download_filename_mode`: `provider_native` (default) or `strict_current`
   - SFTP host key pinning: `sftp_host_key_fingerprint`
 - `application_config.microsoft_graph` stores OneDrive / Microsoft Graph app settings. Client secrets are stored encrypted; API responses expose only `client_secret_configured`.
 - `driver_type = "azure_blob"` uses Azure Block Blob capabilities. Presigned browser upload uses SAS URLs and requires the client to send `x-ms-blob-type: BlockBlob`.
@@ -97,7 +103,9 @@ Current notes:
 - built-in Local, S3-compatible, SFTP, Azure Blob, OneDrive, and Remote drivers do not expose storage-native thumbnail, image-preview, or media-metadata capabilities
 - legacy `{"presigned_upload":true}` remains compatible with object-storage presigned upload
 - `allowed_types` can be managed through REST
-- `driver_type = "remote"` requires `remote_node_id`
+- Creating a `driver_type = "remote"` policy requires both `remote_node_id` and `remote_storage_target_key`. The target must belong to that node's current binding, have no `last_error`, and satisfy `applied_revision >= desired_revision`.
+- After a node is selected, the policy create/edit UI loads its target list and driver descriptors. An admin can quick-create a target in the same flow, after which the new target is selected automatically. Fields and capabilities remain backend-descriptor driven.
+- A legacy remote policy with an empty target key may retain it only when an edit does not change the remote binding; runtime access then falls back to the follower binding's default target. New policies and remote-binding changes require an explicit target key.
 - `PATCH` cannot change `driver_type`
 - `POST /admin/policies/{id}/promote-s3-driver` currently supports promoting a generic `s3` policy to `tencent_cos`. The body must include the target driver and current endpoint / bucket, for example `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`. Promotion is rejected unless the bucket stays unchanged, there are no active upload sessions for the policy, and the target driver validates the endpoint / bucket combination.
 - `GET /admin/policies` supports `limit`, `offset`, `sort_by`, `sort_order`
@@ -435,7 +443,7 @@ Implementation notes:
 - auto-provisioning can create local users, with optional email-domain restrictions
 - verified-email auto-linking can bind external identities to existing local users
 - when `require_email_verified` is enabled, unverified external emails go through `/auth/external-auth/email-verification/*`
-- dedicated provider behavior is documented in [External Authentication Module](../external-auth.md)
+- dedicated provider behavior is documented in [External Authentication Module](../design/external-auth.md)
 - create, update, delete, and test write admin audit logs
 
 ## File and blob management
@@ -449,6 +457,7 @@ These endpoints are admin-side observability and maintenance surfaces, not busin
 | `GET` | `/admin/file-blobs` | Inspect blob records, hash kinds, and reference counts |
 | `GET` | `/admin/file-blobs/{id}` | Inspect one blob's file and version references |
 | `POST` | `/admin/file-blobs/maintenance` | Create maintenance task for selected blobs |
+| `PUT` | `/admin/folders/{id}/policy` | Set or clear an explicit folder policy across personal / team scopes |
 
 Filters:
 
@@ -471,6 +480,8 @@ Supported actions:
 - `integrity_check`: check object existence and size only
 - `ref_count_reconcile`: recompute and fix `ref_count`
 - `orphan_cleanup`: recompute references, then clean blobs whose actual references and `ref_count` are both zero
+
+The admin folder-policy request is `{ "policy_id": 12 }`; `{ "policy_id": null }` clears the explicit folder policy. A non-null ID must be positive and identify a policy eligible for folder binding. Locked or trashed folders reject the change. Success returns the updated `FolderInfo`, records a `folder_policy_change` audit event, and publishes a storage change event.
 
 ## Policy groups
 
@@ -498,10 +509,15 @@ Policy groups define storage policy selection for users and teams. They are reje
 | `POST` | `/admin/users/{id}/sessions/revoke` | Revoke all existing sessions for the user |
 | `DELETE` | `/admin/users/{id}` | Delete user |
 | `GET` | `/admin/users/{id}/avatar/{size}` | Read uploaded user avatar |
+| `POST` | `/admin/users/invitations` | Create user invitation |
+| `GET` | `/admin/users/invitations` | Paginated user invitations |
+| `POST` | `/admin/users/invitations/{id}/revoke` | Revoke a pending invitation |
 
 User lists support keyword / role / status style filtering and offset pagination. Avatar responses are raw binary and are not wrapped JSON.
 
 `POST /admin/users` accepts an optional `password` and optional `must_change_password`. When `password` is omitted or blank, the server generates a 24-character temporary password, sets `must_change_password = true`, and returns the generated value once in `generated_password`. When a password is provided, `must_change_password` defaults to `false` unless the request explicitly sets it.
+
+Invitation creation accepts `{ "email": "new-user@example.com" }` and returns `201`. Any existing pending invitation for the same email is revoked before the new pending record is created, and invitation mail is queued through the outbox. The create response may include the one-time `invitation_url`; list responses do not expose that token URL again. Lists use `limit` / `offset`, statuses are `pending`, `accepted`, `expired`, and `revoked`, and only pending invitations can be revoked.
 
 `PATCH /admin/users/{id}` accepts `must_change_password: true | false`. Setting it to `true` requires the user to change their password after the next successful login; setting it to `false` clears the requirement before the user completes that flow. Any change to this flag increments `session_version`, deletes existing refresh sessions, invalidates the auth snapshot cache, and records `admin_update_user` audit details including the new `must_change_password` value.
 
@@ -560,6 +576,14 @@ Admin team creation can create a team for another user and give that user the in
 
 Runtime config entries defined by the system cannot be deleted; custom entries can. The single source of truth for system config definitions is `src/config/definitions.rs`.
 
+Archive and WebDAV operational keys include:
+
+- `archive_compress_enabled` defaults to `true` and gates `/batch/archive-compress`; disabling it returns `archive_compress.disabled`.
+- `archive_download_user_enabled` defaults to `true` and gates creation and consumption of personal/team ZIP download tickets; disabling it returns `archive_download.user_disabled`.
+- `archive_download_share_enabled` defaults to `true` and gates creation and consumption of public-share ZIP download tickets; disabling it returns `archive_download.share_disabled`.
+- `webdav_max_active_locks_per_user` defaults to `1024`; new `LOCK` requests are rejected after the user reaches that ceiling.
+- `webdav_download_audit_coalesce_window_secs` defaults to `30` seconds and coalesces repeated WebDAV download audit records for the same account, file, request type, and client fingerprint. Set it to `0` to record every read.
+
 Media-derivative limits are regular runtime config entries. `thumbnail_max_source_bytes` bounds which original files are accepted for thumbnail generation, while `thumbnail_max_dimension` and `image_preview_max_dimension` bound the rendered longest edge for list thumbnails and preview-panel images. Changing a dimension creates a dimension-specific derivative cache namespace instead of rewriting another configured size.
 
 Custom runtime config entries also have a `visibility` field:
@@ -581,7 +605,7 @@ Admin task APIs can see system tasks and blob-level cache tasks that ordinary us
 Link import is controlled by the `offline_download_*` runtime config keys. `offline_download_engine_registry_json` is the current structured engine registry: it contains ordered `builtin` and `aria2` engine entries with `enabled` flags. Enabled engines are tried in registry order; if all engines are disabled, link import is disabled. The older `offline_download_engine` single-value key remains as a compatibility fallback when the registry is absent or invalid.
 `offline_download_temp_dir` is the staging root for link-import tasks. When blank, AsterDrive uses the default server temp directory. When set, it must be the same absolute path visible to both AsterDrive and any external downloader such as aria2.
 
-File size, per-task speed, concurrency, and request timeout apply to all engines. When the `aria2` registry entry is enabled, the aria2 RPC URL, RPC secret, RPC timeout, split, per-server connection count, and low-speed limit keys configure the administrator-managed aria2 JSON-RPC daemon. AsterDrive does not pass through arbitrary aria2 options, and the per-task speed limit maps to aria2 `max-download-limit`, not a daemon-wide limit. Admins can execute `test_aria2_rpc` against `offline_download_engine_registry_json`; the server probes aria2 with `aria2.getVersion`. Config actions may include unsaved form drafts in `value` and `draft_values`, so the aria2 probe can test the current registry, RPC URL, secret, and timeout before saving. Wrong RPC secrets return `code = "offline_download.aria2_rpc_auth_failed"`; other probe failures return `code = "offline_download.aria2_rpc_probe_failed"` instead of storage-driver error codes. Operational setup, temporary-directory semantics, and troubleshooting live in [Offline Download](../../../docs/en/config/offline-download.md).
+File size, per-task speed, concurrency, and request timeout apply to all engines. When the `aria2` registry entry is enabled, the aria2 RPC URL, RPC secret, RPC timeout, split, per-server connection count, and low-speed limit keys configure the administrator-managed aria2 JSON-RPC daemon. AsterDrive does not pass through arbitrary aria2 options, and the per-task speed limit maps to aria2 `max-download-limit`, not a daemon-wide limit. Admins can execute `test_aria2_rpc` against `offline_download_engine_registry_json`; the server probes aria2 with `aria2.getVersion`. Config actions may include unsaved form drafts in `value` and `draft_values`, so the aria2 probe can test the current registry, RPC URL, secret, and timeout before saving. Wrong RPC secrets return `code = "offline_download.aria2_rpc_auth_failed"`; other probe failures return `code = "offline_download.aria2_rpc_probe_failed"` instead of storage-driver error codes. Operational setup, temporary-directory semantics, and troubleshooting live in [Offline Download](https://drive.astercosm.com/en/config/offline-download/).
 
 When aria2 is enabled, AsterDrive still validates the HTTP/HTTPS source URL before dispatching the task, but the aria2 daemon performs its own DNS resolution and outbound connection. Operators should isolate the daemon at the network layer and restrict the JSON-RPC endpoint to AsterDrive.
 

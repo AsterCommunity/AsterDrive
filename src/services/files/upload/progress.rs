@@ -25,7 +25,6 @@ use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use crate::storage::StorageErrorKind;
 use crate::types::{UploadSessionKind, UploadSessionStatus};
-use aster_forge_utils::paths;
 use futures::{StreamExt, stream};
 
 const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
@@ -45,7 +44,7 @@ async fn get_progress_impl(
         "loading upload progress"
     );
 
-    let kind = resolve_upload_session_kind(state, &session).await?;
+    let kind = resolve_upload_session_kind(&session)?;
     let (chunks_on_disk, provider_resumable) = match kind {
         UploadSessionKind::ProviderPresignedMultipart
         | UploadSessionKind::RemotePresignedMultipart => {
@@ -81,11 +80,8 @@ async fn get_progress_impl(
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
             (list_offset_staging_chunks(state, &session).await?, None)
         }
-        UploadSessionKind::LegacyChunkFiles => {
-            (scan_received_chunks(state, &session.id).await, None)
-        }
         UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
-            (scan_received_chunks(state, &session.id).await, None)
+            (Vec::new(), None)
         }
         UploadSessionKind::ProviderDirectResumable => {
             let secret = decrypt_provider_session(state, &session)?;
@@ -219,7 +215,7 @@ async fn recoverable_session_response(
     state: &PrimaryAppState,
     session: upload_session::Model,
 ) -> Result<RecoverableUploadSessionResponse> {
-    let mode = mode_for_kind(resolve_upload_session_kind(state, &session).await?);
+    let mode = mode_for_kind(resolve_upload_session_kind(&session)?);
     let progress = get_progress_impl(state, session.clone()).await?;
     let completed_parts = upload_session_part_repo::list_by_upload(state.reader_db(), &session.id)
         .await?
@@ -476,31 +472,11 @@ pub async fn presign_parts_for_team(
     presign_parts_impl(state, session, part_numbers).await
 }
 
-/// 扫描临时目录中实际存在的 chunk 文件，返回排序后的 chunk 编号列表
-async fn scan_received_chunks(state: &PrimaryAppState, upload_id: &str) -> Vec<i32> {
-    let dir = paths::upload_temp_dir(&state.config().server.upload_temp_dir, upload_id);
-    let mut received = Vec::new();
-    let Ok(mut entries) = tokio::fs::read_dir(&dir).await else {
-        return received;
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
-        let name = entry.file_name();
-        let name = name.to_string_lossy();
-        if let Some(num_str) = name.strip_prefix("chunk_")
-            && let Ok(n) = num_str.parse::<i32>()
-        {
-            received.push(n);
-        }
-    }
-    received.sort();
-    received
-}
-
 #[cfg(test)]
 mod tests {
     use super::presigned_multipart_fields;
     use crate::entities::upload_session;
-    use crate::types::UploadSessionStatus;
+    use crate::types::{UploadSessionKind, UploadSessionStatus};
 
     fn session(
         object_temp_key: Option<&str>,
@@ -520,7 +496,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Presigned,
-            session_kind: None,
+            session_kind: UploadSessionKind::OffsetStaging,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
             provider_session_ciphertext: None,

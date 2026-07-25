@@ -70,6 +70,7 @@ They are not a separate "team filesystem" implementation. They reuse the persona
 | `GET` | `/teams/{team_id}/files/{id}/archive-preview` | Read team archive preview manifest |
 | `GET` | `/teams/{team_id}/files/{id}/direct-link` | Create team direct-download token |
 | `POST` | `/teams/{team_id}/files/{id}/preview-link` | Create team preview link |
+| `POST` | `/teams/{team_id}/files/{id}/resource-handle` | Resolve the team file resource contract |
 | `POST` | `/teams/{team_id}/files/{id}/wopi/open` | Create WOPI launch session for team file |
 | `GET` | `/teams/{team_id}/files/{id}/download` | Download team file |
 | `GET` | `/teams/{team_id}/files/{id}/thumbnail` | Get team file thumbnail |
@@ -140,3 +141,5 @@ Team-specific notes:
 - team WebDAV accounts authenticate through the same WebDAV mount entry, but their storage scope is the team; ordinary members can manage only accounts they created, while team `owner` / `admin` users can manage all accounts in the team
 - archive extraction and compression create background tasks rather than blocking synchronously
 - `target_folder_id = null` defaults to source-folder or common-parent behavior just like personal space
+
+`POST /teams/{team_id}/files/{id}/resource-handle` reuses the personal file purpose, delivery-mode, representation, and response contract. Its `identity.scope` is `team`, and its `request.url` uses the team-scoped path. See [Files resource handle](./files.md#post-filesidresource-handle) for the complete contract.

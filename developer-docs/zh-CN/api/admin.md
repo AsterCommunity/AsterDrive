@@ -32,6 +32,7 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` | `/admin/overview` | 读取管理后台总览所需的聚合数据 |
+| `GET` | `/admin/system-info` | 读取需要管理员身份的版本和构建时间 |
 
 当前返回内容包含：
 
@@ -49,6 +50,8 @@
 - `event_limit`：最近活动返回数量，默认 `8`，最大 `50`
 
 这个接口当前的日报和“最近活动”都基于审计日志统计，因此如果审计日志关闭，对应数据会偏少或为 0。总量类指标（用户 / 文件 / blob / 分享 / 字节数）不依赖审计日志。
+
+`GET /admin/system-info` 返回 `{ "version": "...", "build_time": "..." }`。版本和构建信息只通过认证后的管理接口暴露；匿名 `/health` 只返回服务状态，不包含构建指纹。
 
 ## 存储策略
 
@@ -103,6 +106,9 @@
   - 存储原生缩略图 / 图片预览：`storage_native_processing_enabled`、`thumbnail_processor`、`thumbnail_extensions`
   - 存储原生媒体元数据：`storage_native_media_metadata_enabled`、`media_metadata_extensions`
   - OneDrive 位置选项：`onedrive_account_mode`、`onedrive_tenant`、`onedrive_site_id`、`onedrive_drive_id`、`onedrive_group_id`、`onedrive_root_item_id`
+  - OneDrive 大文件上传策略：`provider_resumable_upload_strategy`，取值为 `server_relay`（默认）或 `frontend_direct`
+  - OneDrive 下载策略：`provider_download_strategy`，取值为 `server_relay`（默认）或 `frontend_direct`
+  - OneDrive 下载文件名语义：`provider_download_filename_mode`，取值为 `provider_native`（默认）或 `strict_current`
   - SFTP 主机密钥固定：`sftp_host_key_fingerprint`
 - `application_config.microsoft_graph` 用于保存 OneDrive / Microsoft Graph 应用配置；client secret 只写入加密存储，API 响应只暴露 `client_secret_configured`
 - `driver_type = "azure_blob"` 使用 Azure Blob Block Blob 能力，预签名上传使用 SAS URL，前端直传时需要带 `x-ms-blob-type: BlockBlob`
@@ -113,14 +119,16 @@
 - 旧配置 `{"presigned_upload":true}` 仍兼容，等价于 S3 预签名上传策略
 - `POST /admin/policies/{id}/promote-s3-driver` 当前支持把通用 `s3` 策略提升为 `tencent_cos`。请求体必须包含目标驱动和当前 endpoint / bucket，例如 `{ "target_driver_type": "tencent_cos", "endpoint": "https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com", "bucket": "bucket-1250000000" }`。提升时不允许改变 bucket；若该策略还有活动上传 session，或目标驱动不能接受当前 endpoint / bucket 组合，会直接拒绝。
 - REST 已经可以通过 `allowed_types` 管理策略允许的 MIME / 类型列表；不传时创建会使用空列表，更新会保持原值
-- `driver_type = "remote"` 时需要绑定 `remote_node_id`，远端节点本身通过 `/admin/remote-nodes` 管理
+- 新建 `driver_type = "remote"` 策略时必须同时提供 `remote_node_id` 和 `remote_storage_target_key`。target 必须属于所选节点的当前 binding、没有 `last_error`，并满足 `applied_revision >= desired_revision`
+- 策略创建 / 编辑 UI 会在选择节点后加载该节点的 target 列表和 driver descriptors；管理员可以在同一流程快速创建 target，成功后新 target 会被自动选中。字段和 capability 仍以后端 descriptor 为准
+- 旧 remote policy 若 target key 为空，且本次编辑没有改变 remote binding，可以暂时保留空值；运行时会回退 follower binding 的 default target。新建策略或改变 remote binding 时必须补齐显式 target key
 - 当前 `PATCH` 不能修改 `driver_type`
 - `GET /admin/policies` 支持 `limit`、`offset`、`sort_by`、`sort_order`
 - `GET /admin/policies/{id}/capacity` 返回 `StoragePolicyCapacityInfo`，其中 `capacity.status` 为 `supported` / `unsupported` / `unavailable`：
   - Local 驱动通过文件系统容量接口返回 `total_bytes`、`available_bytes`、`used_bytes`
   - S3-compatible 和 Azure Blob 驱动明确返回 `StorageErrorKind::Unsupported`，服务层转换成 `unsupported` 状态，不伪造 bucket / account 容量
   - OneDrive 驱动通过 Microsoft Graph drive quota 返回容量信息
-  - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发实际接收落点的容量能力
+  - Remote 驱动通过 follower 内部协议 `/internal/storage/capacity` 转发当前远端存储目标的容量能力
 - `DELETE /admin/policies/{id}` 支持 `?force=true`；这只会强制清理仍引用该策略的上传 session，仍有 blob 或策略组项引用时照样拒绝删除。若清理后还有临时对象或 multipart upload 需要延后处理，会创建 `storage_policy_temp_cleanup` 后台任务
 
 ### 存储连接测试
@@ -458,7 +466,7 @@ POST /api/v1/admin/policies/action
 - `auto_link_verified_email_enabled` 允许用已验证邮箱自动绑定已有本地用户
 - `require_email_verified` 打开后，未验证邮箱的外部身份需要走 `/auth/external-auth/email-verification/*`
 - Generic OAuth2 有 `client_secret` 时使用 `client_secret_post` 发起一次 token exchange；不会为了探测认证方式重放 authorization code
-- 专用 provider 的行为细节见 [外部认证模块](../external-auth.md)
+- 专用 provider 的行为细节见 [外部认证模块](../design/external-auth.md)
 - 创建、更新、删除和测试都会写管理员审计日志
 
 ## 文件与 Blob 管理
@@ -472,6 +480,7 @@ POST /api/v1/admin/policies/action
 | `GET` | `/admin/file-blobs` | 查看 blob 记录、hash 类型和引用计数 |
 | `GET` | `/admin/file-blobs/{id}` | 查看单个 blob 的文件与版本引用 |
 | `POST` | `/admin/file-blobs/maintenance` | 为指定 blob 创建维护任务 |
+| `PUT` | `/admin/folders/{id}/policy` | 跨个人 / 团队作用域设置或清除目录显式策略 |
 
 当前实现注意点：
 
@@ -483,6 +492,8 @@ POST /api/v1/admin/policies/action
 - `integrity_check` 只检查对象是否存在以及对象大小是否和 blob 记录一致，不修改 blob
 - `ref_count_reconcile` 会按当前文件和文件版本引用重新计算并修正 `ref_count`
 - `orphan_cleanup` 会先重新计算引用，再只清理实际引用数和 `ref_count` 都为 0 的孤儿 blob
+
+管理员目录策略请求使用 `{ "policy_id": 12 }`；传 `{ "policy_id": null }` 会清除显式目录策略。非空 `policy_id` 必须大于 `0`，并且目标策略必须可用于目录绑定。已锁定或已进入回收站的目录会拒绝修改。成功响应返回更新后的 `FolderInfo`，同时写入 `folder_policy_change` 审计并发布 storage change event。
 
 ## 策略组
 
@@ -550,6 +561,9 @@ POST /api/v1/admin/policies/action
 | `POST` | `/admin/users/{id}/sessions/revoke` | 吊销该用户所有现有会话 |
 | `DELETE` | `/admin/users/{id}` | 永久删除用户及其全部数据 |
 | `GET` | `/admin/users/{id}/avatar/{size}` | 读取指定用户已上传头像 |
+| `POST` | `/admin/users/invitations` | 创建用户邀请 |
+| `GET` | `/admin/users/invitations` | 分页列出用户邀请 |
+| `POST` | `/admin/users/invitations/{id}/revoke` | 撤销 pending 邀请 |
 
 `GET /admin/users` 现在支持：
 
@@ -573,6 +587,8 @@ POST /api/v1/admin/policies/action
 ```
 
 `password` 可省略或留空。此时服务端会生成 24 字符临时密码，自动设置 `must_change_password = true`，并且只在创建响应里返回一次 `generated_password`。如果请求里提供了密码，`must_change_password` 默认是 `false`，除非显式传 `true`。
+
+邀请创建请求为 `{ "email": "new-user@example.com" }`，成功返回 `201`。同一邮箱已有 pending 邀请时，旧邀请会先被撤销；服务端随后创建新 pending 记录并把邀请邮件加入 outbox。创建响应可以包含只出现一次的 `invitation_url`，列表响应不会重复暴露 token URL。列表使用 `limit` / `offset`，状态包括 `pending`、`accepted`、`expired`、`revoked`；撤销接口只接受仍为 pending 的邀请。
 
 ### 更新用户示例
 
@@ -704,6 +720,8 @@ POST /api/v1/admin/policies/action
 - 具体定义以 `/admin/config/schema` 和 `src/config/definitions.rs` 为准；下面只列一批当前高频项，不是完整清单。邮件 SMTP、邮件模板、头像上传限制、注册/找回 TTL、分页上限等键也都在 schema 里
 - `default_storage_quota`
 - `webdav_enabled`
+- `webdav_max_active_locks_per_user`
+- `webdav_download_audit_coalesce_window_secs`
 - `webdav_block_system_files_enabled`
 - `webdav_block_system_file_patterns`
 - `trash_retention_days`
@@ -769,6 +787,9 @@ POST /api/v1/admin/policies/action
 - `archive_build_max_entries`
 - `archive_build_max_total_source_bytes`
 - `archive_build_max_temp_bytes`
+- `archive_compress_enabled`
+- `archive_download_user_enabled`
+- `archive_download_share_enabled`
 - `archive_preview_enabled`
 - `archive_preview_user_enabled`
 - `archive_preview_share_enabled`
@@ -790,6 +811,14 @@ POST /api/v1/admin/policies/action
 - `mail_template_login_email_code_html`
 
 `thumbnail_max_source_bytes` 控制哪些源文件允许进入缩略图生成；`thumbnail_max_dimension` 和 `image_preview_max_dimension` 分别控制列表缩略图和预览面板图片生成后的最长边。调整尺寸会进入带尺寸后缀的 derivative cache namespace，不会覆盖另一种配置尺寸下的缓存。
+
+归档与 WebDAV 的几个开关需要特别区分：
+
+- `archive_compress_enabled` 默认 `true`，控制把选中项目压缩成工作空间内新 ZIP 文件的 `/batch/archive-compress`；关闭时返回 `archive_compress.disabled`。
+- `archive_download_user_enabled` 默认 `true`，控制已登录用户在个人和团队空间创建、消费 ZIP 打包下载 ticket；关闭时返回 `archive_download.user_disabled`。
+- `archive_download_share_enabled` 默认 `true`，控制公开分享访客创建、消费 ZIP 打包下载 ticket；关闭时返回 `archive_download.share_disabled`。
+- `webdav_max_active_locks_per_user` 默认 `1024`，达到上限后拒绝该用户的新 `LOCK`。
+- `webdav_download_audit_coalesce_window_secs` 默认 `30` 秒，用于合并同一账号、文件、请求类型和客户端指纹的重复 WebDAV 下载审计；设为 `0` 表示逐次记录。
 
 `media_processing_registry_json` 是统一媒体处理注册表，用来管理内置 `images`、内置 `lofty`、VIPS CLI、FFmpeg CLI、FFprobe CLI 的启用状态、能力用途、后缀绑定和命令路径。缩略图与媒体元数据都走这条注册表；`media_metadata_enabled` 只保留为媒体元数据总开关，单类媒体是否启用由对应处理器控制。
 
