@@ -16,13 +16,11 @@ use aster_forge_webdav::{
 use futures::{StreamExt, pin_mut};
 
 use crate::services::content::property;
-use crate::webdav::handlers::locks::{lockdiscovery_element, supportedlock_element};
-use crate::webdav::protocol::{self, Depth};
 use crate::webdav::responses;
 use crate::webdav::{
-    child_relative_path, display_name, ensure_unlocked, fs_error_response, href_for_dav_path,
-    href_for_relative,
+    child_relative_path, display_name, fs_error_response, href_for_dav_path, href_for_relative,
 };
+use aster_forge_webdav::Depth;
 use aster_forge_webdav::{
     DavFileSystem, DavLock, DavLockSystem, DavMetaData, DavPath, DavProp, FsError, ReadDirMeta,
 };
@@ -107,7 +105,7 @@ pub(crate) async fn handle_propfind(
     let relative = path.as_str().to_owned();
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
-    if let Err(resp) = protocol::ensure_if_header(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
         request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
@@ -205,7 +203,7 @@ pub(crate) async fn handle_proppatch(
     }
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
-    if let Err(resp) = protocol::ensure_if_header(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
         request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
@@ -218,7 +216,7 @@ pub(crate) async fn handle_proppatch(
     {
         return resp;
     }
-    if let Err(resp) = ensure_unlocked(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
         &path,
         false,
@@ -492,10 +490,10 @@ fn standard_prop_element(
             |etag| dav_property_text_element(&property_name, format!("\"{etag}\"")),
         ))),
         "supportedlock" => {
-            let supported = supportedlock_element();
+            let supported = aster_forge_webdav::dav_supported_lock_element();
             Ok(Some(supported))
         }
-        "lockdiscovery" => Ok(Some(lockdiscovery_element(
+        "lockdiscovery" => Ok(Some(aster_forge_webdav::lock_discovery_element(
             preload.locks_for(resource),
             prefix,
         ))),

@@ -1,31 +1,26 @@
 //! WebDAV 模块导出。
 
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 pub mod auth;
 pub mod backend;
 mod handlers;
-mod protocol;
 mod responses;
 pub mod system_file;
 
-use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse, web};
 
 use crate::config::{NetworkTrustConfig, RateLimitConfig, WebDavConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit;
 use aster_forge_utils::numbers::u64_to_usize;
-use aster_forge_webdav::{
-    DavEvent, DavEventOutcome, DavEventSink, DavMethod, IfHeader, lock_conflict_response,
-};
-use aster_forge_webdav::{DavLockSystem, DavPath};
+use aster_forge_webdav::{DavEvent, DavEventOutcome, DavEventSink, DavMethod, DavPath};
 
 #[cfg(test)]
 pub(crate) use aster_forge_webdav::encode_href;
 pub(crate) use aster_forge_webdav::{
-    child_relative_path, display_name, href_for_dav_path, href_for_relative, parent_relative_path,
+    child_relative_path, display_name, href_for_dav_path, href_for_relative,
 };
 pub(crate) use responses::fs_error_response;
 
@@ -100,7 +95,7 @@ pub async fn webdav_handler(
                 aster_forge_webdav::method_not_allowed_response(),
             );
         }
-        Err(error) => return protocol::protocol_error_response(error),
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
     };
 
     let audit_info = audit::AuditRequestInfo::from_request(&req);
@@ -133,10 +128,11 @@ pub async fn webdav_handler(
             let response = aster_forge_webdav::actix::into_response(
                 aster_forge_webdav::body_error_response(error),
             );
-            webdav.event_sink.publish(&completed_event(
+            webdav.event_sink.publish(&DavEvent::completed(
                 &request_head,
-                response.status(),
+                response.status().as_u16(),
                 operation_started_at.elapsed(),
+                None,
             ));
             return response;
         }
@@ -273,30 +269,13 @@ pub async fn webdav_handler(
             handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
         }
     };
-    webdav.event_sink.publish(&completed_event(
+    webdav.event_sink.publish(&DavEvent::completed(
         &request_head,
-        response.status(),
+        response.status().as_u16(),
         operation_started_at.elapsed(),
+        None,
     ));
     response
-}
-
-fn completed_event(
-    request_head: &aster_forge_webdav::DavRequestHead,
-    status: StatusCode,
-    elapsed: Duration,
-) -> DavEvent {
-    DavEvent {
-        request_id: None,
-        operation: request_head.method.operation(),
-        source: request_head.target.clone(),
-        destination: request_head
-            .destination
-            .as_ref()
-            .map(|destination| destination.path.clone()),
-        outcome: DavEventOutcome::from_status(status.as_u16(), None),
-        elapsed,
-    }
 }
 
 pub(crate) fn ensure_system_file_name_allowed(
@@ -309,62 +288,6 @@ pub(crate) fn ensure_system_file_name_allowed(
     }
 
     Err(responses::system_file_name_blocked())
-}
-
-pub(crate) async fn ensure_unlocked(
-    lock_system: &dyn DavLockSystem,
-    path: &DavPath,
-    deep: bool,
-    prefix: &str,
-    if_header: Option<&IfHeader>,
-    request_scheme: &str,
-    request_host: &str,
-) -> Result<(), HttpResponse> {
-    for lock in lock_system.conflicting_locks(path, deep).await {
-        let lock_href = href_for_dav_path(prefix, &lock.path);
-        let submitted_tokens = protocol::submitted_lock_tokens_for_path(
-            if_header,
-            &lock_href,
-            request_scheme,
-            request_host,
-        );
-        if !submitted_tokens.iter().any(|token| token == &lock.token) {
-            return Err(match lock_conflict_response(prefix, &lock.path) {
-                Ok(response) => aster_forge_webdav::actix::into_response(response),
-                Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
-            });
-        }
-    }
-
-    Ok(())
-}
-
-pub(crate) async fn ensure_parent_unlocked(
-    lock_system: &dyn DavLockSystem,
-    relative: &str,
-    prefix: &str,
-    if_header: Option<&IfHeader>,
-    request_scheme: &str,
-    request_host: &str,
-) -> Result<(), HttpResponse> {
-    let Some(parent) = parent_relative_path(relative) else {
-        return Ok(());
-    };
-    let parent_path = DavPath::new(&parent).map_err(|_| responses::invalid_request_path())?;
-    ensure_unlocked(
-        lock_system,
-        &parent_path,
-        false,
-        prefix,
-        if_header,
-        request_scheme,
-        request_host,
-    )
-    .await
-}
-
-pub(crate) fn decoded_path_string(path: &DavPath) -> String {
-    path.as_str().to_string()
 }
 
 /// 注册 WebDAV 路由

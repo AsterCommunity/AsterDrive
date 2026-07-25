@@ -13,8 +13,7 @@ use futures::StreamExt;
 use tokio_util::io::ReaderStream;
 
 use crate::webdav::{
-    backend, ensure_parent_unlocked, ensure_system_file_name_allowed, ensure_unlocked,
-    fs_error_response, protocol, responses, system_file,
+    backend, ensure_system_file_name_allowed, fs_error_response, responses, system_file,
 };
 use aster_forge_webdav::{DavFileSystem, DavLockSystem, DavMetaData, FsError, OpenOptions};
 
@@ -33,7 +32,7 @@ pub(crate) async fn handle_get_head(
     let relative = path.as_str().to_owned();
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
-    if let Err(resp) = protocol::ensure_if_header(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
         request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
@@ -73,7 +72,7 @@ pub(crate) async fn handle_get_head(
                 .essence_str()
                 .to_string()
         });
-    let headers = match protocol::converted_headers(req.headers()) {
+    let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
         Err(response) => return response,
     };
@@ -87,7 +86,7 @@ pub(crate) async fn handle_get_head(
     ) {
         Ok(plan) => plan,
         Err(DavDownloadPlanError::Protocol(error)) => {
-            return protocol::protocol_error_response(error);
+            return aster_forge_webdav::actix::protocol_error_response(error);
         }
         Err(DavDownloadPlanError::InvalidRepresentation) => {
             tracing::warn!(path = %relative, "invalid WebDAV download response metadata");
@@ -155,7 +154,7 @@ pub(crate) async fn handle_put(
         Err(FsError::NotFound) => (false, false, None),
         Err(err) => return fs_error_response(err),
     };
-    let headers = match protocol::converted_headers(req.headers()) {
+    let headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
         Ok(headers) => headers,
         Err(response) => return response,
     };
@@ -177,7 +176,7 @@ pub(crate) async fn handle_put(
 
     let request_scheme = request_head.origin.scheme.as_str();
     let request_host = request_head.origin.host.as_str();
-    if let Err(resp) = protocol::ensure_if_header(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
         request_head.if_header.as_ref(),
         dav_fs,
         lock_system,
@@ -190,7 +189,7 @@ pub(crate) async fn handle_put(
     {
         return resp;
     }
-    if let Err(resp) = ensure_unlocked(
+    if let Err(resp) = aster_forge_webdav::actix::enforce_unlocked(
         lock_system,
         &path,
         false,
@@ -204,9 +203,9 @@ pub(crate) async fn handle_put(
         return resp;
     }
     if !plan.resource_existed
-        && let Err(resp) = ensure_parent_unlocked(
+        && let Err(resp) = aster_forge_webdav::actix::enforce_parent_unlocked(
             lock_system,
-            &relative,
+            &path,
             prefix,
             request_head.if_header.as_ref(),
             request_scheme,

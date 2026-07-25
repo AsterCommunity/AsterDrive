@@ -1,4 +1,3 @@
-use super::completed_event;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::entities::{file, file_blob, storage_policy, user};
@@ -18,10 +17,8 @@ use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, HttpRequest, web};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
-use aster_forge_webdav::{
-    DavEventOutcome, DavOperation, DavXmlElement as Element, DavXmlNode as XMLNode,
-};
 use aster_forge_webdav::{DavLock, DavLockError, DavLockSystem, LsFuture};
+use aster_forge_webdav::{DavXmlElement as Element, DavXmlNode as XMLNode};
 use async_trait::async_trait;
 use chrono::Utc;
 use migration::Migrator;
@@ -42,38 +39,6 @@ fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead 
     aster_forge_webdav::actix::request_head(req, "/webdav")
         .expect("test request head should parse")
         .expect("test method should be supported")
-}
-
-#[test]
-fn completed_event_uses_the_forge_request_head_without_sensitive_request_data() {
-    let req = actix_web::test::TestRequest::default()
-        .method(actix_web::http::Method::from_bytes(b"COPY").expect("valid COPY method"))
-        .uri("/webdav/source.txt")
-        .insert_header(("Destination", "/webdav/destination.txt"))
-        .insert_header(("If", "(<urn:uuid:sensitive-lock-token>)"))
-        .to_http_request();
-    let request_head = parsed_request_head(&req);
-
-    let event = completed_event(&request_head, StatusCode::LOCKED, Duration::from_millis(12));
-
-    assert_eq!(event.request_id, None);
-    assert_eq!(event.operation, DavOperation::Copy);
-    assert_eq!(event.source.as_str(), "/source.txt");
-    assert_eq!(
-        event.destination.as_ref().map(|path| path.as_str()),
-        Some("/destination.txt")
-    );
-    assert_eq!(
-        event.outcome,
-        DavEventOutcome::Failed {
-            status: 423,
-            backend_error: None,
-        }
-    );
-    assert_eq!(event.elapsed, Duration::from_millis(12));
-    let debug = format!("{event:?}");
-    assert!(debug.contains("source.txt"));
-    assert!(!debug.contains("sensitive-lock-token"));
 }
 
 async fn build_webdav_test_state(

@@ -41,10 +41,6 @@ pub(crate) fn unauthorized_retry_after(retry_after: u64) -> HttpResponse {
         .body("Unauthorized")
 }
 
-pub(crate) fn bad_request() -> HttpResponse {
-    empty(StatusCode::BAD_REQUEST)
-}
-
 pub(crate) fn bad_request_text(body: &'static str) -> HttpResponse {
     text(StatusCode::BAD_REQUEST, body)
 }
@@ -71,10 +67,6 @@ pub(crate) fn webdav_disabled() -> HttpResponse {
 
 pub(crate) fn request_body_read_error() -> HttpResponse {
     bad_request_text("Failed to read request body")
-}
-
-pub(crate) fn invalid_request_path() -> HttpResponse {
-    bad_request_text("Invalid request path")
 }
 
 pub(crate) fn system_file_name_blocked() -> HttpResponse {
