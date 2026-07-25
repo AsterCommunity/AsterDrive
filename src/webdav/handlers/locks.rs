@@ -72,7 +72,15 @@ pub(crate) async fn handle_lock(
             }
             let lock = match lock_system.refresh(&path, &token, Some(timeout)).await {
                 Ok(lock) => lock,
-                Err(_) => return responses::precondition_failed(),
+                Err(DavLockError::TokenMismatch | DavLockError::Conflict(_)) => {
+                    return responses::precondition_failed();
+                }
+                Err(DavLockError::LimitExceeded) => {
+                    return aster_forge_webdav::actix::into_response(lock_limit_response());
+                }
+                Err(DavLockError::Backend) => {
+                    return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
+                }
             };
             into_xml_response(lock_refresh_success_response(&lock, prefix))
         }
@@ -106,6 +114,9 @@ pub(crate) async fn handle_lock(
                 Ok(lock) => lock,
                 Err(DavLockError::Conflict(lock)) => {
                     return into_xml_response(lock_conflict_response(prefix, &lock.path));
+                }
+                Err(DavLockError::TokenMismatch) => {
+                    return responses::precondition_failed();
                 }
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
@@ -141,7 +152,13 @@ pub(crate) async fn handle_unlock(
 
     match lock_system.unlock(&path, &token).await {
         Ok(()) => aster_forge_webdav::actix::into_response(unlock_success_response()),
-        Err(()) => into_xml_response(unlock_token_mismatch_response()),
+        Err(DavLockError::TokenMismatch | DavLockError::Conflict(_)) => {
+            into_xml_response(unlock_token_mismatch_response())
+        }
+        Err(DavLockError::LimitExceeded) => {
+            aster_forge_webdav::actix::into_response(lock_limit_response())
+        }
+        Err(DavLockError::Backend) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }
 

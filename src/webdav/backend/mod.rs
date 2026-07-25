@@ -34,11 +34,10 @@ use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::i64_to_u64;
-use aster_forge_webdav::DavResourceKind;
 use aster_forge_webdav::plan_atomic_proppatch;
 use aster_forge_webdav::{
-    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, DavPropertyTarget, FsError,
-    FsFuture, FsStream, OpenOptions, ReadDirMeta,
+    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, FsError, FsFuture,
+    FsStream, OpenOptions, ReadDirMeta,
 };
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
@@ -780,49 +779,6 @@ impl DavFileSystem for AsterDavFs {
             }
 
             let mut result = HashMap::with_capacity(paths.len());
-            for (target, paths) in target_paths {
-                let props = props_by_target.remove(&target).unwrap_or_default();
-                for path in paths {
-                    result.insert(path, props.clone());
-                }
-            }
-            Ok(result)
-        })
-    }
-
-    fn get_props_many_for_targets<'a>(
-        &'a self,
-        targets: &'a [(DavPath, DavPropertyTarget)],
-        do_content: bool,
-    ) -> FsFuture<'a, HashMap<DavPath, Vec<DavProp>>> {
-        Box::pin(async move {
-            let mut target_paths: HashMap<(EntityType, i64), Vec<DavPath>> = HashMap::new();
-            let mut entity_targets = Vec::with_capacity(targets.len());
-            for (path, property_target) in targets {
-                let entity_type = match property_target.kind {
-                    DavResourceKind::File => EntityType::File,
-                    DavResourceKind::Collection => EntityType::Folder,
-                };
-                let target = (entity_type, property_target.id);
-                target_paths.entry(target).or_default().push(path.clone());
-                entity_targets.push(target);
-            }
-
-            let props = property_repo::find_by_entities(self.state.reader_db(), &entity_targets)
-                .await
-                .map_err(|_| FsError::GeneralFailure)?;
-            let mut props_by_target: HashMap<(EntityType, i64), Vec<DavProp>> = HashMap::new();
-            for prop in props {
-                if property::is_protected_namespace(&prop.namespace) {
-                    continue;
-                }
-                props_by_target
-                    .entry((prop.entity_type, prop.entity_id))
-                    .or_default()
-                    .push(entity_prop_to_dav_prop(prop, do_content));
-            }
-
-            let mut result = HashMap::with_capacity(targets.len());
             for (target, paths) in target_paths {
                 let props = props_by_target.remove(&target).unwrap_or_default();
                 for path in paths {

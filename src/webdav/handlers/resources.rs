@@ -221,9 +221,10 @@ pub(crate) async fn handle_delete(
     };
     match result {
         Ok(()) => {
-            if lock_system.delete(&path).await.is_err() {
+            if let Err(error) = lock_system.delete(&path).await {
                 tracing::warn!(
                     path = %path.as_str(),
+                    error = ?error,
                     "failed to delete WebDAV locks after resource deletion"
                 );
             }
@@ -461,11 +462,8 @@ pub(crate) async fn handle_copy_move(
 
     match result {
         Ok(()) => {
-            if is_move && lock_system.delete(&source).await.is_err() {
-                tracing::warn!(
-                    path = %source_relative,
-                    "failed to delete WebDAV locks after move"
-                );
+            if is_move && let Err(error) = lock_system.delete(&source).await {
+                tracing::warn!(path = %source_relative, error = ?error, "failed to delete WebDAV locks after move");
             }
             aster_forge_webdav::actix::into_response(mutation_success_response(destination_exists))
         }
@@ -595,8 +593,8 @@ async fn partial_recursive_copy_move(
                     collect_children(ctx.dav_fs, &node.source, &node.source_relative).await?;
                 if remaining.is_empty() {
                     ctx.dav_fs.remove_dir(&node.source).await?;
-                    if ctx.lock_system.delete(&node.source).await.is_err() {
-                        tracing::warn!(path = %node.source_relative, "failed to delete WebDAV locks after partial move");
+                    if let Err(error) = ctx.lock_system.delete(&node.source).await {
+                        tracing::warn!(path = %node.source_relative, error = ?error, "failed to delete WebDAV locks after partial move");
                     }
                 }
             }
@@ -624,8 +622,8 @@ async fn partial_recursive_copy_move(
                 let remaining = collect_children(ctx.dav_fs, &node.path, &node.relative).await?;
                 if remaining.is_empty() {
                     ctx.dav_fs.remove_dir(&node.path).await?;
-                    if ctx.lock_system.delete(&node.path).await.is_err() {
-                        tracing::warn!(path = %node.relative, "failed to delete WebDAV locks after destination overwrite");
+                    if let Err(error) = ctx.lock_system.delete(&node.path).await {
+                        tracing::warn!(path = %node.relative, error = ?error, "failed to delete WebDAV locks after destination overwrite");
                     }
                 }
             }
@@ -737,8 +735,8 @@ async fn partial_copy_move_file(
     }
     if ctx.is_move {
         ctx.dav_fs.rename(&node.source, &node.destination).await?;
-        if ctx.lock_system.delete(&node.source).await.is_err() {
-            tracing::warn!(path = %node.source.as_str(), "failed to delete WebDAV locks after partial file move");
+        if let Err(error) = ctx.lock_system.delete(&node.source).await {
+            tracing::warn!(path = %node.source.as_str(), error = ?error, "failed to delete WebDAV locks after partial file move");
         }
     } else {
         ctx.dav_fs.copy(&node.source, &node.destination).await?;
@@ -789,7 +787,8 @@ async fn collect_children(
     while let Some(entry) = entries.next().await {
         let entry = entry?;
         let meta = entry.metadata().await?;
-        let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir());
+        let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir())
+            .map_err(|_| FsError::GeneralFailure)?;
         let child_path = DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?;
         children.push(DavChild {
             path: child_path,

@@ -47,19 +47,13 @@ impl PropfindPreload {
         let mut preload = Self::default();
 
         if propfind_kind_needs_dead_props(request_kind) {
-            let targets = resources
+            let paths = resources
                 .iter()
                 .filter(|resource| !is_root_resource(resource))
-                .filter_map(|resource| {
-                    let target = resource.meta.property_target()?;
-                    Some((resource.path.clone()?, target))
-                })
+                .filter_map(|resource| resource.path.clone())
                 .collect::<Vec<_>>();
             preload.dead_props = dav_fs
-                .get_props_many_for_targets(
-                    &targets,
-                    propfind_kind_needs_dead_prop_content(request_kind),
-                )
+                .get_props_many(&paths, propfind_kind_needs_dead_prop_content(request_kind))
                 .await
                 .map_err(fs_error_response)?;
         }
@@ -307,7 +301,8 @@ async fn collect_propfind_resources(
         while let Some(entry) = entries.next().await {
             let entry = entry?;
             let meta = entry.metadata().await?;
-            let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir());
+            let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir())
+                .map_err(|_| FsError::GeneralFailure)?;
             let child_path = if include_paths {
                 Some(DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?)
             } else {
@@ -571,13 +566,13 @@ mod tests {
     use actix_web::body::to_bytes;
     use actix_web::http::{Method, StatusCode, header};
     use actix_web::test::TestRequest;
-    use aster_forge_webdav::{DavResourceKind, DavXmlElement};
+    use aster_forge_webdav::DavXmlElement;
 
     use super::handle_propfind;
     use aster_forge_webdav::{
         DavDirEntry, DavFile, DavFileSystem, DavLock, DavLockError, DavLockSystem, DavMetaData,
-        DavPath, DavProp, DavPropertyTarget, FsError, FsFuture, FsResult, FsStream, LsFuture,
-        OpenOptions, ReadDirMeta,
+        DavPath, DavProp, FsError, FsFuture, FsResult, FsStream, LsFuture, OpenOptions,
+        ReadDirMeta,
     };
 
     struct PropfindTestFs {
@@ -590,7 +585,6 @@ mod tests {
         is_dir: bool,
         len: u64,
         content_type: Option<&'static str>,
-        property_target: Option<DavPropertyTarget>,
     }
 
     impl DavMetaData for PropfindTestMeta {
@@ -621,10 +615,6 @@ mod tests {
         fn created(&self) -> FsResult<SystemTime> {
             Ok(SystemTime::UNIX_EPOCH)
         }
-
-        fn property_target(&self) -> Option<DavPropertyTarget> {
-            self.property_target
-        }
     }
 
     struct PropfindTestEntry {
@@ -650,10 +640,6 @@ mod tests {
                     is_dir: false,
                     len: self.len,
                     content_type: Some("text/plain"),
-                    property_target: Some(DavPropertyTarget {
-                        kind: DavResourceKind::File,
-                        id: i64::try_from(self.len).expect("test len should fit i64"),
-                    }),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -698,7 +684,6 @@ mod tests {
                         is_dir: true,
                         len: 0,
                         content_type: None,
-                        property_target: None,
                     }) as Box<dyn DavMetaData>);
                 }
 
@@ -706,10 +691,6 @@ mod tests {
                     is_dir: false,
                     len: 1,
                     content_type: Some("text/plain"),
-                    property_target: Some(DavPropertyTarget {
-                        kind: DavResourceKind::File,
-                        id: 1,
-                    }),
                 }) as Box<dyn DavMetaData>)
             })
         }
@@ -773,7 +754,7 @@ mod tests {
             Box::pin(async { Err(DavLockError::Backend) })
         }
 
-        fn unlock(&self, _path: &DavPath, _token: &str) -> LsFuture<'_, Result<(), ()>> {
+        fn unlock(&self, _path: &DavPath, _token: &str) -> LsFuture<'_, Result<(), DavLockError>> {
             Box::pin(async { Ok(()) })
         }
 
@@ -782,8 +763,8 @@ mod tests {
             _path: &DavPath,
             _token: &str,
             _timeout: Option<std::time::Duration>,
-        ) -> LsFuture<'_, Result<DavLock, ()>> {
-            Box::pin(async { Err(()) })
+        ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
+            Box::pin(async { Err(DavLockError::TokenMismatch) })
         }
 
         fn check(
@@ -821,7 +802,7 @@ mod tests {
             Box::pin(async { Vec::new() })
         }
 
-        fn delete(&self, _path: &DavPath) -> LsFuture<'_, Result<(), ()>> {
+        fn delete(&self, _path: &DavPath) -> LsFuture<'_, Result<(), DavLockError>> {
             Box::pin(async { Ok(()) })
         }
     }

@@ -230,7 +230,7 @@ impl DavLockSystem for NoopLockSystem {
         &self,
         _path: &aster_forge_webdav::DavPath,
         _token: &str,
-    ) -> LsFuture<'_, Result<(), ()>> {
+    ) -> LsFuture<'_, Result<(), DavLockError>> {
         Box::pin(async { Ok(()) })
     }
 
@@ -239,7 +239,7 @@ impl DavLockSystem for NoopLockSystem {
         _path: &aster_forge_webdav::DavPath,
         _token: &str,
         _timeout: Option<Duration>,
-    ) -> LsFuture<'_, Result<DavLock, ()>> {
+    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
         Box::pin(async { panic!("refresh should not be called in these WebDAV handler tests") })
     }
 
@@ -266,7 +266,10 @@ impl DavLockSystem for NoopLockSystem {
         Box::pin(async { Vec::new() })
     }
 
-    fn delete(&self, _path: &aster_forge_webdav::DavPath) -> LsFuture<'_, Result<(), ()>> {
+    fn delete(
+        &self,
+        _path: &aster_forge_webdav::DavPath,
+    ) -> LsFuture<'_, Result<(), DavLockError>> {
         Box::pin(async { Ok(()) })
     }
 }

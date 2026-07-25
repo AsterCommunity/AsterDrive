@@ -259,7 +259,9 @@ impl DavLockSystem for DbLockSystem {
                     }
 
                     if !shared || !existing.shared {
-                        return Err(DavLockError::Conflict(model_to_dav_lock(&existing)));
+                        return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(
+                            &existing,
+                        ))));
                     }
                 }
 
@@ -366,22 +368,22 @@ impl DavLockSystem for DbLockSystem {
         })
     }
 
-    fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), ()>> {
+    fn unlock(&self, path: &DavPath, token: &str) -> LsFuture<'_, Result<(), DavLockError>> {
         let token_owned = token.to_string();
         let path_str = normalize_path(path);
         Box::pin(async move {
             // 查锁拿 entity 信息
             let lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| ())?
-                .ok_or(())?;
+                .map_err(|_| DavLockError::Backend)?
+                .ok_or(DavLockError::TokenMismatch)?;
             if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
-                return Err(());
+                return Err(DavLockError::TokenMismatch);
             }
 
             lock_repo::delete_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| ())?;
+                .map_err(|_| DavLockError::Backend)?;
 
             if let Err(e) = crate::services::files::lock::clear_entity_locked_if_unlocked(
                 &self.db,
@@ -403,7 +405,7 @@ impl DavLockSystem for DbLockSystem {
         path: &DavPath,
         token: &str,
         timeout: Option<Duration>,
-    ) -> LsFuture<'_, Result<DavLock, ()>> {
+    ) -> LsFuture<'_, Result<DavLock, DavLockError>> {
         let token_owned = token.to_string();
         let path_clone = path.clone();
         let path_str = normalize_path(path);
@@ -414,18 +416,19 @@ impl DavLockSystem for DbLockSystem {
 
             let current_lock = lock_repo::find_by_token(&self.db, &token_owned)
                 .await
-                .map_err(|_| ())?
-                .ok_or(())?;
+                .map_err(|_| DavLockError::Backend)?
+                .ok_or(DavLockError::TokenMismatch)?;
             if !unlock_request_targets_lock_scope(&current_lock.path, current_lock.deep, &path_str)
             {
-                return Err(());
+                return Err(DavLockError::TokenMismatch);
             }
-            let new_timeout_at = lock_timeout_at(now, timeout_dur).map_err(|_| ())?;
+            let new_timeout_at =
+                lock_timeout_at(now, timeout_dur).map_err(|_| DavLockError::Backend)?;
 
             let lock = lock_repo::refresh(&self.db, &token_owned, new_timeout_at)
                 .await
-                .map_err(|_| ())?
-                .ok_or(())?;
+                .map_err(|_| DavLockError::Backend)?
+                .ok_or(DavLockError::TokenMismatch)?;
             self.log_lock_action(lock.entity_type, lock.entity_id, true)
                 .await;
             let owner = lock_owner_xml(&lock)
@@ -584,12 +587,12 @@ impl DavLockSystem for DbLockSystem {
         })
     }
 
-    fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), ()>> {
+    fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), DavLockError>> {
         let path_str = normalize_path(path);
         Box::pin(async move {
             let locks = lock_repo::find_by_path_prefix(&self.db, &path_str)
                 .await
-                .unwrap_or_default();
+                .map_err(|_| DavLockError::Backend)?;
 
             for lock in locks {
                 if !lock_path_is_under(&path_str, &lock.path) {
@@ -606,7 +609,7 @@ impl DavLockSystem for DbLockSystem {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 fn normalize_path(path: &DavPath) -> String {
-    let raw = String::from_utf8_lossy(path.as_bytes()).to_string();
+    let raw = path.as_str().to_owned();
     if raw.is_empty() || raw == "/" {
         "/".to_string()
     } else {

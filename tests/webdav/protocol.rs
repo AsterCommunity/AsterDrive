@@ -1117,7 +1117,24 @@ async fn test_webdav_get_supports_binary_range_requests() {
         "GET 416 must report the current representation length"
     );
 
-    for malformed_range in ["items=0-1", "bytes=0-1,3-4", "bytes=-0", "bytes=9-5"] {
+    for ignored_range in ["items=0-1", "bytes=0-1,3-4"] {
+        let req = test::TestRequest::get()
+            .uri("/webdav/range-image.bin")
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Range", ignored_range))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::OK,
+            "unsupported range form {ignored_range} should be ignored"
+        );
+        assert!(resp.headers().get("Content-Range").is_none());
+        let body = test::read_body(resp).await;
+        assert_eq!(body.as_ref(), data.as_slice());
+    }
+
+    for malformed_range in ["bytes=-0", "bytes=9-5"] {
         let req = test::TestRequest::get()
             .uri("/webdav/range-image.bin")
             .insert_header(("Authorization", auth.clone()))
@@ -1127,7 +1144,7 @@ async fn test_webdav_get_supports_binary_range_requests() {
         assert_eq!(
             resp.status(),
             actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
-            "malformed or unsupported range {malformed_range} should return 416"
+            "unsatisfiable range {malformed_range} should return 416"
         );
         assert_eq!(
             resp.headers()
@@ -5712,8 +5729,8 @@ async fn test_webdav_lock_rejects_invalid_lockinfo_and_timeout_headers() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        400,
-        "oversized Timeout values must be rejected instead of becoming infinite locks"
+        201,
+        "oversized numeric Timeout values should be clamped to the server maximum"
     );
 
     let req = test::TestRequest::with_uri("/webdav/infinite-timeout.txt")
@@ -6689,7 +6706,7 @@ async fn test_webdav_if_header_allows_any_matching_state_list() {
 }
 
 #[actix_web::test]
-async fn test_webdav_if_header_requires_every_tagged_resource_group() {
+async fn test_webdav_if_header_uses_or_between_tagged_resource_groups() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
@@ -6735,13 +6752,13 @@ async fn test_webdav_if_header_requires_every_tagged_resource_group() {
                 etags[0]
             ),
         ))
-        .set_payload("must fail")
+        .set_payload("one group matches")
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(
-        resp.status(),
-        412,
-        "one matching tagged resource must not hide another failing group"
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "one matching tagged-list production should satisfy the If header, got {}",
+        resp.status()
     );
 
     let req = test::TestRequest::put()
@@ -6749,15 +6766,16 @@ async fn test_webdav_if_header_requires_every_tagged_resource_group() {
         .insert_header(("Authorization", auth.clone()))
         .insert_header((
             "If",
-            format!(
-                r#"</webdav/if-tagged-a.txt> ([{}]) </webdav/if-tagged-b.txt> ([{}])"#,
-                etags[0], etags[1]
-            ),
+            r#"</webdav/if-tagged-a.txt> (["wrong-a"]) </webdav/if-tagged-b.txt> (["wrong-b"])"#,
         ))
-        .set_payload("all match")
+        .set_payload("none match")
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert!(resp.status() == 201 || resp.status() == 204);
+    assert_eq!(
+        resp.status(),
+        412,
+        "If must fail when no tagged-list production matches"
+    );
 }
 
 #[actix_web::test]

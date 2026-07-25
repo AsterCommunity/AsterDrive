@@ -207,10 +207,6 @@ webauthn-authenticator-rs = { version = "0.6.1-dev", features = ["softpasskey"] 
 [build-dependencies]
 chrono = "0.4"
 
-[patch."https://github.com/AsterCommunity/AsterForge"]
-aster_forge_utils = { path = "../AsterForge/crates/aster_forge_utils" }
-aster_forge_webdav = { path = "../AsterForge/crates/aster_forge_webdav" }
-
 [lib]
 doctest = false
 
