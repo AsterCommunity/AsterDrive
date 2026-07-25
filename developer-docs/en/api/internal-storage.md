@@ -83,18 +83,26 @@ Typical fields include:
 - `supports_stream_upload`
 - `supports_capacity`
 
-The current protocol version is `v4`, and the minimum supported version is also `v4`. `v4` is not wire-compatible with `v2` or `v3`: internal storage JSON envelopes now use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Upgrade both primary and follower before binding remote policies across this boundary.
+The current protocol version is `v5`, with `v4` as the compatibility floor, so the current local supported range is `v4-v5`. `v4` / `v5` are not wire-compatible with `v2` or `v3`: internal storage JSON envelopes now use the stable string `ApiErrorCode` in the top-level `code` field instead of the old numeric code. Upgrade both primary and follower before binding remote policies across this boundary.
+
+Protocol `v5` adds remote-storage-target driver capabilities. The Rust model field is named `remote_storage_target`, but the `v4` / `v5` wire JSON still serializes it as `managed_ingress` and also accepts `remote_storage_target` as a deserialization alias. The legacy wire key is a compatibility detail, not a separate product model.
+
+The compatibility boundary is explicit:
+
+- When a `v4` follower omits this capability, the primary applies the legacy assumption that Local and S3 drivers are available.
+- A `v5` follower must declare remote-storage-target capability explicitly. Missing or disabled capability does not receive the implicit `v4` Local / S3 fallback.
+- The primary exposes only drivers both declared by the follower and backed by a descriptor registered in the current build. Unknown future driver IDs remain protocol data but do not automatically become configurable choices.
 
 During policy loading and binding refresh, the primary validates:
 
-- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v4-v4`
+- `protocol_version` / `min_supported_protocol_version` must overlap with the local supported range, currently `v4-v5`
 - Base remote policies require `object_get`, `object_head`, `object_put`, `object_delete`, `metadata`, `range_get`, `accept_ranges_header`, `list`, and `compose`
 - Browser presigned download requires `browser_cors` to allow the `range` request header and expose `Accept-Ranges`, `Content-Range`, and `Content-Length`
 - Browser presigned upload requires `browser_cors` to allow the `content-type` request header and expose `ETag`
 
 ## `GET /capacity`
 
-Returns `StorageCapacityInfo` for the follower's current ingress driver:
+Returns `StorageCapacityInfo` for the follower's current remote storage target driver:
 
 ```json
 {
@@ -113,7 +121,7 @@ Returns `StorageCapacityInfo` for the follower's current ingress driver:
 }
 ```
 
-Local ingress usually returns real filesystem capacity. S3 ingress explicitly returns unsupported, which the primary converts into a user-visible `unsupported` capacity state. This endpoint is used for admin capacity observation and migration preflight, not the hot upload / download path.
+Local targets usually return real filesystem capacity. S3 targets explicitly return unsupported, which the primary converts into a user-visible `unsupported` capacity state. This endpoint is used for admin capacity observation and migration preflight, not the hot upload / download path.
 
 ## `PUT /binding`
 
@@ -124,23 +132,22 @@ The primary uses this endpoint to sync follower binding metadata. Request fields
 
 This updates binding metadata only; it does not move object data.
 
-## Ingress profile management
+## Remote storage target management
 
 These endpoints let the primary manage follower-side remote storage targets, deciding whether future object writes land in follower-local storage or follower-managed S3.
 
-Local profile request:
+Local target request:
 
 ```json
 {
   "driver_type": "local",
   "name": "local-default",
   "base_path": "data/storage",
-  "max_file_size": 0,
   "is_default": true
 }
 ```
 
-S3 profile request:
+S3 target request:
 
 ```json
 {
@@ -151,12 +158,11 @@ S3 profile request:
   "access_key": "AKIA...",
   "secret_key": "...",
   "base_path": "objects/",
-  "max_file_size": 0,
   "is_default": false
 }
 ```
 
-These control-plane endpoints accept only signed primary headers, not presigned query access.
+Updates use a flat request shape and can change `name`, `driver_type`, connection fields, `base_path`, and `is_default`. The current target drivers are `local` and `s3`; the actual choices are also constrained by the follower's `remote_storage_target` capability declaration. These control-plane endpoints accept only signed primary headers, not presigned query access.
 
 ## Object operations
 
@@ -205,7 +211,26 @@ Deletes the object and returns an empty success response.
 
 ## Listing
 
-`GET /objects` supports a `prefix` query and returns matching object keys. Returned `items` are relative keys inside the follower binding namespace, not raw provider prefixes.
+`GET /objects` supports:
+
+- `prefix`: return only object keys with the requested prefix
+- `cursor`: continue from a relative position, normally using the previous page's `next_cursor`
+- `limit`: requested page size; it must be greater than `0` and is clamped to the server's internal page-size ceiling
+
+New clients should always send `limit`. A paged response looks like:
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "items": ["files/part-001", "files/part-002"],
+    "next_cursor": 2
+  }
+}
+```
+
+`next_cursor` is present only when another page exists. Omitting `limit` preserves the legacy unpaged response used by older clients and returns every matching item at once. Returned `items` are relative keys inside the follower binding namespace, not raw provider prefixes.
 
 ## When to read this page
 

@@ -373,7 +373,7 @@ fn upload_session_active_model(
         folder_id: Set(folder_id),
         policy_id: Set(policy_id),
         status: Set(status),
-        session_kind: Set(Some(session_kind)),
+        session_kind: Set(session_kind),
         object_temp_key: Set(object_temp_key.map(str::to_string)),
         object_multipart_id: Set(object_multipart_id.map(str::to_string)),
         provider_session_ciphertext: Set(provider_session_ciphertext.map(str::to_string)),

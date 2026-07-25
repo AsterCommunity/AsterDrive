@@ -57,7 +57,8 @@ mod m20260713_000003_scheduled_tasks;
 mod m20260716_000001_bind_external_auth_login_flows;
 mod m20260717_000001_add_upload_session_kind;
 mod m20260719_000001_add_upload_provider_session;
-mod m20260721_000001_remote_tunnel_owners;
+mod m20260723_000001_require_upload_session_kind;
+mod m20260725_000001_remote_tunnel_owners;
 mod search_acceleration;
 mod time;
 
@@ -180,7 +181,8 @@ impl MigratorTrait for CurrentMigrator {
             Box::new(m20260716_000001_bind_external_auth_login_flows::Migration),
             Box::new(m20260717_000001_add_upload_session_kind::Migration),
             Box::new(m20260719_000001_add_upload_provider_session::Migration),
-            Box::new(m20260721_000001_remote_tunnel_owners::Migration),
+            Box::new(m20260723_000001_require_upload_session_kind::Migration),
+            Box::new(m20260725_000001_remote_tunnel_owners::Migration),
         ]
     }
 }

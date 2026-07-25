@@ -213,7 +213,7 @@ pub(super) async fn finalize_verified_opaque_upload_session(
     verified: &VerifiedUploadedBlob,
     actor_username: Option<&str>,
 ) -> Result<file::Model> {
-    // 直传模式不会经过本地 assembled 文件，complete 阶段只负责把已经存在的对象
+    // 直传模式不会经过本地临时文件，complete 阶段只负责把已经存在的对象
     // 记成 blob + file，并原子更新配额和 session 状态。
     let file_hash = verified.file_hash().ok_or_else(|| {
         upload_assembly_error_with_code(
@@ -810,7 +810,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: crate::types::UploadSessionStatus::Assembling,
-            session_kind: Some(crate::types::UploadSessionKind::ProviderRelayMultipart),
+            session_kind: crate::types::UploadSessionKind::ProviderRelayMultipart,
             object_temp_key: Some("temp".to_string()),
             object_multipart_id: Some("multipart".to_string()),
             provider_session_ciphertext: None,

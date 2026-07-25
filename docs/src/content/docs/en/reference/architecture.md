@@ -5,7 +5,7 @@ title: "Architecture Overview"
 
 This page explains how AsterDrive components work together after the service is running. It is written for deployers, administrators, and new contributors, with an emphasis on system boundaries, data flows, and troubleshooting entry points.
 
-For deeper source-level design notes, see `developer-docs/en/architecture.md` and `developer-docs/en/module-designs.md` in the repository. Those documents are better suited for reading before code changes.
+For deeper source-level design notes, continue with the developer documentation’s [architecture overview](https://drive.astercosm.com/developer/en/architecture/) and [module design notes](https://drive.astercosm.com/developer/en/architecture/module-designs/). Those documents are better suited for reading before code changes.
 
 ## 60-Second Version
 

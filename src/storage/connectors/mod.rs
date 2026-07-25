@@ -62,7 +62,7 @@ use remote::RemoteConnector;
 use s3::S3Connector;
 use sftp::SftpConnector;
 use tencent_cos::TencentCosConnector;
-pub use upload::{StorageConnectorChunkedCompletion, StorageConnectorUploadTransport};
+pub use upload::StorageConnectorUploadTransport;
 
 #[async_trait(?Send)]
 trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized {

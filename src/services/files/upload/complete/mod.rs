@@ -1,7 +1,7 @@
 //! 上传完成阶段。
 //!
 //! 这里把各种“临时上传状态”收口成正式文件：
-//! - offset staging file 校验，或兼容旧 session 的本地 chunk 文件组装
+//! - offset staging file 校验
 //! - presigned 单文件确认
 //! - presigned object multipart 完成
 //! - relay object multipart 完成
@@ -68,19 +68,13 @@ async fn complete_upload_impl_with_hints(
     let upload_id = session.id.clone();
     let completed_retry = session.status == UploadSessionStatus::Completed;
     let complete_started_at = Instant::now();
-    // Check terminal states before classifying legacy provider fields. A pre-migration row can
-    // retain an old multipart id even after its policy snapshot has changed.
     let is_terminal = matches!(
         session.status,
         UploadSessionStatus::Completed
             | UploadSessionStatus::Assembling
             | UploadSessionStatus::Failed
     );
-    let session_kind = if is_terminal {
-        crate::types::UploadSessionKind::LegacyChunkFiles
-    } else {
-        resolve_upload_session_kind(state, &session).await?
-    };
+    let session_kind = resolve_upload_session_kind(&session)?;
     let plan = determine_completion_plan(&session, session_kind, parts)?;
     let plan_label = completion_plan_label(&plan);
     let mode = if is_terminal {

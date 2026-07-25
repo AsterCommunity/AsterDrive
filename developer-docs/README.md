@@ -1,14 +1,28 @@
-# Developer Docs
+# AsterDrive Developer Documentation
 
-This directory contains developer-facing documentation, including API references and architecture notes.
-
-The `docs/` tree is reserved for deployment-facing and end-user documentation, so these developer docs are excluded from the user documentation site build.
+This directory is the source library for AsterDrive’s developer-facing documentation. The published site is available at [drive.astercosm.com/developer/](https://drive.astercosm.com/developer/); deployment and end-user documentation remains under [`docs/`](../docs/).
 
 ## Languages
 
-- [Simplified Chinese](./zh-CN/README.md)
+- [简体中文](./zh-CN/README.md)
 - [English](./en/README.md)
 
-## Current Status
+## Library structure
 
-These documents track the current codebase implementation by default. Documents with an explicit draft or historical-plan status record decision context or follow-up work and must not be treated as the current implemented directory structure, API surface, or acceptance state.
+Each language follows the same information architecture:
+
+```text
+architecture/  Repository architecture, module boundaries, and service ownership
+design/        Domain design notes and cross-layer contracts
+api/           REST, WebDAV, WOPI, and internal protocol reference
+testing/       Test infrastructure, compliance checks, and diagnostics
+records/       Draft notes and historical decision snapshots
+```
+
+Current implementation documents are authoritative only when they agree with the current code. Files under `records/` preserve drafts or historical context and must state their status explicitly.
+
+## Editing and publishing
+
+- Edit the Markdown sources in this directory; do not edit the generated `docs/src-developer/` tree.
+- `cd docs && bun run developer-docs:build` builds the independent developer site under `/developer/`.
+- Relative links should target source Markdown files so they work on GitHub; the build preparation step maps them to published routes.

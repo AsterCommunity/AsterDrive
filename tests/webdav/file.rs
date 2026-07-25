@@ -5,7 +5,7 @@ use crate::common;
 use std::io::SeekFrom;
 
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::webdav::dav::{DavFile, DavFileSystem, FsError, OpenOptions};
+use aster_forge_webdav::{DavFile, DavFileSystem, FsError, OpenOptions};
 use bytes::Bytes;
 
 fn write_temp_fixture(name: &str, contents: &str) -> String {
@@ -54,7 +54,7 @@ fn snapshot_dir_tree(
 #[actix_web::test]
 async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::webdav::file::AsterDavFile;
+    use aster_drive::webdav::backend::file::AsterDavFile;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -132,8 +132,8 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::files::file;
     use aster_drive::types::EntityType;
-    use aster_drive::webdav::dav::{DavFileSystem, DavPath, DavProp};
-    use aster_drive::webdav::fs::AsterDavFs;
+    use aster_drive::webdav::backend::AsterDavFs;
+    use aster_forge_webdav::{DavFileSystem, DavPath, DavProp};
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -236,11 +236,11 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
         .xml
         .as_deref()
         .expect("stored property should include XML content");
-    let color_prop = xmltree::Element::parse(std::io::Cursor::new(xml))
-        .expect("stored property XML should parse");
+    let color_prop =
+        aster_forge_webdav::DavXmlElement::parse(xml).expect("stored property XML should parse");
     assert_eq!(color_prop.name, "color");
     assert_eq!(color_prop.namespace.as_deref(), Some("urn:aster:test"));
-    assert_eq!(color_prop.get_text().as_deref(), Some("blue"));
+    assert_eq!(color_prop.text().as_deref(), Some("blue"));
 
     let remove_results = dav_fs
         .patch_props(
@@ -271,8 +271,8 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 #[actix_web::test]
 async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
     use aster_drive::services::files::file;
-    use aster_drive::webdav::dav::DavPath;
-    use aster_drive::webdav::fs::AsterDavFs;
+    use aster_drive::webdav::backend::AsterDavFs;
+    use aster_forge_webdav::DavPath;
 
     let state = common::setup().await;
     let user =

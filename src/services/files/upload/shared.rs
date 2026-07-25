@@ -491,7 +491,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Uploading,
-            session_kind: None,
+            session_kind: crate::types::UploadSessionKind::OffsetStaging,
             object_temp_key: None,
             object_multipart_id: None,
             provider_session_ciphertext: None,

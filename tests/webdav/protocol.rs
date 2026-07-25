@@ -11,13 +11,13 @@ use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
 use aster_forge_config::{ConfigSource, ConfigValueType, ConfigVisibility};
 use aster_forge_db::system_config;
+use aster_forge_webdav::{DavEventOutcome, DavXmlElement as Element};
 use base64::Engine;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
 use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroU64};
 use tokio::task::JoinHandle;
-use xmltree::Element;
 
 fn basic_auth_header(username: &str, password: &str) -> String {
     format!(
@@ -59,6 +59,74 @@ fn runtime_number_config(key: &str, value: &str) -> system_config::Model {
         description: "test runtime config".to_string(),
         updated_at: Utc::now(),
         updated_by: None,
+    }
+}
+
+fn runtime_bool_config(key: &str, value: &str) -> system_config::Model {
+    system_config::Model {
+        id: 0,
+        key: key.to_string(),
+        value: value.to_string(),
+        value_type: ConfigValueType::Boolean,
+        requires_restart: false,
+        is_sensitive: false,
+        source: ConfigSource::System,
+        visibility: ConfigVisibility::Private,
+        namespace: String::new(),
+        category: "webdav".to_string(),
+        description: "test runtime config".to_string(),
+        updated_at: Utc::now(),
+        updated_by: None,
+    }
+}
+
+fn proppatch_statuses_by_property(xml: &str) -> Vec<(String, String)> {
+    let multistatus = Element::parse_reader(Cursor::new(xml.as_bytes()))
+        .expect("PROPPATCH Multi-Status XML should parse");
+    let mut statuses = Vec::new();
+
+    for response in multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+    {
+        for propstat in response
+            .child_elements()
+            .filter(|element| element.name == "propstat")
+        {
+            let status = propstat
+                .child_elements()
+                .find(|element| element.name == "status")
+                .and_then(Element::text)
+                .expect("every PROPPATCH propstat should contain a status");
+            let properties = propstat
+                .child_elements()
+                .find(|element| element.name == "prop")
+                .expect("every PROPPATCH propstat should contain properties");
+            statuses.extend(
+                properties
+                    .child_elements()
+                    .map(|property| (property.name.clone(), status.clone())),
+            );
+        }
+    }
+
+    statuses
+}
+
+#[actix_web::test]
+async fn dav_event_failures_include_routine_client_responses() {
+    assert!(matches!(
+        DavEventOutcome::from_status(399, None),
+        DavEventOutcome::Succeeded { status: 399 }
+    ));
+    for status in [400, 401, 404, 409, 412, 423, 499, 500] {
+        assert!(matches!(
+            DavEventOutcome::from_status(status, None),
+            DavEventOutcome::Failed {
+                status: observed,
+                backend_error: None,
+            } if observed == status
+        ));
     }
 }
 
@@ -604,7 +672,7 @@ async fn test_webdav_propfind_root_custom_dead_property_is_missing() {
         xml.contains("color") && xml.contains("HTTP/1.1 404 Not Found"),
         "root custom dead properties should be reported missing, not persisted: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes()))
+    Element::parse_reader(Cursor::new(xml.as_bytes()))
         .expect("PROPFIND root custom prop XML should parse");
 }
 
@@ -631,7 +699,7 @@ async fn test_webdav_propfind_missing_depth_uses_infinity_semantics() {
         xml.contains("propfind-finite-depth"),
         "collection Depth: infinity rejection should include RFC 4918 propfind-finite-depth precondition: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND error XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND error XML should parse");
 }
 
 #[actix_web::test]
@@ -1117,6 +1185,89 @@ async fn test_webdav_get_supports_binary_range_requests() {
         "GET 416 must report the current representation length"
     );
 
+    for ignored_range in ["items=0-1", "bytes=0-1,3-4"] {
+        let req = test::TestRequest::get()
+            .uri("/webdav/range-image.bin")
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Range", ignored_range))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::OK,
+            "unsupported range form {ignored_range} should be ignored"
+        );
+        assert!(resp.headers().get("Content-Range").is_none());
+        let body = test::read_body(resp).await;
+        assert_eq!(body.as_ref(), data.as_slice());
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/range-image.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=-0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
+        "a zero-length suffix byte range should return 416"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */4099")
+    );
+
+    // Forge's pinned single-range contract classifies an inverted range as
+    // unsatisfiable. Keep Drive's 416 behavior explicit until that shared
+    // RFC/Litmus policy changes upstream.
+    let req = test::TestRequest::get()
+        .uri("/webdav/range-image.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=9-5"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE,
+        "an inverted byte range should follow the pinned Forge 416 contract"
+    );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */4099")
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/empty-range.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/octet-stream"))
+        .insert_header(("Content-Length", "0"))
+        .set_payload(Vec::<u8>::new())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::CREATED);
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/empty-range.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=0-0"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        actix_web::http::StatusCode::RANGE_NOT_SATISFIABLE
+    );
+    assert_eq!(
+        resp.headers()
+            .get("Content-Range")
+            .and_then(|value| value.to_str().ok()),
+        Some("bytes */0")
+    );
+
     let req = test::TestRequest::with_uri("/webdav/range-image.bin")
         .method(actix_web::http::Method::HEAD)
         .insert_header(("Authorization", auth.clone()))
@@ -1236,6 +1387,24 @@ async fn test_webdav_range_download_audit_is_coalesced_by_default() {
         after_disabled_coalescing - after_full_reads,
         2,
         "setting the WebDAV download audit coalescing window to 0 should record every read"
+    );
+
+    state.runtime_config().apply(runtime_bool_config(
+        aster_drive::config::definitions::AUDIT_LOG_ENABLED_KEY,
+        "false",
+    ));
+    let before_disabled_audit = count_file_download_audit_rows(&state, file_name).await;
+    let req = test::TestRequest::get()
+        .uri(&format!("/webdav/{file_name}"))
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    let _ = test::read_body(resp).await;
+    assert_eq!(
+        count_file_download_audit_rows(&state, file_name).await,
+        before_disabled_audit,
+        "service-level should_record must skip WebDAV download audit writes"
     );
 }
 
@@ -1459,7 +1628,8 @@ async fn test_webdav_real_http_rclone_propfind_reports_uploaded_size_with_declar
         body.contains("<d:getcontentlength xmlns:d=\"DAV:\">129106</d:getcontentlength>"),
         "PROPFIND response should report uploaded size under the requested DAV prefix: {body}"
     );
-    Element::parse(Cursor::new(body.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(body.as_bytes()))
+        .expect("PROPFIND response XML should parse");
 
     server.stop().await;
 }
@@ -3620,7 +3790,7 @@ async fn test_webdav_custom_property_preserves_xml_subtree() {
             && xml.contains("beta"),
         "complex dead property XML subtree should roundtrip: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -3673,7 +3843,7 @@ async fn test_webdav_dead_property_preserves_xml_lang_on_property_name() {
     let xml = String::from_utf8_lossy(&body);
     assert!(xml.contains("xml:lang=\"zh-CN\""), "{xml}");
     assert!(xml.contains("标题"), "{xml}");
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -3726,7 +3896,7 @@ async fn test_webdav_dead_property_inherits_xml_lang_from_prop_container() {
     let xml = String::from_utf8_lossy(&body);
     assert!(xml.contains("xml:lang=\"fr\""), "{xml}");
     assert!(xml.contains("Bonjour"), "{xml}");
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -4018,7 +4188,7 @@ async fn test_webdav_propfind_allprop_honors_include() {
         2,
         "include should not duplicate properties already returned by allprop: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -4095,7 +4265,7 @@ async fn test_webdav_propfind_collection_does_not_report_getcontentlength() {
         xml.contains("getcontentlength") && xml.contains("HTTP/1.1 404 Not Found"),
         "named getcontentlength on a collection should be reported missing: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -4163,7 +4333,7 @@ async fn test_webdav_propfind_depth_one_large_directory_live_props() {
         xml.contains("getlastmodified") && xml.contains("getetag"),
         "live prop response should include requested live metadata: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
 }
 
 #[actix_web::test]
@@ -4258,7 +4428,7 @@ async fn test_webdav_propfind_ignores_unknown_xml_extensions() {
             xml.contains("<D:multistatus") && xml.contains("<D:displayname"),
             "recognized allprop selector should remain active for case {label}: {xml}"
         );
-        Element::parse(Cursor::new(xml.as_bytes()))
+        Element::parse_reader(Cursor::new(xml.as_bytes()))
             .unwrap_or_else(|error| panic!("PROPFIND XML should parse for {label}: {error}"));
     }
 }
@@ -4296,7 +4466,7 @@ async fn test_webdav_propfind_validates_unknown_subtrees_before_ignoring_them() 
         xml.contains("no-external-entities"),
         "external entity rejection should retain the DAV error condition: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes()))
+    Element::parse_reader(Cursor::new(xml.as_bytes()))
         .expect("external entity rejection should return valid XML");
 }
 
@@ -4551,6 +4721,7 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
   <D:set>
     <D:prop>
       <A:color>green</A:color>
+      <A:size>large</A:size>
     </D:prop>
   </D:set>
   <D:set>
@@ -4573,6 +4744,24 @@ async fn test_webdav_proppatch_is_atomic_when_one_property_fails() {
         xml.contains("403") && xml.contains("424"),
         "mixed PROPPATCH failure should mark the protected property and dependent properties: {xml}"
     );
+    let statuses = proppatch_statuses_by_property(&xml);
+    assert_eq!(
+        statuses.len(),
+        3,
+        "the adapter must not drop any property while pairing Forge's atomic statuses"
+    );
+    for expected in [
+        ("color", "HTTP/1.1 424 Failed Dependency"),
+        ("size", "HTTP/1.1 424 Failed Dependency"),
+        ("displayname", "HTTP/1.1 403 Forbidden"),
+    ] {
+        assert!(
+            statuses
+                .iter()
+                .any(|(property, status)| property == expected.0 && status == expected.1),
+            "missing PROPPATCH property/status pair {expected:?}: {statuses:?}"
+        );
+    }
 
     let propfind_body = r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:propfind xmlns:D="DAV:" xmlns:A="urn:aster:">
@@ -4866,7 +5055,7 @@ async fn test_webdav_lock_unlock() {
         xml.contains("lockroot") && xml.contains("/webdav/lockme.txt"),
         "LOCK response should include RFC 4918 lockroot for the locked resource: {xml}"
     );
-    Element::parse(Cursor::new(xml.as_bytes())).expect("LOCK response XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("LOCK response XML should parse");
 
     // 删除应该失败（被锁了，没提交 token）
     let req = test::TestRequest::delete()
@@ -5664,8 +5853,8 @@ async fn test_webdav_lock_rejects_invalid_lockinfo_and_timeout_headers() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(
         resp.status(),
-        400,
-        "oversized Timeout values must be rejected instead of becoming infinite locks"
+        201,
+        "oversized numeric Timeout values should be clamped to the server maximum"
     );
 
     let req = test::TestRequest::with_uri("/webdav/infinite-timeout.txt")
@@ -6641,6 +6830,79 @@ async fn test_webdav_if_header_allows_any_matching_state_list() {
 }
 
 #[actix_web::test]
+async fn test_webdav_if_header_uses_or_between_tagged_resource_groups() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    for (path, body) in [
+        ("/webdav/if-tagged-a.txt", "a"),
+        ("/webdav/if-tagged-b.txt", "b"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(path)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let mut etags = Vec::new();
+    for path in ["/webdav/if-tagged-a.txt", "/webdav/if-tagged-b.txt"] {
+        let req = test::TestRequest::default()
+            .method(actix_web::http::Method::HEAD)
+            .uri(path)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        etags.push(
+            resp.headers()
+                .get("ETag")
+                .and_then(|value| value.to_str().ok())
+                .expect("HEAD should return ETag")
+                .to_string(),
+        );
+    }
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/if-tagged-a.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header((
+            "If",
+            format!(
+                r#"</webdav/if-tagged-a.txt> (["wrong-a"]) </webdav/if-tagged-b.txt> ([{}])"#,
+                etags[1]
+            ),
+        ))
+        .set_payload("one group matches")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "a matching tagged-list production for another resource should satisfy the If header"
+    );
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/if-tagged-a.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header((
+            "If",
+            r#"</webdav/if-tagged-a.txt> (["wrong-a"]) </webdav/if-tagged-b.txt> (["wrong-b"])"#,
+        ))
+        .set_payload("none match")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        412,
+        "If must fail when no tagged-list production matches"
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_recursive_delete_reports_locked_children_as_multistatus() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
@@ -7542,7 +7804,7 @@ async fn test_webdav_locked_response_includes_lock_token_submitted_error() {
     let xml = String::from_utf8_lossy(&body);
     assert!(xml.contains("lock-token-submitted"), "{xml}");
     assert!(xml.contains("/webdav/locked-error-body.txt"), "{xml}");
-    Element::parse(Cursor::new(xml.as_bytes())).expect("locked error XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("locked error XML should parse");
 }
 
 #[actix_web::test]
@@ -7590,7 +7852,7 @@ async fn test_webdav_unlock_wrong_uri_includes_lock_token_matches_request_uri_er
     let body = test::read_body(resp).await;
     let xml = String::from_utf8_lossy(&body);
     assert!(xml.contains("lock-token-matches-request-uri"), "{xml}");
-    Element::parse(Cursor::new(xml.as_bytes())).expect("unlock error XML should parse");
+    Element::parse_reader(Cursor::new(xml.as_bytes())).expect("unlock error XML should parse");
 }
 
 #[actix_web::test]

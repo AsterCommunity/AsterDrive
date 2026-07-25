@@ -1175,10 +1175,6 @@ fn local_policy_resolves_direct_and_chunked_modes() {
     assert!(!transport.supports_streaming_direct_upload(&policy, 100));
     assert!(!transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), None);
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::AssembleLocalChunks
-    );
     assert!(
         !presigned_download_enabled(&policy).expect("presigned download support should resolve")
     );
@@ -1283,10 +1279,6 @@ fn s3_relay_stream_uses_effective_chunk_size_and_relay_tracking() {
     assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
     assert!(transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::AssembleLocalChunks
-    );
 }
 
 #[test]
@@ -1314,10 +1306,6 @@ fn s3_presigned_uses_presigned_modes() {
     assert!(!transport.supports_streaming_direct_upload(&policy, 1024));
     assert!(!transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("s3"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::AssembleLocalChunks
-    );
 }
 
 #[test]
@@ -1346,10 +1334,6 @@ fn azure_blob_relay_stream_uses_object_storage_transport_modes() {
     assert!(transport.supports_streaming_direct_upload(&policy, 1024));
     assert!(!transport.supports_streaming_direct_upload(&policy, 5_242_881));
     assert!(transport.uses_relay_multipart_tracking());
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::AssembleLocalChunks
-    );
 }
 
 #[test]
@@ -1434,10 +1418,6 @@ fn remote_relay_stream_uses_direct_and_chunked_modes() {
     assert!(transport.supports_streaming_direct_upload(&policy, 100));
     assert!(transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-    );
 }
 
 #[test]
@@ -1465,10 +1445,6 @@ fn remote_presigned_keeps_presigned_init_but_allows_server_streaming_fast_path()
     assert!(transport.supports_streaming_direct_upload(&policy, 100));
     assert!(!transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("remote"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-    );
 }
 
 #[test]
@@ -1495,10 +1471,6 @@ fn onedrive_uses_server_relay_without_presigned_or_multipart_tracking() {
     assert!(!transport.supports_streaming_direct_upload(&policy, 0));
     assert!(!transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("provider"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-    );
 }
 
 #[test]
@@ -1548,10 +1520,6 @@ fn sftp_uses_server_relay_without_presigned_or_multipart_tracking() {
     assert!(!transport.supports_streaming_direct_upload(&policy, 1025));
     assert!(!transport.uses_relay_multipart_tracking());
     assert_eq!(transport.opaque_blob_hash_prefix(), Some("sftp"));
-    assert_eq!(
-        transport.chunked_completion(),
-        StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload
-    );
 }
 
 #[test]
@@ -1580,7 +1548,6 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
             frontend_direct_provider_resumable: false,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
-            chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
         },
     );
     for driver_type in [
@@ -1601,7 +1568,6 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
                 frontend_direct_provider_resumable: false,
                 small_mode: UploadMode::Direct,
                 large_mode: UploadMode::Chunked,
-                chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
             },
         );
     }
@@ -1616,7 +1582,6 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
             frontend_direct_provider_resumable: false,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
-            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
         },
     );
     assert_upload_workflow_alignment(
@@ -1630,7 +1595,6 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
             frontend_direct_provider_resumable: false,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
-            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
         },
     );
     assert_upload_workflow_alignment(
@@ -1646,7 +1610,6 @@ fn upload_workflow_descriptors_match_default_connector_transports() {
             frontend_direct_provider_resumable: true,
             small_mode: UploadMode::Direct,
             large_mode: UploadMode::Chunked,
-            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
         },
     );
 }
@@ -1671,7 +1634,6 @@ fn upload_workflow_descriptors_match_presigned_connector_transports() {
                 frontend_direct_provider_resumable: false,
                 small_mode: UploadMode::Presigned,
                 large_mode: UploadMode::PresignedMultipart,
-                chunked_completion: StorageConnectorChunkedCompletion::AssembleLocalChunks,
             },
         );
     }
@@ -1686,7 +1648,6 @@ fn upload_workflow_descriptors_match_presigned_connector_transports() {
             frontend_direct_provider_resumable: false,
             small_mode: UploadMode::Presigned,
             large_mode: UploadMode::PresignedMultipart,
-            chunked_completion: StorageConnectorChunkedCompletion::RelayLocalChunksToStreamUpload,
         },
     );
 }
@@ -1700,7 +1661,6 @@ struct ExpectedUploadWorkflow {
     frontend_direct_provider_resumable: bool,
     small_mode: UploadMode,
     large_mode: UploadMode,
-    chunked_completion: StorageConnectorChunkedCompletion,
 }
 
 fn assert_upload_workflow_alignment(
@@ -1799,11 +1759,6 @@ fn assert_upload_workflow_alignment(
         transport.resolve_init_mode(&policy, large_upload_size),
         expected.large_mode,
         "{driver_type:?} large upload mode is inconsistent with workflow descriptor"
-    );
-    assert_eq!(
-        transport.chunked_completion(),
-        expected.chunked_completion,
-        "{driver_type:?} chunked completion strategy is inconsistent with upload transport"
     );
     assert_eq!(
         matches!(

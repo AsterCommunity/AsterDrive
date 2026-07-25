@@ -19,6 +19,7 @@
 | `GET` | `/files/{id}/archive-preview` | 获取归档只读预览清单 |
 | `GET` | `/files/{id}/direct-link` | 生成直接下载链接 token |
 | `POST` | `/files/{id}/preview-link` | 生成短期预览链接 |
+| `POST` | `/files/{id}/resource-handle` | 解析前端可消费的文件资源合同 |
 | `POST` | `/files/{id}/wopi/open` | 为指定 WOPI 预览器创建启动会话 |
 | `GET` | `/files/{id}/download` | 下载文件内容 |
 | `GET` | `/files/{id}/thumbnail` | 获取缩略图 |
@@ -103,11 +104,11 @@
 
 当前新建的 server-managed chunked session 使用 offset staging：Init 在 session 临时目录预创建 `.offset-staging-v1`，每个 Chunk PUT 按 `chunk_number * chunk_size` 写入对应 range；`upload_session_parts` 中的本地 receipt 表示该 range 已 durable publish。新 session 不创建 `chunk_N` marker，Complete 也不会再次拼写整文件。
 
-每个需要 session 的 Init 都会在 `upload_sessions.session_kind` 持久化 connector-owned 执行计划（例如 `offset_staging`、`stream_staging`、`provider_relay_multipart`、`provider_presigned_multipart`）。上传服务不把 `DriverType` 硬编码到 Chunk/Complete 路径；兼容旧 row 时才根据 policy transport 和独立 staging 路径恢复 kind。kind 与 multipart 字段不一致会返回 `upload.session_corrupted`，不会静默切换到本地 chunk 文件路径。
+每个需要 session 的 Init 都会在 `upload_sessions.session_kind` 持久化 connector-owned 执行计划（例如 `offset_staging`、`stream_staging`、`provider_relay_multipart`、`provider_presigned_multipart`）。从 0.5.0 起该字段为非空强约束；上传服务不把 `DriverType` 硬编码到 Chunk/Complete 路径，也不为旧 row 推断 kind。kind 与 multipart 字段不一致会返回 `upload.session_corrupted`，不会静默切换到本地 chunk 文件路径。
 
 本地 Chunk PUT 会先对 staging range 执行 `sync_data`，再在只含 SQL 的短 writer transaction 中 insert-only 登记 chunk receipt 并更新 `received_count`。客户端重试只校验已有 receipt，不会重写已提交 range，也不会重复计数。
 
-升级前已经存在的 payload-per-chunk session 仍走 legacy compatibility path：这类 session 的 `chunk_N` 是实际 payload，Complete 可能创建 `assembled`。新旧格式通过 `.offset-staging-v1` 专用路径区分，不通过 `assembled` 是否存在判断；legacy `assembled` 即使在失败后残留，也仍按 legacy session 重试。
+0.5.0 不继续 payload-per-chunk session，也不创建或复用 `assembled`。升级时若数据库仍有 null/非法 `session_kind`，迁移会直接失败并保留原行，部署方需要先清理过期 session。
 
 完成阶段的服务端行为分两类：
 
@@ -126,6 +127,7 @@
 - `GET /files/{id}/archive-preview`：读取归档预览清单；缓存未生成时返回 `202` 并排队 `archive_preview_generate` 任务
 - `GET /files/{id}/direct-link`：返回一个短 token；真正下载走根路径 `/d/{token}/{filename}`。默认按 inline 流式返回；追加 `?download=1` 后复用附件下载分流，命中对象存储 / Remote 的 `presigned` 策略时会返回 `302`
 - `POST /files/{id}/preview-link`：返回一个短期预览链接；真正读取内容走根路径 `/pv/{token}/{filename}`
+- `POST /files/{id}/resource-handle`：根据用途、交付模式和表示形式解析资源 URL、凭据、缓存 identity 与跨域策略
 - `POST /files/{id}/wopi/open`：为配置成 `provider = "wopi"` 的预览器创建一次 WOPI 启动会话
 - `GET /files/{id}/download`：下载文件；默认是流式响应，若命中的对象存储 / Remote 策略把下载策略设为 `presigned`，则会在鉴权后返回 `302` 重定向到短时效的 provider GET URL；支持 `If-None-Match`，命中时返回 `304`
 - `GET /files/{id}/thumbnail`：读取缩略图（仅服务端当前支持的类型）；若后台仍在生成，会先返回 `202` 和 `Retry-After`
@@ -147,6 +149,54 @@
 `GET /files/{id}` 和团队空间的 `GET /teams/{team_id}/files/{id}` 详情响应还会带 `storage_used`。这个字段是文件详情页使用的配额口径：当前 `size` 加上所有历史版本大小。目录列表里的文件条目不会返回这个字段。
 
 其中 `PUT /files/{id}/content` 支持 `If-Match`，会检查锁状态，成功后自动生成历史版本，并返回新的 `ETag`。
+
+### `POST /files/{id}/resource-handle`
+
+文件详情接口回答“这个文件是什么”，resource handle 回答“当前应该以什么资源形态把它交给前端”。请求示例：
+
+```json
+{
+  "purpose": "preview",
+  "delivery_mode": "blob_url",
+  "representation": "auto"
+}
+```
+
+字段取值：
+
+- `purpose`：`preview`、`download`、`external_viewer`
+- `delivery_mode`：`blob_url`、`text`、`direct_url`、`media_stream`、`iframe_session`、`manifest`
+- `representation`：`auto`、`original`、`image_preview`、`thumbnail`；省略时默认为 `auto`
+
+返回的核心合同如下：
+
+```json
+{
+  "code": "success",
+  "msg": "",
+  "data": {
+    "identity": {
+      "cache_key": "/api/v1/files/42/download",
+      "etag": "\"blob-hash\"",
+      "scope": "personal"
+    },
+    "request": {
+      "url": "/api/v1/files/42/download?disposition=inline",
+      "credentials": "include",
+      "conditional_headers": "allowed",
+      "redirect_policy": "same_origin_only"
+    },
+    "delivery": {
+      "mode": "blob_url",
+      "mime_type": "image/jpeg"
+    }
+  }
+}
+```
+
+`identity.cache_key` 是稳定资源身份，`request.url` 是本次实际请求地址，两者不能混用。`etag`、`conditional_headers` 和 `credentials` 告诉前端能否发条件请求以及是否携带登录凭据；`redirect_policy` 为 `may_cross_origin` 时，URL 可能直接指向 OneDrive 或对象存储的短期地址。
+
+`auto + preview + blob_url` 遇到 HEIC、RAW、TIFF 等浏览器不易直接渲染的图片时，可以解析成派生 WebP 的 `image-preview` 路径。HTML 等需要沙箱隔离的 MIME 会保持同源读取边界，不会为了命中 provider 直链而绕过隔离规则。
 
 ### `PATCH /files/{id}`
 

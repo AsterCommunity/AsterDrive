@@ -4,6 +4,7 @@ mod common;
 mod content;
 mod deletion;
 mod download;
+mod download_audit;
 mod lock;
 mod metadata;
 mod resource_handle;
@@ -48,6 +49,9 @@ pub(crate) use download::{
     build_download_outcome_with_disposition_and_range, build_stream_outcome_with_disposition,
     build_stream_outcome_with_disposition_and_range, download_in_scope_with_range_and_file,
     outcome_to_response,
+};
+pub(crate) use download_audit::{
+    WebdavDownloadAuditInput, WebdavDownloadRequestKind, record_webdav_download,
 };
 pub use lock::set_lock;
 pub(crate) use lock::set_lock_in_scope;

@@ -120,4 +120,4 @@ When deployed behind a reverse proxy, make sure the proxy allows WebDAV methods 
 
 ## Conformance and client compatibility testing
 
-For local protocol checks, the pinned Litmus baseline, known-difference management, the real-client matrix, and CI artifacts, see [WebDAV Conformance and Compatibility Testing](../webdav-compliance-testing.md).
+For local protocol checks, the pinned Litmus baseline, known-difference management, the real-client matrix, and CI artifacts, see [WebDAV Conformance and Compatibility Testing](../testing/webdav-compliance-testing.md).

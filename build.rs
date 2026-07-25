@@ -6,6 +6,9 @@ use std::io;
 use std::path::Path;
 
 const BUILD_TIME_ENV: &str = "ASTER_BUILD_TIME";
+const BUILD_REVISION_ENV: &str = "ASTER_BUILD_REVISION";
+const BUILD_PROFILE_ENV: &str = "ASTER_BUILD_PROFILE";
+const BUILD_TARGET_ENV: &str = "ASTER_BUILD_TARGET";
 const FRONTEND_DIST_ENV: &str = "ASTER_FRONTEND_DIST_DIR";
 const FALLBACK_MARKER_FILE: &str = ".asterdrive-frontend-fallback";
 const FALLBACK_MARKER_CONTENT: &str = "asterdrive-frontend-fallback-v1\n";
@@ -14,8 +17,10 @@ const LEGACY_FALLBACK_TEXT: &str = "Frontend Not Built";
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("cargo:rerun-if-changed=frontend-panel/dist");
     println!("cargo:rerun-if-env-changed={BUILD_TIME_ENV}");
+    println!("cargo:rerun-if-env-changed={BUILD_REVISION_ENV}");
 
     configure_build_time()?;
+    configure_build_revision()?;
 
     let manifest_dir = env::var("CARGO_MANIFEST_DIR")
         .map_err(|error| io::Error::other(format!("missing CARGO_MANIFEST_DIR: {error}")))?;
@@ -25,6 +30,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fallback_dist_path = Path::new(&out_dir).join("frontend-dist-fallback");
     let profile = env::var("PROFILE")
         .map_err(|error| io::Error::other(format!("missing PROFILE: {error}")))?;
+    let target =
+        env::var("TARGET").map_err(|error| io::Error::other(format!("missing TARGET: {error}")))?;
+    configure_build_context(&profile, &target)?;
 
     let selected_dist_path = match frontend_dist_state(&dist_path)? {
         FrontendDistState::Real => dist_path,
@@ -90,6 +98,49 @@ fn configure_build_time() -> io::Result<()> {
         )));
     }
     println!("cargo:rustc-env={BUILD_TIME_ENV}={value}");
+
+    Ok(())
+}
+
+fn configure_build_revision() -> io::Result<()> {
+    let value = match env::var(BUILD_REVISION_ENV) {
+        Ok(value) => value,
+        Err(env::VarError::NotPresent) => "unknown".to_string(),
+        Err(env::VarError::NotUnicode(_)) => {
+            return Err(io::Error::other(format!(
+                "{BUILD_REVISION_ENV} must contain valid Unicode"
+            )));
+        }
+    };
+
+    let value = value.trim();
+    if value.is_empty() {
+        return Err(io::Error::other(format!(
+            "{BUILD_REVISION_ENV} must not be empty when set"
+        )));
+    }
+    if value != "unknown"
+        && (!(7..=64).contains(&value.len()) || !value.bytes().all(|byte| byte.is_ascii_hexdigit()))
+    {
+        return Err(io::Error::other(format!(
+            "{BUILD_REVISION_ENV} must be a 7-64 character hexadecimal Git revision"
+        )));
+    }
+
+    println!("cargo:rustc-env={BUILD_REVISION_ENV}={value}");
+
+    Ok(())
+}
+
+fn configure_build_context(profile: &str, target: &str) -> io::Result<()> {
+    for (name, value) in [(BUILD_PROFILE_ENV, profile), (BUILD_TARGET_ENV, target)] {
+        if value.is_empty() || value.contains(['\r', '\n']) {
+            return Err(io::Error::other(format!(
+                "{name} must be a non-empty single-line value"
+            )));
+        }
+        println!("cargo:rustc-env={name}={value}");
+    }
 
     Ok(())
 }

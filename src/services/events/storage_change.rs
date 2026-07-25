@@ -370,16 +370,16 @@ fn cache_invalidation_targets(event: &StorageChangeEvent) -> CacheInvalidationTa
 fn webdav_path_cache_invalidation_prefixes(audience: StorageChangeAudience) -> Vec<String> {
     match audience {
         StorageChangeAudience::User(user_id) => vec![
-            crate::webdav::path_resolver::path_cache_personal_prefix(user_id),
-            crate::webdav::path_resolver::parent_cache_personal_prefix(user_id),
+            crate::webdav::backend::path_resolver::path_cache_personal_prefix(user_id),
+            crate::webdav::backend::path_resolver::parent_cache_personal_prefix(user_id),
         ],
         StorageChangeAudience::Team(team_id) => vec![
-            crate::webdav::path_resolver::path_cache_team_prefix(team_id),
-            crate::webdav::path_resolver::parent_cache_team_prefix(team_id),
+            crate::webdav::backend::path_resolver::path_cache_team_prefix(team_id),
+            crate::webdav::backend::path_resolver::parent_cache_team_prefix(team_id),
         ],
         StorageChangeAudience::Any => vec![
-            crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
-            crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
+            crate::webdav::backend::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
+            crate::webdav::backend::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
         ],
     }
 }
@@ -498,8 +498,8 @@ mod tests {
         assert_eq!(
             targets.prefixes,
             vec![
-                crate::webdav::path_resolver::path_cache_personal_prefix(11),
-                crate::webdav::path_resolver::parent_cache_personal_prefix(11),
+                crate::webdav::backend::path_resolver::path_cache_personal_prefix(11),
+                crate::webdav::backend::path_resolver::parent_cache_personal_prefix(11),
             ]
         );
         assert!(targets.keys.is_empty());
@@ -522,8 +522,8 @@ mod tests {
         assert_eq!(
             targets.prefixes,
             vec![
-                crate::webdav::path_resolver::path_cache_team_prefix(42),
-                crate::webdav::path_resolver::parent_cache_team_prefix(42),
+                crate::webdav::backend::path_resolver::path_cache_team_prefix(42),
+                crate::webdav::backend::path_resolver::parent_cache_team_prefix(42),
             ]
         );
         assert!(targets.keys.is_empty());
@@ -543,8 +543,8 @@ mod tests {
         assert_eq!(
             targets.prefixes,
             vec![
-                crate::webdav::path_resolver::path_cache_personal_prefix(11),
-                crate::webdav::path_resolver::parent_cache_personal_prefix(11),
+                crate::webdav::backend::path_resolver::path_cache_personal_prefix(11),
+                crate::webdav::backend::path_resolver::parent_cache_personal_prefix(11),
             ]
         );
         assert_eq!(
@@ -564,8 +564,8 @@ mod tests {
         assert_eq!(
             targets.prefixes,
             vec![
-                crate::webdav::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
-                crate::webdav::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
+                crate::webdav::backend::path_resolver::WEBDAV_PATH_CACHE_PREFIX.to_string(),
+                crate::webdav::backend::path_resolver::WEBDAV_PARENT_CACHE_PREFIX.to_string(),
                 crate::services::files::folder::FOLDER_PATH_CACHE_PREFIX.to_string(),
             ]
         );

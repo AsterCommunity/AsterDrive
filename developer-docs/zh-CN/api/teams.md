@@ -70,6 +70,7 @@
 | `GET` | `/teams/{team_id}/files/{id}/archive-preview` | 获取团队归档只读预览清单 |
 | `GET` | `/teams/{team_id}/files/{id}/direct-link` | 生成团队文件直接下载链接 token |
 | `POST` | `/teams/{team_id}/files/{id}/preview-link` | 生成团队文件短期预览链接 |
+| `POST` | `/teams/{team_id}/files/{id}/resource-handle` | 解析团队文件的前端资源合同 |
 | `POST` | `/teams/{team_id}/files/{id}/wopi/open` | 为团队文件创建 WOPI 启动会话 |
 | `GET` | `/teams/{team_id}/files/{id}/download` | 下载团队文件 |
 | `GET` | `/teams/{team_id}/files/{id}/thumbnail` | 获取团队文件缩略图 |
@@ -158,3 +159,5 @@
 团队文件的 `GET /teams/{team_id}/files/{id}/direct-link` 语义和个人空间一致：接口只返回 token，真正下载仍然走根路径 `/d/{token}/{filename}`。默认 inline 直链由 AsterDrive 流式返回；追加 `?download=1` 后会复用附件下载分流，命中 `presigned` 策略时返回 `302`。
 
 团队文件的 `POST /teams/{team_id}/files/{id}/preview-link` 也和个人空间一致：接口返回 `PreviewLinkInfo`，真正预览内容走根路径 `/pv/{token}/{filename}`。
+
+团队文件的 `POST /teams/{team_id}/files/{id}/resource-handle` 复用个人文件的用途、交付模式、表示形式和响应合同，区别只是 `identity.scope = "team"`，并且 `request.url` 指向团队作用域路径。完整字段见 [文件 API 的 resource handle](./files.md#post-filesidresource-handle)。

@@ -131,6 +131,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 - **先跑起来**：从 [快速开始](/guide/getting-started/) 开始。
 - **遇到问题**：去 [GitHub Issues](https://github.com/AsterCommunity/AsterDrive/issues) 说清楚复现路径。
+- **发现安全问题**：不要先发公开 issue。按 [安全策略](https://github.com/AsterCommunity/AsterDrive/security/policy) 里的方式私密报告；自动化工具也可以读取站点的 [`security.txt`](https://drive.astercosm.com/.well-known/security.txt)。
 - **想改代码**：fork，改，提 PR。带着真实问题来的改动最有价值。
 - **想支持项目**：可以 [Sponsor](https://afdian.com/a/AptS_1547)，也可以通过 issue、文档反馈、部署案例来帮它变得更好。
 - **商业部署 / 二次开发**：可以从 GitHub 主页联系作者。
