@@ -1,23 +1,42 @@
-use std::io::Cursor;
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use aster_forge_xml::{
+    ElementRef, NodeRef, OwnedDocument, ParseOptions, XmlStreamWriter, XmlWriteOptions,
+};
 use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64_STANDARD};
 use md5::{Digest as Md5Digest, Md5};
 use reqwest::StatusCode;
 use reqwest::header::CONTENT_TYPE;
-use xmltree::{Element, EmitterConfig, XMLNode};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::http::read_reqwest_body_limited;
 use crate::storage::error::{
     StorageErrorKind, storage_driver_error, storage_driver_error_with_code,
 };
 
-use super::TencentCosDriver;
+use super::{TencentCosDriver, non_empty_xml_text};
 
 pub(crate) const ASTERDRIVE_COS_CORS_RULE_ID: &str = "asterdrive-presigned-access";
 const CORS_XML_CONTENT_TYPE: &str = "application/xml";
 const CONTENT_MD5_HEADER: &str = "Content-MD5";
+const COS_CORS_XML_MAX_BYTES: usize = 64 * 1024;
+const COS_ERROR_XML_MAX_BYTES: usize = 16 * 1024;
+
+fn cors_xml_options() -> ParseOptions {
+    ParseOptions::new()
+        .max_size(COS_CORS_XML_MAX_BYTES)
+        .max_depth(16)
+        .max_elements(500)
+}
+
+fn error_xml_options() -> ParseOptions {
+    ParseOptions::new()
+        .max_size(COS_ERROR_XML_MAX_BYTES)
+        .max_depth(8)
+        .max_elements(100)
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct CosCorsRule {
@@ -86,17 +105,29 @@ impl TencentCosDriver {
             .await
             .map_aster_err_ctx("COS GET Bucket cors", AsterError::storage_driver_error)?;
         let status = response.status();
-        let body = response.text().await.map_aster_err_ctx(
-            "read COS GET Bucket cors response",
-            AsterError::storage_driver_error,
-        )?;
-
         if status == StatusCode::NOT_FOUND {
             return Ok(CosCorsConfiguration {
                 rules: Vec::new(),
                 response_vary: None,
             });
         }
+        let body_limit = if status.is_success() {
+            COS_CORS_XML_MAX_BYTES
+        } else {
+            COS_ERROR_XML_MAX_BYTES
+        };
+        let body = read_reqwest_body_limited(
+            response,
+            "COS GET Bucket cors response body",
+            body_limit,
+            AsterError::storage_driver_error,
+        )
+        .await?;
+        let body = String::from_utf8(body).map_aster_err_ctx(
+            "decode COS GET Bucket cors response",
+            AsterError::storage_driver_error,
+        )?;
+
         if !status.is_success() {
             return Err(cos_cors_response_error(status, &body, "GET Bucket cors"));
         }
@@ -131,14 +162,21 @@ impl TencentCosDriver {
             .get("x-cos-request-id")
             .and_then(|value| value.to_str().ok())
             .map(str::to_string);
-        let body = response.text().await.map_aster_err_ctx(
-            "read COS PUT Bucket cors response",
-            AsterError::storage_driver_error,
-        )?;
-
         if status.is_success() {
             return Ok(request_id);
         }
+        let body = read_reqwest_body_limited(
+            response,
+            "COS PUT Bucket cors response body",
+            COS_ERROR_XML_MAX_BYTES,
+            AsterError::storage_driver_error,
+        )
+        .await?;
+        let body = String::from_utf8(body).map_aster_err_ctx(
+            "decode COS PUT Bucket cors response",
+            AsterError::storage_driver_error,
+        )?;
+
         Err(cos_cors_response_error(status, &body, "PUT Bucket cors"))
     }
 }
@@ -168,35 +206,44 @@ pub(crate) fn asterdrive_cors_rule(allowed_origins: &[String]) -> CosCorsRule {
 }
 
 pub(crate) fn build_cors_configuration_xml(config: &CosCorsConfiguration) -> Result<String> {
-    let mut root = Element::new("CORSConfiguration");
+    let mut bytes = Vec::new();
+    let mut writer = XmlStreamWriter::with_options(
+        &mut bytes,
+        XmlWriteOptions::new().write_document_declaration(true),
+    )
+    .map_aster_err_ctx(
+        "create COS CORS XML writer",
+        AsterError::storage_driver_error,
+    )?;
+
+    writer
+        .start("CORSConfiguration")
+        .map_aster_err_ctx("start CORSConfiguration", AsterError::storage_driver_error)?;
     for rule in &config.rules {
-        root.children
-            .push(XMLNode::Element(cors_rule_element(rule)));
+        write_cors_rule(&mut writer, rule)
+            .map_aster_err_ctx("write CORSRule", AsterError::storage_driver_error)?;
     }
     if let Some(response_vary) = config.response_vary {
-        push_text_child(
-            &mut root,
-            "ResponseVary",
-            if response_vary { "true" } else { "false" },
-        );
+        let value = if response_vary { "true" } else { "false" };
+        write_text_element(&mut writer, "ResponseVary", value)
+            .map_aster_err_ctx("write ResponseVary", AsterError::storage_driver_error)?;
     }
+    writer
+        .end_element()
+        .map_aster_err_ctx("close CORSConfiguration", AsterError::storage_driver_error)?;
 
-    let mut bytes = Vec::new();
-    root.write_with_config(
-        &mut bytes,
-        EmitterConfig::new()
-            .perform_indent(true)
-            .write_document_declaration(true),
-    )
-    .map_aster_err_ctx("serialize COS CORS XML", AsterError::storage_driver_error)?;
+    writer
+        .finish()
+        .map_aster_err_ctx("finalize COS CORS XML", AsterError::storage_driver_error)?;
     String::from_utf8(bytes)
         .map_aster_err_ctx("encode COS CORS XML", AsterError::storage_driver_error)
 }
 
 pub(crate) fn parse_cors_configuration(body: &str) -> Result<CosCorsConfiguration> {
-    let root = Element::parse(Cursor::new(body.as_bytes()))
+    let doc = OwnedDocument::from_reader_with_options(body.as_bytes(), &cors_xml_options())
         .map_aster_err_ctx("parse COS CORS XML", AsterError::storage_driver_error)?;
-    if !xml_name_matches(&root.name, "CORSConfiguration") {
+    let root = doc.root();
+    if root.name() != "CORSConfiguration" {
         return Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
             "COS CORS XML root is not CORSConfiguration",
@@ -204,9 +251,11 @@ pub(crate) fn parse_cors_configuration(body: &str) -> Result<CosCorsConfiguratio
     }
 
     let mut rules = Vec::new();
-    for child in root.children.iter().filter_map(as_element) {
-        if xml_name_matches(&child.name, "CORSRule") {
-            rules.push(parse_cors_rule(child));
+    for child in root.children() {
+        if let NodeRef::Element(child) = child
+            && child.name() == "CORSRule"
+        {
+            rules.push(parse_cors_rule(&child));
         }
     }
 
@@ -217,30 +266,44 @@ pub(crate) fn parse_cors_configuration(body: &str) -> Result<CosCorsConfiguratio
     })
 }
 
-fn cors_rule_element(rule: &CosCorsRule) -> Element {
-    let mut element = Element::new("CORSRule");
-    if let Some(id) = &rule.id {
-        push_text_child(&mut element, "ID", id);
-    }
-    for value in &rule.allowed_origins {
-        push_text_child(&mut element, "AllowedOrigin", value);
-    }
-    for value in &rule.allowed_methods {
-        push_text_child(&mut element, "AllowedMethod", value);
-    }
-    for value in &rule.allowed_headers {
-        push_text_child(&mut element, "AllowedHeader", value);
-    }
-    for value in &rule.expose_headers {
-        push_text_child(&mut element, "ExposeHeader", value);
-    }
-    if let Some(value) = rule.max_age_seconds {
-        push_text_child(&mut element, "MaxAgeSeconds", &value.to_string());
-    }
-    element
+fn write_text_element(
+    writer: &mut XmlStreamWriter<&mut Vec<u8>>,
+    name: &str,
+    value: &str,
+) -> std::result::Result<(), aster_forge_xml::Error> {
+    writer.start(name)?;
+    writer.text(value)?;
+    writer.end_element()
 }
 
-fn parse_cors_rule(element: &Element) -> CosCorsRule {
+fn write_cors_rule(
+    writer: &mut XmlStreamWriter<&mut Vec<u8>>,
+    rule: &CosCorsRule,
+) -> std::result::Result<(), aster_forge_xml::Error> {
+    writer.start("CORSRule")?;
+    if let Some(ref id) = rule.id {
+        write_text_element(writer, "ID", id)?;
+    }
+    for value in &rule.allowed_origins {
+        write_text_element(writer, "AllowedOrigin", value)?;
+    }
+    for value in &rule.allowed_methods {
+        write_text_element(writer, "AllowedMethod", value)?;
+    }
+    for value in &rule.allowed_headers {
+        write_text_element(writer, "AllowedHeader", value)?;
+    }
+    for value in &rule.expose_headers {
+        write_text_element(writer, "ExposeHeader", value)?;
+    }
+    if let Some(ref value) = rule.max_age_seconds {
+        write_text_element(writer, "MaxAgeSeconds", &value.to_string())?;
+    }
+    writer.end_element()?;
+    Ok(())
+}
+
+fn parse_cors_rule(element: &ElementRef<'_, Arc<[u8]>>) -> CosCorsRule {
     CosCorsRule {
         id: child_text(element, "ID"),
         allowed_origins: child_texts(element, "AllowedOrigin"),
@@ -252,44 +315,23 @@ fn parse_cors_rule(element: &Element) -> CosCorsRule {
     }
 }
 
-fn push_text_child(element: &mut Element, name: &str, value: &str) {
-    let mut child = Element::new(name);
-    child.children.push(XMLNode::Text(value.to_string()));
-    element.children.push(XMLNode::Element(child));
-}
-
-fn child_texts(element: &Element, name: &str) -> Vec<String> {
+fn child_texts(element: &ElementRef<'_, Arc<[u8]>>, name: &str) -> Vec<String> {
     element
-        .children
-        .iter()
-        .filter_map(as_element)
-        .filter(|child| xml_name_matches(&child.name, name))
-        .filter_map(element_text)
+        .child_elements()
+        .filter(|child| child.name() == name)
+        .filter_map(|child| non_empty_xml_text(child.text().as_deref()))
         .collect()
 }
 
-fn child_text(element: &Element, name: &str) -> Option<String> {
-    child_texts(element, name).into_iter().next()
+fn child_text(element: &ElementRef<'_, Arc<[u8]>>, name: &str) -> Option<String> {
+    element
+        .child_elements()
+        .filter(|child| child.name() == name)
+        .find_map(|child| non_empty_xml_text(child.text().as_deref()))
 }
 
-fn element_text(element: &Element) -> Option<String> {
-    let text = element.get_text()?.trim().to_string();
-    (!text.is_empty()).then_some(text)
-}
-
-fn as_element(node: &XMLNode) -> Option<&Element> {
-    match node {
-        XMLNode::Element(element) => Some(element),
-        _ => None,
-    }
-}
-
-fn xml_name_matches(actual: &str, expected: &str) -> bool {
-    actual
-        .rsplit_once(':')
-        .map(|(_, local)| local)
-        .unwrap_or(actual)
-        == expected
+fn element_text(element: &ElementRef<'_, Arc<[u8]>>) -> Option<String> {
+    non_empty_xml_text(element.text().as_deref())
 }
 
 fn cos_key_time() -> Result<String> {
@@ -345,19 +387,22 @@ fn cos_cors_response_error(status: StatusCode, body: &str, action: &str) -> Aste
 }
 
 fn extract_xml_tag(body: &str, tag: &str) -> Option<String> {
-    let root = Element::parse(Cursor::new(body.as_bytes())).ok()?;
-    find_xml_tag_text(&root, tag)
+    let doc =
+        OwnedDocument::from_reader_with_options(body.as_bytes(), &error_xml_options()).ok()?;
+    find_xml_tag_text(&doc.root(), tag)
 }
 
-fn find_xml_tag_text(element: &Element, tag: &str) -> Option<String> {
-    if xml_name_matches(&element.name, tag) {
+fn find_xml_tag_text(element: &ElementRef<'_, Arc<[u8]>>, tag: &str) -> Option<String> {
+    if element.name() == tag {
         return element_text(element);
     }
     element
-        .children
-        .iter()
-        .filter_map(as_element)
-        .find_map(|child| find_xml_tag_text(child, tag))
+        .children()
+        .filter_map(|child| match child {
+            NodeRef::Element(e) => Some(e),
+            _ => None,
+        })
+        .find_map(|child| find_xml_tag_text(&child, tag))
 }
 
 #[cfg(test)]
@@ -367,9 +412,9 @@ mod tests {
     use crate::api::api_error_code::ApiErrorCode;
 
     use super::{
-        ASTERDRIVE_COS_CORS_RULE_ID, CosCorsConfiguration, asterdrive_cors_rule,
-        build_cors_configuration_xml, content_md5_base64, cos_cors_response_error,
-        parse_cors_configuration,
+        ASTERDRIVE_COS_CORS_RULE_ID, COS_CORS_XML_MAX_BYTES, COS_ERROR_XML_MAX_BYTES,
+        CosCorsConfiguration, asterdrive_cors_rule, build_cors_configuration_xml,
+        content_md5_base64, cos_cors_response_error, extract_xml_tag, parse_cors_configuration,
     };
 
     #[test]
@@ -456,6 +501,131 @@ mod tests {
         );
         assert_eq!(parsed.rules[0].max_age_seconds, None);
         assert_eq!(parsed.response_vary, Some(true));
+    }
+
+    #[test]
+    fn cors_xml_roundtrip_escapes_text_and_preserves_all_fields() {
+        let config = CosCorsConfiguration {
+            rules: vec![super::CosCorsRule {
+                id: Some("rule<&>\"'".to_string()),
+                allowed_origins: vec!["https://example.com/?a=1&b=<two>".to_string()],
+                allowed_methods: vec!["PUT".to_string()],
+                allowed_headers: vec!["x-test<&>".to_string()],
+                expose_headers: vec!["ETag".to_string()],
+                max_age_seconds: Some(123),
+            }],
+            response_vary: Some(false),
+        };
+
+        let xml = build_cors_configuration_xml(&config).expect("CORS XML should serialize");
+        assert!(xml.contains("&lt;"));
+        assert!(xml.contains("&amp;"));
+        assert_eq!(
+            parse_cors_configuration(&xml).expect("serialized CORS XML should parse"),
+            config
+        );
+    }
+
+    #[test]
+    fn cors_xml_enforces_size_depth_element_and_declaration_boundaries() {
+        let size_prefix = "<CORSConfiguration><!--";
+        let size_suffix = "--></CORSConfiguration>";
+        let exact_size = format!(
+            "{size_prefix}{}{size_suffix}",
+            "x".repeat(COS_CORS_XML_MAX_BYTES - size_prefix.len() - size_suffix.len())
+        );
+        assert_eq!(exact_size.len(), COS_CORS_XML_MAX_BYTES);
+        parse_cors_configuration(&exact_size)
+            .expect("COS CORS XML at exact size limit should parse");
+        let over_size = format!("{exact_size} ");
+        let error = parse_cors_configuration(&over_size)
+            .expect_err("COS CORS XML over size limit should fail");
+        assert!(error.message().contains("byte limit"));
+
+        let exact_depth = format!(
+            "<CORSConfiguration>{}{}</CORSConfiguration>",
+            "<n>".repeat(15),
+            "</n>".repeat(15)
+        );
+        parse_cors_configuration(&exact_depth)
+            .expect("COS CORS XML at exact depth limit should parse");
+        let over_depth = format!(
+            "<CORSConfiguration>{}{}</CORSConfiguration>",
+            "<n>".repeat(16),
+            "</n>".repeat(16)
+        );
+        let error = parse_cors_configuration(&over_depth)
+            .expect_err("COS CORS XML over depth limit should fail");
+        assert!(error.message().contains("nesting depth"));
+
+        let exact_elements = format!(
+            "<CORSConfiguration>{}</CORSConfiguration>",
+            "<n/>".repeat(499)
+        );
+        parse_cors_configuration(&exact_elements)
+            .expect("COS CORS XML at exact element limit should parse");
+        let over_elements = format!(
+            "<CORSConfiguration>{}</CORSConfiguration>",
+            "<n/>".repeat(500)
+        );
+        let error = parse_cors_configuration(&over_elements)
+            .expect_err("COS CORS XML over element limit should fail");
+        assert!(error.message().contains("element count"));
+
+        for (name, xml, expected) in [
+            (
+                "DTD",
+                "<!DOCTYPE CORSConfiguration [<!ENTITY x 'boom'>]><CORSConfiguration>&x;</CORSConfiguration>".to_string(),
+                "DTD and custom entity",
+            ),
+            (
+                "standalone entity",
+                "<!ENTITY x 'boom'><CORSConfiguration/>".to_string(),
+                "DTD and custom entity",
+            ),
+            (
+                "malformed",
+                "<CORSConfiguration><CORSRule></CORSConfiguration>".to_string(),
+                "XML",
+            ),
+            (
+                "trailing document",
+                "<CORSConfiguration/><extra/>".to_string(),
+                "XML",
+            ),
+        ] {
+            let error = parse_cors_configuration(&xml).expect_err(name);
+            assert!(
+                error.message().contains(expected),
+                "{name} boundary returned unexpected error: {}",
+                error.message()
+            );
+        }
+    }
+
+    #[test]
+    fn cos_error_xml_enforces_exact_size_and_declaration_boundaries() {
+        let prefix = "<Error><Code>AccessDenied</Code><!--";
+        let suffix = "--></Error>";
+        let exact = format!(
+            "{prefix}{}{suffix}",
+            "x".repeat(COS_ERROR_XML_MAX_BYTES - prefix.len() - suffix.len())
+        );
+        assert_eq!(exact.len(), COS_ERROR_XML_MAX_BYTES);
+        assert_eq!(
+            extract_xml_tag(&exact, "Code").as_deref(),
+            Some("AccessDenied")
+        );
+
+        let over = format!("{exact} ");
+        assert_eq!(extract_xml_tag(&over, "Code"), None);
+        assert_eq!(
+            extract_xml_tag(
+                "<!DOCTYPE Error [<!ENTITY x 'expanded'>]><Error><Message>&x;</Message></Error>",
+                "Message",
+            ),
+            None
+        );
     }
 
     #[test]
