@@ -278,14 +278,8 @@ async fn claim_tunnel_ownership<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: &managed_follower::Model,
 ) -> Result<Option<std::sync::Arc<RemoteTunnelOwnerDirectory>>> {
-    let owner_directory = state.remote_protocol().tunnel_owner_directory();
-    if !state.config().deployment.profile.is_cluster() {
-        return Ok(owner_directory);
-    }
-    let Some(owner_directory) = owner_directory else {
-        return Err(AsterError::config_error(
-            "cluster reverse tunnel requires deployment.internal_endpoint and deployment.internal_proxy_secret",
-        ));
+    let Some(owner_directory) = state.remote_protocol().tunnel_owner_directory() else {
+        return Ok(None);
     };
 
     match owner_directory.try_claim(remote_node.id).await? {

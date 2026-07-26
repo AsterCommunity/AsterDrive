@@ -884,7 +884,7 @@ async fn test_share_download_limit_counter_is_atomic_under_concurrency() {
     let mut dbs = Vec::new();
     for _ in 0..32 {
         let cfg = aster_drive::config::DatabaseConfig {
-            url: database_url.clone(),
+            url: database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         };

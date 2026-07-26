@@ -116,7 +116,7 @@ impl ServerConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     #[serde(default = "DatabaseConfig::default_url")]
-    pub url: String,
+    pub url: aster_forge_db::DatabaseUrl,
     #[serde(default = "DatabaseConfig::default_pool_size")]
     pub pool_size: u32,
     #[serde(default = "DatabaseConfig::default_retry_count")]
@@ -134,8 +134,8 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    fn default_url() -> String {
-        crate::config::paths::DEFAULT_CONFIG_SQLITE_DATABASE_URL.to_string()
+    fn default_url() -> aster_forge_db::DatabaseUrl {
+        crate::config::paths::DEFAULT_CONFIG_SQLITE_DATABASE_URL.into()
     }
     fn default_pool_size() -> u32 {
         10

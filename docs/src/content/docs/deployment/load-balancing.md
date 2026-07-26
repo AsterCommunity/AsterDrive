@@ -77,9 +77,9 @@ reverse tunnel 的 WebSocket、lane 和 pending request 仍由接收连接的 ow
 | `/health` | liveness | 只表示进程存活；Redis 短暂中断时仍返回 `200` |
 | `/health/ready` | readiness | 始终检查数据库、实际 Redis cache 和拓扑；初始化完成后再执行默认存储 driver 的轻量 readiness 检查 |
 
-Kubernetes、Ingress controller 和其他负载均衡器应只把 `/health/ready` 返回成功的 Primary 放进 upstream，不要用 `/health` 代替 readiness。Redis 初始化失败后即使 cache 回退到 memory，cluster readiness 仍会失败；Redis 恢复后会自动回到 ready。
+Kubernetes、Ingress controller 和其他负载均衡器应只把 `/health/ready` 返回成功的 Primary 放进 upstream，不要用 `/health` 代替 readiness。启动时 Redis 初始化失败会由 Forge cache 构造器直接返回错误并终止启动，由编排器在 Redis 恢复后重启；已经成功创建的 Redis backend 在运行期短暂断线时会保持 liveness、使 readiness 失败，并自行重连恢复 ready。
 
-全新 cluster 数据库不会创建 `Local Default`。基础依赖健康时，`/health/ready` 在初始化期间返回 `200`，响应状态为 `needs_admin` 或 `needs_storage`，使管理员能通过普通负载均衡入口完成初始化。共享存储策略设为默认并完成管理员策略组回填后，状态变为 `ready`；此后默认 driver 的轻量 readiness 检查失败会返回 `503`。该探针不对远端存储执行对象读写，真实数据面可用性还需要单独监控。
+全新数据库在 single 和 cluster 下都不创建默认存储策略。基础依赖健康时，`/health/ready` 在初始化期间返回 `200`，响应状态为 `needs_admin` 或 `needs_storage`，使管理员能通过普通负载均衡入口完成初始化。共享存储策略设为默认并完成管理员策略组回填后，状态变为 `ready`；此后默认 driver 的轻量 readiness 检查失败会返回 `503`。该探针不对远端存储执行对象读写，真实数据面可用性还需要单独监控。
 
 ## Migration、调度器与后台任务
 

@@ -3,7 +3,7 @@ title: "首次启动检查"
 ---
 
 :::tip[这一篇覆盖什么]
-刚部署完要做什么检查、AsterDrive 第一次启动会自动干哪些事、默认策略和默认目录长什么样。
+刚部署完要做什么检查、AsterDrive 第一次启动会自动干哪些事，以及怎样完成管理员和默认存储初始化。
 按 [启动后马上检查这些项](#启动后马上检查这些项) 的清单跑一遍，就能确认服务真的准备好了。
 :::
 
@@ -14,17 +14,12 @@ AsterDrive 第一次成功启动后，会自动完成一批基础准备工作。
 
 - 如果当前工作目录没有 `data/config.toml`，自动生成一份默认配置
 - 连接数据库并自动更新数据库结构
-- single profile 如果还没有存储策略，自动创建默认本地策略 `Local Default`，并补种 `Default Policy Group`
-- cluster profile 跳过本地策略和策略组，等待管理员创建共享默认策略
+- single 和 cluster 都不自动创建存储策略，并使用相同的 `needs_admin -> needs_storage -> ready` 状态机
+- 管理员把第一条允许的策略设为默认后，原子创建或协调默认策略组，并回填尚未分配策略组的管理员
 - 初始化后台系统设置的内置默认项
 - 启动邮件派发、后台任务派发、周期清理和底层文件一致性检查任务
 
-single profile 的默认本地策略内容：
-
-- 名称：`Local Default`
-- 驱动：`local`
-- 路径：`data/uploads`
-- 默认分片大小：`5 MiB`
+single 可以在管理端创建 `local` 策略，例如把绝对路径设为 `/data/uploads`；cluster 则必须选择所有 Primary 都能访问的对象存储、SFTP 或远程 Follower 等数据面。两种 profile 的 setup API、策略创建、默认组回填和 readiness 状态迁移完全相同，差异只由 deployment capability 校验表达。
 
 首次写入的内置系统设置，会覆盖这些类别：
 
@@ -72,7 +67,7 @@ single profile 的默认本地策略内容：
 - 公开注册默认开启
 - 公开注册用户默认需要邮箱激活
 - 新用户默认配额是不限量
-- 新用户会自动绑定当前默认策略组
+- 完成默认存储初始化后，新用户会自动绑定当前默认策略组
 - 新创建团队如果没有单独指定策略组，也会使用当前默认策略组
 
 如果你把 `auth.bootstrap_insecure_cookies = true` 用在第一次纯 HTTP 引导上，系统第一次写入的 Cookie 安全要求也会跟着走这个引导值。
@@ -83,12 +78,11 @@ single profile 的默认本地策略内容：
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads`
 - `data/.tmp`
 - `data/.uploads`
 - `data/remote-storage-targets`（follower 使用本地远程存储目标时）
 
-其中 `data/.tmp` 和 `data/.uploads` 是运行时临时目录，不是长期数据目录。  
+如果管理员手动创建了指向 `data/uploads` 的本地策略，该目录会在首次写入时出现；它不是启动过程自动创建的默认目录。`data/.tmp` 和 `data/.uploads` 是运行时临时目录，不是长期数据目录。
 `data/remote-storage-targets` 是 follower 受主控托管的本地接收根目录，只有你把这台实例作为从节点使用时才会真的重要。
 
 `data/config.toml` 里的 `auth.jwt_secret` 和 `auth.mfa_secret_key` 会在首次生成时写入随机值。后续备份、迁移和恢复都应保留它们；如果启用了 MFA，替换 `mfa_secret_key` 会导致已有认证器无法继续验证。
@@ -99,7 +93,7 @@ single profile 的默认本地策略内容：
 2. 完成管理员和存储初始化后，`/health/ready` 是否返回 200，且 `data.status` 是否为 `ready`
 3. `data/config.toml` 是否在预期目录生成
 4. 数据库是否在预期位置创建并完成更新
-5. 默认存储策略是否已经存在；cluster 必须是所有 Primary 都可访问的共享策略
+5. 管理员是否已经创建并测试默认存储策略；cluster 必须是所有 Primary 都可访问的共享策略
 6. 默认策略组是否已经存在，并且管理员是否已经绑定
 7. 管理后台是否能正常打开
 8. `管理 -> 系统设置` 里是否已经能看到各分组默认值

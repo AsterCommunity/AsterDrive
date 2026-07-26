@@ -289,7 +289,7 @@ async fn assert_concurrent_remote_enrollment_single_winner(database_url: String)
 
     let second_db = aster_drive::db::connect_with_metrics(
         &aster_drive::config::DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },

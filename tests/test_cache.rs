@@ -9,7 +9,7 @@ use testcontainers::{
 fn cache_config(backend: &str, default_ttl: u64) -> CacheConfig {
     CacheConfig {
         backend: backend.to_string(),
-        endpoint: String::new(),
+        endpoint: Default::default(),
         default_ttl,
     }
 }
@@ -137,7 +137,7 @@ async fn test_memory_cache_zero_ttl_entries_expire_immediately() {
 async fn test_redis_backend_with_invalid_url_falls_back_to_memory() {
     let cache = create_cache(&CacheConfig {
         backend: "redis".to_string(),
-        endpoint: "not a redis url".to_string(),
+        endpoint: "not a redis url".into(),
         default_ttl: 60,
     })
     .await;
@@ -163,7 +163,7 @@ async fn test_redis_cache_round_trips_against_real_redis_container() {
         .expect("resolve mapped Redis port");
     let cache = create_cache(&CacheConfig {
         backend: "redis".to_string(),
-        endpoint: format!("redis://127.0.0.1:{port}/0"),
+        endpoint: format!("redis://127.0.0.1:{port}/0").into(),
         default_ttl: 60,
     })
     .await;

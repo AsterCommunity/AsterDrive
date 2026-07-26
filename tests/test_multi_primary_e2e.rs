@@ -1181,7 +1181,7 @@ async fn cluster_upload_init_on_second_primary_rejects_pod_local_stream_staging(
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires Docker and two real AsterDrive primary processes"]
-async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
+async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machine() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start_empty().await;
     let client = reqwest::Client::builder()
@@ -1212,6 +1212,74 @@ async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
     assert_eq!(ready_a["data"]["status"], "needs_admin");
     assert_eq!(ready_b["data"]["status"], "needs_admin");
 
+    let access_token = setup_and_login(&client, &primary_a).await;
+    let (needs_storage_a, needs_storage_b) = tokio::join!(
+        wait_for_ready_status(
+            &client,
+            &mut primary_a,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+        wait_for_ready_status(
+            &client,
+            &mut primary_b,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+    );
+    assert_eq!(needs_storage_a["data"]["status"], "needs_storage");
+    assert_eq!(needs_storage_b["data"]["status"], "needs_storage");
+
+    let create_policy_response = client
+        .post(format!("{}/api/v1/admin/policies", primary_b.base_url()))
+        .bearer_auth(&access_token)
+        .json(&json!({
+            "name": "Fresh Shared Default",
+            "driver_type": "s3",
+            "endpoint": "http://127.0.0.1:9000",
+            "bucket": "asterdrive-fresh-e2e",
+            "access_key": "e2e-access",
+            "secret_key": "e2e-secret",
+            "base_path": "",
+            "max_file_size": 0,
+            "chunk_size": 5_242_880,
+            "is_default": true,
+            "options": {
+                "object_storage_upload_strategy": "presigned",
+                "s3_path_style": true
+            }
+        }))
+        .send()
+        .await
+        .expect("create first shared policy through primary B");
+    let create_policy_status = create_policy_response.status();
+    let create_policy_body: Value = create_policy_response
+        .json()
+        .await
+        .expect("decode first shared policy response");
+    assert_eq!(
+        create_policy_status,
+        reqwest::StatusCode::CREATED,
+        "first shared policy creation failed: {create_policy_body}"
+    );
+
+    let (ready_a, ready_b) = tokio::join!(
+        wait_for_ready_status(
+            &client,
+            &mut primary_a,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+        wait_for_ready_status(
+            &client,
+            &mut primary_b,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+    );
+    assert_eq!(ready_a["data"]["status"], "ready");
+    assert_eq!(ready_b["data"]["status"], "ready");
+
     let database = services.connect_database().await;
     let history = migration::inspect_migration_history(&database)
         .await
@@ -1220,6 +1288,24 @@ async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
     assert!(history.pending_current.is_empty());
     assert!(history.unknown_applied.is_empty());
     assert_eq!(history.applied, migration::current_migration_names());
+    assert_eq!(
+        aster_drive::db::repository::policy_repo::find_all(&database)
+            .await
+            .expect("list policies after setup")
+            .len(),
+        1,
+        "concurrent Primary startup and setup must produce one storage policy"
+    );
+    let default_group =
+        aster_drive::db::repository::policy_group_repo::find_default_group(&database)
+            .await
+            .expect("load default policy group after setup")
+            .expect("default policy group should exist after setup");
+    let admin = aster_drive::db::repository::user_repo::find_by_username(&database, "admin")
+        .await
+        .expect("load setup administrator")
+        .expect("setup administrator should exist");
+    assert_eq!(admin.policy_group_id, Some(default_group.id));
 
     primary_a.terminate();
     primary_b.terminate();
@@ -1227,6 +1313,59 @@ async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
         .close()
         .await
         .expect("close concurrent startup E2E database connection");
+    services.cleanup_database().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker and two real AsterDrive primary processes"]
+async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let database = services.connect_database().await;
+    aster_drive::entities::storage_policy_group_item::Entity::delete_many()
+        .exec(&database)
+        .await
+        .expect("remove seeded policy group items");
+    aster_drive::entities::storage_policy_group::Entity::delete_many()
+        .exec(&database)
+        .await
+        .expect("remove seeded policy groups");
+    database
+        .close()
+        .await
+        .expect("close policy group setup database connection");
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build policy group reconciliation E2E HTTP client");
+    let mut primary_a = ServerProcess::spawn_with_database_pool_size("primary-a", &services, 1);
+    let mut primary_b = ServerProcess::spawn_with_database_pool_size("primary-b", &services, 1);
+    let ((), ()) = tokio::join!(
+        wait_for_health(&client, &mut primary_a),
+        wait_for_health(&client, &mut primary_b),
+    );
+
+    let database = services.connect_database().await;
+    let groups = aster_drive::entities::storage_policy_group::Entity::find()
+        .all(&database)
+        .await
+        .expect("list reconciled policy groups");
+    assert_eq!(groups.len(), 1);
+    assert!(groups[0].is_default);
+    let items = aster_drive::entities::storage_policy_group_item::Entity::find()
+        .all(&database)
+        .await
+        .expect("list reconciled policy group items");
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].group_id, groups[0].id);
+
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close reconciled policy group database connection");
     services.cleanup_database().await;
 }
 
@@ -1259,7 +1398,7 @@ async fn redis_outage_only_marks_cluster_readiness_unavailable_and_recovers() {
         Duration::from_secs(30),
     )
     .await;
-    assert_eq!(unavailable["msg"], "Shared cache unavailable");
+    assert_eq!(unavailable["msg"], "Cache unavailable");
     assert!(
         client
             .get(format!("{}/health", primary.base_url()))

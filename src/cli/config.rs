@@ -715,7 +715,7 @@ mod tests {
         let url = format!("sqlite://{}?mode=rwc", path.display());
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: url.clone(),
+                url: url.clone().into(),
                 pool_size: 1,
                 retry_count: 0,
             },

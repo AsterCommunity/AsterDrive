@@ -23,15 +23,27 @@ pub fn build_storage_change_bus(
 ) -> Result<StorageChangeBus> {
     let transport = if config.backend.trim().eq_ignore_ascii_case("redis") {
         let topic = storage_change_topic(&config.topic);
-        Some(
-            aster_forge_events::RedisEventBus::from_url(&config.endpoint, topic).map_err(
-                |error| {
-                    AsterError::internal_error(format!(
-                        "failed to configure cross-instance storage events: {error}"
-                    ))
-                },
-            )?,
-        )
+        let bus = match &config.endpoint {
+            aster_forge_config::ConfigSyncEndpoint::Url(endpoint) => {
+                aster_forge_events::RedisEventBus::from_url(endpoint.trim(), topic)
+            }
+            aster_forge_config::ConfigSyncEndpoint::Credentials {
+                base_url,
+                username,
+                password,
+            } => aster_forge_events::RedisEventBus::from_credentials(
+                base_url.trim(),
+                username.as_deref(),
+                password.as_deref(),
+                topic,
+            ),
+        }
+        .map_err(|error| {
+            AsterError::internal_error(format!(
+                "failed to configure cross-instance storage events: {error}"
+            ))
+        })?;
+        Some(bus)
     } else {
         None
     };
@@ -239,7 +251,7 @@ mod tests {
     fn cross_instance_bus_builds_for_valid_redis_endpoint() {
         let config = ConfigSyncConfig {
             backend: "redis".to_string(),
-            endpoint: "redis://127.0.0.1:6379/0".to_string(),
+            endpoint: "redis://127.0.0.1:6379/0".into(),
             topic: "aster_drive.config_reload".to_string(),
         };
         let bus = build_storage_change_bus(&config).expect("valid Redis config should be accepted");
@@ -256,7 +268,7 @@ mod tests {
         for endpoint in ["", "not a redis url"] {
             let config = ConfigSyncConfig {
                 backend: "redis".to_string(),
-                endpoint: endpoint.to_string(),
+                endpoint: endpoint.into(),
                 topic: "aster_drive.config_reload".to_string(),
             };
             let error = match build_storage_change_bus(&config) {
@@ -265,6 +277,28 @@ mod tests {
             };
             assert!(error.to_string().contains("cross-instance storage events"));
         }
+    }
+
+    #[test]
+    fn cross_instance_bus_builds_with_structured_redis_credentials() {
+        let config = ConfigSyncConfig {
+            backend: "redis".to_string(),
+            endpoint: aster_forge_config::ConfigSyncEndpoint::credentials(
+                "redis://127.0.0.1:6379/0",
+                Some("raw user".to_string()),
+                Some("raw#password".to_string()),
+            ),
+            topic: "aster_drive.config_reload".to_string(),
+        };
+
+        let bus = build_storage_change_bus(&config)
+            .expect("structured Redis credentials should configure storage events");
+        assert_eq!(
+            bus.transport()
+                .expect("Redis backend should create a transport")
+                .topic(),
+            "aster_drive.storage_events"
+        );
     }
 
     #[test]

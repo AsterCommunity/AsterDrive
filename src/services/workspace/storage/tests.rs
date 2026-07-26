@@ -767,7 +767,7 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
 
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

@@ -2,18 +2,18 @@
 
 use sea_orm::DatabaseConnection;
 
-use crate::config::{Config, DeploymentProfile};
+use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
 use crate::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ClusterTopologyReport {
+pub struct DeploymentTopologyReport {
     pub reverse_tunnel_nodes: Vec<(i64, String)>,
     pub local_storage_policies: Vec<(i64, String)>,
 }
 
-impl ClusterTopologyReport {
+impl DeploymentTopologyReport {
     pub fn has_issues(&self) -> bool {
         !self.reverse_tunnel_nodes.is_empty() || !self.local_storage_policies.is_empty()
     }
@@ -28,7 +28,7 @@ impl ClusterTopologyReport {
                 .collect::<Vec<_>>()
                 .join(", ");
             messages.push(format!(
-                "cluster profile has reverse tunnel remote nodes: {nodes}; use direct transport until cross-primary tunnel routing is available"
+                "this deployment profile has reverse tunnel remote nodes without internal primary proxying: {nodes}; configure internal proxying or use direct transport"
             ));
         }
         if !self.local_storage_policies.is_empty() {
@@ -39,7 +39,7 @@ impl ClusterTopologyReport {
                 .collect::<Vec<_>>()
                 .join(", ");
             messages.push(format!(
-                "cluster profile has local storage policies: {policies}; use shared object storage"
+                "this deployment profile has instance-local storage policies: {policies}; use storage shared by every primary"
             ));
         }
         messages
@@ -47,23 +47,23 @@ impl ClusterTopologyReport {
 }
 
 pub fn validate_storage_policy_driver(config: &Config, driver_type: DriverType) -> Result<()> {
-    if config.deployment.profile.is_cluster() && driver_type == DriverType::Local {
+    if !config.deployment.allows_instance_local_state() && driver_type == DriverType::Local {
         return Err(AsterError::validation_error(
-            "cluster deployment profile requires storage shared by every primary; local storage policies belong to the single profile",
+            "this deployment profile requires storage shared by every primary; local storage policies are instance-local",
         ));
     }
     Ok(())
 }
 
 pub fn validate_upload_session_kind(config: &Config, kind: UploadSessionKind) -> Result<()> {
-    if config.deployment.profile.is_cluster()
+    if !config.deployment.allows_instance_local_state()
         && matches!(
             kind,
             UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging
         )
     {
         return Err(AsterError::validation_error(format!(
-            "cluster deployment profile cannot initialize upload session kind '{}': Pod-local staging is not shared across primaries; use a connector-native multipart, presigned, or frontend-direct resumable upload mode",
+            "this deployment profile cannot initialize upload session kind '{}': Pod-local staging is not shared across primaries; use a connector-native multipart, presigned, or frontend-direct resumable upload mode",
             kind.as_str()
         )));
     }
@@ -76,7 +76,7 @@ pub fn validate_remote_node_transport(
     base_url: &str,
     is_enabled: bool,
 ) -> Result<()> {
-    if config.deployment.profile.is_cluster()
+    if config.deployment.requires_shared_runtime()
         && is_enabled
         && transport_mode.resolves_to_reverse_tunnel(base_url)
         && !config.deployment.internal_proxy_enabled()
@@ -91,9 +91,9 @@ pub fn validate_remote_node_transport(
 pub async fn inspect_primary_topology(
     db: &DatabaseConnection,
     config: &Config,
-) -> Result<ClusterTopologyReport> {
-    if !matches!(config.deployment.profile, DeploymentProfile::Cluster) {
-        return Ok(ClusterTopologyReport::default());
+) -> Result<DeploymentTopologyReport> {
+    if !config.deployment.requires_shared_runtime() {
+        return Ok(DeploymentTopologyReport::default());
     }
 
     let reverse_tunnel_nodes = if config.deployment.internal_proxy_enabled() {
@@ -119,7 +119,7 @@ pub async fn inspect_primary_topology(
         .map(|policy| (policy.id, policy.name))
         .collect();
 
-    Ok(ClusterTopologyReport {
+    Ok(DeploymentTopologyReport {
         reverse_tunnel_nodes,
         local_storage_policies,
     })
@@ -141,7 +141,7 @@ pub async fn validate_primary_topology(db: &DatabaseConnection, config: &Config)
 #[cfg(test)]
 mod tests {
     use super::{
-        ClusterTopologyReport, inspect_primary_topology, validate_primary_topology,
+        DeploymentTopologyReport, inspect_primary_topology, validate_primary_topology,
         validate_remote_node_transport, validate_storage_policy_driver,
         validate_upload_session_kind,
     };
@@ -154,7 +154,7 @@ mod tests {
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn topology_report_describes_reverse_tunnel_and_local_storage_issues() {
-        let report = ClusterTopologyReport {
+        let report = DeploymentTopologyReport {
             reverse_tunnel_nodes: vec![(7, "follower-a".to_string())],
             local_storage_policies: vec![(3, "local-default".to_string())],
         };

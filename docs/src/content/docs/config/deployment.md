@@ -40,7 +40,7 @@ topic = "aster_drive.config_reload"
 
 `internal_endpoint` 必须是当前 primary 可从其他 primary 直接访问、且唯一指向该实例的绝对 `http`/`https` URL，不能带 query 或 fragment；不要填写所有实例共用的负载均衡地址。`internal_proxy_secret` 至少 32 个字符，并且必须在所有 primary 上保持一致。两项都留空表示 direct-only cluster；只配置其中一项会在静态配置检查阶段失败。
 
-`cluster` profile 会在启动、`/health/ready` 和 `aster_drive doctor` 中检查共享数据库、Redis 和存储拓扑。全新 cluster 数据库不会自动创建 `Local Default`，需要先在管理端创建共享存储策略并设为默认。
+`cluster` profile 会在启动、`/health/ready` 和 `aster_drive doctor` 中检查共享数据库、Redis 和存储拓扑。single 和 cluster 的全新数据库都不会自动创建存储策略；创建管理员后都进入 `needs_storage`，但 cluster 必须在管理端创建所有 Primary 都能访问的共享策略并设为默认。
 
 共享依赖、静态密钥、上传与 SFTP 限制、reverse tunnel owner routing、健康检查、migration 锁、任务 lease 和 Ingress 要求统一见[负载均衡与多实例](/deployment/load-balancing/)。上传模式的具体选择见[上传与大文件](/guide/upload-modes/#cluster-部署时的上传选择)。
 

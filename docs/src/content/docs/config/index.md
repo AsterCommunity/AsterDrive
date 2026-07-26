@@ -153,13 +153,13 @@ ASTER__WEBDAV__PREFIX=/dav
 
 ## 路径要分清是相对谁
 
-如果你写相对路径，记住三套语义不一样：
+如果你写相对路径，记住配置文件路径和存储策略路径的语义不一样：
 
 - `data/config.toml` 的位置 —— **相对当前工作目录**
 - `[database]` 和 `[server]` 里的相对路径 —— **相对 `data/config.toml` 所在目录**（也就是 `./data/`）
-- 默认本地存储策略的 `base_path = "data/uploads"` —— **相对当前工作目录**，通常就是工作目录下的 `data/uploads`
+- 管理端手动创建的本地存储策略 `base_path` —— **相对当前工作目录**；长期部署更推荐直接填写绝对路径，例如 Docker 中的 `/data/uploads`
 
-也就是说，自动生成的 `[server].temp_dir = ".tmp"` 会在运行时落到 `data/.tmp`；而默认本地存储策略本身已经把 `data/` 写进了 `base_path`，不会再按 `data/config.toml` 的目录额外拼成 `data/data/uploads`。
+也就是说，自动生成的 `[server].temp_dir = ".tmp"` 会在运行时落到 `data/.tmp`；存储策略不属于 `config.toml`，它的相对路径不会再按 `data/config.toml` 的目录拼接。首次启动也不会自动创建本地存储策略。
 
 不同部署方式默认落点：
 

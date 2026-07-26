@@ -53,7 +53,7 @@ async fn setup_database_url() -> String {
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: url.clone(),
+            url: url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -70,7 +70,7 @@ async fn setup_empty_database_url(prefix: &str) -> String {
     let url = format!("sqlite://{}?mode=rwc", db_path.display());
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: url.clone(),
+            url: url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -538,7 +538,7 @@ async fn seed_tag_fixture(db: &DatabaseConnection, file_id: i64) {
 async fn seed_contact_verification_history(database_url: &str) {
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url.to_string(),
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -605,7 +605,7 @@ async fn assert_migrated_fixture(
 ) {
     let target_db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: target_database_url.to_string(),
+            url: target_database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1301,7 +1301,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
     let database_url = setup_empty_database_url("asterdrive-cli-fresh-baseline-test").await;
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url.clone(),
+            url: database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1324,7 +1324,7 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
         setup_empty_database_url("asterdrive-cli-storage-migration-result-backfill-test").await;
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1435,7 +1435,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-old-migration-test").await;
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url.clone(),
+            url: database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1455,7 +1455,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
 
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1482,7 +1482,7 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-non-prefix-migration-test").await;
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1518,7 +1518,7 @@ async fn test_migrations_reject_existing_schema_with_empty_history() {
     let database_url = setup_empty_database_url("asterdrive-cli-empty-history-schema-test").await;
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1786,7 +1786,7 @@ async fn test_root_binary_database_migrate_rejects_current_history_with_missing_
     let target_database_url = setup_database_url().await;
     let target_db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: target_database_url.clone(),
+            url: target_database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1888,7 +1888,7 @@ async fn test_root_binary_database_migrate_sqlite_to_postgres_happy_path() {
 
     let target_db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: target_database_url.clone(),
+            url: target_database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -2034,7 +2034,7 @@ async fn test_root_binary_database_migrate_sqlite_resume_from_checkpoint() {
 
     let target_db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: target_database_url.clone(),
+            url: target_database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -2192,7 +2192,7 @@ async fn test_root_binary_database_migrate_allows_consumed_contact_verification_
 
     let target_db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: target_database_url.clone(),
+            url: target_database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         },

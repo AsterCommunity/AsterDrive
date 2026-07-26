@@ -707,70 +707,83 @@ async fn test_failed_setup_releases_initialization_claim() {
 }
 
 #[actix_web::test]
-async fn test_setup_allows_first_admin_before_cluster_default_policy_exists() {
+async fn test_setup_state_machine_is_identical_across_deployment_profiles() {
     use sea_orm::ConnectionTrait;
 
-    let state = common::setup().await;
-    state
-        .writer_db()
-        .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
-        .await
-        .unwrap();
-    state
-        .policy_snapshot
-        .reload(state.writer_db())
-        .await
-        .unwrap();
-    let app = create_test_app!(state.clone());
+    for (index, profile) in [
+        aster_drive::config::DeploymentProfile::Single,
+        aster_drive::config::DeploymentProfile::Cluster,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut state = common::setup().await;
+        state
+            .writer_db()
+            .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
+            .await
+            .unwrap();
+        state
+            .policy_snapshot
+            .reload(state.writer_db())
+            .await
+            .unwrap();
+        let mut config = state.config.as_ref().clone();
+        config.deployment.profile = profile;
+        state.config = std::sync::Arc::new(config);
+        let app = create_test_app!(state.clone());
+        let username = format!("setupadmin{index}");
+        let email = format!("setup-admin-{index}@example.com");
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/setup")
-        .peer_addr("127.0.0.1:12345".parse().unwrap())
-        .set_json(serde_json::json!({
-            "username": "clusteradmin",
-            "email": "cluster-admin@example.com",
-            "password": "secret123"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 201);
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/setup")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": username.clone(),
+                "email": email,
+                "password": "secret123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201, "{} setup", profile.as_str());
 
-    let admin = user_repo::find_by_username(state.writer_db(), "clusteradmin")
-        .await
-        .unwrap()
-        .expect("first admin should be created");
-    assert!(admin.role.is_admin());
-    assert_eq!(admin.policy_group_id, None);
-    assert_eq!(
-        local::check_auth_state(&state).await.unwrap().state,
-        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
-    );
+        let admin = user_repo::find_by_username(state.writer_db(), &username)
+            .await
+            .unwrap()
+            .expect("first admin should be created");
+        assert!(admin.role.is_admin());
+        assert_eq!(admin.policy_group_id, None);
+        assert_eq!(
+            local::check_auth_state(&state).await.unwrap().state,
+            aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+        );
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/check")
-        .peer_addr("127.0.0.1:12346".parse().unwrap())
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 200);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["data"]["setup_state"], "needs_storage");
-    assert_eq!(body["data"]["has_users"], true);
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/check")
+            .peer_addr("127.0.0.1:12346".parse().unwrap())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["setup_state"], "needs_storage");
+        assert_eq!(body["data"]["has_users"], true);
 
-    let req = test::TestRequest::post()
-        .uri("/api/v1/auth/register")
-        .peer_addr("127.0.0.1:12347".parse().unwrap())
-        .set_json(serde_json::json!({
-            "username": "earlyclusteruser",
-            "email": "early-cluster-user@example.com",
-            "password": "secret123"
-        }))
-        .to_request();
-    let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 400);
-    let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "validation.system_not_initialized");
-    assert_eq!(body["msg"], "system storage setup is incomplete");
-    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 1);
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12347".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": format!("earlyuser{index}"),
+                "email": format!("early-user-{index}@example.com"),
+                "password": "secret123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "validation.system_not_initialized");
+        assert_eq!(body["msg"], "system storage setup is incomplete");
+        assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 1);
+    }
 }
 
 #[actix_web::test]
@@ -864,7 +877,7 @@ async fn assert_concurrent_setup_across_independent_connections(database_url: St
     let state_a = common::setup_with_database_url(&database_url).await;
     let second_db = aster_drive::db::connect_with_metrics(
         &aster_drive::config::DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },

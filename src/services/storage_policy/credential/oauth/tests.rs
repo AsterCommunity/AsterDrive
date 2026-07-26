@@ -176,7 +176,7 @@ fn microsoft_token_response(
 async fn setup_db() -> sea_orm::DatabaseConnection {
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -197,7 +197,7 @@ async fn setup_file_db(pool_size: u32) -> (sea_orm::DatabaseConnection, std::pat
     ));
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: format!("sqlite://{}?mode=rwc", db_path.display()),
+            url: format!("sqlite://{}?mode=rwc", db_path.display()).into(),
             pool_size,
             retry_count: 0,
         },

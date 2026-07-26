@@ -508,7 +508,7 @@ async fn test_state_with_driver_and_options(
 ) -> PrimaryAppState {
     let db = crate::db::connect_with_metrics(
         &crate::config::DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

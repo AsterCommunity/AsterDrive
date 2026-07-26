@@ -20,7 +20,7 @@ use super::{
 pub(super) async fn connect_database(database_url: &str) -> Result<DatabaseConnection> {
     db::connect_with_metrics(
         &crate::config::DatabaseConfig {
-            url: database_url.to_string(),
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },

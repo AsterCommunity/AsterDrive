@@ -24,13 +24,22 @@ pub async fn ensure_policy_groups_seeded<C>(db: &C) -> Result<()>
 where
     C: sea_orm::ConnectionTrait + TransactionTrait,
 {
-    let default_policy = match policy_repo::find_default(db).await? {
-        Some(policy) => policy,
-        None => return Ok(()),
-    };
+    if policy_repo::find_default(db).await?.is_none() {
+        return Ok(());
+    }
 
     let txn = transaction::begin(db).await?;
     let result: Result<()> = async {
+        // Serialize the complete default-policy/group reconciliation before
+        // reading or creating a group. Multiple Primaries run this same startup
+        // path, so locking only after group creation would still allow them to
+        // create competing default groups.
+        lock_default_group_assignment(&txn).await?;
+        let default_policy = policy_repo::find_default(&txn).await?.ok_or_else(|| {
+            AsterError::internal_error(
+                "default storage policy disappeared while reconciling its policy group",
+            )
+        })?;
         let default_group = match policy_group_repo::find_default_group(&txn).await? {
             Some(group) => {
                 let items = policy_group_repo::find_group_items(&txn, group.id).await?;
@@ -84,7 +93,6 @@ where
                 group
             }
         };
-        lock_default_group_assignment(&txn).await?;
         policy_group_repo::set_only_default_group(&txn, default_group.id).await?;
 
         user_repo::assign_policy_group_to_unassigned(&txn, default_group.id, Utc::now())

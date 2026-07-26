@@ -220,17 +220,19 @@ Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()`
 `src/runtime/startup/common.rs` performs the shared preparation for all nodes:
 
 1. Create `MetricsRecorder`, so database connections and later runtime state can share the same recorder
-2. Connect to the database
+2. Connect to the writer database
 3. Run all migrations
 4. Prepare SQLite search acceleration if the current backend supports it
-5. In the single profile, create default local storage when no policy exists; in the cluster profile, skip the local seed
-6. In primary mode, seed the default policy group only when a default policy exists
-7. Initialize the `auth_cookie_secure` bootstrap value
-8. Write default values into `system_config`
-9. Clean deprecated `node_runtime_mode` and old thumbnail runtime config keys
-10. Reload `PolicySnapshot`
-11. Reload `DriverRegistry` according to the node mode
-12. Initialize the cache backend
+5. Keep product storage setup profile-independent; startup does not create a storage policy for either profile
+6. In primary mode, reconcile the default policy group only when an administrator-configured default policy exists; multiple Primaries serialize the reconciliation with a database lock
+7. Initialize the `auth_cookie_secure` bootstrap value, write `system_config` defaults, and remove obsolete configuration keys
+8. In follower mode, optionally apply the enrollment bootstrap from environment variables
+9. In primary mode, validate the deployment topology stored in the database
+10. Create the reader database handles
+11. Reload `PolicySnapshot`
+12. Reload `DriverRegistry` according to the node mode
+13. Create the configured cache backend with the explicit `ReturnError` policy
+14. Build the config-sync runtime
 
 ### Database handles
 

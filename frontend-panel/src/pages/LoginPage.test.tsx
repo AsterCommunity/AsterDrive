@@ -2006,7 +2006,7 @@ describe("LoginPage", () => {
 		);
 	});
 
-	it("runs initial setup for the first user and then signs them in", async () => {
+	it("finishes setup immediately when storage was already provisioned", async () => {
 		mockState.check.mockResolvedValueOnce({
 			setup_state: "needs_admin",
 			has_users: false,
@@ -2050,7 +2050,7 @@ describe("LoginPage", () => {
 		});
 	});
 
-	it("continues cluster setup at storage policies after creating the administrator", async () => {
+	it("continues setup at storage policies after creating the administrator", async () => {
 		mockState.check.mockReset();
 		mockState.check
 			.mockResolvedValueOnce({

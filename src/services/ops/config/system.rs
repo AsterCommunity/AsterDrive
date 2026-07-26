@@ -427,7 +427,7 @@ mod tests {
     async fn test_state() -> (PrimaryAppState, aster_forge_config::ConfigNotification) {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

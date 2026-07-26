@@ -27,7 +27,7 @@ Confirm these contents will not be lost when containers are recreated, the syste
 
 - `data/config.toml`
 - database file, or external database instance
-- default local storage directory
+- local storage directories configured in the admin panel, if `local` is used
 - additional local `local` storage policy directories
 - avatar directory, usually `data/avatar` by default
 - the follower node's `remote_storage_target_local_root`, if you use local remote storage targets

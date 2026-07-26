@@ -21,8 +21,18 @@ impl DeploymentProfile {
         }
     }
 
-    pub const fn is_cluster(self) -> bool {
+    /// Whether this profile may run more than one Primary against shared state.
+    ///
+    /// Runtime and product code should depend on this capability instead of
+    /// matching profile variants independently. This keeps the profile mapping
+    /// in one place and prevents single/cluster behavior from drifting.
+    pub const fn requires_shared_runtime(self) -> bool {
         matches!(self, Self::Cluster)
+    }
+
+    /// Whether state owned by one process or Pod may be used as durable data.
+    pub const fn allows_instance_local_state(self) -> bool {
+        !self.requires_shared_runtime()
     }
 }
 
@@ -41,9 +51,17 @@ pub struct DeploymentConfig {
 const INTERNAL_PROXY_SECRET_MIN_LENGTH: usize = 32;
 
 impl DeploymentConfig {
+    pub const fn requires_shared_runtime(&self) -> bool {
+        self.profile.requires_shared_runtime()
+    }
+
+    pub const fn allows_instance_local_state(&self) -> bool {
+        self.profile.allows_instance_local_state()
+    }
+
     pub fn internal_proxy_enabled(&self) -> bool {
         let endpoint = self.internal_endpoint.trim();
-        self.profile.is_cluster()
+        self.requires_shared_runtime()
             && self.internal_proxy_secret.trim().len() >= INTERNAL_PROXY_SECRET_MIN_LENGTH
             && matches!(
                 url::Url::parse(endpoint),
@@ -56,11 +74,14 @@ impl DeploymentConfig {
 }
 
 pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Vec<String> {
-    if !config.deployment.profile.is_cluster() {
+    if !config.deployment.requires_shared_runtime() {
         return Vec::new();
     }
 
-    let database_url = database_url_override.unwrap_or(&config.database.url);
+    let database_url = database_url_override.unwrap_or_else(|| match &config.database.url {
+        aster_forge_db::DatabaseUrl::Url(url) => url,
+        aster_forge_db::DatabaseUrl::Credentials { base_url, .. } => base_url,
+    });
     let mut issues = Vec::new();
     if database_url
         .trim_start()
@@ -72,7 +93,7 @@ pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Ve
 
     if config.cache.normalized_backend() != "redis" {
         issues.push("cluster profile requires cache.backend = \"redis\"".to_string());
-    } else if config.cache.endpoint.trim().is_empty() {
+    } else if cache_endpoint_is_blank(&config.cache.endpoint) {
         issues.push(
             "cluster profile requires cache.endpoint when cache.backend is redis".to_string(),
         );
@@ -85,7 +106,7 @@ pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Ve
         .eq_ignore_ascii_case("redis")
     {
         issues.push("cluster profile requires config_sync.backend = \"redis\"".to_string());
-    } else if config.config_sync.endpoint.trim().is_empty() {
+    } else if config_sync_endpoint_is_blank(&config.config_sync.endpoint) {
         issues.push(
             "cluster profile requires config_sync.endpoint when config_sync.backend is redis"
                 .to_string(),
@@ -129,6 +150,24 @@ pub fn static_issues(config: &Config, database_url_override: Option<&str>) -> Ve
     issues
 }
 
+fn cache_endpoint_is_blank(endpoint: &aster_forge_cache::CacheEndpoint) -> bool {
+    match endpoint {
+        aster_forge_cache::CacheEndpoint::Url(url) => url.trim().is_empty(),
+        aster_forge_cache::CacheEndpoint::Credentials { base_url, .. } => {
+            base_url.trim().is_empty()
+        }
+    }
+}
+
+fn config_sync_endpoint_is_blank(endpoint: &aster_forge_config::ConfigSyncEndpoint) -> bool {
+    match endpoint {
+        aster_forge_config::ConfigSyncEndpoint::Url(url) => url.trim().is_empty(),
+        aster_forge_config::ConfigSyncEndpoint::Credentials { base_url, .. } => {
+            base_url.trim().is_empty()
+        }
+    }
+}
+
 pub fn validate_static(config: &Config) -> Result<()> {
     let issues = static_issues(config, None);
     if issues.is_empty() {
@@ -146,6 +185,14 @@ pub fn validate_static(config: &Config) -> Result<()> {
 mod tests {
     use super::{DeploymentProfile, static_issues, validate_static};
     use crate::config::Config;
+
+    #[test]
+    fn profile_capabilities_are_mapped_in_one_place() {
+        assert!(!DeploymentProfile::Single.requires_shared_runtime());
+        assert!(DeploymentProfile::Single.allows_instance_local_state());
+        assert!(DeploymentProfile::Cluster.requires_shared_runtime());
+        assert!(!DeploymentProfile::Cluster.allows_instance_local_state());
+    }
 
     #[test]
     fn single_profile_keeps_default_single_node_dependencies() {
@@ -180,11 +227,11 @@ mod tests {
     fn cluster_profile_accepts_shared_dependencies() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.database.url = "postgres://aster:secret@db/asterdrive".into();
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".into();
 
         validate_static(&config).expect("cluster profile should accept shared dependencies");
     }
@@ -193,11 +240,11 @@ mod tests {
     fn cluster_internal_proxy_requires_a_complete_valid_pair() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.database.url = "postgres://aster:secret@db/asterdrive".into();
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".into();
 
         config.deployment.internal_endpoint = "http://primary-a:3000".to_string();
         let issues = static_issues(&config, None);
@@ -222,11 +269,11 @@ mod tests {
     fn cluster_internal_proxy_rejects_short_shared_secret() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.database.url = "postgres://aster:secret@db/asterdrive".into();
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".into();
         config.deployment.internal_endpoint = "http://primary-a:3000".to_string();
         config.deployment.internal_proxy_secret = "short".to_string();
 
@@ -243,9 +290,9 @@ mod tests {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://redis:6379/0".to_string();
+        config.cache.endpoint = "redis://redis:6379/0".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = "redis://redis:6379/0".to_string();
+        config.config_sync.endpoint = "redis://redis:6379/0".into();
 
         let issues = static_issues(&config, Some("postgres://aster:secret@db/asterdrive"));
         assert!(issues.is_empty());
@@ -262,11 +309,11 @@ mod tests {
     fn cluster_profile_matches_sqlite_and_redis_case_insensitively() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = " \nSQLITE://data/aster.db".to_string();
+        config.database.url = " \nSQLITE://data/aster.db".into();
         config.cache.backend = " ReDiS ".to_string();
-        config.cache.endpoint = "redis://cache:6379/0".to_string();
+        config.cache.endpoint = "redis://cache:6379/0".into();
         config.config_sync.backend = " REDIS ".to_string();
-        config.config_sync.endpoint = "redis://config-sync:6379/0".to_string();
+        config.config_sync.endpoint = "redis://config-sync:6379/0".into();
 
         let issues = static_issues(&config, None);
         assert_eq!(
@@ -279,11 +326,11 @@ mod tests {
     fn cluster_profile_requires_non_blank_redis_endpoints() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = "mysql://aster:secret@db/asterdrive".to_string();
+        config.database.url = "mysql://aster:secret@db/asterdrive".into();
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = " \n\t".to_string();
+        config.cache.endpoint = " \n\t".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = " ".to_string();
+        config.config_sync.endpoint = " ".into();
 
         assert_eq!(
             static_issues(&config, None),
@@ -298,15 +345,15 @@ mod tests {
     fn explicit_database_url_override_is_authoritative() {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
-        config.database.url = "sqlite::memory:".to_string();
+        config.database.url = "sqlite::memory:".into();
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://cache:6379/0".to_string();
+        config.cache.endpoint = "redis://cache:6379/0".into();
         config.config_sync.backend = "redis".to_string();
-        config.config_sync.endpoint = "redis://config-sync:6379/0".to_string();
+        config.config_sync.endpoint = "redis://config-sync:6379/0".into();
 
         assert!(static_issues(&config, Some("postgres://aster:secret@db/asterdrive")).is_empty());
 
-        config.database.url = "postgres://aster:secret@db/asterdrive".to_string();
+        config.database.url = "postgres://aster:secret@db/asterdrive".into();
         assert_eq!(
             static_issues(&config, Some(" sqlite::memory:")),
             vec!["cluster profile requires a shared PostgreSQL or MySQL database"]

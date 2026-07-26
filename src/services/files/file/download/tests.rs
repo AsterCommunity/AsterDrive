@@ -294,7 +294,7 @@ where
 
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

@@ -65,7 +65,21 @@ endpoint = "redis://127.0.0.1:6379/"
 topic = "aster_drive.config_reload"
 ```
 
-If Redis requires authentication or TLS, use the standard Redis URL form in `endpoint` and restrict access to the configuration file.
+If Redis requires authentication, complete URL strings remain compatible. When a username or password contains reserved characters, prefer raw structured credentials:
+
+```toml
+endpoint = { base_url = "redis://redis.internal:6379/0", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+Use `username = ""` when Redis has a password but no ACL username. Do not pre-encode raw credentials, and do not include userinfo in `base_url`. AsterDrive's config reload and Storage SSE transports reuse the same typed endpoint and let Forge inject credentials safely; Debug and configuration serialization omit username/password. Restrict configuration permissions, and on Kubernetes prefer mounting the complete configuration from a Secret.
+
+Equivalent structured environment variables:
+
+```bash
+ASTER__CONFIG_SYNC__ENDPOINT__BASE_URL=redis://redis.internal:6379/0
+ASTER__CONFIG_SYNC__ENDPOINT__USERNAME=
+ASTER__CONFIG_SYNC__ENDPOINT__PASSWORD=RAW_PASSWORD
+```
 
 :::caution[SQLite is not suitable for multi-host instances]
 Configuration synchronization does not replicate local SQLite files. Multiple instances must genuinely access one authoritative database. Do not place a separate SQLite file on every host and expect Redis to synchronize configuration values.
@@ -108,7 +122,7 @@ System-setting notifications make receivers reload runtime configuration from th
 
 `[config_sync]` and `[cache]` have different failure behavior:
 
-- when `[cache].backend = "redis"` cannot connect, cache can fall back to in-process memory
+- when `[cache].backend = "redis"` cannot connect during startup construction, the instance fails to start instead of falling back to in-process memory
 - when the backend, endpoint URL, or another `[config_sync].backend = "redis"` value is invalid and the notification backend cannot be constructed, the instance fails to start
 - when the Redis URL is valid but the service is temporarily unreachable, the instance may finish startup; the subscription worker records the disconnect and reconnects automatically with backoff, so a process restart is not required
 - if an admin API or CLI database write succeeds but notification publishing then fails, the command returns an error; the local value is already stored, while other instances may remain stale until restart or a later successful notification

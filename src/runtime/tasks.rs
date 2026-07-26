@@ -699,7 +699,7 @@ pub(crate) mod test_support {
     pub async fn setup_primary_state() -> web::Data<PrimaryAppState> {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

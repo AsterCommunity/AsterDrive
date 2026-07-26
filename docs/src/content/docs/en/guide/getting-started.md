@@ -63,17 +63,16 @@ After the primary instance starts successfully for the first time, it automatica
 
 - `config.toml` under `data/` in the current working directory
 - Database creation or connection, with automatic schema updates
-- Default local storage policy `Local Default`
-- Default policy group `Default Policy Group`
-- Local upload directory `data/uploads`
 - Temporary directories `data/.tmp` and `data/.uploads`
 - Default background settings and required background tasks
+
+Startup does not guess a storage policy for you. After the first administrator is created, both single and cluster enter `needs_storage`. The administrator selects a data plane suitable for the deployment and makes it the default; AsterDrive then uses the same code to create or reconcile the default policy group and assign the administrator.
 
 If you start a follower node, it follows a different flow. The follower-node chapter covers that separately.
 
 If you use the official Docker image and mount `./data:/data` as shown above:
 
-- The database and upload directory land in `/data` inside the container, corresponding to `./data/` on the host
+- The database and runtime directories land in `/data` inside the container, corresponding to `./data/` on the host. If you later create a local policy, use `/data/uploads` as the absolute path
 - `config.toml` is generated at `/data/config.toml` inside the container, corresponding to `./data/config.toml` on the host, and you can edit it directly on the host
 
 Open:
@@ -100,7 +99,20 @@ If you plan to expose the service directly to the public internet, confirm at le
 1. Whether public registration should really be enabled
 2. Whether mail delivery and the public site URL are configured
 
-## 3. Run the Basic Usability Check
+## 3. Configure Default Storage
+
+After creating the administrator, the page continues to `Admin -> Storage Policies`. For the single-instance Docker example above:
+
+1. Create a storage policy.
+2. Select the `local` driver.
+3. Enter `/data/uploads` as the path.
+4. Mark it as the default policy and save it.
+
+Saving atomically creates or reconciles the default policy group and assigns administrators that still have no group. `/health/ready` then changes `data.status` from `needs_storage` to `ready`. The local directory is created on the first write, so there is no need to create it manually inside the container first.
+
+For multiple Primaries, the page and state transition are identical, but choose S3, Azure Blob, OneDrive, SFTP, or a remote Follower reachable by every Primary. Cluster rejects `local`.
+
+## 4. Run the Basic Usability Check
 
 After logging in as an administrator, complete these steps in `My Space`:
 
@@ -114,7 +126,7 @@ If all of these work, the browser side, database, and default storage route are 
 
 We consider **trash one of AsterDrive's most important features**. Without it, you would not dare to put important files inside. So during the first run, verify "mistaken deletion can be recovered" yourself.
 
-## 4. Try a Share
+## 5. Try a Share
 
 Create a share link from the action menu of a file or folder, and set as needed:
 
@@ -124,7 +136,7 @@ Create a share link from the action menu of a file or folder, and set as needed:
 
 Send the link to an incognito window, phone, or another device, and confirm the public page opens normally.
 
-## 5. If You Need WebDAV, Make a Real Connection
+## 6. If You Need WebDAV, Make a Real Connection
 
 If you plan to connect Finder, Windows Explorer, rclone, or sync tools:
 
@@ -135,7 +147,7 @@ If you plan to connect Finder, Windows Explorer, rclone, or sync tools:
 
 The password is shown only once after successful creation. Save it to a password manager immediately.
 
-## 6. Places to Check After the First Admin Login
+## 7. Places to Check After the First Admin Login
 
 - `Admin -> Overview`
 - `Admin -> Users`
@@ -160,11 +172,11 @@ Focus on confirming:
 - If image / video thumbnails will be used, the processors in `File Processing -> Media Processing` fit the current server environment
 - Trash retention days, version count, and team archive retention days match expectations
 - Whether WebDAV should stay enabled
-- Whether files should continue using the default local policy or move to S3 / MinIO / Azure Blob / Tencent COS / OneDrive / SFTP / a follower node; if using follower nodes, whether the follower already has an applied default remote storage target
+- Whether the current default policy still fits the deployment: a single instance may keep local storage or move to S3 / MinIO / Azure Blob / Tencent COS / OneDrive / SFTP / a follower node; if using follower nodes, whether the follower already has an applied default remote storage target
 - If you plan to migrate existing files to a new policy, run `Admin -> Storage Policies -> Migrate Data` and check the plan first, then watch progress under `Admin -> Tasks`; use `Admin -> Files` and `Admin -> File Blob` to spot-check results when needed
 - Whether the Gravatar avatar URL is reachable from the current network
 
-## 7. Validate Before Production Launch
+## 8. Validate Before Production Launch
 
 The full checklist is in [First-Start Checklist](/en/deployment/runtime-behavior/#check-these-items-immediately-after-startup).
 

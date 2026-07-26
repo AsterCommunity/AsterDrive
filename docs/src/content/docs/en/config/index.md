@@ -153,13 +153,13 @@ See [storage policies](/en/config/storage/) for details.
 
 ## Know What Relative Paths Are Relative To
 
-If you write relative paths, remember these three semantics differ:
+If you write relative paths, remember that config-file paths and storage-policy paths use different semantics:
 
 - Location of `data/config.toml` - **relative to the current working directory**
 - Relative paths in `[database]` and `[server]` - **relative to the directory containing `data/config.toml`**, meaning `./data/`
-- Default local storage policy `base_path = "data/uploads"` - **relative to the current working directory**, usually the `data/uploads` directory under that working directory
+- A local storage policy `base_path` created manually in the admin panel - **relative to the current working directory**. For long-running deployments, prefer an absolute path such as `/data/uploads` in Docker
 
-In other words, the generated `[server].temp_dir = ".tmp"` resolves to `data/.tmp` at runtime, while the default local storage policy already includes `data/` in its `base_path`. It is not joined again as `data/data/uploads`.
+In other words, the generated `[server].temp_dir = ".tmp"` resolves to `data/.tmp` at runtime. Storage policies do not live in `config.toml`, so their relative paths are not joined against the `data/config.toml` directory. First startup does not create a local storage policy automatically.
 
 Default locations by deployment method:
 

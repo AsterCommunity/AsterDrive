@@ -271,7 +271,7 @@ mod tests {
         let result = aster_forge_config::build_config_sync_runtime(
             &ConfigSyncConfig {
                 backend: aster_forge_config::CONFIG_SYNC_BACKEND_REDIS.to_string(),
-                endpoint: String::new(),
+                endpoint: aster_forge_config::ConfigSyncEndpoint::default(),
                 topic: "aster_drive.test".to_string(),
             },
             super::CONFIG_RELOAD_NAMESPACE,
@@ -291,7 +291,7 @@ mod tests {
     async fn remote_notification_reloads_runtime_config_from_authoritative_database() {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

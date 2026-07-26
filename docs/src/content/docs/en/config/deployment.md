@@ -40,7 +40,7 @@ topic = "aster_drive.config_reload"
 
 `internal_endpoint` must be an absolute `http`/`https` URL directly reachable from every other Primary and uniquely identify this instance, without a query or fragment. Do not use the shared load-balancer address. `internal_proxy_secret` must contain at least 32 characters and be identical on every Primary. Leaving both empty creates a direct-only cluster; setting only one fails static configuration validation.
 
-The `cluster` profile checks the shared database, Redis, and storage topology during startup, `/health/ready`, and `aster_drive doctor`. A fresh cluster database does not create `Local Default`; create a shared storage policy and make it the default through the admin console.
+The `cluster` profile checks the shared database, Redis, and storage topology during startup, `/health/ready`, and `aster_drive doctor`. A fresh database creates no storage policy in either single or cluster; both enter `needs_storage` after administrator creation, but cluster requires an administrator to create storage reachable by every Primary and make it the default.
 
 See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the authoritative shared-dependency, static-secret, upload and SFTP limit, reverse-tunnel owner routing, health-check, migration-lock, task-lease, and Ingress contract. See [Uploads and Large Files](/en/guide/upload-modes/#choosing-uploads-for-a-cluster-deployment) for upload-mode selection.
 

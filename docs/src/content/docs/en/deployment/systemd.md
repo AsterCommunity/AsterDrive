@@ -39,13 +39,14 @@ sudo cp config.toml /var/lib/asterdrive/data/config.toml
 sudo chown -R asterdrive:asterdrive /var/lib/asterdrive/data
 ```
 
-If you continue using default relative paths, the working directory will usually contain:
+With the default relative paths, the working directory will usually contain:
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads`
 - `data/.tmp`
 - `data/.uploads`
+
+If you create a local policy in the admin panel with the path `data/uploads`, the directory appears on the first write. First startup itself does not create a default local policy.
 
 For long-term deployment, database paths, local storage paths, and temporary directories should preferably use absolute paths.
 

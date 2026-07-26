@@ -605,11 +605,18 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
         .await
         .unwrap()
         .expect("default group should exist");
+    let initial_group_count = policy_group_repo::find_all_groups(state.writer_db())
+        .await
+        .unwrap()
+        .len();
 
     let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
     user_active.policy_group_id = Set(None);
     user_active.update(state.writer_db()).await.unwrap();
 
+    policy::ensure_policy_groups_seeded(state.writer_db())
+        .await
+        .unwrap();
     policy::ensure_policy_groups_seeded(state.writer_db())
         .await
         .unwrap();
@@ -619,10 +626,18 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
         .unwrap()
         .expect("user should exist");
     assert_eq!(updated.policy_group_id, Some(default_group.id));
+    assert_eq!(
+        policy_group_repo::find_all_groups(state.writer_db())
+            .await
+            .unwrap()
+            .len(),
+        initial_group_count,
+        "repeated reconciliation must not create duplicate policy groups"
+    );
 }
 
 #[actix_web::test]
-async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() {
+async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::storage_policy::policy;
     use aster_drive::types::DriverType;
@@ -631,8 +646,8 @@ async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() 
     let state = common::setup().await;
     let user = common::create_test_account(
         &state,
-        "clusterbootstrap",
-        "cluster-bootstrap@example.com",
+        "storagebootstrap",
+        "storage-bootstrap@example.com",
         "password123",
     )
     .await
@@ -662,12 +677,12 @@ async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() 
         aster_drive::services::system_setup::SystemSetupState::NeedsStorage
     );
 
-    let base_path = format!("/tmp/asterdrive-cluster-bootstrap-{}", uuid::Uuid::new_v4());
+    let base_path = format!("/tmp/asterdrive-storage-bootstrap-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&base_path).unwrap();
     let created = policy::create(
         &state,
         policy::CreateStoragePolicyInput {
-            name: "First Cluster Default".to_string(),
+            name: "First Setup Default".to_string(),
             connection: policy::StoragePolicyConnectionInput {
                 driver_type: DriverType::Local,
                 endpoint: String::new(),
@@ -691,7 +706,7 @@ async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() 
     .await
     .unwrap();
 
-    let updated = user_repo::find_by_email(state.writer_db(), "cluster-bootstrap@example.com")
+    let updated = user_repo::find_by_email(state.writer_db(), "storage-bootstrap@example.com")
         .await
         .unwrap()
         .expect("bootstrap admin should still exist");

@@ -1,7 +1,7 @@
 //! 配置子模块：`loader`。
 
 use super::paths::{
-    DEFAULT_CONFIG_PATH, resolve_config_relative_path, resolve_config_relative_sqlite_url,
+    DEFAULT_CONFIG_PATH, resolve_config_relative_database_url, resolve_config_relative_path,
 };
 use super::schema::Config;
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -248,7 +248,7 @@ fn resolve_loaded_paths(base_dir: &Path, config_path: &Path, cfg: &mut Config) -
         config_dir,
         &cfg.server.follower.remote_storage_target_local_root,
     )?;
-    cfg.database.url = resolve_config_relative_sqlite_url(base_dir, config_dir, &cfg.database.url)?;
+    resolve_config_relative_database_url(base_dir, config_dir, &mut cfg.database.url)?;
     Ok(())
 }
 
@@ -314,6 +314,28 @@ mod tests {
         run()
     }
 
+    fn with_env_vars<T>(values: &[(&'static str, &str)], run: impl FnOnce() -> T) -> T {
+        let _lock = env_lock()
+            .lock()
+            .expect("config loader env test lock should not be poisoned");
+        let guards: Vec<_> = values
+            .iter()
+            .map(|(name, value)| {
+                let guard = EnvVarGuard {
+                    name,
+                    old: std::env::var_os(name),
+                };
+                unsafe {
+                    std::env::set_var(name, value);
+                }
+                guard
+            })
+            .collect();
+        let result = run();
+        drop(guards);
+        result
+    }
+
     fn clear_auth_secret_env_vars<T>(run: impl FnOnce() -> T) -> T {
         let names = [
             "ASTER__AUTH__JWT_SECRET",
@@ -349,7 +371,7 @@ mod tests {
         let cfg = loaded.config;
         let generated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert_eq!(cfg.deployment.profile, DeploymentProfile::Single);
         assert_eq!(cfg.server.start_mode, NodeRuntimeMode::Primary);
         assert_eq!(cfg.server.temp_dir, DEFAULT_TEMP_DIR);
@@ -529,7 +551,7 @@ url = "sqlite://custom.db?mode=rwc"
 
         let cfg = load_from_dir(&dir, None, false).unwrap().config;
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert!(dir.join("config.toml").exists());
         assert!(dir.join(DEFAULT_CONFIG_PATH).exists());
 
@@ -543,7 +565,7 @@ url = "sqlite://custom.db?mode=rwc"
 
         let cfg = load_from_dir(&dir, None, false).unwrap().config;
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert!(dir.join("asterdrive.db").exists());
         assert!(!dir.join(DEFAULT_SQLITE_DATABASE_PATH).exists());
 
@@ -569,12 +591,175 @@ remote_storage_target_local_root = "data/remote-storage-targets"
 
         let cfg = load_from_dir(&dir, None, false).unwrap().config;
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
         assert_eq!(cfg.server.temp_dir, DEFAULT_TEMP_DIR);
         assert_eq!(cfg.server.upload_temp_dir, DEFAULT_UPLOAD_TEMP_DIR);
         assert_eq!(
             cfg.server.follower.remote_storage_target_local_root,
             "data/remote-storage-targets"
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_accepts_structured_infrastructure_credentials_without_exposing_secrets() {
+        let dir = make_temp_dir("structured-infrastructure-credentials");
+        let raw_username = "drive user";
+        let raw_password = "raw#[]{}^+=*@:/?%secret";
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            format!(
+                r#"[database]
+url = {{ base_url = "postgres://database.internal:5432/asterdrive", username = "{raw_username}", password = "{raw_password}" }}
+
+[cache]
+backend = "redis"
+endpoint = {{ base_url = "redis://cache.internal:6379/0", username = "{raw_username}", password = "{raw_password}" }}
+
+[config_sync]
+backend = "redis"
+endpoint = {{ base_url = "redis://events.internal:6379/0", username = "{raw_username}", password = "{raw_password}" }}
+topic = "aster_drive.config_reload"
+"#
+            )
+            .as_bytes(),
+        );
+
+        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        assert_eq!(
+            cfg.database.url,
+            aster_forge_db::DatabaseUrl::credentials(
+                "postgres://database.internal:5432/asterdrive",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+        assert_eq!(
+            cfg.cache.endpoint,
+            aster_forge_cache::CacheEndpoint::credentials(
+                "redis://cache.internal:6379/0",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+        assert_eq!(
+            cfg.config_sync.endpoint,
+            aster_forge_config::ConfigSyncEndpoint::credentials(
+                "redis://events.internal:6379/0",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+
+        let debug = format!("{cfg:?}");
+        assert!(!debug.contains(raw_username));
+        assert!(!debug.contains(raw_password));
+        let serialized = toml::to_string(&cfg).unwrap();
+        assert!(!serialized.contains(raw_username));
+        assert!(!serialized.contains(raw_password));
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_keeps_legacy_string_infrastructure_endpoints() {
+        let dir = make_temp_dir("legacy-string-infrastructure-endpoints");
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            br#"[database]
+url = "postgres://encoded-user:encoded-password@database.internal:5432/asterdrive"
+
+[cache]
+backend = "redis"
+endpoint = "redis://encoded-user:encoded-password@cache.internal:6379/0"
+
+[config_sync]
+backend = "redis"
+endpoint = "redis://encoded-user:encoded-password@events.internal:6379/0"
+topic = "aster_drive.config_reload"
+"#,
+        );
+
+        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        assert_eq!(
+            cfg.database.url.as_url(),
+            Some("postgres://encoded-user:encoded-password@database.internal:5432/asterdrive")
+        );
+        assert_eq!(
+            cfg.cache.endpoint,
+            aster_forge_cache::CacheEndpoint::url(
+                "redis://encoded-user:encoded-password@cache.internal:6379/0"
+            )
+        );
+        assert_eq!(
+            cfg.config_sync.endpoint,
+            aster_forge_config::ConfigSyncEndpoint::url(
+                "redis://encoded-user:encoded-password@events.internal:6379/0"
+            )
+        );
+
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_accepts_structured_infrastructure_credentials_from_environment() {
+        let dir = make_temp_dir("structured-infrastructure-env");
+        let raw_username = "env user";
+        let raw_password = "env#[]{}^+=*@:/?%secret";
+        with_env_vars(
+            &[
+                (
+                    "ASTER__DATABASE__URL__BASE_URL",
+                    "postgres://database.internal:5432/asterdrive",
+                ),
+                ("ASTER__DATABASE__URL__USERNAME", raw_username),
+                ("ASTER__DATABASE__URL__PASSWORD", raw_password),
+                ("ASTER__CACHE__BACKEND", "redis"),
+                (
+                    "ASTER__CACHE__ENDPOINT__BASE_URL",
+                    "redis://cache.internal:6379/0",
+                ),
+                ("ASTER__CACHE__ENDPOINT__USERNAME", raw_username),
+                ("ASTER__CACHE__ENDPOINT__PASSWORD", raw_password),
+                ("ASTER__CONFIG_SYNC__BACKEND", "redis"),
+                (
+                    "ASTER__CONFIG_SYNC__ENDPOINT__BASE_URL",
+                    "redis://events.internal:6379/0",
+                ),
+                ("ASTER__CONFIG_SYNC__ENDPOINT__USERNAME", raw_username),
+                ("ASTER__CONFIG_SYNC__ENDPOINT__PASSWORD", raw_password),
+            ],
+            || {
+                let cfg = load_from_dir(&dir, None, true).unwrap().config;
+                assert_eq!(
+                    cfg.database.url,
+                    aster_forge_db::DatabaseUrl::credentials(
+                        "postgres://database.internal:5432/asterdrive",
+                        Some(raw_username.to_string()),
+                        Some(raw_password.to_string()),
+                    )
+                );
+                assert_eq!(
+                    cfg.cache.endpoint,
+                    aster_forge_cache::CacheEndpoint::credentials(
+                        "redis://cache.internal:6379/0",
+                        Some(raw_username.to_string()),
+                        Some(raw_password.to_string()),
+                    )
+                );
+                assert_eq!(
+                    cfg.config_sync.endpoint,
+                    aster_forge_config::ConfigSyncEndpoint::credentials(
+                        "redis://events.internal:6379/0",
+                        Some(raw_username.to_string()),
+                        Some(raw_password.to_string()),
+                    )
+                );
+                let debug = format!("{cfg:?}");
+                assert!(!debug.contains(raw_username));
+                assert!(!debug.contains(raw_password));
+            },
         );
 
         let _ = std::fs::remove_dir_all(dir);
@@ -609,7 +794,10 @@ managed_ingress_local_root = "data/remote-storage-targets"
             .unwrap()
             .config;
 
-        assert_eq!(cfg.database.url, "sqlite://data/custom.db?mode=rwc");
+        assert_eq!(
+            cfg.database.url.as_url(),
+            Some("sqlite://data/custom.db?mode=rwc")
+        );
         assert!(dir.join(DEFAULT_CONFIG_PATH).exists());
         assert!(dir.join("asterdrive.db").exists());
         assert!(!dir.join(DEFAULT_SQLITE_DATABASE_PATH).exists());
@@ -625,7 +813,10 @@ managed_ingress_local_root = "data/remote-storage-targets"
             .unwrap()
             .config;
 
-        assert_eq!(cfg.database.url, "sqlite://data/custom.db?mode=rwc");
+        assert_eq!(
+            cfg.database.url.as_url(),
+            Some("sqlite://data/custom.db?mode=rwc")
+        );
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -639,7 +830,7 @@ managed_ingress_local_root = "data/remote-storage-targets"
             .unwrap()
             .config;
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
 
         let _ = std::fs::remove_dir_all(dir);
     }
@@ -653,7 +844,7 @@ managed_ingress_local_root = "data/remote-storage-targets"
             .unwrap()
             .config;
 
-        assert_eq!(cfg.database.url, DEFAULT_SQLITE_DATABASE_URL);
+        assert_eq!(cfg.database.url.as_url(), Some(DEFAULT_SQLITE_DATABASE_URL));
 
         let _ = std::fs::remove_dir_all(dir);
     }

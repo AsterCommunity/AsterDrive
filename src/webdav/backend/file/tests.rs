@@ -173,7 +173,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
 
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

@@ -12,14 +12,14 @@ title: "存储策略"
 
 ## 第一次启动后默认会有什么
 
-默认内容取决于 deployment profile：
+两种 deployment profile 使用同一套初始化状态机：
 
 | Profile | 首次启动行为 |
 | --- | --- |
-| `single` | 自动创建本地存储策略 `Local Default`，再创建指向它的 `Default Policy Group` |
-| `cluster` | 跳过本地策略和策略组，等待管理员创建所有 Primary 都能访问的共享策略 |
+| `single` | 创建首个管理员后进入 `needs_storage`；管理员可以把 `local` 或其他支持的策略设为默认 |
+| `cluster` | 创建首个管理员后同样进入 `needs_storage`；默认策略必须由所有 Primary 访问，不能使用 `local` |
 
-`single` 什么都不改时，新用户会自动绑定默认策略组，再由该组把上传分到默认本地策略。`cluster` 创建首个管理员后进入 `needs_storage`；管理员把第一条共享策略设为默认时，系统会原子创建默认策略组并回填尚未分配策略组的管理员，随后进入 `ready`。
+管理员把第一条策略设为默认时，系统会原子创建或协调默认策略组，并回填尚未分配策略组的管理员，随后进入 `ready`。之后创建的新用户会自动绑定当前默认策略组，再由该组决定上传目标。single 和 cluster 调用的是同一套创建、回填和状态迁移代码，区别只在允许选择的存储能力。
 
 系统管理员创建新团队时，如果没有手动指定策略组，会使用当前默认策略组。完整 cluster 初始化流程见 [Kubernetes 部署](/deployment/kubernetes/#探针与终止)。
 

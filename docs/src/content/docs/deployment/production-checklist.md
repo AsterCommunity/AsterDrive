@@ -27,7 +27,7 @@ title: "生产上线检查清单"
 
 - `data/config.toml`
 - 数据库文件，或者外部数据库实例
-- 默认本地存储目录
+- 管理端配置的本地存储目录（如果使用 `local`）
 - 额外创建的本地 `local` 存储策略目录
 - 头像目录，默认通常是 `data/avatar`
 - 从节点的 `remote_storage_target_local_root`，如果你用了本地远程存储目标

@@ -183,7 +183,7 @@ mod tests {
     async fn follower_state() -> FollowerAppState {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

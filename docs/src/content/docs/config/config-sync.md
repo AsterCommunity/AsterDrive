@@ -65,7 +65,21 @@ endpoint = "redis://127.0.0.1:6379/"
 topic = "aster_drive.config_reload"
 ```
 
-如果 Redis 需要认证或 TLS，按 Redis URL 的标准格式写入 `endpoint`，并限制配置文件读取权限。
+如果 Redis 需要认证，完整 URL 字符串仍然兼容；用户名或密码含保留字符时，推荐使用原始结构化凭据：
+
+```toml
+endpoint = { base_url = "redis://redis.internal:6379/0", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+无 ACL 用户名时使用 `username = ""`。原始凭据不要预编码，`base_url` 不能包含 userinfo。AsterDrive 的 config reload 与 Storage SSE transport 都复用同一 typed endpoint，并由 Forge 安全注入凭据；Debug 和配置序列化不会输出 username/password。请限制配置文件权限，Kubernetes 建议通过 Secret 挂载完整配置。
+
+对应的结构化环境变量：
+
+```bash
+ASTER__CONFIG_SYNC__ENDPOINT__BASE_URL=redis://redis.internal:6379/0
+ASTER__CONFIG_SYNC__ENDPOINT__USERNAME=
+ASTER__CONFIG_SYNC__ENDPOINT__PASSWORD=RAW_PASSWORD
+```
 
 :::caution[SQLite 不适合跨主机多实例]
 配置同步不会把本地 SQLite 文件复制到其他主机。多个实例必须真正访问同一份权威数据库；不要给每台机器各放一份 SQLite，然后期待 Redis 帮你同步配置值。
@@ -108,7 +122,7 @@ ASTER__CONFIG_SYNC__TOPIC=aster_drive.config_reload
 
 `[config_sync]` 和 `[cache]` 的故障语义不同：
 
-- `[cache].backend = "redis"` 连接失败时，缓存可以回退到进程内 memory cache
+- `[cache].backend = "redis"` 在启动构造阶段连接失败时，实例直接启动失败，不回退到进程内 memory cache
 - `[config_sync].backend = "redis"` 的 backend、endpoint URL 等配置无效，导致通知后端无法构造时，实例启动失败
 - Redis URL 合法但服务暂时不可达时，实例可以完成启动；订阅 supervisor 会记录 `disconnected`，使用有界指数退避和抖动自动重连
 - 管理 API 或 CLI 已完成数据库写入，但随后发布通知失败时，命令会返回错误；本地值已经写入，其他实例可能要等重启或下一条成功通知后才重新加载

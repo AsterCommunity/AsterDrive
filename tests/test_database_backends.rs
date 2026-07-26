@@ -33,7 +33,7 @@ async fn wait_for_database(database_url: &str) {
     let ready = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let cfg = aster_drive::config::DatabaseConfig {
-                url: database_url.to_string(),
+                url: database_url.into(),
                 pool_size: 1,
                 retry_count: 0,
             };
@@ -301,7 +301,7 @@ async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
     let database_path = format!("/tmp/asterdrive-sqlite-lock-{}.db", uuid::Uuid::new_v4());
     let database_url = format!("sqlite://{database_path}");
     let cfg = aster_drive::config::DatabaseConfig {
-        url: database_url,
+        url: database_url.into(),
         pool_size: 8,
         retry_count: 0,
     };
@@ -737,7 +737,7 @@ async fn test_mysql_smoke_search_and_admin_overview() {
 async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
     let database_url = common::mysql_test_database_url().await;
     let config = aster_drive::config::DatabaseConfig {
-        url: database_url,
+        url: database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };

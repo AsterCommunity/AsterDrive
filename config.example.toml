@@ -16,6 +16,8 @@ remote_storage_target_local_root = "remote-storage-targets"
 
 [database]
 url = "sqlite://asterdrive.db?mode=rwc"  # 或 postgres://user:pass@localhost/asterdrive
+# PostgreSQL/MySQL 原始凭据可写成 inline table，无需手工 percent-encode：
+# url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
 pool_size = 10
 retry_count = 3
 
@@ -30,11 +32,14 @@ bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时�
 [cache]
 backend = "memory"   # "memory" | "redis"
 endpoint = ""
+# Redis 原始凭据可写成：
+# endpoint = { base_url = "redis://localhost:6379/0", username = "", password = "RAW_PASSWORD" }
 default_ttl = 3600
 
 [config_sync]
 backend = "disabled" # "disabled" | "redis"
 endpoint = ""
+# endpoint = { base_url = "redis://localhost:6379/0", username = "", password = "RAW_PASSWORD" }
 topic = "aster_drive.config_reload"
 
 [logging]

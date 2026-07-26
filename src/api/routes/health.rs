@@ -8,7 +8,7 @@ use actix_web::{HttpResponse, web};
 use aster_forge_runtime::HealthStatus;
 
 const READY_DB_UNAVAILABLE_MESSAGE: &str = "Database unavailable";
-const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Shared cache unavailable";
+const READY_CACHE_UNAVAILABLE_MESSAGE: &str = "Cache unavailable";
 const READY_STORAGE_UNAVAILABLE_MESSAGE: &str = "Storage unavailable";
 
 pub fn primary_routes() -> actix_web::Scope {
@@ -65,7 +65,7 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
-    if let Err(error) = check_cluster_cache_ready(state.get_ref()).await {
+    if let Err(error) = check_cache_ready(state.get_ref()).await {
         return ready_cache_error(error);
     }
 
@@ -81,7 +81,7 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
     if let Err(error) = aster_forge_db::ping_database(state.get_ref().writer_db()).await {
         return ready_database_error(error);
     }
-    if let Err(error) = check_cluster_cache_ready(state.get_ref()).await {
+    if let Err(error) = check_cache_ready(state.get_ref()).await {
         return ready_cache_error(error);
     }
 
@@ -91,11 +91,10 @@ pub async fn follower_ready(state: web::Data<FollowerAppState>) -> HttpResponse 
     }
 }
 
-async fn check_cluster_cache_ready<S: SharedRuntimeState>(state: &S) -> Result<(), String> {
-    if !state.config().deployment.profile.is_cluster() {
-        return Ok(());
-    }
-    if state.config().cache.normalized_backend() != "redis" {
+async fn check_cache_ready<S: SharedRuntimeState>(state: &S) -> Result<(), String> {
+    if state.config().deployment.requires_shared_runtime()
+        && state.config().cache.normalized_backend() != "redis"
+    {
         return Err(format!(
             "cluster profile requires redis cache, configured backend is {}",
             state.config().cache.normalized_backend()
@@ -120,7 +119,7 @@ fn ready_database_error(error: impl std::fmt::Display) -> HttpResponse {
 }
 
 fn ready_cache_error(error: impl std::fmt::Display) -> HttpResponse {
-    tracing::error!(error = %error, "health readiness shared cache check failed");
+    tracing::error!(error = %error, "health readiness cache check failed");
     HttpResponse::ServiceUnavailable().json(ApiResponse::<()>::error(
         ApiErrorCode::ConfigError,
         READY_CACHE_UNAVAILABLE_MESSAGE,
@@ -301,7 +300,7 @@ mod tests {
     async fn build_test_state(driver: Option<ProbeDriver>) -> PrimaryAppState {
         let db = crate::db::connect_with_metrics(
             &DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 ..Default::default()
             },
             crate::metrics::NoopMetrics::arc(),
@@ -428,7 +427,7 @@ mod tests {
         let mut config = state.config.as_ref().clone();
         config.deployment.profile = crate::config::DeploymentProfile::Cluster;
         config.cache.backend = "redis".to_string();
-        config.cache.endpoint = "redis://cache.test:6379/0".to_string();
+        config.cache.endpoint = "redis://cache.test:6379/0".into();
         state.config = Arc::new(config);
         state.cache = Arc::new(FakeCache {
             backend_name: "redis",
@@ -614,7 +613,7 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn single_ready_does_not_depend_on_shared_cache_health() {
+    async fn readiness_checks_the_configured_cache_for_every_deployment_profile() {
         let driver = ProbeDriver::healthy();
         let mut state = build_test_state(Some(driver.clone())).await;
         state.cache = Arc::new(FakeCache {
@@ -624,7 +623,7 @@ mod tests {
 
         let response = ready(web::Data::new(state)).await;
 
-        assert_eq!(response.status(), StatusCode::OK);
-        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
+        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 0);
     }
 }

@@ -27,7 +27,7 @@ AsterDrive 当前**不提供统一的 `backup` / `restore` CLI**。
 
 这里的“本地持久化目录”通常包括：
 
-- 默认本地存储策略目录 `data/uploads`
+- 你在管理端创建的本地存储策略目录，例如 `/data/uploads` 或 `data/uploads`
 - `管理 -> 系统设置 -> 用户管理 -> 头像目录` 对应的本地目录；默认是 `data/avatar`
 - 你手动配置的其他 `local` 存储策略根目录
 
@@ -79,7 +79,7 @@ sudo systemctl start asterdrive
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads/`
+- `data/uploads/`（仅当你手动把本地策略配置到这里）
 - `data/avatar/`
 
 Docker 部署时，本质上也是同一件事：  

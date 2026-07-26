@@ -43,7 +43,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
 
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

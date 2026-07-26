@@ -123,7 +123,7 @@ On first startup, AsterDrive will automatically:
 - generate `data/config.toml` under the current working directory if it does not exist
 - create the default SQLite database when using the default database URL
 - run all database migrations
-- create the default local storage policy and default policy group
+- initialize the shared three-stage setup state; after creating the administrator, configure a default storage policy suitable for the deployment
 - initialize built-in runtime configuration items in `system_config`
 
 ## Production notes

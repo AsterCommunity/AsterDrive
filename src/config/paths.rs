@@ -39,6 +39,17 @@ pub fn resolve_config_relative_sqlite_url(
         .map_err(map_config_path_error)
 }
 
+pub fn resolve_config_relative_database_url(
+    base_dir: &Path,
+    config_dir: &Path,
+    value: &mut aster_forge_db::DatabaseUrl,
+) -> Result<()> {
+    if let aster_forge_db::DatabaseUrl::Url(url) = value {
+        *url = resolve_config_relative_sqlite_url(base_dir, config_dir, url)?;
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use std::path::Path;
