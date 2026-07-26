@@ -3,6 +3,8 @@
 use crate::runtime::SharedRuntimeState;
 use aster_forge_cache::CacheExt;
 use aster_forge_crypto as hash;
+use hmac::{Hmac, KeyInit, Mac};
+use sha2::{Digest, Sha256, Sha512};
 
 use super::CachedWebdavAuth;
 
@@ -12,19 +14,26 @@ pub(super) fn username_cache_component(username: &str) -> String {
     hash::sha256_hex(username.as_bytes())
 }
 
-fn password_cache_component(password: &str) -> String {
-    hash::sha256_hex(password.as_bytes())
+fn credential_cache_component(cache_secret: &str, username: &str, password: &str) -> String {
+    // HMAC-SHA-256 的固定 key block 是 64 字节。先把配置 secret 归一化为
+    // SHA-512 输出，随后走无失败分支的 KeyInit::new，避免在认证热路径里 panic。
+    let cache_key = Sha512::digest(cache_secret.as_bytes());
+    let mut mac = <Hmac<Sha256> as KeyInit>::new(&cache_key);
+    mac.update(b"asterdrive:webdav-auth-cache:v1\0");
+    mac.update(&Sha256::digest(username.as_bytes()));
+    mac.update(&Sha256::digest(password.as_bytes()));
+    hex::encode(mac.finalize().into_bytes())
 }
 
 fn auth_cache_prefix(username: &str) -> String {
     format!("webdav_auth:{}:", username_cache_component(username))
 }
 
-fn auth_cache_key(username: &str, password: &str) -> String {
+fn auth_cache_key(cache_secret: &str, username: &str, password: &str) -> String {
     format!(
         "{}{}",
         auth_cache_prefix(username),
-        password_cache_component(password)
+        credential_cache_component(cache_secret, username, password)
     )
 }
 
@@ -35,7 +44,11 @@ pub(super) async fn load_auth(
 ) -> Option<CachedWebdavAuth> {
     state
         .cache()
-        .get::<CachedWebdavAuth>(&auth_cache_key(username, password))
+        .get::<CachedWebdavAuth>(&auth_cache_key(
+            &state.config().auth.webdav_auth_cache_secret,
+            username,
+            password,
+        ))
         .await
 }
 
@@ -48,7 +61,11 @@ pub(super) async fn store_auth(
     state
         .cache()
         .set(
-            &auth_cache_key(username, password),
+            &auth_cache_key(
+                &state.config().auth.webdav_auth_cache_secret,
+                username,
+                password,
+            ),
             cached,
             Some(WEBDAV_AUTH_CACHE_TTL),
         )
@@ -76,13 +93,27 @@ mod tests {
         }
     }
 
-    #[tokio::test]
-    async fn auth_cache_key_hashes_username_and_password() {
-        let key = auth_cache_key("webdav-user", "secret-password");
+    #[test]
+    fn auth_cache_key_hides_credentials_behind_server_secret() {
+        let key = auth_cache_key("cache-secret", "webdav-user", "secret-password");
+        let leaked_sha256_design = format!(
+            "{}{}",
+            auth_cache_prefix("webdav-user"),
+            hash::sha256_hex(b"secret-password")
+        );
 
         assert!(key.starts_with("webdav_auth:"));
         assert!(!key.contains("webdav-user"));
         assert!(!key.contains("secret-password"));
+        assert_ne!(key, leaked_sha256_design);
+    }
+
+    #[test]
+    fn auth_cache_key_is_scoped_by_secret_and_username() {
+        let key = auth_cache_key("cache-secret-a", "alice", "password");
+
+        assert_ne!(key, auth_cache_key("cache-secret-b", "alice", "password"));
+        assert_ne!(key, auth_cache_key("cache-secret-a", "bob", "password"));
     }
 
     #[tokio::test]

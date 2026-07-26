@@ -18,6 +18,7 @@ share_cookie_secret = "<random secret generated on first startup>"
 direct_link_secret = "<random secret generated on first startup>"
 mfa_secret_key = "<random secret generated on first startup>"
 storage_credential_secret_key = "<random secret generated on first startup>"
+webdav_auth_cache_secret = "<random secret generated on first startup>"
 bootstrap_insecure_cookies = false
 ```
 
@@ -66,6 +67,12 @@ Once changed or lost, the encrypted Client Secret and OAuth tokens can no longer
 
 Back up the entire `[auth]` section together with this key before upgrading or moving hosts.
 :::
+
+### `webdav_auth_cache_secret`
+
+This is the dedicated HMAC secret for WebDAV authentication cache keys. It prevents a leaked Redis key list from exposing a directly testable SHA-256 target for valid passwords. Every Primary sharing the same Redis cache must use the same value.
+
+Changing it makes all existing WebDAV authentication cache entries miss and repopulate after successful authentication; old keys remain only for their existing 60-second TTL. It is independent from the JWT, share-cookie, direct-link, MFA, and storage-credential secrets.
 
 ### `bootstrap_insecure_cookies`
 
@@ -283,6 +290,7 @@ share_cookie_secret = "replace-with-share-cookie-secret"
 direct_link_secret = "replace-with-direct-link-secret"
 mfa_secret_key = "replace-with-another-stable-secret"
 storage_credential_secret_key = "replace-with-storage-credential-secret"
+webdav_auth_cache_secret = "replace-with-webdav-auth-cache-secret"
 bootstrap_insecure_cookies = false
 ```
 
@@ -294,6 +302,7 @@ ASTER__AUTH__SHARE_COOKIE_SECRET="replace-with-share-cookie-secret"
 ASTER__AUTH__DIRECT_LINK_SECRET="replace-with-direct-link-secret"
 ASTER__AUTH__MFA_SECRET_KEY="replace-with-another-stable-secret"
 ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY="replace-with-storage-credential-secret"
+ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET="replace-with-webdav-auth-cache-secret"
 ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=false
 ```
 

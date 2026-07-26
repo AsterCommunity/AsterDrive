@@ -18,6 +18,7 @@ share_cookie_secret = "<首次生成的一串随机密钥>"
 direct_link_secret = "<首次生成的一串随机密钥>"
 mfa_secret_key = "<首次生成的一串随机密钥>"
 storage_credential_secret_key = "<首次生成的一串随机密钥>"
+webdav_auth_cache_secret = "<首次生成的一串随机密钥>"
 bootstrap_insecure_cookies = false
 ```
 
@@ -66,6 +67,12 @@ S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及远程�
 
 升级或换机前，把整个 `[auth]` 段连同这把密钥一起备份。
 :::
+
+### `webdav_auth_cache_secret`
+
+这是 WebDAV 认证缓存 key 的专用 HMAC 密钥，用来避免 Redis key 列表把有效密码暴露成可直接离线枚举的 SHA-256 目标。所有共享同一 Redis cache 的 Primary 必须使用相同值。
+
+修改后，已有 WebDAV 认证缓存会全部 miss 并在认证成功后重新写入；旧 key 最多保留原有的 60 秒 TTL。它与 JWT、分享 Cookie、直链、MFA 和存储凭据密钥相互独立。
 
 ### `bootstrap_insecure_cookies`
 
@@ -283,6 +290,7 @@ share_cookie_secret = "replace-with-share-cookie-secret"
 direct_link_secret = "replace-with-direct-link-secret"
 mfa_secret_key = "replace-with-another-stable-secret"
 storage_credential_secret_key = "replace-with-storage-credential-secret"
+webdav_auth_cache_secret = "replace-with-webdav-auth-cache-secret"
 bootstrap_insecure_cookies = false
 ```
 
@@ -294,6 +302,7 @@ ASTER__AUTH__SHARE_COOKIE_SECRET="replace-with-share-cookie-secret"
 ASTER__AUTH__DIRECT_LINK_SECRET="replace-with-direct-link-secret"
 ASTER__AUTH__MFA_SECRET_KEY="replace-with-another-stable-secret"
 ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY="replace-with-storage-credential-secret"
+ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET="replace-with-webdav-auth-cache-secret"
 ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=false
 ```
 

@@ -27,6 +27,7 @@ share_cookie_secret = "change-me-in-production-share-cookie"
 direct_link_secret = "change-me-in-production-direct-link"
 mfa_secret_key = "change-me-in-production-mfa"
 storage_credential_secret_key = "change-me-in-production-storage-credential"
+webdav_auth_cache_secret = "change-me-in-production-webdav-auth-cache"
 bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时生效；纯 HTTP 首启可临时设为 true
 
 [cache]

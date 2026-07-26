@@ -248,6 +248,7 @@ pub(crate) mod test_support {
 
     pub(crate) struct CacheOnlyState {
         cache: Arc<dyn aster_forge_cache::CacheBackend>,
+        config: Arc<Config>,
         config_sync: aster_forge_config::ConfigSyncRuntime,
     }
 
@@ -259,6 +260,7 @@ pub(crate) mod test_support {
                     ..Default::default()
                 })
                 .await,
+                config: Arc::new(Config::default()),
                 config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test(
                     "aster_drive",
                 ),
@@ -288,7 +290,7 @@ pub(crate) mod test_support {
         }
 
         fn config(&self) -> &Arc<Config> {
-            panic!("cache-only test state must not access config")
+            &self.config
         }
 
         fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {

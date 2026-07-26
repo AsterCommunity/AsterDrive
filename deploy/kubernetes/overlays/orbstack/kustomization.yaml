@@ -36,6 +36,7 @@ secretGenerator:
       - ASTER__AUTH__DIRECT_LINK_SECRET=orbstack-direct-link-secret-issue-399
       - ASTER__AUTH__MFA_SECRET_KEY=orbstack-mfa-secret-issue-399
       - ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY=orbstack-storage-credential-secret-issue-399
+      - ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET=orbstack-webdav-auth-cache-secret-issue-399
 patches:
   - target:
       kind: PersistentVolumeClaim

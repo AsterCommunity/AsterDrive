@@ -212,6 +212,10 @@ fn ensure_stable_default_config_keys(
             "storage_credential_secret_key",
             auth_defaults.storage_credential_secret_key,
         ),
+        (
+            "webdav_auth_cache_secret",
+            auth_defaults.webdav_auth_cache_secret,
+        ),
     ] {
         if !auth_table.contains_key(key) && std::env::var_os(auth_env_name(key)).is_none() {
             auth_table.insert(key, value(secret));
@@ -343,6 +347,7 @@ mod tests {
             "ASTER__AUTH__DIRECT_LINK_SECRET",
             "ASTER__AUTH__MFA_SECRET_KEY",
             "ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY",
+            "ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET",
         ];
         let guards: Vec<_> = names
             .into_iter()
@@ -400,6 +405,7 @@ mod tests {
         assert!(generated.contains("direct_link_secret"));
         assert!(generated.contains("mfa_secret_key"));
         assert!(generated.contains("storage_credential_secret_key"));
+        assert!(generated.contains("webdav_auth_cache_secret"));
         assert!(
             messages
                 .iter()
@@ -451,14 +457,17 @@ jwt_secret = "{legacy_jwt_secret}"
             assert!(!cfg.auth.direct_link_secret.is_empty());
             assert!(!cfg.auth.mfa_secret_key.is_empty());
             assert!(!cfg.auth.storage_credential_secret_key.is_empty());
+            assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
             assert_ne!(cfg.auth.share_cookie_secret, legacy_jwt_secret);
             assert_ne!(cfg.auth.direct_link_secret, legacy_jwt_secret);
             assert_ne!(cfg.auth.mfa_secret_key, legacy_jwt_secret);
             assert_ne!(cfg.auth.storage_credential_secret_key, legacy_jwt_secret);
+            assert_ne!(cfg.auth.webdav_auth_cache_secret, legacy_jwt_secret);
             assert!(updated.contains("share_cookie_secret"));
             assert!(updated.contains("direct_link_secret"));
             assert!(updated.contains("mfa_secret_key"));
             assert!(updated.contains("storage_credential_secret_key"));
+            assert!(updated.contains("webdav_auth_cache_secret"));
 
             let _ = std::fs::remove_dir_all(dir);
         });
@@ -486,12 +495,14 @@ url = "sqlite://asterdrive.db?mode=rwc"
             assert!(!cfg.auth.direct_link_secret.is_empty());
             assert!(!cfg.auth.mfa_secret_key.is_empty());
             assert!(!cfg.auth.storage_credential_secret_key.is_empty());
+            assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
             assert!(updated.contains("[auth]"));
             assert!(updated.contains("jwt_secret"));
             assert!(updated.contains("share_cookie_secret"));
             assert!(updated.contains("direct_link_secret"));
             assert!(updated.contains("mfa_secret_key"));
             assert!(updated.contains("storage_credential_secret_key"));
+            assert!(updated.contains("webdav_auth_cache_secret"));
 
             let _ = std::fs::remove_dir_all(dir);
         });

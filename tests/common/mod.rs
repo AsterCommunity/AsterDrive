@@ -1205,6 +1205,8 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             mfa_secret_key: "test-mfa-secret-key-for-integration-tests".to_string(),
             storage_credential_secret_key:
                 "test-storage-credential-secret-key-for-integration-tests".to_string(),
+            webdav_auth_cache_secret: "test-webdav-auth-cache-secret-for-integration-tests"
+                .to_string(),
             bootstrap_insecure_cookies: true,
         },
         ..Default::default()

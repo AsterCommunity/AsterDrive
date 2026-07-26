@@ -24,6 +24,7 @@
 | `ASTER__AUTH__DIRECT_LINK_SECRET` | 直链签名密钥 |
 | `ASTER__AUTH__MFA_SECRET_KEY` | MFA 加密密钥 |
 | `ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY` | 存储凭据加密密钥 |
+| `ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET` | WebDAV 认证缓存 HMAC 密钥 |
 
 这些密钥在所有 Primary 上必须一致。自动 access token / refresh token 轮换仍写入共享数据库，不要为每个 Pod 生成不同静态密钥。
 
