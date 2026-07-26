@@ -1,10 +1,11 @@
 use std::sync::Arc;
 
-use async_trait::async_trait;
 use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
+use async_trait::async_trait;
 use chrono::Utc;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::http::read_reqwest_body_limited;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::extensions::{
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
@@ -12,16 +13,16 @@ use crate::storage::traits::extensions::{
 use crate::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
 };
-use crate::xml_utils::{local_name_eq_ignore_case, non_empty_owned_text};
 
-use super::{MAX_COS_THUMBNAIL_TTL, TencentCosDriver};
+use super::{MAX_COS_THUMBNAIL_TTL, TencentCosDriver, non_empty_xml_text};
 
 const COS_NATIVE_MEDIA_METADATA_PARSER: &str = "tencent_cos_ci_videoinfo";
 const COS_NATIVE_MEDIA_METADATA_VERSION: &str = "1";
+const COS_MEDIA_INFO_XML_MAX_BYTES: usize = 256 * 1024;
 
 fn media_info_xml_options() -> ParseOptions {
     ParseOptions::new()
-        .max_size(256 * 1024)
+        .max_size(COS_MEDIA_INFO_XML_MAX_BYTES)
         .max_depth(16)
         .max_elements(500)
 }
@@ -76,10 +77,13 @@ impl NativeMediaMetadataStorageDriver for TencentCosDriver {
             ));
         }
 
-        let body = response.bytes().await.map_aster_err_ctx(
-            "COS native media metadata body",
+        let body = read_reqwest_body_limited(
+            response,
+            "COS native media metadata response body",
+            COS_MEDIA_INFO_XML_MAX_BYTES,
             AsterError::storage_driver_error,
-        )?;
+        )
+        .await?;
         parse_cos_media_info_xml(&body, request.kind).map(Some)
     }
 }
@@ -97,10 +101,11 @@ fn parse_cos_media_info_xml(
     body: &[u8],
     kind: MediaMetadataKind,
 ) -> Result<NativeMediaMetadataResult> {
-    let doc = OwnedDocument::from_reader_with_options(body, &media_info_xml_options()).map_aster_err_ctx(
-        "parse COS native media metadata XML",
-        AsterError::storage_driver_error,
-    )?;
+    let doc = OwnedDocument::from_reader_with_options(body, &media_info_xml_options())
+        .map_aster_err_ctx(
+            "parse COS native media metadata XML",
+            AsterError::storage_driver_error,
+        )?;
     let root = doc.root();
     let metadata = match kind {
         MediaMetadataKind::Video => MediaMetadataPayload::Video(parse_cos_video_metadata(&root)),
@@ -225,7 +230,7 @@ fn first_descendant<'a>(
     element: &ElementRef<'a, Arc<[u8]>>,
     name: &str,
 ) -> Option<ElementRef<'a, Arc<[u8]>>> {
-    if local_name_eq_ignore_case(element.name(), name) {
+    if element.name().eq_ignore_ascii_case(name) {
         return Some(*element);
     }
     element
@@ -238,7 +243,7 @@ fn first_descendant<'a>(
 }
 
 fn descendant_count(element: &ElementRef<'_, Arc<[u8]>>, name: &str) -> u32 {
-    let mut count = u32::from(local_name_eq_ignore_case(element.name(), name));
+    let mut count = u32::from(element.name().eq_ignore_ascii_case(name));
     for child in element.children() {
         if let NodeRef::Element(child) = child {
             count = count.saturating_add(descendant_count(&child, name));
@@ -251,8 +256,8 @@ fn child_string(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<S
     names.iter().find_map(|name| {
         element
             .child_elements()
-            .find(|child| local_name_eq_ignore_case(child.name(), name))
-            .and_then(|child| non_empty_owned_text(child.text().as_deref()))
+            .find(|child| child.name().eq_ignore_ascii_case(name))
+            .and_then(|child| non_empty_xml_text(child.text().as_deref()))
     })
 }
 
@@ -288,7 +293,7 @@ fn child_duration_ms(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Opt
 
 #[cfg(test)]
 mod tests {
-    use super::{child_duration_ms, parse_cos_media_info_xml};
+    use super::{COS_MEDIA_INFO_XML_MAX_BYTES, child_duration_ms, parse_cos_media_info_xml};
     use crate::types::{MediaMetadataKind, MediaMetadataPayload};
     use aster_forge_xml::{OwnedDocument, ParseOptions};
 
@@ -378,6 +383,111 @@ mod tests {
     }
 
     #[test]
+    fn parses_namespaced_cos_media_info_and_ignores_blank_values() {
+        let xml = br#"
+            <cos:Response xmlns:cos="urn:cos">
+              <cos:MediaInfo>
+                <cos:Stream>
+                  <cos:Video>
+                    <cos:CodecName>  h265  </cos:CodecName>
+                    <cos:Width>3840</cos:Width>
+                    <cos:Height>2160</cos:Height>
+                    <cos:Duration>2.5</cos:Duration>
+                    <cos:BitDepth>  </cos:BitDepth>
+                  </cos:Video>
+                  <cos:Audio><cos:Channel>6</cos:Channel></cos:Audio>
+                </cos:Stream>
+                <cos:Format><cos:FormatName>matroska</cos:FormatName></cos:Format>
+              </cos:MediaInfo>
+            </cos:Response>
+        "#;
+
+        let result = parse_cos_media_info_xml(xml, MediaMetadataKind::Video).unwrap();
+        let MediaMetadataPayload::Video(metadata) = result.metadata else {
+            panic!("expected video payload");
+        };
+        assert_eq!(metadata.codec.as_deref(), Some("h265"));
+        assert_eq!(metadata.width, Some(3840));
+        assert_eq!(metadata.height, Some(2160));
+        assert_eq!(metadata.duration_ms, Some(2500));
+        assert_eq!(metadata.bit_depth, None);
+        assert_eq!(metadata.audio_channels, Some(6));
+        assert_eq!(metadata.container.as_deref(), Some("matroska"));
+    }
+
+    #[test]
+    fn media_info_xml_enforces_size_depth_element_and_declaration_boundaries() {
+        let size_prefix = "<MediaInfo><!--";
+        let size_suffix = "--></MediaInfo>";
+        let exact_size = format!(
+            "{size_prefix}{}{size_suffix}",
+            "x".repeat(COS_MEDIA_INFO_XML_MAX_BYTES - size_prefix.len() - size_suffix.len())
+        );
+        assert_eq!(exact_size.len(), COS_MEDIA_INFO_XML_MAX_BYTES);
+        parse_cos_media_info_xml(exact_size.as_bytes(), MediaMetadataKind::Video)
+            .expect("COS media XML at exact size limit should parse");
+        let over_size = format!("{exact_size} ");
+        let error = parse_cos_media_info_xml(over_size.as_bytes(), MediaMetadataKind::Video)
+            .expect_err("COS media XML over size limit should fail");
+        assert!(error.message().contains("byte limit"));
+
+        let exact_depth = format!(
+            "<MediaInfo>{}{}</MediaInfo>",
+            "<n>".repeat(15),
+            "</n>".repeat(15)
+        );
+        parse_cos_media_info_xml(exact_depth.as_bytes(), MediaMetadataKind::Video)
+            .expect("COS media XML at exact depth limit should parse");
+        let over_depth = format!(
+            "<MediaInfo>{}{}</MediaInfo>",
+            "<n>".repeat(16),
+            "</n>".repeat(16)
+        );
+        let error = parse_cos_media_info_xml(over_depth.as_bytes(), MediaMetadataKind::Video)
+            .expect_err("COS media XML over depth limit should fail");
+        assert!(error.message().contains("nesting depth"));
+
+        let exact_elements = format!("<MediaInfo>{}</MediaInfo>", "<n/>".repeat(499));
+        parse_cos_media_info_xml(exact_elements.as_bytes(), MediaMetadataKind::Video)
+            .expect("COS media XML at exact element limit should parse");
+        let over_elements = format!("<MediaInfo>{}</MediaInfo>", "<n/>".repeat(500));
+        let error = parse_cos_media_info_xml(over_elements.as_bytes(), MediaMetadataKind::Video)
+            .expect_err("COS media XML over element limit should fail");
+        assert!(error.message().contains("element count"));
+
+        for (name, xml, expected) in [
+            (
+                "DTD",
+                "<!DOCTYPE MediaInfo [<!ENTITY x 'boom'>]><MediaInfo>&x;</MediaInfo>".to_string(),
+                "DTD and custom entity",
+            ),
+            (
+                "standalone entity",
+                "<!ENTITY x 'boom'><MediaInfo/>".to_string(),
+                "DTD and custom entity",
+            ),
+            (
+                "malformed",
+                "<MediaInfo><Stream></MediaInfo>".to_string(),
+                "XML",
+            ),
+            (
+                "trailing document",
+                "<MediaInfo/><extra/>".to_string(),
+                "XML",
+            ),
+        ] {
+            let error =
+                parse_cos_media_info_xml(xml.as_bytes(), MediaMetadataKind::Video).expect_err(name);
+            assert!(
+                error.message().contains(expected),
+                "{name} boundary returned unexpected error: {}",
+                error.message()
+            );
+        }
+    }
+
+    #[test]
     fn parses_cos_duration_with_checked_rounding_and_rejects_invalid_values() {
         let doc = OwnedDocument::from_reader_with_options(
             br#"<Video><Duration>1.2345</Duration></Video>"#.as_slice(),
@@ -387,9 +497,10 @@ mod tests {
         let rounded = doc.root();
         assert_eq!(child_duration_ms(&rounded, &["Duration"]), Some(1235));
 
-        for value in ["0", "-1", "NaN", "not-a-number"] {
+        for value in ["0", "-1", "NaN", "inf", "1e30", "not-a-number"] {
             let xml = format!("<Video><Duration>{value}</Duration></Video>");
-            let doc = OwnedDocument::from_reader_with_options(xml.as_bytes(), &ParseOptions::new()).unwrap();
+            let doc = OwnedDocument::from_reader_with_options(xml.as_bytes(), &ParseOptions::new())
+                .unwrap();
             let element = doc.root();
             assert_eq!(child_duration_ms(&element, &["Duration"]), None);
         }

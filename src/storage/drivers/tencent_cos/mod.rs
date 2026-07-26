@@ -29,6 +29,11 @@ use crate::storage::traits::extensions::{
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
 pub(super) const MAX_COS_THUMBNAIL_TTL: Duration = Duration::from_secs(5 * 60);
 
+fn non_empty_xml_text(text: Option<&str>) -> Option<String> {
+    let trimmed = text?.trim();
+    (!trimmed.is_empty()).then(|| trimmed.to_string())
+}
+
 pub struct TencentCosDriver {
     storage: S3CompatibleDriver,
     client: reqwest::Client,

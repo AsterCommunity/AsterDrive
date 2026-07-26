@@ -7,9 +7,10 @@ use moka::future::Cache;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::config::wopi;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::http::read_reqwest_body_limited;
 use crate::runtime::SharedRuntimeState;
 
-use super::parser::parse_discovery_xml;
+use super::parser::{WOPI_DISCOVERY_XML_MAX_BYTES, parse_discovery_xml};
 use super::types::{CachedWopiDiscovery, WopiDiscovery};
 
 static DISCOVERY_CACHE: LazyLock<Cache<String, CachedWopiDiscovery>> =
@@ -82,11 +83,18 @@ pub(super) async fn load_discovery(
         )));
     }
 
-    let body = response.text().await.map_aster_err_ctx(
-        "failed to read WOPI discovery",
+    let body = read_reqwest_body_limited(
+        response,
+        "WOPI discovery response body",
+        WOPI_DISCOVERY_XML_MAX_BYTES,
+        AsterError::validation_error,
+    )
+    .await?;
+    let body = std::str::from_utf8(&body).map_aster_err_ctx(
+        "WOPI discovery response is not UTF-8",
         AsterError::validation_error,
     )?;
-    let parsed = match parse_discovery_xml(&body) {
+    let parsed = match parse_discovery_xml(body) {
         Ok(parsed) => parsed,
         Err(error) => {
             if let Some(cached) = cached.as_ref() {

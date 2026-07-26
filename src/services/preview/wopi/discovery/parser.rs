@@ -1,16 +1,17 @@
 use std::sync::Arc;
 
-use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::xml_utils::local_name_eq_ignore_case;
+use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
 
 use crate::services::preview::wopi::proof::{WopiProofKeySet, parse_wopi_proof_key_set};
 
 use super::types::{WopiDiscovery, WopiDiscoveryAction};
 
+pub(crate) const WOPI_DISCOVERY_XML_MAX_BYTES: usize = 5 * 1024 * 1024;
+
 fn discovery_xml_options() -> ParseOptions {
     ParseOptions::new()
-        .max_size(5 * 1024 * 1024)
+        .max_size(WOPI_DISCOVERY_XML_MAX_BYTES)
         .max_depth(32)
         .max_elements(50_000)
 }
@@ -39,7 +40,7 @@ fn collect_discovery_proof_keys(
     element: &ElementRef<'_, Arc<[u8]>>,
     out: &mut Option<WopiProofKeySet>,
 ) -> Result<()> {
-    if local_name_eq_ignore_case(element.name(), "proof-key") {
+    if element.name().eq_ignore_ascii_case("proof-key") {
         let current_modulus = element_attribute(element, "modulus")
             .ok_or_else(|| AsterError::validation_error("WOPI proof-key is missing modulus"))?;
         let current_exponent = element_attribute(element, "exponent")
@@ -72,7 +73,7 @@ fn collect_discovery_actions(
     app_icon_url: Option<&str>,
     out: &mut Vec<WopiDiscoveryAction>,
 ) {
-    let (next_app_name, next_app_icon_url) = if local_name_eq_ignore_case(element.name(), "app") {
+    let (next_app_name, next_app_icon_url) = if element.name().eq_ignore_ascii_case("app") {
         (
             element_attribute(element, "name").or(app_name),
             element_attribute(element, "favIconUrl").or(app_icon_url),
@@ -81,7 +82,7 @@ fn collect_discovery_actions(
         (app_name, app_icon_url)
     };
 
-    if local_name_eq_ignore_case(element.name(), "action") {
+    if element.name().eq_ignore_ascii_case("action") {
         let action =
             element_attribute(element, "name").map(|value| value.trim().to_ascii_lowercase());
         let urlsrc = element_attribute(element, "urlsrc").map(|value| value.trim().to_string());
@@ -117,6 +118,6 @@ fn collect_discovery_actions(
 fn element_attribute<'a>(element: &ElementRef<'a, Arc<[u8]>>, name: &str) -> Option<&'a str> {
     element
         .attributes()
-        .find(|attr| attr.qualified_name().eq_ignore_ascii_case(name))
+        .find(|attr| attr.name().eq_ignore_ascii_case(name))
         .map(|attr| attr.value())
 }
