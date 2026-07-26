@@ -544,6 +544,8 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
             Some(error),
         ),
     };
+    let capabilities_changed =
+        remote_capabilities_changed(&node.last_capabilities, &last_capabilities);
     let model = managed_follower_repo::touch_probe_result(
         state.writer_db(),
         node.id,
@@ -557,8 +559,27 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
         .reload_managed_followers(state.writer_db())
         .await?;
     state.driver_registry().invalidate_all();
+    if capabilities_changed
+        && let Err(error) =
+            crate::services::ops::config::runtime::publish_storage_topology_reload(state).await
+    {
+        tracing::warn!(
+            remote_node_id = node.id,
+            "failed to publish storage topology reload after remote capability change: {error}"
+        );
+    }
 
     Ok(ProbedRemoteNode { model, probe_error })
+}
+
+fn remote_capabilities_changed(previous: &str, current: &str) -> bool {
+    match (
+        serde_json::from_str::<serde_json::Value>(previous),
+        serde_json::from_str::<serde_json::Value>(current),
+    ) {
+        (Ok(previous), Ok(current)) => previous != current,
+        _ => previous.trim() != current.trim(),
+    }
 }
 
 async fn run_health_test_for_node<S: RemoteProtocolRuntimeState>(
@@ -702,7 +723,7 @@ fn map_remote_node_db_err(error: DbErr) -> AsterError {
 mod tests {
     use super::{
         CreateRemoteNodeInput, UpdateRemoteNodeInput, generate_managed_credentials,
-        normalize_create_input, normalize_update_input,
+        normalize_create_input, normalize_update_input, remote_capabilities_changed,
     };
     use crate::types::RemoteNodeTransportMode;
 
@@ -747,5 +768,28 @@ mod tests {
             Some("https://remote.example.com")
         );
         assert_eq!(normalized.is_enabled, Some(true));
+    }
+
+    #[test]
+    fn remote_capabilities_change_uses_json_semantics() {
+        assert!(!remote_capabilities_changed(
+            r#"{"supports_list":true,"protocol_version":"v5"}"#,
+            r#"{ "protocol_version": "v5", "supports_list": true }"#,
+        ));
+        assert!(remote_capabilities_changed(
+            r#"{"protocol_version":"v5","supports_list":true}"#,
+            r#"{"protocol_version":"v5","supports_list":false}"#,
+        ));
+        assert!(remote_capabilities_changed(
+            "{}",
+            r#"{"protocol_version":"v5"}"#,
+        ));
+    }
+
+    #[test]
+    fn remote_capabilities_change_handles_invalid_stored_values_conservatively() {
+        assert!(!remote_capabilities_changed(" invalid ", "invalid"));
+        assert!(remote_capabilities_changed("invalid-a", "invalid-b"));
+        assert!(remote_capabilities_changed("invalid", "{}"));
     }
 }

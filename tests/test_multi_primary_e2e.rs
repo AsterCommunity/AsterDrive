@@ -1073,9 +1073,8 @@ async fn stale_fencing_proxy_response(
     stale_fencing_token: &str,
 ) -> (reqwest::StatusCode, String) {
     let mut url = reqwest::Url::parse(&format!(
-        "{}{}{remote_node_id}",
-        server.base_url(),
-        format!("{REMOTE_TUNNEL_PROXY_PATH_PREFIX}/")
+        "{}{REMOTE_TUNNEL_PROXY_PATH_PREFIX}/{remote_node_id}",
+        server.base_url()
     ))
     .expect("build stale fencing proxy URL");
     url.query_pairs_mut()

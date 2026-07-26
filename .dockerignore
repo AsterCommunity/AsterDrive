@@ -13,6 +13,10 @@ frontend-panel/coverage/
 docs/
 developer-docs/
 tests/
+!tests/
+tests/*
+!tests/test_multi_primary_e2e.rs
+!tests/test_multi_primary_storage_events_e2e.rs
 .DS_Store
 *.db
 *.db-shm

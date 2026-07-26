@@ -95,7 +95,7 @@ If your most urgent need is a mature local folder two-way sync client, calm down
 
 If you only want to wrap a web management UI around one directory on a server, AsterDrive may be too heavy.
 
-If you need multi-primary hot standby, automatic failover, cross-region strong-consistency replication, complex enterprise permission matrices, or compliance certification, AsterDrive is also not suitable today. The current follower-node capability solves "write objects to another machine"; it is still far from a cluster orchestration system.
+If you need cross-region strong-consistency replication, automatic traffic management across regions, complex enterprise permission matrices, or compliance certification, AsterDrive is also not suitable today. The current release can run multiple Primaries over shared PostgreSQL/MySQL, Redis, and shared storage, including instance takeover and reverse-tunnel owner routing. It is still not a complete cluster orchestration system that manages the database, Redis, object storage, and cross-region replication for you. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the exact boundary.
 
 Admitting these boundaries matters. When a file system promises too much, user data is what gets hurt.
 

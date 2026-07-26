@@ -21,8 +21,8 @@ use super::models::{
     StoragePolicyDiagnostic, TestDraftStoragePolicyConnectionInput, UpdateStoragePolicyInput,
 };
 use super::shared::{
-    SYSTEM_STORAGE_POLICY_ID, ensure_singleton_group_for_policy, lock_default_group_assignment,
-    serialize_allowed_types, serialize_options,
+    SYSTEM_STORAGE_POLICY_ID, serialize_allowed_types, serialize_options,
+    set_default_policy_and_group,
 };
 
 pub async fn list_paginated(
@@ -201,10 +201,7 @@ pub async fn create(
     )
     .await?;
     if is_default {
-        lock_default_group_assignment(&txn).await?;
-        policy_repo::set_only_default(&txn, result.id).await?;
-        let default_group_id = ensure_singleton_group_for_policy(&txn, result.id).await?;
-        policy_group_repo::set_only_default_group(&txn, default_group_id).await?;
+        set_default_policy_and_group(&txn, result.id).await?;
     }
     transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
@@ -491,10 +488,7 @@ pub async fn update(
     .await?;
 
     if is_default == Some(true) {
-        lock_default_group_assignment(&txn).await?;
-        policy_repo::set_only_default(&txn, result.id).await?;
-        let default_group_id = ensure_singleton_group_for_policy(&txn, result.id).await?;
-        policy_group_repo::set_only_default_group(&txn, default_group_id).await?;
+        set_default_policy_and_group(&txn, result.id).await?;
     }
 
     transaction::commit(txn).await?;

@@ -153,6 +153,11 @@ const sidebar = assertUniqueSidebarLinks([
         link: '/deployment/load-balancing/'
       },
       {
+        label: 'Kubernetes 部署',
+        translations: { en: 'Kubernetes Deployment' },
+        link: '/deployment/kubernetes/'
+      },
+      {
         label: '从节点网络拓扑',
         translations: { en: 'Follower Network Topologies' },
         link: '/deployment/follower-network-topologies/'

@@ -118,4 +118,4 @@ AsterDrive 的 HTTP Governor 和 WebDAV IP token bucket 在每个进程内独立
 7. 验证实际使用的每一种上传策略；特别确认 SFTP 大文件或其他 staging 路径会在创建会话前明确失败。
 8. 对上传头像功能做跨实例读取测试，并确认 Ingress/LB 层的全局限流符合预期。
 
-完整生产检查清单见[生产上线检查](/deployment/production-checklist/)。
+完整生产检查清单见[生产上线检查](/deployment/production-checklist/)。仓库内置的双 Primary StatefulSet、Service、PDB、PVC 和 Ingress 示例见 [Kubernetes 部署](/deployment/kubernetes/)。

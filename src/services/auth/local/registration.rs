@@ -73,6 +73,7 @@ pub async fn create_user_by_admin(
             status: UserStatus::Active,
             must_change_password,
             email_verified_at: Some(Utc::now()),
+            allow_missing_policy_group: false,
         },
     )
     .await?;
@@ -129,6 +130,7 @@ pub async fn register(
             status: UserStatus::Active,
             must_change_password: false,
             email_verified_at,
+            allow_missing_policy_group: false,
         },
     )
     .await?;

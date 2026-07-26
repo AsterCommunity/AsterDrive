@@ -197,6 +197,7 @@ pub async fn accept_invitation(
                 status: UserStatus::Active,
                 must_change_password: false,
                 email_verified_at: Some(Utc::now()),
+                allow_missing_policy_group: false,
             },
         )
         .await?;

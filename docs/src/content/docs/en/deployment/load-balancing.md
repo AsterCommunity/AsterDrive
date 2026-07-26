@@ -118,4 +118,4 @@ Complete at least these checks:
 7. Validate every upload strategy used in production, especially that large SFTP or other staging paths fail explicitly before session creation.
 8. Test uploaded-avatar reads across instances and verify that global Ingress/LB rate limits behave as expected.
 
-See the [Production Launch Checklist](/en/deployment/production-checklist/) for the complete production review.
+See the [Production Launch Checklist](/en/deployment/production-checklist/) for the complete production review. For the repository's two-Primary StatefulSet, Service, PDB, PVC, and Ingress examples, see [Kubernetes Deployment](/en/deployment/kubernetes/).

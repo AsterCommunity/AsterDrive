@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+spec:
+  selector:
+    app.kubernetes.io/name: postgres-local
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: postgres
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres-local
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: postgres-local
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: postgres-local
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:18-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: postgres
+              containerPort: 5432
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-local
+                  key: username
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-local
+                  key: password
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-local
+                  key: database
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 2
+            timeoutSeconds: 2
+            failureThreshold: 15
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /var/lib/postgresql
+      volumes:
+        - name: data
+          emptyDir: {}

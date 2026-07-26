@@ -47,6 +47,10 @@ max_backups = 5           # 保留的历史日志文件数量
 [webdav]
 prefix = "/webdav"
 payload_limit = 10737418240  # 10 GiB
+xml_payload_limit = 1048576  # 1 MiB，仅限制 PROPFIND/PROPPATCH/REPORT/LOCK 等 XML 控制请求
+
+[network_trust]
+trusted_proxies = []  # 仅填写实际连接到 AsterDrive、由你控制的代理 IP 或 CIDR
 
 # Rate limiting 配置（默认不启用，按需开启）
 # [rate_limit]

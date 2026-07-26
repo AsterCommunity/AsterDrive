@@ -704,6 +704,59 @@ async fn test_failed_setup_releases_initialization_claim() {
 }
 
 #[actix_web::test]
+async fn test_setup_allows_first_admin_before_cluster_default_policy_exists() {
+    use sea_orm::ConnectionTrait;
+
+    let state = common::setup().await;
+    state
+        .writer_db()
+        .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
+        .await
+        .unwrap();
+    state
+        .policy_snapshot
+        .reload(state.writer_db())
+        .await
+        .unwrap();
+    let app = create_test_app!(state.clone());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/setup")
+        .peer_addr("127.0.0.1:12345".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "clusteradmin",
+            "email": "cluster-admin@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+
+    let admin = user_repo::find_by_username(state.writer_db(), "clusteradmin")
+        .await
+        .unwrap()
+        .expect("first admin should be created");
+    assert!(admin.role.is_admin());
+    assert_eq!(admin.policy_group_id, None);
+    assert!(local::check_auth_state(&state).await.unwrap());
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/register")
+        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .set_json(serde_json::json!({
+            "username": "earlyclusteruser",
+            "email": "early-cluster-user@example.com",
+            "password": "secret123"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["code"], "storage.policy_not_found");
+    assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 1);
+}
+
+#[actix_web::test]
 async fn test_repeated_setup_returns_stable_already_initialized_error() {
     let state = common::setup().await;
     local::setup(&state, "firstadmin", "firstadmin@example.com", "secret123")

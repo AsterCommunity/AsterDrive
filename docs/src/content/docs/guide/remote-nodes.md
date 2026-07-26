@@ -25,11 +25,11 @@ AsterDrive 的远程节点能力，本质上是让**另一台 AsterDrive** 充�
 默认情况下，AsterDrive 跑在 `primary` 模式。
 只有把 `[server].start_mode` 切成 `follower`，它才会变成从节点。
 
-:::caution[这不是多主集群]
+:::caution[Follower 不是 Primary]
 从节点不是第二个登录站点，也不是第二套管理后台。
 
 它的目标只有一个：**给主控节点提供远程对象存储落点**。
-如果你要的是多主热备、自动故障切换、跨地域强一致复制，当前能力暂不覆盖这些场景。
+主控可以是 single profile 的单个 Primary，也可以是共享数据库、Redis 和存储的 cluster profile。Follower 本身不会承载普通用户请求，也不会单独提供控制面；多 Primary 的要求见[负载均衡与多实例](/deployment/load-balancing/)。
 :::
 
 ## 接入流程图
@@ -280,7 +280,7 @@ enroll 成功只代表主从身份绑定成功。
 
 - 直连节点必须填了主控可访问的 `base_url`
 - 反向通道或 `auto + 空 base_url` 节点必须已经显示通道在线
-- 当前 follower 只能绑定一个 primary；多 primary 绑定会拒绝这套由主控管理远程存储目标的模式
+- follower 只绑定一套 AsterDrive 控制面身份；cluster 中的多个 Primary 必须共享数据库、静态密钥和同一套公开/LB 入口，不能把同一 follower 同时绑定给多个彼此独立的 AsterDrive 部署
 
 ## 7. 回主控节点创建远程存储策略
 

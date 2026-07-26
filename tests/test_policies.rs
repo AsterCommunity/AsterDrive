@@ -622,6 +622,162 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
 }
 
 #[actix_web::test]
+async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::storage_policy::policy;
+    use aster_drive::types::DriverType;
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "clusterbootstrap",
+        "cluster-bootstrap@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    active.policy_group_id = Set(None);
+    active.update(state.writer_db()).await.unwrap();
+    state
+        .writer_db()
+        .execute_unprepared("UPDATE storage_policies SET is_default = FALSE;")
+        .await
+        .unwrap();
+    state
+        .writer_db()
+        .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
+        .await
+        .unwrap();
+    state
+        .policy_snapshot
+        .reload(state.writer_db())
+        .await
+        .unwrap();
+
+    let base_path = format!("/tmp/asterdrive-cluster-bootstrap-{}", uuid::Uuid::new_v4());
+    std::fs::create_dir_all(&base_path).unwrap();
+    let created = policy::create(
+        &state,
+        policy::CreateStoragePolicyInput {
+            name: "First Cluster Default".to_string(),
+            connection: policy::StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path,
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: Default::default(),
+            },
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: true,
+            allowed_types: None,
+            options: None,
+            remote_storage_target_key: None,
+            application_config: Default::default(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let updated = user_repo::find_by_email(state.writer_db(), "cluster-bootstrap@example.com")
+        .await
+        .unwrap()
+        .expect("bootstrap admin should still exist");
+    let assigned_group_id = updated
+        .policy_group_id
+        .expect("first default policy should backfill the bootstrap admin");
+    assert_eq!(
+        state.policy_snapshot.resolve_default_policy_id(updated.id),
+        Some(created.id)
+    );
+    assert_eq!(
+        state
+            .policy_snapshot
+            .system_default_policy_group()
+            .expect("default policy group should exist")
+            .id,
+        assigned_group_id
+    );
+}
+
+#[actix_web::test]
+async fn test_promoting_policy_backfills_unassigned_users() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::storage_policy::policy;
+    use aster_drive::types::DriverType;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "promotebackfill",
+        "promote-backfill@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    active.policy_group_id = Set(None);
+    active.update(state.writer_db()).await.unwrap();
+
+    let base_path = format!("/tmp/asterdrive-promote-backfill-{}", uuid::Uuid::new_v4());
+    std::fs::create_dir_all(&base_path).unwrap();
+    let policy = policy::create(
+        &state,
+        policy::CreateStoragePolicyInput {
+            name: "Promoted Default".to_string(),
+            connection: policy::StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path,
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: Default::default(),
+            },
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: false,
+            allowed_types: None,
+            options: None,
+            remote_storage_target_key: None,
+            application_config: Default::default(),
+        },
+    )
+    .await
+    .unwrap();
+
+    policy::update(
+        &state,
+        policy.id,
+        policy::UpdateStoragePolicyInput {
+            is_default: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let updated = user_repo::find_by_email(state.writer_db(), "promote-backfill@example.com")
+        .await
+        .unwrap()
+        .expect("unassigned user should still exist");
+    assert!(updated.policy_group_id.is_some());
+    assert_eq!(
+        state.policy_snapshot.resolve_default_policy_id(updated.id),
+        Some(policy.id)
+    );
+}
+
+#[actix_web::test]
 async fn test_policy_crud() {
     let state = common::setup().await;
     let app = create_test_app!(state);

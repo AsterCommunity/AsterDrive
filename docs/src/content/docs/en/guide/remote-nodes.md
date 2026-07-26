@@ -25,11 +25,11 @@ The current internal remote storage protocol version is `v5`, and the current pr
 By default, AsterDrive runs in `primary` mode.
 It becomes a follower node only after `[server].start_mode` is changed to `follower`.
 
-:::caution[This is not a multi-primary cluster]
+:::caution[A Follower Is Not a Primary]
 A follower node is not a second login site or a second admin console.
 
 It has only one goal: **provide a remote object storage target for the primary node**.
-If you need multi-primary hot standby, automatic failover, or cross-region strong-consistency replication, the current capability does not cover those scenarios.
+The control plane may be one Primary in the single profile or multiple Primaries sharing the database, Redis, and storage in the cluster profile. The Follower itself does not serve normal user traffic or provide a separate control plane. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for multi-Primary requirements.
 :::
 
 ## Enrollment Flow
@@ -280,7 +280,7 @@ Remote storage targets are pushed by the primary through the follower API, so th
 
 - Direct nodes must have a `base_url` reachable by the primary
 - Reverse tunnel nodes, and `auto` nodes with empty `base_url`, must show the tunnel as online
-- The current follower can only bind to one primary; multiple primary bindings reject this primary-managed remote storage target mode
+- A Follower binds to one AsterDrive control-plane identity. Primaries in a cluster must share the database, static secrets, and one public/LB entry; do not bind the same Follower to multiple independent AsterDrive deployments
 
 ## 7. Create a Remote Storage Policy on the Primary
 

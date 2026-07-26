@@ -283,6 +283,7 @@ async fn create_external_auth_user_and_identity(
                     status: UserStatus::Active,
                     must_change_password: false,
                     email_verified_at: claims.email_verified.then_some(now),
+                    allow_missing_policy_group: false,
                 },
             )
             .await?;
@@ -369,6 +370,7 @@ async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::Connec
                 status: UserStatus::Active,
                 must_change_password: false,
                 email_verified_at: Some(now),
+                allow_missing_policy_group: false,
             },
         )
         .await
