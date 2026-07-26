@@ -124,6 +124,7 @@ aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", pa
 aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
 aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
 aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav", features = ["actix"] }
+aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_xml" }
 async-stream = "0.3"
 async-trait = "0.1"
 base64 = "0.22"
@@ -191,7 +192,7 @@ uuid = { version = "1", features = ["v4"] }
 validator = { version = "0.20", features = ["derive"] }
 webauthn-rs = { version = "0.6.1-dev", default-features = false, features = ["conditional-ui", "danger-allow-state-serialisation"] }
 webauthn-rs-proto = "0.6.1-dev"
-xmltree = "0.12"
+
 zip = { version = "8", default-features = false, features = ["deflate"] }
 lofty = "0.24.0"
 

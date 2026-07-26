@@ -1,8 +1,8 @@
-use std::io::Cursor;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
 use chrono::Utc;
-use xmltree::{Element, XMLNode};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -12,11 +12,19 @@ use crate::storage::traits::extensions::{
 use crate::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
 };
+use crate::xml_utils::{local_name_eq_ignore_case, non_empty_owned_text};
 
 use super::{MAX_COS_THUMBNAIL_TTL, TencentCosDriver};
 
 const COS_NATIVE_MEDIA_METADATA_PARSER: &str = "tencent_cos_ci_videoinfo";
 const COS_NATIVE_MEDIA_METADATA_VERSION: &str = "1";
+
+fn media_info_xml_options() -> ParseOptions {
+    ParseOptions::new()
+        .max_size(256 * 1024)
+        .max_depth(16)
+        .max_elements(500)
+}
 
 impl TencentCosDriver {
     pub(super) fn signed_ci_media_info_url(&self, path: &str) -> Result<String> {
@@ -89,10 +97,11 @@ fn parse_cos_media_info_xml(
     body: &[u8],
     kind: MediaMetadataKind,
 ) -> Result<NativeMediaMetadataResult> {
-    let root = Element::parse(Cursor::new(body)).map_aster_err_ctx(
+    let doc = OwnedDocument::from_reader_with_options(body, &media_info_xml_options()).map_aster_err_ctx(
         "parse COS native media metadata XML",
         AsterError::storage_driver_error,
     )?;
+    let root = doc.root();
     let metadata = match kind {
         MediaMetadataKind::Video => MediaMetadataPayload::Video(parse_cos_video_metadata(&root)),
         MediaMetadataKind::Audio => MediaMetadataPayload::Audio(parse_cos_audio_metadata(&root)),
@@ -111,49 +120,49 @@ fn parse_cos_media_info_xml(
     })
 }
 
-fn parse_cos_video_metadata(root: &Element) -> VideoMediaMetadata {
+fn parse_cos_video_metadata(root: &ElementRef<'_, Arc<[u8]>>) -> VideoMediaMetadata {
     let video = first_descendant(root, "Video");
     let audio = first_descendant(root, "Audio");
     let format = first_descendant(root, "Format");
-    let width = video.and_then(|node| child_u32(node, &["Width"]));
-    let height = video.and_then(|node| child_u32(node, &["Height"]));
-    let rotation_degrees = video.and_then(|node| child_i32(node, &["Rotate", "Rotation"]));
+    let width = video.and_then(|node| child_u32(&node, &["Width"]));
+    let height = video.and_then(|node| child_u32(&node, &["Height"]));
+    let rotation_degrees = video.and_then(|node| child_i32(&node, &["Rotate", "Rotation"]));
     let (display_width, display_height) = display_dimensions(width, height, rotation_degrees);
 
     VideoMediaMetadata {
         duration_ms: video
-            .and_then(|node| child_duration_ms(node, &["Duration"]))
-            .or_else(|| format.and_then(|node| child_duration_ms(node, &["Duration"]))),
+            .and_then(|node| child_duration_ms(&node, &["Duration"]))
+            .or_else(|| format.and_then(|node| child_duration_ms(&node, &["Duration"]))),
         width,
         height,
         display_width,
         display_height,
         rotation_degrees,
-        codec: video.and_then(|node| child_string(node, &["CodecName", "Codec"])),
-        container: format.and_then(|node| child_string(node, &["FormatName", "Format"])),
+        codec: video.and_then(|node| child_string(&node, &["CodecName", "Codec"])),
+        container: format.and_then(|node| child_string(&node, &["FormatName", "Format"])),
         frame_rate: video
-            .and_then(|node| child_string(node, &["Fps", "FrameRate", "AvgFrameRate"])),
-        video_bitrate: video.and_then(|node| child_u64(node, &["Bitrate", "BitRate"])),
-        overall_bitrate: format.and_then(|node| child_u64(node, &["Bitrate", "BitRate"])),
-        pixel_format: video.and_then(|node| child_string(node, &["PixFormat", "PixelFormat"])),
-        bit_depth: video.and_then(|node| child_u8(node, &["BitDepth"])),
-        color_space: video.and_then(|node| child_string(node, &["ColorSpace"])),
-        color_transfer: video.and_then(|node| child_string(node, &["ColorTransfer"])),
-        color_primaries: video.and_then(|node| child_string(node, &["ColorPrimaries"])),
-        hdr_format: video.and_then(|node| child_string(node, &["HdrFormat", "HDRFormat"])),
-        audio_codec: audio.and_then(|node| child_string(node, &["CodecName", "Codec"])),
-        audio_channels: audio.and_then(|node| child_u32(node, &["Channel", "Channels"])),
-        audio_sample_rate: audio.and_then(|node| child_u32(node, &["SampleRate"])),
-        audio_bitrate: audio.and_then(|node| child_u64(node, &["Bitrate", "BitRate"])),
+            .and_then(|node| child_string(&node, &["Fps", "FrameRate", "AvgFrameRate"])),
+        video_bitrate: video.and_then(|node| child_u64(&node, &["Bitrate", "BitRate"])),
+        overall_bitrate: format.and_then(|node| child_u64(&node, &["Bitrate", "BitRate"])),
+        pixel_format: video.and_then(|node| child_string(&node, &["PixFormat", "PixelFormat"])),
+        bit_depth: video.and_then(|node| child_u8(&node, &["BitDepth"])),
+        color_space: video.and_then(|node| child_string(&node, &["ColorSpace"])),
+        color_transfer: video.and_then(|node| child_string(&node, &["ColorTransfer"])),
+        color_primaries: video.and_then(|node| child_string(&node, &["ColorPrimaries"])),
+        hdr_format: video.and_then(|node| child_string(&node, &["HdrFormat", "HDRFormat"])),
+        audio_codec: audio.and_then(|node| child_string(&node, &["CodecName", "Codec"])),
+        audio_channels: audio.and_then(|node| child_u32(&node, &["Channel", "Channels"])),
+        audio_sample_rate: audio.and_then(|node| child_u32(&node, &["SampleRate"])),
+        audio_bitrate: audio.and_then(|node| child_u64(&node, &["Bitrate", "BitRate"])),
         audio_stream_count: descendant_count(root, "Audio"),
         subtitle_stream_count: descendant_count(root, "Subtitle"),
         creation_time: format
-            .and_then(|node| child_string(node, &["CreationTime"]))
-            .or_else(|| video.and_then(|node| child_string(node, &["CreationTime"]))),
+            .and_then(|node| child_string(&node, &["CreationTime"]))
+            .or_else(|| video.and_then(|node| child_string(&node, &["CreationTime"]))),
     }
 }
 
-fn parse_cos_audio_metadata(root: &Element) -> AudioMediaMetadata {
+fn parse_cos_audio_metadata(root: &ElementRef<'_, Arc<[u8]>>) -> AudioMediaMetadata {
     let audio = first_descendant(root, "Audio");
     let format = first_descendant(root, "Format");
 
@@ -164,27 +173,27 @@ fn parse_cos_audio_metadata(root: &Element) -> AudioMediaMetadata {
         album: None,
         album_artist: None,
         duration_ms: audio
-            .and_then(|node| child_duration_ms(node, &["Duration"]))
-            .or_else(|| format.and_then(|node| child_duration_ms(node, &["Duration"]))),
-        sample_rate: audio.and_then(|node| child_u32(node, &["SampleRate"])),
+            .and_then(|node| child_duration_ms(&node, &["Duration"]))
+            .or_else(|| format.and_then(|node| child_duration_ms(&node, &["Duration"]))),
+        sample_rate: audio.and_then(|node| child_u32(&node, &["SampleRate"])),
         channels: audio
-            .and_then(|node| child_u8(node, &["Channel", "Channels"]))
+            .and_then(|node| child_u8(&node, &["Channel", "Channels"]))
             .or_else(|| {
                 audio
-                    .and_then(|node| child_u32(node, &["Channel", "Channels"]))
+                    .and_then(|node| child_u32(&node, &["Channel", "Channels"]))
                     .and_then(|value| u8::try_from(value).ok())
             }),
-        bit_depth: audio.and_then(|node| child_u8(node, &["BitDepth"])),
+        bit_depth: audio.and_then(|node| child_u8(&node, &["BitDepth"])),
         overall_bitrate: format
-            .and_then(|node| child_u32(node, &["Bitrate", "BitRate"]))
-            .or_else(|| audio.and_then(|node| child_u32(node, &["Bitrate", "BitRate"]))),
-        audio_bitrate: audio.and_then(|node| child_u32(node, &["Bitrate", "BitRate"])),
+            .and_then(|node| child_u32(&node, &["Bitrate", "BitRate"]))
+            .or_else(|| audio.and_then(|node| child_u32(&node, &["Bitrate", "BitRate"]))),
+        audio_bitrate: audio.and_then(|node| child_u32(&node, &["Bitrate", "BitRate"])),
         track_number: None,
         track_total: None,
         disc_number: None,
         disc_total: None,
         genre: None,
-        date: format.and_then(|node| child_string(node, &["CreationTime"])),
+        date: format.and_then(|node| child_string(&node, &["CreationTime"])),
         has_embedded_picture: false,
         embedded_picture_mime_type: None,
     }
@@ -212,61 +221,58 @@ fn display_dimensions(
     }
 }
 
-fn first_descendant<'a>(element: &'a Element, name: &str) -> Option<&'a Element> {
-    if xml_name_matches(&element.name, name) {
-        return Some(element);
+fn first_descendant<'a>(
+    element: &ElementRef<'a, Arc<[u8]>>,
+    name: &str,
+) -> Option<ElementRef<'a, Arc<[u8]>>> {
+    if local_name_eq_ignore_case(element.name(), name) {
+        return Some(*element);
     }
-    element.children.iter().find_map(|child| match child {
-        XMLNode::Element(child) => first_descendant(child, name),
-        _ => None,
-    })
+    element
+        .children()
+        .filter_map(|child| match child {
+            NodeRef::Element(e) => Some(e),
+            _ => None,
+        })
+        .find_map(|child| first_descendant(&child, name))
 }
 
-fn descendant_count(element: &Element, name: &str) -> u32 {
-    let mut count = u32::from(xml_name_matches(&element.name, name));
-    for child in &element.children {
-        if let XMLNode::Element(child) = child {
-            count = count.saturating_add(descendant_count(child, name));
+fn descendant_count(element: &ElementRef<'_, Arc<[u8]>>, name: &str) -> u32 {
+    let mut count = u32::from(local_name_eq_ignore_case(element.name(), name));
+    for child in element.children() {
+        if let NodeRef::Element(child) = child {
+            count = count.saturating_add(descendant_count(&child, name));
         }
     }
     count
 }
 
-fn child_string(element: &Element, names: &[&str]) -> Option<String> {
+fn child_string(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<String> {
     names.iter().find_map(|name| {
         element
-            .children
-            .iter()
-            .filter_map(|child| match child {
-                XMLNode::Element(child) if xml_name_matches(&child.name, name) => Some(child),
-                _ => None,
-            })
-            .find_map(|child| {
-                child
-                    .get_text()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-            })
+            .child_elements()
+            .find(|child| local_name_eq_ignore_case(child.name(), name))
+            .and_then(|child| non_empty_owned_text(child.text().as_deref()))
     })
 }
 
-fn child_u8(element: &Element, names: &[&str]) -> Option<u8> {
+fn child_u8(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<u8> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_u32(element: &Element, names: &[&str]) -> Option<u32> {
+fn child_u32(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<u32> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_i32(element: &Element, names: &[&str]) -> Option<i32> {
+fn child_i32(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<i32> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_u64(element: &Element, names: &[&str]) -> Option<u64> {
+fn child_u64(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<u64> {
     child_string(element, names).and_then(|value| value.parse().ok())
 }
 
-fn child_duration_ms(element: &Element, names: &[&str]) -> Option<u64> {
+fn child_duration_ms(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Option<u64> {
     child_string(element, names).and_then(|value| {
         let seconds = value.parse::<f64>().ok()?;
         if !seconds.is_finite() || seconds <= 0.0 {
@@ -280,21 +286,11 @@ fn child_duration_ms(element: &Element, names: &[&str]) -> Option<u64> {
     })
 }
 
-fn xml_name_matches(actual: &str, expected: &str) -> bool {
-    actual
-        .rsplit_once(':')
-        .map(|(_, local)| local)
-        .unwrap_or(actual)
-        .eq_ignore_ascii_case(expected)
-}
-
 #[cfg(test)]
 mod tests {
-    use std::io::Cursor;
-
     use super::{child_duration_ms, parse_cos_media_info_xml};
     use crate::types::{MediaMetadataKind, MediaMetadataPayload};
-    use xmltree::Element;
+    use aster_forge_xml::{OwnedDocument, ParseOptions};
 
     #[test]
     fn parses_cos_video_media_info_xml() {
@@ -383,15 +379,18 @@ mod tests {
 
     #[test]
     fn parses_cos_duration_with_checked_rounding_and_rejects_invalid_values() {
-        let rounded = Element::parse(Cursor::new(
+        let doc = OwnedDocument::from_reader_with_options(
             br#"<Video><Duration>1.2345</Duration></Video>"#.as_slice(),
-        ))
+            &ParseOptions::new(),
+        )
         .unwrap();
+        let rounded = doc.root();
         assert_eq!(child_duration_ms(&rounded, &["Duration"]), Some(1235));
 
         for value in ["0", "-1", "NaN", "not-a-number"] {
             let xml = format!("<Video><Duration>{value}</Duration></Video>");
-            let element = Element::parse(Cursor::new(xml.as_bytes())).unwrap();
+            let doc = OwnedDocument::from_reader_with_options(xml.as_bytes(), &ParseOptions::new()).unwrap();
+            let element = doc.root();
             assert_eq!(child_duration_ms(&element, &["Duration"]), None);
         }
     }
