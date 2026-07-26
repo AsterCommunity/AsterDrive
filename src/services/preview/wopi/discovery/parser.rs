@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
+use aster_forge_xml::{ElementRef, Error as ForgeXmlError, NodeRef, OwnedDocument, ParseOptions};
 
 use crate::services::preview::wopi::proof::{WopiProofKeySet, parse_wopi_proof_key_set};
 
@@ -17,7 +17,7 @@ fn discovery_xml_options() -> ParseOptions {
 }
 
 pub(crate) fn parse_discovery_xml(xml: &str) -> Result<WopiDiscovery> {
-    let doc = OwnedDocument::from_reader_with_options(xml.as_bytes(), &discovery_xml_options())
+    let doc = parse_discovery_document(xml)
         .map_aster_err_ctx("invalid WOPI discovery XML", AsterError::validation_error)?;
     let root = doc.root();
     let mut actions = Vec::new();
@@ -34,6 +34,12 @@ pub(crate) fn parse_discovery_xml(xml: &str) -> Result<WopiDiscovery> {
         actions,
         proof_keys,
     })
+}
+
+pub(crate) fn parse_discovery_document(
+    xml: &str,
+) -> std::result::Result<OwnedDocument, ForgeXmlError> {
+    OwnedDocument::from_reader_with_options(xml.as_bytes(), &discovery_xml_options())
 }
 
 fn collect_discovery_proof_keys(
