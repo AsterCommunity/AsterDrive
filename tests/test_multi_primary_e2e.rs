@@ -13,7 +13,10 @@ use chrono::Utc;
 use futures::{SinkExt, StreamExt};
 use migration::Migrator;
 use reqwest::header::SET_COOKIE;
-use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
+    QueryFilter, Set,
+};
 use serde_json::{Value, json};
 use tokio_tungstenite::connect_async;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
@@ -37,9 +40,15 @@ const POLICY_GROUP_USER_PASSWORD: &str = "AsterDrive-Policy-User-399!";
 const SHARED_SECRET: &str = "asterdrive399abcdef0123456789abcdef0123456789abcdef0123456789abcd";
 const INTERNAL_PROXY_SECRET: &str =
     "asterdrive399proxyabcdef0123456789abcdef0123456789abcdef012345";
+const DATABASE_FAULT_ROLE_PASSWORD: &str = "AsterDriveDatabaseFault399";
+
+struct DatabaseFaultRole {
+    name: String,
+    url: String,
+}
 
 struct SharedServices {
-    _postgres: PostgresTestContainer,
+    postgres: PostgresTestContainer,
     database: PostgresTestDatabase,
     redis: RedisTestContainer,
     smtp: SmtpTestContainer,
@@ -117,7 +126,7 @@ impl SharedServices {
             database_url,
             database: test_database,
             redis_url: redis.url().to_string(),
-            _postgres: postgres,
+            postgres,
             redis,
             smtp,
             config_topic: format!(
@@ -133,6 +142,90 @@ impl SharedServices {
 
     async fn cleanup_database(&self) {
         self.database.cleanup().await;
+    }
+
+    async fn create_database_fault_role(&self) -> DatabaseFaultRole {
+        let name = format!("asterdrive_fault_{}", uuid::Uuid::new_v4().simple());
+        let database_name = self.database.name();
+        let admin = Database::connect(self.postgres.admin_url())
+            .await
+            .expect("connect to PostgreSQL admin database for fault role");
+        admin
+            .execute_unprepared(&format!(
+                "CREATE ROLE {name} LOGIN PASSWORD '{DATABASE_FAULT_ROLE_PASSWORD}'; \
+                 GRANT CONNECT ON DATABASE {database_name} TO {name};"
+            ))
+            .await
+            .expect("create isolated PostgreSQL fault role");
+        admin
+            .close()
+            .await
+            .expect("close PostgreSQL admin connection after creating fault role");
+
+        let database = self.connect_database().await;
+        database
+            .execute_unprepared(&format!(
+                "GRANT USAGE, CREATE ON SCHEMA public TO {name}; \
+                 GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO {name}; \
+                 GRANT USAGE, SELECT, UPDATE ON ALL SEQUENCES IN SCHEMA public TO {name}; \
+                 GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA public TO {name};"
+            ))
+            .await
+            .expect("grant database access to isolated PostgreSQL fault role");
+        database
+            .close()
+            .await
+            .expect("close fault role grant connection");
+
+        let mut url = url::Url::parse(&self.database_url)
+            .expect("multi-primary PostgreSQL URL should be valid");
+        url.set_username(&name)
+            .expect("fault role username should be URL-safe");
+        url.set_password(Some(DATABASE_FAULT_ROLE_PASSWORD))
+            .expect("fault role password should be URL-safe");
+        DatabaseFaultRole {
+            name,
+            url: url.into(),
+        }
+    }
+
+    async fn set_database_fault_role_login(&self, role: &DatabaseFaultRole, enabled: bool) {
+        let admin = Database::connect(self.postgres.admin_url())
+            .await
+            .expect("connect to PostgreSQL admin database for fault injection");
+        let login = if enabled { "LOGIN" } else { "NOLOGIN" };
+        admin
+            .execute_unprepared(&format!("ALTER ROLE {} {login}", role.name))
+            .await
+            .expect("update PostgreSQL fault role login state");
+        if !enabled {
+            admin
+                .execute_unprepared(&format!(
+                    "SELECT pg_terminate_backend(pid) FROM pg_stat_activity \
+                     WHERE usename = '{}' AND pid <> pg_backend_pid()",
+                    role.name
+                ))
+                .await
+                .expect("terminate isolated PostgreSQL fault role sessions");
+        }
+        admin
+            .close()
+            .await
+            .expect("close PostgreSQL fault injection connection");
+    }
+
+    async fn drop_database_fault_role(&self, role: &DatabaseFaultRole) {
+        let admin = Database::connect(self.postgres.admin_url())
+            .await
+            .expect("connect to PostgreSQL admin database to drop fault role");
+        admin
+            .execute_unprepared(&format!("DROP ROLE IF EXISTS {}", role.name))
+            .await
+            .expect("drop isolated PostgreSQL fault role");
+        admin
+            .close()
+            .await
+            .expect("close PostgreSQL admin connection after dropping fault role");
     }
 }
 
@@ -237,6 +330,15 @@ impl ServerProcess {
         services: &SharedServices,
         database_pool_size: u32,
     ) -> Self {
+        Self::spawn_with_database_url(name, services, database_pool_size, &services.database_url)
+    }
+
+    fn spawn_with_database_url(
+        name: &str,
+        services: &SharedServices,
+        database_pool_size: u32,
+        database_url: &str,
+    ) -> Self {
         let port = available_loopback_port();
         let mut command = Command::new(env!("CARGO_BIN_EXE_aster_drive"));
         for (key, _) in std::env::vars_os() {
@@ -257,7 +359,7 @@ impl ServerProcess {
             .env("ASTER__SERVER__HOST", "127.0.0.1")
             .env("ASTER__SERVER__PORT", port.to_string())
             .env("ASTER__SERVER__WORKERS", "1")
-            .env("ASTER__DATABASE__URL", &services.database_url)
+            .env("ASTER__DATABASE__URL", database_url)
             .env("ASTER__DATABASE__POOL_SIZE", database_pool_size.to_string())
             .env("ASTER__CACHE__BACKEND", "redis")
             .env("ASTER__CACHE__ENDPOINT", &services.redis_url)
@@ -660,6 +762,33 @@ async fn wait_for_background_task(
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
+}
+
+async fn create_due_invitation_mail(
+    database: &DatabaseConnection,
+) -> aster_forge_db::mail_outbox::Model {
+    let now = Utc::now();
+    let payload = aster_drive::services::mail::template::MailTemplatePayload::user_invitation(
+        "e2e@example.com",
+        "https://drive.example.com/invite/e2e",
+        "AsterDrive E2E",
+        "1 hour",
+    )
+    .to_stored()
+    .expect("serialize E2E mail payload");
+    aster_forge_db::create_mail_outbox_row(
+        database,
+        aster_forge_db::MailOutboxCreate {
+            template_code: aster_forge_mail::MailTemplateCode::UserInvitation,
+            to_address: "e2e@example.com".to_string(),
+            to_name: Some("E2E Recipient".to_string()),
+            payload_json: payload,
+            next_attempt_at: now,
+            now,
+        },
+    )
+    .await
+    .expect("create E2E mail outbox row")
 }
 
 async fn wait_for_mail_outbox_sent(
@@ -1788,33 +1917,114 @@ async fn scheduler_has_one_owner_and_standby_takes_over_after_owner_crash() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires Docker, PostgreSQL fault injection, and two real AsterDrive primary processes"]
+async fn partitioned_runtime_owner_is_fenced_after_database_access_recovers() {
+    let _guard = e2e_lock().lock().await;
+    let services = SharedServices::start().await;
+    let fault_role = services.create_database_fault_role().await;
+    let database = services.connect_database().await;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .build()
+        .expect("build database partition E2E HTTP client");
+
+    let mut primary_a =
+        ServerProcess::spawn_with_database_url("primary-a", &services, 5, &fault_role.url);
+    wait_for_health(&client, &mut primary_a).await;
+    let initial_lease = wait_for_runtime_lease(&database, &mut primary_a).await;
+    let mut primary_b = ServerProcess::spawn("primary-b", &services);
+    wait_for_health(&client, &mut primary_b).await;
+
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    let lease_before_partition = assert_single_live_runtime_lease(&database).await;
+    assert_eq!(lease_before_partition.owner_id, initial_lease.owner_id);
+    assert!(lease_before_partition.last_renewed_at > initial_lease.last_renewed_at);
+
+    services
+        .set_database_fault_role_login(&fault_role, false)
+        .await;
+    let unavailable = wait_for_ready_code(
+        &client,
+        &mut primary_a,
+        "database.error",
+        Duration::from_secs(20),
+    )
+    .await;
+    assert_eq!(unavailable["msg"], "Database unavailable");
+    let takeover = wait_for_new_runtime_owner(
+        &database,
+        &mut primary_b,
+        &initial_lease.owner_id,
+        Duration::from_secs(50),
+    )
+    .await;
+    assert!(
+        takeover.last_renewed_at >= lease_before_partition.expires_at,
+        "standby must acquire only after the partitioned owner's lease expires"
+    );
+
+    services
+        .set_database_fault_role_login(&fault_role, true)
+        .await;
+    let recovered = wait_for_ready_status(
+        &client,
+        &mut primary_a,
+        reqwest::StatusCode::OK,
+        Duration::from_secs(30),
+    )
+    .await;
+    assert_eq!(recovered["data"]["status"], "needs_admin");
+
+    tokio::time::sleep(Duration::from_secs(12)).await;
+    let lease_after_recovery = assert_single_live_runtime_lease(&database).await;
+    assert_eq!(
+        lease_after_recovery.owner_id, takeover.owner_id,
+        "recovered stale owner must remain standby"
+    );
+    assert!(
+        lease_after_recovery.last_renewed_at > takeover.last_renewed_at,
+        "new owner must keep renewing after the stale owner reconnects"
+    );
+
+    let outbox = create_due_invitation_mail(&database).await;
+    wait_for_mail_outbox_sent(
+        &database,
+        outbox.id,
+        &services,
+        &mut primary_a,
+        &mut primary_b,
+    )
+    .await;
+    tokio::time::sleep(Duration::from_secs(2)).await;
+    assert_eq!(
+        services.smtp.message_count().await,
+        1,
+        "partition recovery must not create duplicate mail side effects"
+    );
+    let records = scheduled_runtime_records(&database, "mail-outbox-dispatch").await;
+    assert_eq!(
+        records.len(),
+        1,
+        "partition recovery must keep one scheduled firing"
+    );
+
+    primary_a.terminate();
+    primary_b.terminate();
+    database
+        .close()
+        .await
+        .expect("close database partition E2E connection");
+    services.cleanup_database().await;
+    services.drop_database_fault_role(&fault_role).await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 #[ignore = "requires Docker and two real AsterDrive primary processes"]
 async fn scheduled_mail_dispatch_has_one_firing_and_one_delivery_across_primaries() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    let now = Utc::now();
-    let payload = aster_drive::services::mail::template::MailTemplatePayload::user_invitation(
-        "e2e@example.com",
-        "https://drive.example.com/invite/e2e",
-        "AsterDrive E2E",
-        "1 hour",
-    )
-    .to_stored()
-    .expect("serialize E2E mail payload");
-    let outbox = aster_forge_db::create_mail_outbox_row(
-        &database,
-        aster_forge_db::MailOutboxCreate {
-            template_code: aster_forge_mail::MailTemplateCode::UserInvitation,
-            to_address: "e2e@example.com".to_string(),
-            to_name: Some("E2E Recipient".to_string()),
-            payload_json: payload,
-            next_attempt_at: now,
-            now,
-        },
-    )
-    .await
-    .expect("create E2E mail outbox row");
+    let outbox = create_due_invitation_mail(&database).await;
 
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
