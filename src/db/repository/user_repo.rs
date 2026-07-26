@@ -161,6 +161,23 @@ pub async fn count_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn count_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
+    User::find()
+        .filter(user::Column::Role.eq(role))
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn count_unassigned_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
+    User::find()
+        .filter(user::Column::Role.eq(role))
+        .filter(user::Column::PolicyGroupId.is_null())
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn assign_policy_group_to_unassigned<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,

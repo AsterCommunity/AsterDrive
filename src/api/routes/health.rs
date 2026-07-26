@@ -70,7 +70,9 @@ pub async fn primary_ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     }
 
     match health::check_primary_ready(state.get_ref()).await {
-        Ok(_) => HttpResponse::Ok().json(ApiResponse::ok(status_response("ready"))),
+        Ok(setup_state) => {
+            HttpResponse::Ok().json(ApiResponse::ok(status_response(setup_state.as_str())))
+        }
         Err(error) => ready_storage_error(error),
     }
 }
@@ -164,19 +166,22 @@ fn status_response(status: &str) -> HealthResponse {
 mod tests {
     use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, follower_ready, ready};
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-    use crate::entities::storage_policy;
+    use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item, user};
     use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
     use crate::storage::BlobMetadata;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+    use crate::types::{
+        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
+        UserStatus,
+    };
     use actix_web::{body, http::StatusCode, web};
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
     use chrono::Utc;
     use migration::Migrator;
-    use sea_orm::{ActiveModelTrait, Set};
+    use sea_orm::{ActiveModelTrait, EntityTrait, Set};
     use std::sync::{
         Arc,
         atomic::{AtomicUsize, Ordering},
@@ -308,8 +313,8 @@ mod tests {
             .expect("health test migrations should apply");
 
         let driver_registry = Arc::new(DriverRegistry::noop());
-        if let Some(driver) = driver.clone() {
-            let now = Utc::now();
+        let now = Utc::now();
+        let policy_group_id = if let Some(driver) = driver.clone() {
             let policy = storage_policy::ActiveModel {
                 name: Set("Default Policy".to_string()),
                 driver_type: Set(DriverType::Local),
@@ -331,7 +336,55 @@ mod tests {
             .await
             .expect("health test policy should insert");
             driver_registry.insert_for_test(policy.id, Arc::new(driver));
+            let group = storage_policy_group::ActiveModel {
+                name: Set("Default Policy Group".to_string()),
+                description: Set(String::new()),
+                is_enabled: Set(true),
+                is_default: Set(true),
+                created_at: Set(now),
+                updated_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .expect("health test policy group should insert");
+            storage_policy_group_item::ActiveModel {
+                group_id: Set(group.id),
+                policy_id: Set(policy.id),
+                priority: Set(1),
+                min_file_size: Set(0),
+                max_file_size: Set(0),
+                created_at: Set(now),
+                ..Default::default()
+            }
+            .insert(&db)
+            .await
+            .expect("health test policy group item should insert");
+            Some(group.id)
+        } else {
+            None
+        };
+        user::ActiveModel {
+            username: Set("health-admin".to_string()),
+            email: Set("health-admin@example.com".to_string()),
+            password_hash: Set("test-password-hash".to_string()),
+            role: Set(UserRole::Admin),
+            status: Set(UserStatus::Active),
+            must_change_password: Set(false),
+            session_version: Set(1),
+            email_verified_at: Set(Some(now)),
+            pending_email: Set(None),
+            storage_used: Set(0),
+            storage_quota: Set(0),
+            policy_group_id: Set(policy_group_id),
+            created_at: Set(now),
+            updated_at: Set(now),
+            config: Set(None),
+            ..Default::default()
         }
+        .insert(&db)
+        .await
+        .expect("health test administrator should insert");
 
         let policy_snapshot = Arc::new(PolicySnapshot::new());
         policy_snapshot
@@ -421,18 +474,52 @@ mod tests {
     }
 
     #[actix_web::test]
-    async fn ready_returns_503_when_default_storage_policy_is_missing() {
+    async fn ready_allows_storage_setup_when_default_policy_is_missing() {
         let response = ready(web::Data::new(build_test_state(None).await)).await;
 
-        assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(response.status(), StatusCode::OK);
 
         let body = body::to_bytes(response.into_body())
             .await
             .expect("health response body should read");
         let payload: serde_json::Value =
             serde_json::from_slice(&body).expect("health response should be valid json");
-        assert_eq!(payload["code"], "storage.policy_not_found");
-        assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
+        assert_eq!(payload["data"]["status"], "needs_storage");
+    }
+
+    #[actix_web::test]
+    async fn ready_allows_initial_admin_setup() {
+        let state = build_test_state(None).await;
+        user::Entity::delete_many()
+            .exec(state.db_handles.writer())
+            .await
+            .expect("health test administrator should delete");
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["data"]["status"], "needs_admin");
+    }
+
+    #[actix_web::test]
+    async fn cluster_ready_allows_storage_setup_after_base_dependencies_pass() {
+        let mut state = build_test_state(None).await;
+        configure_cluster(&mut state);
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = body::to_bytes(response.into_body())
+            .await
+            .expect("health response body should read");
+        let payload: serde_json::Value =
+            serde_json::from_slice(&body).expect("health response should be valid json");
+        assert_eq!(payload["data"]["status"], "needs_storage");
     }
 
     #[actix_web::test]

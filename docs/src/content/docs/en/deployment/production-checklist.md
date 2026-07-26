@@ -210,7 +210,7 @@ See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancin
 Before launch, use the real domain, real accounts, and real clients to run through:
 
 1. `/health` returns 200.
-2. `/health/ready` returns 200; in a cluster, also verify that it becomes 503 when Redis is stopped and returns to 200 after Redis recovers.
+2. `/health/ready` returns 200 with `data.status` set to `ready`; in a cluster, also verify that it becomes 503 when Redis is stopped and returns to `200 + ready` after Redis recovers.
 3. If metrics are enabled, restricted-source access to `/health/metrics` returns Prometheus text.
 4. Login, page refresh, and logout all work.
 5. Upload one small file and one large file.

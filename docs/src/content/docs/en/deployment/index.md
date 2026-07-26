@@ -106,8 +106,8 @@ After the service starts successfully, it automatically completes these preparat
 
 - generates the default `data/config.toml`
 - connects to the database and updates the database structure automatically
-- in the single profile, creates the default local storage policy `Local Default`; the cluster profile skips the local default and waits for an administrator to create shared storage
-- creates the default policy group `Default Policy Group`
+- in the single profile, creates the default local storage policy `Local Default` and seeds `Default Policy Group`
+- in the cluster profile, skips both the local policy and policy group; when an administrator makes the first shared policy the default, AsterDrive atomically creates the default group and assigns unassigned administrators
 - initializes default system setting entries
 - starts mail dispatch, background task dispatch, periodic cleanup, and low-level file consistency check tasks
 

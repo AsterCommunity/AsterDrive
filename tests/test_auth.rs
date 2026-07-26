@@ -9,9 +9,7 @@ use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::pagination::AdminAuditLogSortBy;
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
-use aster_drive::db::repository::{
-    audit_log_repo, auth_session_repo, passkey_repo, system_initialization_repo, user_repo,
-};
+use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
@@ -646,7 +644,10 @@ async fn test_register_requires_completed_setup_even_when_public_registration_is
     );
     assert_eq!(body["msg"], "system is not initialized");
     assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
-    assert!(!local::check_auth_state(&state).await.unwrap());
+    assert_eq!(
+        local::check_auth_state(&state).await.unwrap().state,
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin
+    );
 }
 
 #[actix_web::test]
@@ -685,10 +686,11 @@ async fn test_failed_setup_releases_initialization_claim() {
         .await
         .expect_err("invalid setup should fail");
     assert_eq!(error.message(), "password must be at least 8 characters");
-    assert!(
-        !system_initialization_repo::is_initialized(state.writer_db())
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
             .await
-            .unwrap()
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin
     );
     assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
 
@@ -696,10 +698,11 @@ async fn test_failed_setup_releases_initialization_claim() {
         .await
         .expect("valid setup should retry after rollback");
     assert!(admin.role.is_admin());
-    assert!(
-        system_initialization_repo::is_initialized(state.writer_db())
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
             .await
-            .unwrap()
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::Ready
     );
 }
 
@@ -738,11 +741,24 @@ async fn test_setup_allows_first_admin_before_cluster_default_policy_exists() {
         .expect("first admin should be created");
     assert!(admin.role.is_admin());
     assert_eq!(admin.policy_group_id, None);
-    assert!(local::check_auth_state(&state).await.unwrap());
+    assert_eq!(
+        local::check_auth_state(&state).await.unwrap().state,
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/auth/check")
+        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(body["data"]["setup_state"], "needs_storage");
+    assert_eq!(body["data"]["has_users"], true);
 
     let req = test::TestRequest::post()
         .uri("/api/v1/auth/register")
-        .peer_addr("127.0.0.1:12346".parse().unwrap())
+        .peer_addr("127.0.0.1:12347".parse().unwrap())
         .set_json(serde_json::json!({
             "username": "earlyclusteruser",
             "email": "early-cluster-user@example.com",
@@ -750,9 +766,10 @@ async fn test_setup_allows_first_admin_before_cluster_default_policy_exists() {
         }))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 404);
+    assert_eq!(resp.status(), 400);
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "storage.policy_not_found");
+    assert_eq!(body["code"], "validation.system_not_initialized");
+    assert_eq!(body["msg"], "system storage setup is incomplete");
     assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 1);
 }
 
@@ -1953,6 +1970,7 @@ async fn test_check_reports_public_registration_flag() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["has_users"], true);
+    assert_eq!(body["data"]["setup_state"], "ready");
     assert_eq!(body["data"]["allow_user_registration"], false);
     assert_eq!(body["data"]["passkey_login_enabled"], false);
 }

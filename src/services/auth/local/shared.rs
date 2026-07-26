@@ -180,13 +180,29 @@ pub(crate) struct CreateUserWithRoleInput<'a> {
     pub status: UserStatus,
     pub must_change_password: bool,
     pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub allow_missing_policy_group: bool,
 }
 
 pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
     input: CreateUserWithRoleInput<'_>,
+) -> Result<user::Model> {
+    crate::services::system_setup::require_ready(db).await?;
+    let policy_group_id = crate::services::system_setup::configured_default_policy_group_id(db)
+        .await?
+        .ok_or_else(|| {
+            AsterError::storage_policy_not_found(
+                "no system default storage policy group configured",
+            )
+        })?;
+    create_user_with_policy_group(db, state, input, Some(policy_group_id)).await
+}
+
+async fn create_user_with_policy_group<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    input: CreateUserWithRoleInput<'_>,
+    policy_group_id: Option<i64>,
 ) -> Result<user::Model> {
     let CreateUserWithRoleInput {
         username,
@@ -196,7 +212,6 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
         status,
         must_change_password,
         email_verified_at,
-        allow_missing_policy_group,
     } = input;
     let username = normalize_username(username)?;
     let email = normalize_email(email)?;
@@ -219,16 +234,6 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
             }
             0
         });
-    let default_policy_group_id = state
-        .policy_snapshot()
-        .system_default_policy_group()
-        .map(|group| group.id);
-    if default_policy_group_id.is_none() && !allow_missing_policy_group {
-        return Err(AsterError::storage_policy_not_found(
-            "no system default storage policy group configured",
-        ));
-    }
-
     let username_for_err = username.clone();
     let email_for_err = email.clone();
     let model = user::ActiveModel {
@@ -243,7 +248,7 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
         pending_email: Set(None),
         storage_used: Set(0),
         storage_quota: Set(default_quota),
-        policy_group_id: Set(default_policy_group_id),
+        policy_group_id: Set(policy_group_id),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -269,7 +274,9 @@ pub(super) async fn create_first_admin<C: ConnectionTrait>(
     password: &str,
 ) -> Result<user::Model> {
     tracing::info!("first user registered — granting admin role to '{username}'");
-    create_user_with_role(
+    let policy_group_id =
+        crate::services::system_setup::configured_default_policy_group_id(db).await?;
+    create_user_with_policy_group(
         db,
         state,
         CreateUserWithRoleInput {
@@ -280,8 +287,8 @@ pub(super) async fn create_first_admin<C: ConnectionTrait>(
             status: UserStatus::Active,
             must_change_password: false,
             email_verified_at: Some(Utc::now()),
-            allow_missing_policy_group: true,
         },
+        policy_group_id,
     )
     .await
 }

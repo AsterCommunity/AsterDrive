@@ -210,7 +210,7 @@ Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/
 上线前用真实域名、真实账号、真实客户端跑一遍：
 
 1. `/health` 返回 200
-2. `/health/ready` 返回 200；cluster 环境同时验证 Redis 停止时会变为 503、恢复后回到 200
+2. `/health/ready` 返回 200，且响应里的 `data.status` 是 `ready`；cluster 环境同时验证 Redis 停止时会变为 503、恢复后回到 `200 + ready`
 3. 如果启用了 metrics，受限来源访问 `/health/metrics` 返回 Prometheus 文本
 4. 登录、刷新页面、退出登录都正常
 5. 上传一个小文件和一个大文件

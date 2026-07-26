@@ -20,7 +20,7 @@ kubectl -n asterdrive rollout status deployment/rustfs-local
 kubectl -n asterdrive rollout status statefulset/asterdrive
 ```
 
-全新 cluster 数据库没有默认存储策略，因此两个 Primary 正常启动后，`/health` 应返回 `200`，`/health/ready` 会保持 `503`。先在临时 RustFS 中创建 bucket，再通过任一 Primary 完成管理员 setup，并创建指向 `http://rustfs:9000` 的默认 S3-compatible 策略；首个管理员会自动回填到新建的默认策略组，两个 Primary 随后都应变为 Ready。
+全新 cluster 数据库没有默认存储策略。两个 Primary 正常启动后，`/health` 和 `/health/ready` 都应返回 `200`，readiness 响应状态先为 `needs_admin`。通过 `asterdrive` Service 完成管理员 setup 后状态变为 `needs_storage`；在临时 RustFS 中创建 bucket，并创建指向 `http://rustfs:9000` 的默认 S3-compatible 策略后，首个管理员会自动回填到新建的默认策略组，两个 Primary 的状态随后都应变为 `ready`。
 
 清理时删除整个 namespace：
 

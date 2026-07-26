@@ -1195,6 +1195,22 @@ async fn fresh_postgres_concurrent_primary_startup_applies_migrations_once() {
         wait_for_health(&client, &mut primary_a),
         wait_for_health(&client, &mut primary_b),
     );
+    let (ready_a, ready_b) = tokio::join!(
+        wait_for_ready_status(
+            &client,
+            &mut primary_a,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+        wait_for_ready_status(
+            &client,
+            &mut primary_b,
+            reqwest::StatusCode::OK,
+            Duration::from_secs(30),
+        ),
+    );
+    assert_eq!(ready_a["data"]["status"], "needs_admin");
+    assert_eq!(ready_b["data"]["status"], "needs_admin");
 
     let database = services.connect_database().await;
     let history = migration::inspect_migration_history(&database)

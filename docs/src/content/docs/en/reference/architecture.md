@@ -100,7 +100,7 @@ Three boundaries matter most in this diagram:
 | --- | --- | --- |
 | Per-instance runtime resources | HTTP listeners, connection pools, in-memory snapshots, driver registries, SSE connections, process-local broadcast channels, reverse tunnel registries | Owned by one process only; they disappear with that process and cannot be read directly by another primary |
 | Database-coordinated resources | `runtime_leases`, scheduled-task claims, background-task processing tokens and heartbeats, mail-outbox claims, business metadata | Shared PostgreSQL/MySQL provides authoritative state, atomic claims, leases, and fencing |
-| Cross-instance control plane | Redis cache, config-sync Pub/Sub, future storage-event notifications, and a future tunnel-owner directory | Carries small invalidation, refresh, and owner-discovery messages; recovery reconciles from the authoritative database |
+| Cross-instance control plane | Redis cache, config-sync Pub/Sub, storage-event notifications, and the database tunnel-owner directory | Carries small invalidation, refresh, and owner-discovery messages; recovery reconciles from the authoritative database |
 | Cross-instance data plane | S3/Azure/OneDrive/SFTP, direct follower internal APIs, and the tunnel-owner streaming proxy | Stores or transports file bodies; Redis Pub/Sub and database leases carry control state only |
 
 ```mermaid
@@ -120,7 +120,7 @@ A multi-primary deployment is therefore validated by whether every primary can r
 
 - Scheduler ownership, scheduled tasks, normal background tasks, and the mail outbox use database leases or claims to avoid duplicate execution.
 - Runtime-config mutations publish a reload hint through Redis; every instance still reloads the complete snapshot from the writer database.
-- Storage SSE connections remain per-instance resources. Until the cross-instance notification bus is implemented, a mutation handled by primary B does not automatically wake a client connected to primary A.
+- Storage SSE connections remain per-instance resources. The Redis event bus forwards a mutation handled by primary B to primary A, whose local broadcast wakes clients connected to that instance. On Pub/Sub disconnect or local lag, clients receive `sync.required` and refresh authoritative APIs.
 - The reverse tunnel registry, connection lanes, and pending responses remain per-instance resources. Cluster deployments use the database owner directory for leases/fencing and an authenticated streaming proxy for non-owner primaries.
 - Local storage belongs to one machine. Cluster deployments require storage reachable by every primary and must not treat identical local paths with independent contents as a shared data plane.
 

@@ -290,8 +290,8 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 2. 连接数据库
 3. 执行全部 migration
 4. 准备 SQLite 搜索加速能力（若当前后端适用）
-5. 确保至少存在一个默认本地存储策略
-6. 仅 primary 模式下补种默认策略组
+5. single profile 在没有任何策略时创建默认本地存储；cluster profile 跳过 local seed
+6. primary 模式仅在已有默认策略时补种默认策略组
 7. 初始化 `auth_cookie_secure` 引导值
 8. 写入 `system_config` 默认值
 9. 清理废弃的 `node_runtime_mode` 和旧 thumbnail 运行时配置键

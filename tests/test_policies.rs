@@ -655,6 +655,12 @@ async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() 
         .reload(state.writer_db())
         .await
         .unwrap();
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
 
     let base_path = format!("/tmp/asterdrive-cluster-bootstrap-{}", uuid::Uuid::new_v4());
     std::fs::create_dir_all(&base_path).unwrap();
@@ -703,6 +709,12 @@ async fn test_creating_first_default_policy_backfills_cluster_bootstrap_admin() 
             .expect("default policy group should exist")
             .id,
         assigned_group_id
+    );
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::Ready
     );
 }
 

@@ -100,7 +100,7 @@ flowchart TB
 | --- | --- | --- |
 | 每实例运行资源 | HTTP listener、连接池、内存快照、driver registry、SSE 连接、进程内 broadcast、reverse tunnel registry | 只属于当前进程；实例退出后不保留，其他 primary 不能直接读取 |
 | 数据库协调资源 | `runtime_leases`、scheduled task claim、普通 task processing token/heartbeat、mail outbox claim、业务元数据 | 由共享 PostgreSQL/MySQL 提供权威状态、原子 claim、lease 和 fencing |
-| 跨实例控制面 | Redis cache、config sync Pub/Sub、storage event notification，以及未来的 tunnel owner directory | 只传递失效、刷新、owner discovery 等小消息；断线恢复后回到权威数据库 reconcile |
+| 跨实例控制面 | Redis cache、config sync Pub/Sub、storage event notification、数据库 tunnel owner directory | 只传递失效、刷新、owner discovery 等小消息；断线恢复后回到权威数据库 reconcile |
 | 跨实例数据面 | S3/Azure/OneDrive/SFTP、direct follower internal API、tunnel owner streaming proxy | 运输或保存文件 body；Redis Pub/Sub 和数据库 lease 只负责控制面，不搬运文件内容 |
 
 ```mermaid
@@ -120,7 +120,7 @@ flowchart LR
 
 - scheduler、scheduled task、普通后台任务和 mail outbox 通过数据库 lease/claim 避免重复执行。
 - runtime config 变更通过 Redis 发送 reload 提示；每个实例仍从 writer DB 重新加载完整快照。
-- storage SSE 连接仍是每实例资源。跨实例通知总线落地前，请求落在 B 不会自动唤醒连接在 A 的客户端。
+- storage SSE 连接仍是每实例资源；Redis event bus 会把 B 上发生的变更转发到 A，再由 A 的本地 broadcast 唤醒连接在该实例的客户端。Pub/Sub 断线或本地 lag 时，客户端收到 `sync.required` 并刷新权威 API。
 - reverse tunnel registry、connection lane 和 pending response 仍是每实例资源；cluster 的 owner directory 在数据库中保持 owner lease 和 fencing，非 owner primary 通过 authenticated streaming proxy 把请求送到 owner。
 - local storage 只属于单台机器。cluster profile 使用所有 primary 均可访问的共享存储，不能把路径相同但内容彼此独立的 local root 当成共享数据面。
 

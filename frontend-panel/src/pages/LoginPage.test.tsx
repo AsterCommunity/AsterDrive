@@ -502,6 +502,7 @@ describe("LoginPage", () => {
 			expiresIn: 900,
 		});
 		mockState.check.mockResolvedValue({
+			setup_state: "ready",
 			has_users: true,
 			allow_user_registration: true,
 			passkey_login_enabled: true,
@@ -1925,6 +1926,35 @@ describe("LoginPage", () => {
 		);
 	});
 
+	it("returns external auth to storage setup while initialization is incomplete", async () => {
+		const provider = {
+			display_name: "Example IDP",
+			icon_url: null,
+			key: "example",
+			kind: "oidc",
+		};
+		mockState.check.mockResolvedValue({
+			setup_state: "needs_storage",
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+		mockState.listExternalAuthProviders.mockResolvedValue([provider]);
+
+		render(<LoginPage />);
+
+		fireEvent.click(await screen.findByRole("button", { name: /Example IDP/ }));
+
+		await waitFor(() =>
+			expect(mockState.startExternalAuthLogin).toHaveBeenCalledWith(provider, {
+				return_path: "/admin/policies?external_auth=success",
+			}),
+		);
+		expect(mockState.locationAssign).toHaveBeenCalledWith(
+			"https://idp.example.com/authorize",
+		);
+	});
+
 	it("reports external auth provider loading and login start failures", async () => {
 		const loadError = new Error("providers failed");
 		mockState.listExternalAuthProviders.mockRejectedValueOnce(loadError);
@@ -1978,6 +2008,7 @@ describe("LoginPage", () => {
 
 	it("runs initial setup for the first user and then signs them in", async () => {
 		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
 			has_users: false,
 			allow_user_registration: true,
 			passkey_login_enabled: true,
@@ -2019,8 +2050,78 @@ describe("LoginPage", () => {
 		});
 	});
 
+	it("continues cluster setup at storage policies after creating the administrator", async () => {
+		mockState.check.mockReset();
+		mockState.check
+			.mockResolvedValueOnce({
+				setup_state: "needs_admin",
+				has_users: false,
+				allow_user_registration: true,
+				passkey_login_enabled: true,
+			})
+			.mockResolvedValueOnce({
+				setup_state: "needs_storage",
+				has_users: true,
+				allow_user_registration: true,
+				passkey_login_enabled: true,
+			});
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "cluster-admin@example.com" },
+		});
+		fireEvent.change(await screen.findByLabelText("username"), {
+			target: { value: "clusteradmin" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "create_admin" }));
+
+		await waitFor(() => {
+			expect(mockState.toastSuccess).toHaveBeenCalledWith(
+				"setup_admin_created",
+			);
+		});
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+				replace: true,
+			});
+		});
+	});
+
+	it("routes an existing bootstrap administrator to storage setup after login", async () => {
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_storage",
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+
+		render(<LoginPage />);
+
+		expect(
+			await screen.findByText("storage_setup_login_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("storage_setup_login_desc")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("email_or_username"), {
+			target: { value: "cluster-admin@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+				replace: true,
+			});
+		});
+	});
+
 	it("uses a username placeholder for the first setup identifier field", async () => {
 		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
 			has_users: false,
 			allow_user_registration: true,
 			passkey_login_enabled: true,

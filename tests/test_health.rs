@@ -39,6 +39,14 @@ async fn test_health() {
 #[actix_web::test]
 async fn test_health_ready() {
     let state = common::setup().await;
+    common::create_test_account(
+        &state,
+        "healthadmin",
+        "health-admin@example.com",
+        "password123",
+    )
+    .await
+    .expect("health readiness setup should complete");
     let app = create_test_app!(state);
 
     let req = test::TestRequest::get().uri("/health/ready").to_request();
@@ -81,6 +89,14 @@ async fn test_health_ready_redacts_database_error() {
 #[actix_web::test]
 async fn test_health_ready_returns_503_when_default_storage_is_unavailable() {
     let state = common::setup().await;
+    common::create_test_account(
+        &state,
+        "healthadmin",
+        "health-admin@example.com",
+        "password123",
+    )
+    .await
+    .expect("health readiness setup should complete");
     let default_policy = policy_repo::find_default(state.writer_db())
         .await
         .unwrap()
@@ -122,8 +138,16 @@ async fn test_health_ready_returns_503_when_default_storage_is_unavailable() {
 }
 
 #[actix_web::test]
-async fn test_health_ready_returns_503_when_default_storage_policy_is_missing() {
+async fn test_health_ready_returns_needs_storage_when_default_policy_is_missing() {
     let state = common::setup().await;
+    common::create_test_account(
+        &state,
+        "healthadmin",
+        "health-admin@example.com",
+        "password123",
+    )
+    .await
+    .expect("health readiness setup should complete");
     let default_policy = policy_repo::find_default(state.writer_db())
         .await
         .unwrap()
@@ -145,20 +169,23 @@ async fn test_health_ready_returns_503_when_default_storage_policy_is_missing() 
 
     let req = test::TestRequest::get().uri("/health/ready").to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 503);
+    assert_eq!(resp.status(), 200);
 
     let body: Value = test::read_body_json(resp).await;
-    assert_eq!(body["code"], "storage.policy_not_found");
-    assert_eq!(body["msg"], "Storage unavailable");
-    assert!(
-        body.get("error").is_none(),
-        "storage readiness errors must not expose policy or driver details"
-    );
+    assert_eq!(body["data"]["status"], "needs_storage");
 }
 
 #[actix_web::test]
 async fn test_health_ready_does_not_probe_s3_network() {
     let state = common::setup().await;
+    common::create_test_account(
+        &state,
+        "healthadmin",
+        "health-admin@example.com",
+        "password123",
+    )
+    .await
+    .expect("health readiness setup should complete");
     let default_policy = policy_repo::find_default(state.writer_db())
         .await
         .unwrap()

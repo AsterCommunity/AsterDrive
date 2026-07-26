@@ -106,8 +106,8 @@ bootstrap_insecure_cookies = false
 
 - 生成默认 `data/config.toml`
 - 连接数据库并自动更新数据库结构
-- single profile 自动创建默认本地存储策略 `Local Default`；cluster profile 跳过本地默认策略，等待管理员创建共享策略
-- 自动创建默认策略组 `Default Policy Group`
+- single profile 自动创建默认本地存储策略 `Local Default`，并补种 `Default Policy Group`
+- cluster profile 跳过本地策略和策略组；管理员把第一条共享策略设为默认时，系统再原子创建默认组并回填未分配管理员
 - 初始化系统设置默认项
 - 启动邮件派发、后台任务派发、周期清理和底层文件一致性检查任务
 

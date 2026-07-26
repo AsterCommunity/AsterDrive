@@ -29,9 +29,11 @@ StatefulSet 在这里仅用于稳定 DNS。权威状态仍在共享数据库、R
 
 ## 探针与终止
 
-示例使用 `/health` 作为 startup/liveness probe，使用 `/health/ready` 作为 readiness probe。readiness 会检查共享数据库、真实 Redis cache 和默认存储，失败的 Pod 不会进入对外 Service。
+示例使用 `/health` 作为 startup/liveness probe，使用 `/health/ready` 作为 readiness probe。readiness 始终检查共享数据库、真实 Redis cache 和 cluster 拓扑；系统完成初始化后还会执行默认存储 driver 的轻量 readiness 检查，失败的 Pod 不会进入对外 Service。
 
-全新 cluster 数据库启动时没有默认存储策略，因此 `/health/ready` 会先返回 `503`。此时仍可通过任一 Primary 的 `/api/v1/auth/setup` 创建首个管理员；管理员会暂时没有策略组。随后创建一条所有 Primary 都可访问的共享存储策略并设为默认，AsterDrive 会原子创建默认策略组、回填尚未分配策略组的管理员，并通过 Redis 通知其他 Primary 重载。普通注册、邀请接受和管理员创建用户仍要求默认策略组已经存在。
+全新 cluster 数据库启动时没有默认存储策略。只要数据库、Redis 和拓扑健康，`/health/ready` 仍返回 `200`，响应状态依次为 `needs_admin` 或 `needs_storage`，让 Pod 进入对外 Service 并完成初始化；尚未完成产品初始化不等于 Pod 故障。先创建首个管理员，再用该管理员登录，前端会引导到存储策略页。创建一条所有 Primary 都可访问的共享存储策略并设为默认后，AsterDrive 会原子创建默认策略组、回填尚未分配策略组的管理员，并通过 Redis 通知其他 Primary 重载，响应状态随后变为 `ready`。普通注册、邀请接受和管理员创建用户在 `needs_storage` 阶段会收到明确的“系统初始化未完成”错误。
+
+系统进入 `ready` 后，`/health/ready` 会检查默认策略存在、driver 可构造，以及 driver 提供的本地低成本前置条件。这个高频探针不会对 S3、OneDrive、SFTP 或远程 Follower 执行读写网络探测，因此远端存储服务中断不一定触发 `503`；生产环境还需要使用指标告警或独立 synthetic probe 监控真实对象读写。Redis、数据库或拓扑异常在任何初始化阶段都会返回 `503`。
 
 Pod 收到终止信号前先执行 10 秒 `preStop` 等待 endpoint 摘流量，总 `terminationGracePeriodSeconds` 为 45 秒。已经建立的 SSE、上传、下载、WebDAV 或 reverse tunnel 连接仍可能中断，客户端需要重连或重试。
 

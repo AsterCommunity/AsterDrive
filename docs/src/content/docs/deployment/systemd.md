@@ -95,7 +95,7 @@ journalctl -u asterdrive -f
 ## 7. 首次验收
 
 - `/health` 返回 200
-- `/health/ready` 返回 200
+- 完成管理员和存储初始化后，`/health/ready` 返回 200，且 `data.status` 是 `ready`
 - 首页响应头里已经带上 AsterDrive 返回的页面基线 `Content-Security-Policy`
 - 首次启动日志里已完成数据库更新和默认策略初始化
 - 管理后台里能看到默认策略组

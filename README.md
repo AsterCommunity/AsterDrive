@@ -51,7 +51,7 @@ AsterDrive is probably not the right first choice when you need:
 - a complete collaboration suite with calendars, contacts, chat, mail, and an app ecosystem
 - mature native desktop and mobile sync clients today
 - an ultra-minimal web UI over a single server directory
-- multi-primary clustering, automatic failover, or enterprise compliance guarantees
+- managed database/Redis/object-storage high availability, cross-region strong consistency, automatic cross-region traffic failover, or enterprise compliance guarantees
 - a vendor-managed SaaS where someone else owns the deployment and data responsibility
 
 ## Design focus

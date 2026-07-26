@@ -75,11 +75,11 @@ Leaving both values empty creates a direct-only cluster. Direct Followers remain
 | Probe | Purpose | Cluster behavior |
 | --- | --- | --- |
 | `/health` | Liveness | Reports process liveness; it remains `200` during a temporary Redis outage |
-| `/health/ready` | Readiness | Checks the database, active Redis cache, and default shared storage; any failure returns `503` |
+| `/health/ready` | Readiness | Always checks the database, active Redis cache, and topology; runs the default storage driver's lightweight readiness check after setup completes |
 
 Kubernetes, Ingress controllers, and other load balancers should add only Primaries with a successful `/health/ready` response to the upstream. Do not use `/health` as readiness. If Redis initialization falls back to memory cache, cluster readiness still fails; it becomes ready automatically after Redis recovers.
 
-A fresh cluster database does not create `Local Default`. Create a shared storage policy and make it the default before readiness can pass.
+A fresh cluster database does not create `Local Default`. While base dependencies are healthy, `/health/ready` returns `200` during setup with a status of `needs_admin` or `needs_storage`, allowing an administrator to finish setup through the normal load-balanced entry. After a shared policy becomes the default and the administrator policy-group assignment is reconciled, the status changes to `ready`; subsequent failures from the default driver's lightweight readiness check return `503`. The probe does not perform object I/O against remote storage, so monitor real data-plane availability separately.
 
 ## Migrations, Scheduler, and Background Tasks
 
@@ -109,7 +109,7 @@ See [Reverse Proxy](/en/deployment/reverse-proxy/) for proxy examples and reques
 
 Complete at least these checks:
 
-1. Start two Primaries concurrently and verify that a fresh database runs migrations once and both instances eventually become ready.
+1. Start two Primaries concurrently, verify that a fresh database runs migrations once and both instances enter the Service as `needs_admin`; create the administrator and default shared storage through the load-balanced entry, then verify both instances become `ready`.
 2. Repeatedly log in, refresh tokens, create folders, upload, download, and use WebDAV through the load-balanced entry, confirming correctness when requests switch instances.
 3. Change runtime settings, storage policies, policy groups, and user bindings through Primary A, then verify Primary B uses the new state without a restart.
 4. Stop Redis and verify `/health` remains `200`, `/health/ready` becomes `503`, and SSE receives `sync.required`; restore Redis and verify readiness and subscriptions recover automatically.

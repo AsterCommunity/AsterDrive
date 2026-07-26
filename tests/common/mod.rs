@@ -914,10 +914,18 @@ pub async fn create_test_account(
     email: &str,
     password: &str,
 ) -> aster_drive::errors::Result<aster_drive::services::auth::local::AuthUserInfo> {
-    if aster_drive::services::auth::local::check_auth_state(state).await? {
-        aster_drive::services::auth::local::register(state, username, email, password).await
-    } else {
-        aster_drive::services::auth::local::setup(state, username, email, password).await
+    match aster_drive::services::system_setup::state(state.writer_db()).await? {
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin => {
+            aster_drive::services::auth::local::setup(state, username, email, password).await
+        }
+        aster_drive::services::system_setup::SystemSetupState::Ready => {
+            aster_drive::services::auth::local::register(state, username, email, password).await
+        }
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage => {
+            Err(aster_drive::errors::AsterError::internal_error(
+                "test account helper requires storage setup to be complete",
+            ))
+        }
     }
 }
 
@@ -1002,12 +1010,17 @@ where
     B::Error: std::fmt::Debug,
     E: std::fmt::Debug,
 {
-    let initialized = aster_drive::db::repository::system_initialization_repo::is_initialized(db)
+    let setup_state = aster_drive::services::system_setup::state(db)
         .await
-        .expect("test initialization state should load");
-    if !initialized {
+        .expect("test setup state should load");
+    if setup_state == aster_drive::services::system_setup::SystemSetupState::NeedsAdmin {
         return setup_test_account_via_api(app, username, email, password).await;
     }
+    assert_eq!(
+        setup_state,
+        aster_drive::services::system_setup::SystemSetupState::Ready,
+        "test account helper requires storage setup to be complete"
+    );
 
     let user_id = create_test_account_at_api_endpoint(
         app,

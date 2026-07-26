@@ -91,7 +91,7 @@ PostgreSQL 和 SQLite 不受这个限制。
 升级完成后按这个清单走一遍：
 
 1. `/health` 返回 200
-2. `/health/ready` 返回 200（DB 和默认存储后端都通）
+2. `/health/ready` 返回 200，且 `data.status` 是 `ready`（这会检查 DB、默认策略和轻量 driver 前置条件，不代表远端对象存储已完成读写探测）
 3. 管理后台能正常打开
 4. 用真实账号登录、上传一个文件、下载、分享、恢复一次回收站项目
 5. 跑一次 `aster_drive doctor`

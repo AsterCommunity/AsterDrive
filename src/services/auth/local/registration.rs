@@ -73,7 +73,6 @@ pub async fn create_user_by_admin(
             status: UserStatus::Active,
             must_change_password,
             email_verified_at: Some(Utc::now()),
-            allow_missing_policy_group: false,
         },
     )
     .await?;
@@ -93,12 +92,7 @@ pub async fn register(
     email: &str,
     password: &str,
 ) -> Result<AuthUserInfo> {
-    if !system_initialization_repo::is_initialized(state.writer_db()).await? {
-        return Err(validation_error_with_code(
-            ApiErrorCode::ValidationSystemNotInitialized,
-            "system is not initialized",
-        ));
-    }
+    crate::services::system_setup::require_ready(state.writer_db()).await?;
 
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
     tracing::debug!(
@@ -130,7 +124,6 @@ pub async fn register(
             status: UserStatus::Active,
             must_change_password: false,
             email_verified_at,
-            allow_missing_policy_group: false,
         },
     )
     .await?;
@@ -242,8 +235,10 @@ pub async fn resend_register_activation(
     )))
 }
 
-pub async fn check_auth_state(state: &impl SharedRuntimeState) -> Result<bool> {
-    system_initialization_repo::is_initialized(state.writer_db()).await
+pub async fn check_auth_state(
+    state: &impl SharedRuntimeState,
+) -> Result<crate::services::system_setup::SystemSetupStatus> {
+    crate::services::system_setup::inspect(state.writer_db()).await
 }
 
 pub async fn setup(
@@ -255,7 +250,9 @@ pub async fn setup(
     tracing::debug!("running initial setup");
     let txn = transaction::begin(state.writer_db()).await?;
     system_initialization_repo::acquire_setup_lock(&txn).await?;
-    if system_initialization_repo::is_initialized(&txn).await? {
+    if crate::services::system_setup::state(&txn).await?
+        != crate::services::system_setup::SystemSetupState::NeedsAdmin
+    {
         return Err(validation_error_with_code(
             ApiErrorCode::ValidationSystemAlreadyInitialized,
             "system already initialized",

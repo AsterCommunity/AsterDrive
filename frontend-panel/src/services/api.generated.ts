@@ -5021,6 +5021,7 @@ export interface components {
             allow_user_registration: boolean;
             has_users: boolean;
             passkey_login_enabled: boolean;
+            setup_state: components["schemas"]["SystemSetupState"];
         };
         ChunkUploadResponse: {
             /** Format: int32 */
@@ -8087,6 +8088,8 @@ export interface components {
             build_time: string;
             version: string;
         };
+        /** @enum {string} */
+        SystemSetupState: "needs_admin" | "needs_storage" | "ready";
         TagInfo: {
             color: string;
             created_at: string;
@@ -14722,6 +14725,7 @@ export interface operations {
                             allow_user_registration: boolean;
                             has_users: boolean;
                             passkey_login_enabled: boolean;
+                            setup_state: components["schemas"]["SystemSetupState"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

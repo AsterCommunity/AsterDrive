@@ -43,7 +43,7 @@ Ingress 示例没有注册进 kustomization。替换域名、IngressClass 和 TL
 
 ## 清单边界
 
-- `/health` 用于 startup/liveness，`/health/ready` 用于 readiness；只有 ready Pod 会进入对外 Service。
+- `/health` 用于 startup/liveness，`/health/ready` 用于 readiness；初始化期间基础依赖健康的 Pod 会以 `needs_admin` 或 `needs_storage` 状态进入对外 Service，完成初始化后才探测默认存储。
 - Pod 终止前先等待 10 秒让 endpoint 摘流量，进程总优雅终止窗口为 45 秒。
 - `/data` 是每 Pod 临时卷，只保存 config、普通临时文件和被 cluster 拒绝使用的上传 staging 目录；`/data/avatar` 由独立 RWX PVC 覆盖。
 - StatefulSet 不表示 AsterDrive 把业务状态放在 Pod 磁盘。它只提供稳定、唯一的内部 DNS，供 reverse tunnel owner proxy 使用。

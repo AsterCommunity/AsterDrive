@@ -223,8 +223,8 @@ Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()`
 2. Connect to the database
 3. Run all migrations
 4. Prepare SQLite search acceleration if the current backend supports it
-5. Ensure at least one default local storage policy exists
-6. Seed the default policy group only in primary mode
+5. In the single profile, create default local storage when no policy exists; in the cluster profile, skip the local seed
+6. In primary mode, seed the default policy group only when a default policy exists
 7. Initialize the `auth_cookie_secure` bootstrap value
 8. Write default values into `system_config`
 9. Clean deprecated `node_runtime_mode` and old thumbnail runtime config keys

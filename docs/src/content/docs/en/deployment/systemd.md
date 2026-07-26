@@ -95,7 +95,7 @@ journalctl -u asterdrive -f
 ## 7. First Acceptance Check
 
 - `/health` returns 200.
-- `/health/ready` returns 200.
+- After administrator and storage setup is complete, `/health/ready` returns 200 with `data.status` set to `ready`.
 - The home page response headers include the browser page baseline `Content-Security-Policy` returned by AsterDrive.
 - First startup logs show database updates and default policy initialization have completed.
 - The default policy group is visible in the admin panel.

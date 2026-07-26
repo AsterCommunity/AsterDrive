@@ -6,7 +6,7 @@
 
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
-| `POST` | `/auth/check` | 返回公开认证状态（系统是否已初始化、是否允许公开注册） |
+| `POST` | `/auth/check` | 返回公开 setup 状态、是否已有用户、是否允许公开注册 |
 | `POST` | `/auth/setup` | 初始化系统并创建首个管理员 |
 | `POST` | `/auth/register` | 系统初始化后注册普通用户 |
 | `POST` | `/auth/register/resend` | 重发注册激活邮件 |
@@ -56,10 +56,13 @@
 
 ## 初始化与注册
 
-- `POST /auth/check`：返回 `has_users` 和 `allow_user_registration`，只用于判断实例处于初始化、登录还是“关闭公开注册”的大状态，不会公开暴露账号是否存在
+- `POST /auth/check`：返回 `setup_state`、`has_users`、`allow_user_registration` 和 `passkey_login_enabled`；只公开系统级状态，不会暴露特定账号是否存在。`setup_state` 取值为：
+  - `needs_admin`：数据库中还没有用户，只开放首个管理员 setup
+  - `needs_storage`：管理员已经存在，但默认存储策略组或管理员绑定尚未完成；已有管理员可以登录并完成存储设置
+  - `ready`：管理员和默认存储路由均已准备好，普通建号流程可以继续
   这条接口当前不需要请求体。
 - `POST /auth/setup`：创建首个管理员的唯一入口，仅在系统还没有任何用户时可用
-- `POST /auth/register`：必须在系统完成初始化后使用，并且只会创建普通用户；初始化完成且 `auth_allow_user_registration = true` 时可用，新用户默认配额来自 `default_storage_quota`
+- `POST /auth/register`：必须在 `setup_state = "ready"` 后使用，并且只会创建普通用户；同时要求 `auth_allow_user_registration = true`，新用户默认配额来自 `default_storage_quota`
 - `POST /auth/register/resend`：对“尚未完成激活”的账号重发确认邮件，请求体如下：
 
 ```json
@@ -77,7 +80,7 @@
 
 这两个策略只作用于本地注册和本地账号邮箱变更。国际化域名必须按 punycode 写入。它们不是 CORS 白名单，也不是外部认证 provider 的域名限制。
 
-系统尚未初始化时，`/auth/register` 固定返回 `400` 和 `validation.system_not_initialized`，不会代替 `/auth/setup` 创建管理员。
+系统处于 `needs_admin` 或 `needs_storage` 时，`/auth/register` 固定返回 `400` 和 `validation.system_not_initialized`，不会代替 `/auth/setup` 创建管理员，也不会在默认存储路由缺失时创建普通用户。邀请接受、外部认证自动建号和管理员创建用户同样要求系统处于 `ready`。
 
 系统初始化完成后，如果运营方关闭了 `auth_allow_user_registration`：
 
