@@ -15,6 +15,8 @@ pub(crate) use security::{ensure_request_proof_valid, ensure_request_source_allo
 #[cfg(test)]
 pub(crate) use actions::{build_discovered_apps, resolve_discovery_action_url};
 #[cfg(test)]
-pub(crate) use parser::parse_discovery_xml;
+pub(crate) use parser::{
+    WOPI_DISCOVERY_XML_MAX_BYTES, parse_discovery_document, parse_discovery_xml,
+};
 #[cfg(test)]
 pub(crate) use url::{append_wopi_src, expand_action_url, trusted_origins_for_app};

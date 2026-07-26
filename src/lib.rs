@@ -20,6 +20,7 @@ pub mod config;
 pub mod db;
 pub mod entities;
 pub mod errors;
+mod http;
 pub mod metrics;
 pub mod runtime;
 pub mod services;

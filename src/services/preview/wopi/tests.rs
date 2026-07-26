@@ -2,11 +2,13 @@
 
 use std::collections::BTreeMap;
 
+use aster_forge_xml::{Error as ForgeXmlError, XmlSafetyError};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use serde_json::json;
 
 use super::discovery::{
-    append_wopi_src, build_discovered_apps, ensure_request_source_allowed, expand_action_url,
+    WOPI_DISCOVERY_XML_MAX_BYTES, append_wopi_src, build_discovered_apps,
+    ensure_request_source_allowed, expand_action_url, parse_discovery_document,
     parse_discovery_xml, resolve_discovery_action_url, trusted_origins_for_app,
 };
 use super::operations::parse_wopi_max_expected_size;
@@ -581,6 +583,153 @@ fn parse_discovery_xml_extracts_proof_keys() {
     .unwrap();
 
     assert!(discovery.proof_keys().is_some());
+}
+
+#[test]
+fn parse_discovery_xml_matches_prefixed_elements_and_attributes_by_local_name() {
+    let mut modulus_bytes = vec![0_u8; 256];
+    modulus_bytes[0] = 0x80;
+    modulus_bytes[255] = 1;
+    let modulus = STANDARD.encode(modulus_bytes);
+    let exponent = STANDARD.encode([1_u8, 0, 1]);
+    let discovery = parse_discovery_xml(&format!(
+        r#"
+            <w:wopi-discovery xmlns:w="urn:wopi">
+              <w:Proof-Key w:MoDuLuS="{modulus}" w:ExPoNeNt="{exponent}" />
+              <w:net-zone w:name="external-http">
+                <w:App w:NaMe="Word" w:FaViCoNuRl="https://office.example.com/icon.svg">
+                  <w:Action
+                    w:NaMe="view"
+                    w:ExT="docx"
+                    w:UrLsRc="https://office.example.com/word/view?"
+                  />
+                </w:App>
+              </w:net-zone>
+            </w:wopi-discovery>
+            "#
+    ))
+    .expect("prefixed WOPI discovery should match elements and attributes by local name");
+
+    assert!(discovery.proof_keys().is_some());
+    assert_eq!(
+        resolve_discovery_action_url(
+            &discovery,
+            "view",
+            Some("docx"),
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        )
+        .as_deref(),
+        Some("https://office.example.com/word/view?")
+    );
+    let apps = build_discovered_apps(&discovery);
+    assert_eq!(apps.len(), 1);
+    assert_eq!(apps[0].action, "view");
+    assert_eq!(apps[0].extensions, vec!["docx".to_string()]);
+    assert_eq!(apps[0].label, "Word");
+    assert_eq!(
+        apps[0].icon_url.as_deref(),
+        Some("https://office.example.com/icon.svg")
+    );
+}
+
+#[test]
+fn parse_discovery_xml_enforces_size_depth_element_and_declaration_boundaries() {
+    let valid_action = r#"<app name="Word"><action name="view" ext="docx" urlsrc="https://office.example.com/view?"/></app>"#;
+    let size_prefix = "<wopi-discovery><!--";
+    let size_suffix = format!("-->{valid_action}</wopi-discovery>");
+    let exact_size = format!(
+        "{size_prefix}{}{size_suffix}",
+        "x".repeat(WOPI_DISCOVERY_XML_MAX_BYTES - size_prefix.len() - size_suffix.len())
+    );
+    assert_eq!(exact_size.len(), WOPI_DISCOVERY_XML_MAX_BYTES);
+    parse_discovery_xml(&exact_size).expect("WOPI XML at exact size limit should parse");
+    let over_size = format!("{exact_size} ");
+    assert!(matches!(
+        parse_discovery_document(&over_size),
+        Err(ForgeXmlError::Safety(XmlSafetyError::InputTooLarge))
+    ));
+    let error = parse_discovery_xml(&over_size).expect_err("WOPI XML over size limit should fail");
+    assert!(error.message().contains("byte limit"));
+
+    let exact_depth = format!(
+        "<wopi-discovery>{}{valid_action}{}</wopi-discovery>",
+        "<n>".repeat(29),
+        "</n>".repeat(29)
+    );
+    parse_discovery_xml(&exact_depth).expect("WOPI XML at exact depth limit should parse");
+    let over_depth = format!(
+        "<wopi-discovery>{}{valid_action}{}</wopi-discovery>",
+        "<n>".repeat(30),
+        "</n>".repeat(30)
+    );
+    assert!(matches!(
+        parse_discovery_document(&over_depth),
+        Err(ForgeXmlError::Safety(XmlSafetyError::TooDeep))
+    ));
+    let error =
+        parse_discovery_xml(&over_depth).expect_err("WOPI XML over depth limit should fail");
+    assert!(error.message().contains("nesting depth"));
+
+    let exact_elements = format!(
+        "<wopi-discovery>{}{valid_action}</wopi-discovery>",
+        "<n/>".repeat(49_997)
+    );
+    parse_discovery_xml(&exact_elements).expect("WOPI XML at exact element limit should parse");
+    let over_elements = format!(
+        "<wopi-discovery>{}{valid_action}</wopi-discovery>",
+        "<n/>".repeat(49_998)
+    );
+    assert!(matches!(
+        parse_discovery_document(&over_elements),
+        Err(ForgeXmlError::Safety(XmlSafetyError::TooManyElements))
+    ));
+    let error =
+        parse_discovery_xml(&over_elements).expect_err("WOPI XML over element limit should fail");
+    assert!(error.message().contains("element count"));
+
+    for (name, xml) in [
+        (
+            "DTD",
+            format!(
+                "<!DOCTYPE wopi-discovery [<!ENTITY x 'boom'>]><wopi-discovery>{valid_action}&x;</wopi-discovery>"
+            ),
+        ),
+        (
+            "standalone entity",
+            format!("<!ENTITY x 'boom'><wopi-discovery>{valid_action}</wopi-discovery>"),
+        ),
+    ] {
+        assert!(matches!(
+            parse_discovery_document(&xml),
+            Err(ForgeXmlError::Safety(XmlSafetyError::ExternalEntity))
+        ));
+        let error = parse_discovery_xml(&xml).expect_err(name);
+        assert!(
+            error.message().contains("DTD and custom entity"),
+            "{name} boundary returned unexpected error: {}",
+            error.message()
+        );
+    }
+
+    for (name, xml) in [
+        ("malformed", format!("<wopi-discovery>{valid_action}")),
+        (
+            "trailing document",
+            format!("<wopi-discovery>{valid_action}</wopi-discovery><extra/>"),
+        ),
+    ] {
+        assert!(matches!(
+            parse_discovery_document(&xml),
+            Err(ForgeXmlError::Safety(XmlSafetyError::Malformed))
+                | Err(ForgeXmlError::InvalidXml(_))
+        ));
+        let error = parse_discovery_xml(&xml).expect_err(name);
+        assert!(
+            error.message().contains("XML"),
+            "{name} boundary returned unexpected error: {}",
+            error.message()
+        );
+    }
 }
 
 #[test]
