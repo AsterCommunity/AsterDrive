@@ -36,7 +36,7 @@ variable is unset, the build script falls back to the current UTC time.
 
 ## `GET /health/ready`
 
-This endpoint does more than a database ping. It checks the database and the configured cache backend for every deployment profile. Shared-runtime profiles additionally require that cache to be Redis. It then continues according to node mode:
+This endpoint does more than a database ping. It checks the database and the active cache backend for every deployment profile. The `single` profile remains ready when an unavailable configured remote cache falls back to a healthy memory cache, while diagnostics report that state as degraded. Shared-runtime profiles require both the configured and active backend to be Redis. It then continues according to node mode:
 
 - `primary`: validates dynamic cluster topology and the authoritative setup state. `needs_admin` and `needs_storage` return `200` immediately; only `ready` requires a default storage policy, a constructible driver, and that driver's lightweight readiness check
 - `follower`: checks the follower's active storage driver and the state required for binding
@@ -52,7 +52,7 @@ Successful `primary` responses use one of three `data.status` values:
 Error responses:
 
 - database unavailable: `503` with `Database unavailable`
-- an unhealthy configured cache or an active backend that differs from configuration: `503` with `Cache unavailable`; cluster additionally requires both the configured and active backend to be Redis
+- an unhealthy active cache: `503` with `Cache unavailable`; in cluster deployments, an active backend that differs from configuration also returns `503`, and both the configured and active backend must be Redis
 - invalid cluster topology, missing default policy, driver-construction failure, or lightweight readiness failure: `503` with `Storage unavailable`
 
 Recommended deployment usage:

@@ -51,16 +51,7 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
         NodeRuntimeMode::Follower => driver_registry.reload_follower_state(&database).await?,
     }
 
-    let cache = aster_forge_cache::create_cache_with_policy(
-        &cfg.cache,
-        aster_forge_cache::CacheBackendFailurePolicy::ReturnError,
-    )
-    .await
-    .map_err(|error| {
-        AsterError::config_error(format!(
-            "configured cache backend could not be created: {error}"
-        ))
-    })?;
+    let cache = create_runtime_cache(cfg.as_ref()).await?;
     let config_sync = aster_forge_config::build_config_sync_runtime(
         &cfg.config_sync,
         crate::services::ops::config::runtime::CONFIG_RELOAD_NAMESPACE,
@@ -77,6 +68,24 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
         config_sync,
         metrics,
     })
+}
+
+async fn create_runtime_cache(
+    cfg: &crate::config::Config,
+) -> Result<Arc<dyn aster_forge_cache::CacheBackend>> {
+    let failure_policy = if cfg.deployment.requires_shared_runtime() {
+        aster_forge_cache::CacheBackendFailurePolicy::ReturnError
+    } else {
+        aster_forge_cache::CacheBackendFailurePolicy::FallbackToMemory
+    };
+
+    aster_forge_cache::create_cache_with_policy(&cfg.cache, failure_policy)
+        .await
+        .map_err(|error| {
+            AsterError::config_error(format!(
+                "configured cache backend could not be created: {error}"
+            ))
+        })
 }
 
 pub async fn initialize_database_state(
@@ -135,6 +144,7 @@ mod tests {
     use super::*;
     use aster_forge_config::ConfigSource;
     use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+    use std::net::TcpListener;
 
     #[test]
     fn optional_follower_bootstrap_success_keeps_startup_flow() {
@@ -146,6 +156,42 @@ mod tests {
         handle_optional_follower_bootstrap::<()>(Err(AsterError::validation_error(
             "enrollment token has already been completed",
         )));
+    }
+
+    #[tokio::test]
+    async fn runtime_cache_construction_falls_back_only_for_single_profile() {
+        let listener = TcpListener::bind("127.0.0.1:0")
+            .expect("cache startup test should reserve a local port");
+        let unavailable_endpoint = format!(
+            "redis://{}/0",
+            listener
+                .local_addr()
+                .expect("cache startup test should resolve the local port")
+        );
+        drop(listener);
+
+        let mut config = crate::config::Config::default();
+        config.cache.backend = "redis".to_string();
+        config.cache.endpoint = unavailable_endpoint.into();
+
+        config.deployment.profile = crate::config::DeploymentProfile::Single;
+        let cache = create_runtime_cache(&config)
+            .await
+            .expect("single profile should fall back when Redis is unavailable");
+        assert_eq!(cache.backend_name(), "memory");
+        cache
+            .health_check()
+            .await
+            .expect("single profile memory fallback should be healthy");
+
+        config.deployment.profile = crate::config::DeploymentProfile::Cluster;
+        let error = create_runtime_cache(&config)
+            .await
+            .map(|_| ())
+            .expect_err("cluster profile should require the configured Redis backend");
+        let message = error.to_string();
+        assert!(message.contains("configured cache backend could not be created"));
+        assert!(message.contains("redis cache connection"));
     }
 
     #[tokio::test]

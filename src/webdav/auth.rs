@@ -140,7 +140,10 @@ async fn authenticate_basic(
         .split_once(':')
         .ok_or_else(|| AsterError::auth_invalid_credentials("invalid basic auth format"))?;
 
-    if let Some(cached) = cache::load_auth(state, username, password).await {
+    if let Some(cached) = cache::load_auth(state, username, password)
+        .await
+        .map_err(AsterError::from)?
+    {
         tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
         return Ok(WebdavAuthResult {
             account_id: cached.account_id,
@@ -222,7 +225,8 @@ async fn authenticate_basic(
             root_folder_id: account.root_folder_id,
         },
     )
-    .await;
+    .await
+    .map_err(AsterError::from)?;
     rate_limit::clear_username_failures(state, protection.enabled(), username).await;
     tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache miss");
     Ok(WebdavAuthResult {

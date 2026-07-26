@@ -36,7 +36,7 @@
 
 ## `GET /health/ready`
 
-这条接口不是只看数据库。所有 deployment profile 都会检查数据库和实际配置的 cache backend；要求共享运行时状态的 profile 还会验证该 cache 必须是 Redis。随后按节点模式继续：
+这条接口不是只看数据库。所有 deployment profile 都会检查数据库和实际 cache backend。`single` profile 在配置的远端 cache 启动失败并回退到健康的 memory cache 时保持 ready，同时在诊断健康报告中标记为 degraded；要求共享运行时状态的 profile 则要求配置和实际 backend 都是 Redis。随后按节点模式继续：
 
 - `primary`：检查动态 cluster 拓扑和权威 setup 状态。`needs_admin` / `needs_storage` 直接以 `200` 返回；只有进入 `ready` 后才要求默认存储策略存在、driver 可实例化，并执行该 driver 的轻量 readiness 检查
 - `follower`：检查 follower 当前的存储驱动和绑定所需状态
@@ -52,7 +52,7 @@
 错误响应：
 
 - 数据库不可用：`503`，消息是 `Database unavailable`
-- 配置的 cache 不健康或实际 backend 与配置不一致：`503`，消息是 `Cache unavailable`；cluster 额外要求配置和实际 backend 都是 Redis
+- 实际 cache 不健康：`503`，消息是 `Cache unavailable`；cluster 中实际 backend 与配置不一致也返回 `503`，并要求配置和实际 backend 都是 Redis
 - cluster 拓扑、默认策略、driver 构造或轻量 readiness 检查失败：`503`，消息是 `Storage unavailable`
 
 部署建议：

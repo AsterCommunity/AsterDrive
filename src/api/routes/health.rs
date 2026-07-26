@@ -106,6 +106,13 @@ async fn check_cache_ready<S: SharedRuntimeState>(state: &S) -> Result<(), Strin
             .await;
     match report.status {
         HealthStatus::Healthy => Ok(()),
+        HealthStatus::Degraded if !state.config().deployment.requires_shared_runtime() => {
+            tracing::warn!(
+                message = %report.message,
+                "single-profile readiness accepted degraded cache backend"
+            );
+            Ok(())
+        }
         HealthStatus::Degraded | HealthStatus::Unhealthy => Err(report.message),
     }
 }
@@ -554,6 +561,25 @@ mod tests {
             serde_json::from_slice(&body).expect("health response should be valid json");
         assert_eq!(payload["code"], "config.error");
         assert_eq!(payload["msg"], super::READY_CACHE_UNAVAILABLE_MESSAGE);
+    }
+
+    #[actix_web::test]
+    async fn single_ready_accepts_healthy_memory_fallback() {
+        let driver = ProbeDriver::healthy();
+        let mut state = build_test_state(Some(driver.clone())).await;
+        let mut config = state.config.as_ref().clone();
+        config.cache.backend = "redis".to_string();
+        config.cache.endpoint = "redis://unavailable-cache.test:6379/0".into();
+        state.config = Arc::new(config);
+        state.cache = Arc::new(FakeCache {
+            backend_name: "memory",
+            healthy: true,
+        });
+
+        let response = ready(web::Data::new(state)).await;
+
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(driver.ready_calls.load(Ordering::SeqCst), 1);
     }
 
     #[actix_web::test]
