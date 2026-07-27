@@ -245,6 +245,29 @@ describe("uploadService", () => {
 		});
 	});
 
+	it("normalizes malformed chunk response envelope fields", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.uploadChunk(
+			"upload-1",
+			0,
+			new Blob(["hello"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 202;
+		xhr.responseText = JSON.stringify({
+			code: 7,
+			msg: { unexpected: true },
+			error: { retryable: "true" },
+		});
+		xhr.onload?.();
+
+		await expect(promise).rejects.toMatchObject({
+			message: "chunk upload failed: 202",
+			retryable: false,
+			status: 202,
+		});
+	});
+
 	it("rejects chunk uploads on API or transport failures", async () => {
 		const { UploadRequestError, uploadService } = await import(
 			"@/services/uploadService"

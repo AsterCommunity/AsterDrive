@@ -8,6 +8,7 @@ import {
 import { bindWorkspaceService } from "@/stores/workspaceStore";
 import type {
 	ApiErrorCode,
+	ApiErrorInfo,
 	ApiResponse,
 	ChunkUploadResponse,
 	CompletedPart,
@@ -80,26 +81,33 @@ function parseApiMessage(responseText: string): string | null {
 	}
 }
 
-function parseApiErrorResponse(responseText: string): {
+function normalizeApiEnvelope<T>(parsed: Partial<ApiResponse<T>>): {
 	code?: ApiErrorCode;
-	msg?: string;
-	retryable?: boolean;
-} | null {
+	msg?: ApiResponse["msg"];
+	retryable?: ApiErrorInfo["retryable"];
+} {
+	const errorInfo =
+		typeof parsed.error === "object" && parsed.error !== null
+			? (parsed.error as Partial<ApiErrorInfo>)
+			: undefined;
+	return {
+		code:
+			typeof parsed.code === "string" && isApiErrorCode(parsed.code)
+				? parsed.code
+				: undefined,
+		msg: typeof parsed.msg === "string" ? parsed.msg : undefined,
+		retryable: errorInfo?.retryable === true,
+	};
+}
+
+function parseApiErrorResponse(
+	responseText: string,
+): ReturnType<typeof normalizeApiEnvelope> | null {
 	if (!responseText) return null;
 	try {
-		const parsed = JSON.parse(responseText) as {
-			code?: unknown;
-			error?: { retryable?: unknown };
-			msg?: unknown;
-		};
-		return {
-			code:
-				typeof parsed.code === "string" && isApiErrorCode(parsed.code)
-					? parsed.code
-					: undefined,
-			msg: typeof parsed.msg === "string" ? parsed.msg : undefined,
-			retryable: parsed.error?.retryable === true,
-		};
+		return normalizeApiEnvelope(
+			JSON.parse(responseText) as Partial<ApiResponse>,
+		);
 	} catch {
 		return null;
 	}
@@ -176,21 +184,19 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 				xhr.onload = () => {
 					if (xhr.status >= 200 && xhr.status < 300) {
 						try {
-							const resp = JSON.parse(xhr.responseText) as {
-								code?: ApiErrorCode;
-								error?: { retryable?: boolean };
-								msg?: string;
-								data?: ChunkUploadResponse;
-							};
+							const parsed = JSON.parse(xhr.responseText) as Partial<
+								ApiResponse<ChunkUploadResponse>
+							>;
+							const resp = normalizeApiEnvelope(parsed);
 							if (resp.code === ApiErrorCodeValue.Success) {
-								resolve(resp.data as ChunkUploadResponse);
+								resolve(parsed.data as ChunkUploadResponse);
 							} else {
 								reject(
 									new UploadRequestError(
 										resp.msg ?? `chunk upload failed: ${xhr.status}`,
 										{
 											status: xhr.status,
-											retryable: resp.error?.retryable === true,
+											retryable: resp.retryable === true,
 										},
 									),
 								);
