@@ -1,6 +1,13 @@
-# AsterDrive Kubernetes 多 Primary 示例
+# AsterDrive Kubernetes 多 Primary 部署
 
-这组清单部署两个 AsterDrive Primary，使用 StatefulSet 的稳定 Pod DNS 生成每实例唯一的 `deployment.internal_endpoint`。外部 PostgreSQL/MySQL、Redis 和对象存储仍由部署者提供；示例不会在同一套清单里创建生产数据库或 Redis。
+这组清单部署两个 AsterDrive Primary，使用 StatefulSet 的稳定 Pod DNS 生成每实例唯一的 `deployment.internal_endpoint`。生产 Kustomize 和 Helm 入口只管理 AsterDrive；外部 PostgreSQL/MySQL、Redis、对象存储、Ingress controller 和证书控制器仍由部署者提供。
+
+目录用途：
+
+- `base/`：AsterDrive 多 Primary 的公共资源。
+- `overlays/production-example/`：固定镜像、Pod Security、严格拓扑分散、资源限制、Ingress 和入站 NetworkPolicy 的生产起点。
+- `overlays/orbstack/`：带临时 PostgreSQL、Redis、RustFS 和固定测试密钥的本地 smoke fixture，不能用于生产。
+- `../helm/asterdrive/`：与生产 overlay 表达同一运行契约的 Helm Chart。
 
 ## 部署前准备
 
@@ -30,17 +37,29 @@
 
 ## 应用与验证
 
-先创建真实 Secret，再渲染和应用基础清单：
+先创建真实 Secret。生产环境从 overlay 开始，替换镜像、RWX StorageClass、域名和网络入口标签后再应用：
 
 ```bash
-kubectl kustomize deploy/kubernetes
-kubectl apply --dry-run=client -k deploy/kubernetes
-kubectl apply -k deploy/kubernetes
+kubectl kustomize deploy/kubernetes/overlays/production-example
+kubectl apply --dry-run=server -k deploy/kubernetes/overlays/production-example
+kubectl apply -k deploy/kubernetes/overlays/production-example
 kubectl -n asterdrive rollout status statefulset/asterdrive
 kubectl -n asterdrive get pods,svc,pvc,pdb
 ```
 
-Ingress 示例没有注册进 kustomization。替换域名、IngressClass 和 TLS Secret 后单独应用，并按实际 controller 调整流式传输、WebSocket、body size 和 timeout 注解。
+`base/` 保留未注册的 `ingress.example.yaml`，适合自定义 overlay；`production-example/` 已注册一份需要显式替换的 NGINX Ingress。无论使用哪种方式，都要按实际 controller 调整流式传输、WebSocket、body size 和 timeout。
+
+也可以使用 Helm：
+
+```bash
+helm upgrade --install asterdrive deploy/helm/asterdrive \
+  --namespace asterdrive \
+  --create-namespace \
+  --set image.digest=sha256:REPLACE_WITH_IMAGE_DIGEST \
+  --set avatarPersistence.storageClass=REPLACE_WITH_RWX_STORAGE_CLASS
+```
+
+Chart 默认引用 `asterdrive-cluster` Secret，不生成 Secret，也不提供 PostgreSQL、Redis 或对象存储 subchart。完整 values 和边界见 `../helm/asterdrive/README.md`。
 
 ## 清单边界
 
@@ -50,5 +69,6 @@ Ingress 示例没有注册进 kustomization。替换域名、IngressClass 和 TL
 - StatefulSet 不表示 AsterDrive 把业务状态放在 Pod 磁盘。它只提供稳定、唯一的内部 DNS，供 reverse tunnel owner proxy 使用。
 - `internal_endpoint` 只应在集群内部可达，不要指向公开 Ingress 或对外负载均衡地址。
 - 应用内 rate limit 按进程计数；严格全局限流应放在 Ingress、gateway 或 LB。
+- 生产示例的 NetworkPolicy 只限制入站，保留外部依赖所需的出站流量。启用出站默认拒绝前要先完整枚举 DNS、数据库、Redis、存储、身份提供方、SMTP 和远端节点。
 
 完整限制与验收步骤见用户文档的“负载均衡与多实例”和“Kubernetes 部署”。

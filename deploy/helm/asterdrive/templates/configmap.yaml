@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "asterdrive.fullname" . }}-cluster
+  labels:
+    {{- include "asterdrive.labels" . | nindent 4 }}
+data:
+  ASTER__DEPLOYMENT__PROFILE: cluster
+  ASTER__SERVER__HOST: 0.0.0.0
+  ASTER__SERVER__PORT: "3000"
+  ASTER__SERVER__START_MODE: primary
+  ASTER__SERVER__TEMP_DIR: /data/.tmp
+  ASTER__SERVER__UPLOAD_TEMP_DIR: /data/.uploads
+  ASTER__CACHE__BACKEND: redis
+  ASTER__CONFIG_SYNC__BACKEND: redis
+  ASTER__CONFIG_SYNC__TOPIC: {{ .Values.config.configSyncTopic | quote }}
+  ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES: "false"
+  {{- range $key, $value := .Values.config.extra }}
+  {{ $key }}: {{ $value | quote }}
+  {{- end }}

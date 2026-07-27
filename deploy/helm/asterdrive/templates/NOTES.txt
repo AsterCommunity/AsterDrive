@@ -1,0 +1,11 @@
+AsterDrive has been rendered for namespace {{ .Release.Namespace }}.
+
+The chart expects Secret {{ include "asterdrive.secretName" . }} to exist before the Pods start. It does not install PostgreSQL/MySQL, Redis, object storage, an Ingress controller, or a certificate controller.
+
+Check the rollout with:
+  kubectl -n {{ .Release.Namespace }} rollout status statefulset/{{ include "asterdrive.fullname" . }}
+  kubectl -n {{ .Release.Namespace }} get pods,svc,pvc,pdb
+
+Readiness endpoint:
+  kubectl -n {{ .Release.Namespace }} port-forward service/{{ include "asterdrive.fullname" . }} 3000:{{ .Values.service.port }}
+  curl http://127.0.0.1:3000/health/ready

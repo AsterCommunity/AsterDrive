@@ -3,7 +3,9 @@ title: "Kubernetes 部署"
 description: 使用 StatefulSet 部署 AsterDrive 多 Primary，并正确配置共享数据库、Redis、存储、稳定内部端点、健康检查和头像共享目录。
 ---
 
-仓库提供了 `deploy/kubernetes/` 示例，用于部署两个 AsterDrive Primary。它以 [负载均衡与多实例](/deployment/load-balancing/)中的 cluster 契约为前提，不会替你创建生产 PostgreSQL/MySQL、Redis、对象存储或 Ingress controller。
+仓库同时提供 Kustomize 和 Helm，用于部署多个 AsterDrive Primary。两种入口都以[负载均衡与多实例](/deployment/load-balancing/)中的 cluster 契约为前提，并且**只管理 AsterDrive 自身**，不会接管生产 PostgreSQL/MySQL、Redis、对象存储、Ingress controller 或证书控制器的生命周期。
+
+外围依赖不作为默认 subchart，不是因为它们不重要，而是因为数据库、Redis 和对象存储都是权威状态。把它们绑进应用 Chart 会让应用升级、回滚和卸载同时影响数据服务，也很难覆盖托管数据库、云对象存储、现有 Redis 集群和不同备份策略。仓库中的 OrbStack overlay 包含这些组件，仅用于本地 smoke 和故障注入。
 
 ## 为什么使用 StatefulSet
 
@@ -54,14 +56,61 @@ Pod 收到终止信号前先执行 10 秒 `preStop` 等待 endpoint 摘流量，
 - 正确的 `Host`、公网协议和可信代理链
 - 必要时在入口执行 cluster-wide 全局限流
 
+## Kustomize 生产示例
+
+`deploy/kubernetes/overlays/production-example/` 复用公共 base，并让最终生产清单包含：
+
+- 固定版本镜像示例
+- `automountServiceAccountToken: false`
+- Restricted Pod Security Namespace 标签
+- CPU/内存限制
+- `DoNotSchedule` 节点拓扑分散
+- NGINX Ingress 起点
+- 只限制入站流量的 NetworkPolicy
+
+应用前必须替换 RWX StorageClass、镜像版本或 digest、域名、TLS Secret 和 IngressClass。NetworkPolicy 默认允许 AsterDrive Namespace 内部访问，并允许带 `asterdrive.io/ingress-access=true` 标签的 Namespace 访问 3000 端口；请给实际 Ingress controller Namespace 加标签，或直接按集群入口修改策略。
+
+该策略有意不限制出站，因为模板不知道数据库、Redis、对象存储、DNS、OAuth/OIDC、SMTP 和 remote Follower 的真实地址。要启用出站默认拒绝，先按实际环境逐项列出这些依赖，否则 readiness、登录、邮件、远端存储或下载链路会被自己切断。
+
+```bash
+kubectl label namespace ingress-nginx asterdrive.io/ingress-access=true
+kubectl kustomize deploy/kubernetes/overlays/production-example
+kubectl apply --dry-run=server -k deploy/kubernetes/overlays/production-example
+kubectl apply -k deploy/kubernetes/overlays/production-example
+```
+
+## Helm
+
+Chart 位于 `deploy/helm/asterdrive/`，与 Kustomize base 使用相同的 cluster 默认值、探针、稳定内部端点、安全上下文、临时卷和 RWX 头像卷契约。
+
+```bash
+helm upgrade --install asterdrive deploy/helm/asterdrive \
+  --namespace asterdrive \
+  --create-namespace \
+  --set image.digest=sha256:REPLACE_WITH_IMAGE_DIGEST \
+  --set avatarPersistence.storageClass=REPLACE_WITH_RWX_STORAGE_CLASS
+```
+
+Chart 默认引用 `asterdrive-cluster` Secret。数据库连接串、Redis endpoint 和应用密钥不进入普通 Helm values；通过集群现有 Secret 管理方案创建 Secret，需要改名时设置 `existingSecret`。Chart 支持自建或复用头像 PVC、Ingress、入站 NetworkPolicy、镜像 tag/digest、资源、调度、额外环境变量和 PDB，但不提供 PostgreSQL、Redis 或对象存储 subchart。
+
+生产多节点建议设置 `topologySpread.whenUnsatisfiable=DoNotSchedule`。默认保留 `ScheduleAnyway`，便于开发集群和单节点验证；严格设置在可用节点不足时会让新 Pod 保持 Pending，这是正确的故障域保护，不应通过把两个 Primary 挤回同一节点来掩盖容量不足。
+
 ## 本地校验
 
-不连接业务集群也可以先验证渲染结果：
+不连接业务集群也可以先渲染清单，并使用与 CI 相同的 kubeconform 做严格 schema 校验：
 
 ```bash
 kubectl version --client
-kubectl kustomize deploy/kubernetes
-kubectl apply --dry-run=client -k deploy/kubernetes
+kubectl kustomize deploy/kubernetes > /tmp/asterdrive-base.yaml
+kubectl kustomize deploy/kubernetes/overlays/production-example > /tmp/asterdrive-production.yaml
+helm lint deploy/helm/asterdrive
+helm template asterdrive deploy/helm/asterdrive --namespace asterdrive > /tmp/asterdrive-helm.yaml
+docker run --rm -v /tmp:/manifests \
+  ghcr.io/yannh/kubeconform:v0.7.0@sha256:85dbef6b4b312b99133decc9c6fc9495e9fc5f92293d4ff3b7e1b30f5611823c \
+  -strict -summary \
+  /manifests/asterdrive-base.yaml \
+  /manifests/asterdrive-production.yaml \
+  /manifests/asterdrive-helm.yaml
 ```
 
-客户端 dry-run 只验证本地清单与 kubectl 能识别的 schema，不代表外部数据库、Redis、RWX StorageClass、Ingress 或共享存储已经可用。实际集群上线后还要执行[多实例上线验收](/deployment/load-balancing/#上线验收)。
+`kubectl apply --dry-run=client` 即使关闭 validation 仍可能执行 API discovery，因此不适合作为无 kubeconfig CI 的离线验证器。CI 会渲染 OrbStack、production overlay，以及 Helm 的默认、Ingress+NetworkPolicy+digest、existing PVC+三副本等边界组合，并使用固定版本的 kubeconform 执行严格 schema 校验。上述验证仍不代表外部数据库、Redis、RWX StorageClass、Ingress 或共享存储已经可用；真正部署前应连接目标集群执行 `kubectl apply --dry-run=server`，上线后再完成[多实例上线验收](/deployment/load-balancing/#上线验收)。

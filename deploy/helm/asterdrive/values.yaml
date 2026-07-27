@@ -1,0 +1,127 @@
+replicaCount: 2
+
+image:
+  repository: ghcr.io/astercommunity/asterdrive
+  tag: "0.4.0"
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+clusterDomain: cluster.local
+
+existingSecret: asterdrive-cluster
+
+config:
+  configSyncTopic: aster_drive.config_reload
+  extra: {}
+
+service:
+  type: ClusterIP
+  port: 80
+  annotations: {}
+
+ingress:
+  enabled: false
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+  hosts:
+    - host: drive.example.com
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+avatarPersistence:
+  enabled: true
+  create: true
+  existingClaim: ""
+  storageClass: ""
+  accessModes:
+    - ReadWriteMany
+  size: 10Gi
+  annotations: {}
+
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1
+  maxUnavailable: ""
+
+networkPolicy:
+  enabled: false
+  allowSameNamespace: true
+  ingressFrom: []
+
+podAnnotations: {}
+podLabels: {}
+
+automountServiceAccountToken: false
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10001
+  runAsGroup: 10001
+  fsGroup: 10001
+  seccompProfile:
+    type: RuntimeDefault
+
+securityContext:
+  allowPrivilegeEscalation: false
+  readOnlyRootFilesystem: true
+  capabilities:
+    drop:
+      - ALL
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "2"
+    memory: 2Gi
+
+topologySpread:
+  enabled: true
+  maxSkew: 1
+  topologyKey: kubernetes.io/hostname
+  whenUnsatisfiable: ScheduleAnyway
+
+affinity: {}
+nodeSelector: {}
+tolerations: []
+priorityClassName: ""
+
+podManagementPolicy: Parallel
+minReadySeconds: 10
+revisionHistoryLimit: 3
+terminationGracePeriodSeconds: 45
+preStopDelaySeconds: 10
+
+probes:
+  startup:
+    periodSeconds: 2
+    timeoutSeconds: 2
+    failureThreshold: 60
+  liveness:
+    periodSeconds: 10
+    timeoutSeconds: 3
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+
+dataVolume:
+  sizeLimit: ""
+
+tmpVolume:
+  sizeLimit: ""
+
+extraEnv: []
+extraEnvFrom: []

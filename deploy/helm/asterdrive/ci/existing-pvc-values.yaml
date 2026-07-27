@@ -1,0 +1,15 @@
+replicaCount: 3
+
+avatarPersistence:
+  create: false
+  existingClaim: shared-asterdrive-avatars
+
+podDisruptionBudget:
+  minAvailable: ""
+  maxUnavailable: 1
+
+dataVolume:
+  sizeLimit: 20Gi
+
+tmpVolume:
+  sizeLimit: 2Gi
