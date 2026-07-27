@@ -1169,7 +1169,6 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#a2b9e7c037d07c24905af16478ef25e050e30d0b"
 dependencies = [
  "http 1.4.2",
  "httpdate",
@@ -1196,7 +1195,6 @@ dependencies = [
 [[package]]
 name = "aster_forge_webdav"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#a2b9e7c037d07c24905af16478ef25e050e30d0b"
 dependencies = [
  "actix-web",
  "aster_forge_utils",
@@ -1213,7 +1211,6 @@ dependencies = [
 [[package]]
 name = "aster_forge_xml"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#a2b9e7c037d07c24905af16478ef25e050e30d0b"
 dependencies = [
  "aster_forge_utils",
  "quick-xml",

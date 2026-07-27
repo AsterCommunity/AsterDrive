@@ -226,3 +226,8 @@ required-features = ["multi-primary-e2e"]
 [[test]]
 name = "test_multi_primary_storage_events_e2e"
 required-features = ["multi-primary-e2e"]
+
+[patch."https://github.com/AsterCommunity/AsterForge"]
+aster_forge_webdav = { path = "/private/tmp/asterforge-issue-427/crates/aster_forge_webdav" }
+aster_forge_xml = { path = "/private/tmp/asterforge-issue-427/crates/aster_forge_xml" }
+aster_forge_utils = { path = "/private/tmp/asterforge-issue-427/crates/aster_forge_utils" }

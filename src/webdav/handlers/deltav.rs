@@ -7,9 +7,9 @@ use actix_web::HttpResponse;
 use actix_web::http::StatusCode;
 use aster_forge_utils::http_validators::format_http_date;
 use aster_forge_webdav::{
-    DavRequestHead, DavResourceKind, DavVersionXml, validate_version_tree_report,
-    version_control_response, version_tree_non_file_response, version_tree_report_error_response,
-    version_tree_response,
+    DavRequestHead, DavResourceKind, DavVersionXml, validate_version_control_request,
+    validate_version_tree_report, version_control_request_error_response, version_control_response,
+    version_tree_non_file_response, version_tree_report_error_response, version_tree_response,
 };
 use sea_orm::DatabaseConnection;
 
@@ -124,9 +124,17 @@ pub(crate) async fn handle_report(
 /// 处理 VERSION-CONTROL 方法（所有文件自动版本控制，直接返回 200）
 pub(crate) async fn handle_version_control(
     request_head: &DavRequestHead,
+    body_bytes: &[u8],
     db: &DatabaseConnection,
     auth: &WebdavAuthResult,
 ) -> HttpResponse {
+    if let Err(error) = validate_version_control_request(body_bytes) {
+        return match version_control_request_error_response(error) {
+            Ok(response) => aster_forge_webdav::actix::into_response(response),
+            Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
+        };
+    }
+
     match path_resolver::resolve_path_in_scope(
         db,
         auth.scope,

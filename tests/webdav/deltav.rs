@@ -251,6 +251,115 @@ async fn test_deltav_version_control_file() {
     assert_eq!(resp.status(), 200);
 }
 
+#[actix_web::test]
+async fn test_deltav_version_control_accepts_rfc3253_any_extensions() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    webdav_put!(app, "/webdav/vc-any.txt", auth, "content");
+
+    for body in [
+        r#"<D:version-control xmlns:D="DAV:"/>"#,
+        r#"<V:version-control xmlns:V="DAV:" xmlns:X="urn:x" X:flag="1">
+              text<X:future><V:nested/></X:future><![CDATA[more]]>
+            </V:version-control>"#,
+    ] {
+        let req = test::TestRequest::with_uri("/webdav/vc-any.txt")
+            .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            200,
+            "VERSION-CONTROL should accept a safe DAV:version-control ANY body"
+        );
+    }
+}
+
+#[actix_web::test]
+async fn test_deltav_version_control_rejects_invalid_xml_grammar_and_entities() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    webdav_put!(app, "/webdav/vc-invalid.txt", auth, "content");
+
+    let cases = [
+        (
+            "wrong root namespace",
+            r#"<X:version-control xmlns:X="urn:x"/>"#,
+            actix_web::http::StatusCode::BAD_REQUEST,
+        ),
+        (
+            "whitespace-only body",
+            " \r\n\t",
+            actix_web::http::StatusCode::BAD_REQUEST,
+        ),
+        (
+            "external entity",
+            r#"<!DOCTYPE x [<!ENTITY e SYSTEM "file:///TARGET">]><D:version-control xmlns:D="DAV:">&e;</D:version-control>"#,
+            actix_web::http::StatusCode::FORBIDDEN,
+        ),
+    ];
+
+    for (label, body, expected_status) in cases {
+        let req = test::TestRequest::with_uri("/webdav/vc-invalid.txt")
+            .method(actix_web::http::Method::from_bytes(b"VERSION-CONTROL").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            expected_status,
+            "invalid VERSION-CONTROL case should be rejected: {label}"
+        );
+    }
+}
+
+#[actix_web::test]
+async fn test_deltav_report_enforces_version_tree_prop_grammar() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    webdav_put!(app, "/webdav/report-grammar.txt", auth, "content");
+
+    let valid = r#"<D:version-tree xmlns:D="DAV:" xmlns:X="urn:x">
+      <D:future><D:prop><D:not-active/></D:prop></D:future>
+      <D:prop><D:getetag><D:ignored>value</D:ignored></D:getetag></D:prop>
+      <X:future/>
+    </D:version-tree>"#;
+    let req = test::TestRequest::with_uri("/webdav/report-grammar.txt")
+        .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(valid)
+        .to_request();
+    let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+
+    for body in [
+        r#"<D:version-tree xmlns:D="DAV:"><D:prop/><D:prop/></D:version-tree>"#,
+        r#"<D:version-tree xmlns:D="DAV:">text</D:version-tree>"#,
+        r#"<D:version-tree xmlns:D="DAV:"><D:prop><D:getetag>value</D:getetag></D:prop></D:version-tree>"#,
+    ] {
+        let req = test::TestRequest::with_uri("/webdav/report-grammar.txt")
+            .method(actix_web::http::Method::from_bytes(b"REPORT").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body)
+            .to_request();
+        let resp: actix_web::dev::ServiceResponse = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400, "invalid version-tree grammar must fail");
+    }
+}
+
 // ── VERSION-CONTROL：文件夹返回 405 ─────────────────────────
 
 #[actix_web::test]
