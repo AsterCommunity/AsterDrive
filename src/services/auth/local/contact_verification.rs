@@ -254,6 +254,12 @@ pub async fn confirm_password_reset(
         ));
     }
 
+    let new_password_hash = state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(new_password)
+        .await?;
+
     let txn = transaction::begin(state.writer_db()).await?;
     let existing_user = user_repo::find_by_id(&txn, record.user_id).await?;
     if !existing_user.status.is_active() {
@@ -273,7 +279,7 @@ pub async fn confirm_password_reset(
         ));
     }
 
-    let updated = update_password_in_connection(&txn, existing_user, new_password).await?;
+    let updated = update_password_in_connection(&txn, existing_user, new_password_hash).await?;
     let site_name = branding::title_or_default(state.runtime_config());
     outbox::enqueue(
         &txn,

@@ -24,7 +24,6 @@ use crate::services::{
     ops::audit::AuditRequestInfo,
 };
 use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
-use aster_forge_crypto as hash;
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
 
 use super::{
@@ -61,6 +60,18 @@ struct MfaChallengeAttempt {
     flow_id: Option<i64>,
     attempt_count: Option<i32>,
     result: Result<MfaChallengeLoginResult>,
+}
+
+enum PreparedEmailCodeVerification {
+    Missing,
+    Expired {
+        record_id: i64,
+    },
+    Current {
+        record_id: i64,
+        code_hash: String,
+        is_valid: bool,
+    },
 }
 
 pub async fn complete_primary_login_or_start_mfa(
@@ -165,49 +176,31 @@ pub async fn send_email_code(
         ));
     }
 
+    let flow_token_hash = crypto::token_hash(normalized_flow_token);
+    validate_email_code_send(
+        state.writer_db(),
+        state,
+        &flow_token_hash,
+        &policy,
+        Utc::now(),
+    )
+    .await?;
+
+    let code = generate_email_code();
+    let code_hash = state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(&code)
+        .await?;
+
     let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let flow = mfa_login_flow_repo::find_by_flow_token_hash(
-            &txn,
-            &crypto::token_hash(normalized_flow_token),
-        )
-        .await?
-        .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
-        ensure_flow_active(&flow, now)?;
-
-        let user = user_repo::find_by_id(&txn, flow.user_id).await?;
-        ensure_flow_user_valid(&user, &flow)?;
-        let methods = available_challenge_methods(&txn, state, &user).await?;
-        if !methods.contains(&MfaMethod::EmailCode) {
-            return Err(auth_mfa_failed_with_code(
-                ApiErrorCode::AuthMfaFactorRequired,
-                "email code MFA is not available for this login flow",
-            ));
-        }
-
-        if let Some(latest) =
-            mfa_email_code_repo::find_latest_unconsumed_for_user(&txn, user.id).await?
-        {
-            let cooldown = u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?;
-            let allowed_at = latest.created_at + Duration::seconds(cooldown);
-            if allowed_at > now {
-                let remaining = (allowed_at - now).num_seconds().max(1);
-                return Err(AsterError::rate_limited(format!(
-                    "please wait {remaining} seconds before requesting another email code",
-                )));
-            }
-        }
+        let (flow, user, effective_expires_in) =
+            validate_email_code_send(&txn, state, &flow_token_hash, &policy, now).await?;
 
         mfa_email_code_repo::consume_active_for_user(&txn, user.id, now).await?;
-        let remaining_flow_secs = i64_to_u64(
-            (flow.expires_at - now).num_seconds().max(1),
-            "remaining MFA flow lifetime",
-        )?;
-        let effective_expires_in = policy.ttl_secs.min(remaining_flow_secs);
         let ttl = u64_to_i64(effective_expires_in, "email code ttl")?;
-        let code = generate_email_code();
-        let code_hash = hash::hash_password(&code)?;
         let record = mfa_email_code_repo::create(
             &txn,
             mfa_email_code::ActiveModel {
@@ -221,11 +214,11 @@ pub async fn send_email_code(
             },
         )
         .await?;
-        Ok::<_, AsterError>((flow, user, record, effective_expires_in, code))
+        Ok::<_, AsterError>((flow, user, record, effective_expires_in))
     }
     .await;
 
-    let (flow, user, record, effective_expires_in, code) = match result {
+    let (flow, user, record, effective_expires_in) = match result {
         Ok(value) => {
             transaction::commit(txn).await?;
             value
@@ -342,6 +335,47 @@ async fn consume_email_code_after_mail_failure(state: &impl SharedRuntimeState, 
     }
 }
 
+async fn validate_email_code_send<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    flow_token_hash: &str,
+    policy: &RuntimeEmailCodeLoginPolicy,
+    now: chrono::DateTime<Utc>,
+) -> Result<(mfa_login_flow::Model, user::Model, u64)> {
+    let flow = mfa_login_flow_repo::find_by_flow_token_hash(db, flow_token_hash)
+        .await?
+        .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
+    ensure_flow_active(&flow, now)?;
+
+    let user = user_repo::find_by_id(db, flow.user_id).await?;
+    ensure_flow_user_valid(&user, &flow)?;
+    let methods = available_challenge_methods(db, state, &user).await?;
+    if !methods.contains(&MfaMethod::EmailCode) {
+        return Err(auth_mfa_failed_with_code(
+            ApiErrorCode::AuthMfaFactorRequired,
+            "email code MFA is not available for this login flow",
+        ));
+    }
+
+    if let Some(latest) = mfa_email_code_repo::find_latest_unconsumed_for_user(db, user.id).await? {
+        let cooldown = u64_to_i64(policy.resend_cooldown_secs, "email code resend cooldown")?;
+        let allowed_at = latest.created_at + Duration::seconds(cooldown);
+        if allowed_at > now {
+            let remaining = (allowed_at - now).num_seconds().max(1);
+            return Err(AsterError::rate_limited(format!(
+                "please wait {remaining} seconds before requesting another email code",
+            )));
+        }
+    }
+
+    let remaining_flow_secs = i64_to_u64(
+        (flow.expires_at - now).num_seconds().max(1),
+        "remaining MFA flow lifetime",
+    )?;
+    let effective_expires_in = policy.ttl_secs.min(remaining_flow_secs);
+    Ok((flow, user, effective_expires_in))
+}
+
 pub async fn verify_challenge(
     state: &impl SharedRuntimeState,
     flow_token: &str,
@@ -353,19 +387,35 @@ pub async fn verify_challenge(
     if normalized_flow_token.is_empty() {
         return Err(flow_invalid("missing MFA flow token"));
     }
+
+    let flow_token_hash = crypto::token_hash(normalized_flow_token);
+    let preflight_now = Utc::now();
+    let (preflight_flow, preflight_user) =
+        load_active_flow_user(state.writer_db(), &flow_token_hash, preflight_now).await?;
+    let prepared_recovery =
+        if method == MfaMethod::RecoveryCode && recovery_codes::looks_like_code(code) {
+            recovery_codes::verify(state, state.writer_db(), preflight_user.id, code).await?
+        } else {
+            None
+        };
+    let prepared_email = if method == MfaMethod::EmailCode && looks_like_email_code(code) {
+        prepare_email_code_verification(
+            state.writer_db(),
+            state,
+            &preflight_flow,
+            &preflight_user,
+            code,
+            preflight_now,
+        )
+        .await?
+    } else {
+        PreparedEmailCodeVerification::Missing
+    };
+
     let now = Utc::now();
     let txn = transaction::begin(state.writer_db()).await?;
     let attempt = async {
-        let flow = mfa_login_flow_repo::find_by_flow_token_hash(
-            &txn,
-            &crypto::token_hash(normalized_flow_token),
-        )
-        .await?
-        .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
-        ensure_flow_active(&flow, now)?;
-
-        let user = user_repo::find_by_id(&txn, flow.user_id).await?;
-        ensure_flow_user_valid(&user, &flow)?;
+        let (flow, user) = load_active_flow_user(&txn, &flow_token_hash, now).await?;
         let user_id = user.id;
 
         let verified = match method {
@@ -374,11 +424,17 @@ pub async fn verify_challenge(
             }
             MfaMethod::Totp => false,
             MfaMethod::RecoveryCode if recovery_codes::looks_like_code(code) => {
-                recovery_codes::verify_and_consume(&txn, user.id, code).await?
+                if let Some(verified) = prepared_recovery.as_ref() {
+                    recovery_codes::consume_verified(&txn, user.id, verified).await?
+                } else {
+                    false
+                }
             }
             MfaMethod::RecoveryCode => false,
             MfaMethod::EmailCode if looks_like_email_code(code) => {
-                match verify_email_code(&txn, state, &flow, &user, code, now).await {
+                match apply_email_code_verification(&txn, state, &flow, &user, &prepared_email, now)
+                    .await
+                {
                     Ok(verified) => verified,
                     Err(error)
                         if error.api_error_code_override()
@@ -542,31 +598,66 @@ async fn verify_totp<C: sea_orm::ConnectionTrait>(
     Ok(verified)
 }
 
-async fn verify_email_code<C: ConnectionTrait>(
+async fn load_active_flow_user<C: ConnectionTrait>(
+    db: &C,
+    flow_token_hash: &str,
+    now: chrono::DateTime<Utc>,
+) -> Result<(mfa_login_flow::Model, user::Model)> {
+    let flow = mfa_login_flow_repo::find_by_flow_token_hash(db, flow_token_hash)
+        .await?
+        .ok_or_else(|| flow_invalid("MFA flow is invalid"))?;
+    ensure_flow_active(&flow, now)?;
+    let user = user_repo::find_by_id(db, flow.user_id).await?;
+    ensure_flow_user_valid(&user, &flow)?;
+    Ok((flow, user))
+}
+
+async fn prepare_email_code_verification<C: ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
     flow: &mfa_login_flow::Model,
     user: &user::Model,
     code: &str,
     now: chrono::DateTime<Utc>,
-) -> Result<bool> {
+) -> Result<PreparedEmailCodeVerification> {
     let code = code.trim();
-    // 邮箱验证码是登录 challenge 方法，不是持久化 factor。
-    // 每次校验前都重新确认策略可用，避免管理员关闭配置后旧 flow 继续使用 email code。
-    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
-    if !email_code_policy_ready(state, &policy) {
-        return Err(auth_mfa_failed_with_code(
-            ApiErrorCode::AuthMfaFactorRequired,
-            "email code MFA is not available",
-        ));
+    ensure_email_code_method_available(db, state, user).await?;
+
+    let Some(record) =
+        mfa_email_code_repo::find_latest_unconsumed_for_flow(db, flow.id, user.id).await?
+    else {
+        return Ok(PreparedEmailCodeVerification::Missing);
+    };
+
+    if record.expires_at <= now {
+        return Ok(PreparedEmailCodeVerification::Expired {
+            record_id: record.id,
+        });
     }
-    let methods = available_challenge_methods(db, state, user).await?;
-    if !methods.contains(&MfaMethod::EmailCode) {
-        return Err(auth_mfa_failed_with_code(
-            ApiErrorCode::AuthMfaFactorRequired,
-            "email code MFA is not available for this login flow",
-        ));
-    }
+
+    let is_valid = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(code, &record.code_hash)
+        .await?
+        .is_valid;
+
+    Ok(PreparedEmailCodeVerification::Current {
+        record_id: record.id,
+        code_hash: record.code_hash,
+        is_valid,
+    })
+}
+
+async fn apply_email_code_verification<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    flow: &mfa_login_flow::Model,
+    user: &user::Model,
+    prepared: &PreparedEmailCodeVerification,
+    now: chrono::DateTime<Utc>,
+) -> Result<bool> {
+    ensure_email_code_method_available(db, state, user).await?;
 
     let Some(record) =
         mfa_email_code_repo::find_latest_unconsumed_for_flow(db, flow.id, user.id).await?
@@ -585,11 +676,56 @@ async fn verify_email_code<C: ConnectionTrait>(
         ));
     }
 
-    let verified = hash::verify_password(code, &record.code_hash)?;
-    if verified {
-        mfa_email_code_repo::consume(db, record.id, now).await?;
+    match prepared {
+        PreparedEmailCodeVerification::Missing => Ok(false),
+        PreparedEmailCodeVerification::Expired { record_id } => {
+            if record.id == *record_id {
+                mfa_email_code_repo::consume(db, record.id, now).await?;
+                Err(auth_mfa_failed_with_code(
+                    ApiErrorCode::AuthMfaEmailCodeExpired,
+                    "email code has expired",
+                ))
+            } else {
+                Ok(false)
+            }
+        }
+        PreparedEmailCodeVerification::Current {
+            record_id,
+            code_hash,
+            is_valid,
+        } if record.id == *record_id && record.code_hash == *code_hash => {
+            if *is_valid {
+                mfa_email_code_repo::consume(db, record.id, now).await
+            } else {
+                Ok(false)
+            }
+        }
+        PreparedEmailCodeVerification::Current { .. } => Ok(false),
     }
-    Ok(verified)
+}
+
+async fn ensure_email_code_method_available<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    user: &user::Model,
+) -> Result<()> {
+    // 邮箱验证码是登录 challenge 方法，不是持久化 factor。
+    // 每次校验前都重新确认策略可用，避免管理员关闭配置后旧 flow 继续使用 email code。
+    let policy = RuntimeEmailCodeLoginPolicy::from_runtime_config(state.runtime_config());
+    if !email_code_policy_ready(state, &policy) {
+        return Err(auth_mfa_failed_with_code(
+            ApiErrorCode::AuthMfaFactorRequired,
+            "email code MFA is not available",
+        ));
+    }
+    let methods = available_challenge_methods(db, state, user).await?;
+    if !methods.contains(&MfaMethod::EmailCode) {
+        return Err(auth_mfa_failed_with_code(
+            ApiErrorCode::AuthMfaFactorRequired,
+            "email code MFA is not available for this login flow",
+        ));
+    }
+    Ok(())
 }
 
 async fn available_challenge_methods<C: ConnectionTrait>(

@@ -13,7 +13,11 @@ pub struct PreparedPrimaryRuntime {
 pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     let common = prepare_common(NodeRuntimeMode::Primary).await?;
 
-    let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
+    let runtime_config = Arc::new(
+        crate::config::RuntimeConfig::with_password_hash_max_concurrency(
+            common.cfg.auth.password_hash_max_concurrency,
+        )?,
+    );
     runtime_config.reload(&common.database).await?;
     let mail_sender = crate::services::mail::sender::runtime_sender(runtime_config.clone());
     let storage_change_bus =

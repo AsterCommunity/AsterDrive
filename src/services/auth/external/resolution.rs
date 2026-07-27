@@ -57,6 +57,12 @@ fn random_internal_password() -> String {
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes)
 }
 
+pub(super) async fn hash_random_internal_password(
+    state: &impl SharedRuntimeState,
+) -> Result<String> {
+    local::shared::hash_new_password(state, &random_internal_password()).await
+}
+
 fn sanitize_username_piece(value: &str) -> String {
     value
         .chars()
@@ -261,9 +267,9 @@ async fn create_external_auth_user_and_identity(
     }
 
     let username_base = external_auth_username_base(claims);
+    let password_hash = hash_random_internal_password(state).await?;
     for attempt in 0..UNIQUE_USERNAME_MAX_ATTEMPTS {
         let username = external_auth_username_candidate(&username_base, attempt);
-        let password = random_internal_password();
 
         let txn = transaction::begin(state.writer_db()).await?;
         let result = async {
@@ -278,7 +284,7 @@ async fn create_external_auth_user_and_identity(
                 local::shared::CreateUserWithRoleInput {
                     username: &username,
                     email,
-                    password: &password,
+                    password_hash: &password_hash,
                     role: UserRole::User,
                     status: UserStatus::Active,
                     must_change_password: false,
@@ -330,6 +336,7 @@ async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::Connec
     state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
+    password_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<user::Model> {
     let auth_policy = RuntimeAuthPolicy::from_runtime_config(state.runtime_config());
@@ -357,14 +364,13 @@ async fn create_external_auth_user_and_identity_in_connection<C: sea_orm::Connec
     let username_base = external_auth_username_base(claims);
     for attempt in 0..UNIQUE_USERNAME_MAX_ATTEMPTS {
         let username = external_auth_username_candidate(&username_base, attempt);
-        let password = random_internal_password();
         match local::shared::create_user_with_role(
             db,
             state,
             local::shared::CreateUserWithRoleInput {
                 username: &username,
                 email,
-                password: &password,
+                password_hash,
                 role: UserRole::User,
                 status: UserStatus::Active,
                 must_change_password: false,
@@ -398,6 +404,7 @@ pub(super) async fn resolve_external_auth_user_with_verified_email<C: sea_orm::C
     state: &impl SharedRuntimeState,
     provider: &external_auth_provider::Model,
     claims: &ExternalAuthUserClaims,
+    new_user_password_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<ResolvedExternalAuthUser> {
     let email = claims.email.as_deref().ok_or_else(|| {
@@ -452,9 +459,15 @@ pub(super) async fn resolve_external_auth_user_with_verified_email<C: sea_orm::C
         });
     }
 
-    let user =
-        create_external_auth_user_and_identity_in_connection(db, state, provider, claims, now)
-            .await?;
+    let user = create_external_auth_user_and_identity_in_connection(
+        db,
+        state,
+        provider,
+        claims,
+        new_user_password_hash,
+        now,
+    )
+    .await?;
     Ok(ResolvedExternalAuthUser {
         user,
         linked: true,

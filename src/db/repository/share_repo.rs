@@ -353,6 +353,23 @@ pub async fn update<C: ConnectionTrait>(db: &C, model: share::ActiveModel) -> Re
     model.update(db).await.map_err(AsterError::from)
 }
 
+/// Replaces a share password hash only when it has not changed since verification.
+pub async fn update_password_hash_if_current<C: ConnectionTrait>(
+    db: &C,
+    share_id: i64,
+    current_hash: &str,
+    new_hash: &str,
+) -> Result<bool> {
+    let result = Share::update_many()
+        .col_expr(share::Column::Password, Expr::value(Some(new_hash)))
+        .filter(share::Column::Id.eq(share_id))
+        .filter(share::Column::Password.eq(current_hash))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
 pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
     Share::delete_by_id(id)
         .exec(db)

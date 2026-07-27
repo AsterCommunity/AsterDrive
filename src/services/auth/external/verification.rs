@@ -16,7 +16,7 @@ use aster_forge_utils::numbers::u64_to_i64;
 
 use super::normalize::normalize_email_for_external_auth;
 use super::resolution::{
-    ExternalAuthUserClaims, claims_with_verified_local_email,
+    ExternalAuthUserClaims, claims_with_verified_local_email, hash_random_internal_password,
     resolve_external_auth_user_with_verified_email,
 };
 use super::{
@@ -222,6 +222,7 @@ pub async fn confirm_email_verification(
     }
 
     let claims = claims_with_verified_local_email(&flow, &email);
+    let new_user_password_hash = hash_random_internal_password(state).await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let consumed =
@@ -232,7 +233,15 @@ pub async fn confirm_email_verification(
                 "external auth email verification link has already been used",
             ));
         }
-        resolve_external_auth_user_with_verified_email(&txn, state, &provider, &claims, now).await
+        resolve_external_auth_user_with_verified_email(
+            &txn,
+            state,
+            &provider,
+            &claims,
+            &new_user_password_hash,
+            now,
+        )
+        .await
     }
     .await;
 

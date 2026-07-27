@@ -110,7 +110,8 @@ async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
     let db = setup_current_schema().await;
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
 
-    CurrentMigrator::down(&db, Some(1))
+    let rollback_steps = steps_to_roll_back_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
         .await
         .expect("required upload session kind migration should roll back");
     assert!(
@@ -118,7 +119,7 @@ async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
         "0.4.x rollback should restore nullable session kind"
     );
 
-    CurrentMigrator::up(&db, Some(1))
+    CurrentMigrator::up(&db, Some(rollback_steps))
         .await
         .expect("required upload session kind migration should reapply");
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
@@ -129,8 +130,7 @@ async fn required_upload_session_kind_migration_rejects_null_rows_without_deleti
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite memory database should connect");
-    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
-        .expect("migration count should fit u32");
+    let pre_boundary_steps = steps_before_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
     CurrentMigrator::up(&db, Some(pre_boundary_steps))
         .await
         .expect("0.4.x-compatible migrations should apply");
@@ -181,8 +181,7 @@ async fn required_upload_session_kind_migration_rejects_invalid_values_without_d
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite memory database should connect");
-    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
-        .expect("migration count should fit u32");
+    let pre_boundary_steps = steps_before_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
     CurrentMigrator::up(&db, Some(pre_boundary_steps))
         .await
         .expect("0.4.x-compatible migrations should apply");
@@ -310,6 +309,15 @@ fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
         .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
     u32::try_from(migrations.len() - position)
         .expect("migration rollback step count should fit u32")
+}
+
+fn steps_before_migration(migration_name: &str) -> u32 {
+    let migrations = CurrentMigrator::migrations();
+    let position = migrations
+        .iter()
+        .position(|migration| migration.name() == migration_name)
+        .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
+    u32::try_from(position).expect("migration step count should fit u32")
 }
 
 fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {

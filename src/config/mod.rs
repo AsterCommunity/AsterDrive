@@ -15,6 +15,7 @@ pub mod media_processing;
 pub mod node_mode;
 pub mod offline_download;
 pub mod operations;
+pub mod password_hash;
 pub(crate) mod paths;
 mod runtime_config;
 mod schema;

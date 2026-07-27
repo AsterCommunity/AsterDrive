@@ -1483,6 +1483,7 @@ async fn google_callback_uses_oidc_sub_as_stable_identity() {
     let state = common::setup().await;
     configure_oidc_public_site_url(&state);
     let app = create_test_app!(state.clone());
+    let (_admin_token, _) = register_and_login!(app);
     let mut provider_model =
         google_external_auth_provider_model("google-test", &mock_provider.issuer, true);
     provider_model.auto_provision_enabled = Set(true);

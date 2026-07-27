@@ -21,7 +21,6 @@ use crate::services::{
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use aster_forge_api::{OffsetPage, SortOrder};
-use aster_forge_crypto as hash;
 use aster_forge_utils::id;
 
 use super::cache::{
@@ -60,7 +59,13 @@ pub(crate) async fn create_share_in_scope(
     validate_max_downloads(max_downloads)?;
 
     let password_hash = match password {
-        Some(ref value) if !value.is_empty() => Some(hash::hash_password(value)?),
+        Some(ref value) if !value.is_empty() => Some(
+            state
+                .runtime_config()
+                .password_hash_runtime()
+                .hash_password(value)
+                .await?,
+        ),
         _ => None,
     };
 
@@ -218,7 +223,13 @@ pub(crate) async fn update_share_in_scope(
         active.password = if password.is_empty() {
             Set(None)
         } else {
-            Set(Some(hash::hash_password(&password)?))
+            Set(Some(
+                state
+                    .runtime_config()
+                    .password_hash_runtime()
+                    .hash_password(&password)
+                    .await?,
+            ))
         };
     }
 

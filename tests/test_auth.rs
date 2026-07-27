@@ -622,6 +622,80 @@ async fn test_register_and_login() {
 }
 
 #[actix_web::test]
+async fn test_legacy_user_password_rehashes_once_without_overwriting_newer_hash() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_policy(&mut state, 16).await;
+    let user = common::create_test_account(
+        &state,
+        "legacyuser",
+        "legacy-login-user@example.com",
+        "legacy-password",
+    )
+    .await
+    .unwrap();
+    let legacy_hash = aster_forge_crypto::hash_password_with_policy(
+        "legacy-password",
+        &common::test_password_hash_policy(8),
+    )
+    .unwrap();
+    let mut active = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    active.password_hash = Set(legacy_hash.clone());
+    active.update(state.writer_db()).await.unwrap();
+
+    let wrong = local::login(&state, "legacyuser", "wrong-password", None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(wrong.api_error_code(), ApiErrorCode::CredentialsFailed);
+    let unchanged = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
+    assert_eq!(unchanged.password_hash, legacy_hash);
+
+    local::login(&state, "legacyuser", "legacy-password", None, None)
+        .await
+        .unwrap();
+    let upgraded = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
+    assert!(
+        upgraded
+            .password_hash
+            .starts_with("$argon2id$v=19$m=16,t=1,p=1$")
+    );
+    assert_eq!(upgraded.session_version, unchanged.session_version);
+    let verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password("legacy-password", &upgraded.password_hash)
+        .await
+        .unwrap();
+    assert!(verification.is_valid);
+    assert!(!verification.needs_rehash);
+
+    let stale_update = user_repo::update_password_hash_if_current(
+        state.writer_db(),
+        user.id,
+        &legacy_hash,
+        "must-not-overwrite-current-hash",
+    )
+    .await
+    .unwrap();
+    assert!(!stale_update);
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .password_hash,
+        upgraded.password_hash
+    );
+}
+
+#[actix_web::test]
 async fn test_register_requires_completed_setup_even_when_public_registration_is_enabled() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

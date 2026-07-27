@@ -17,7 +17,8 @@ use crate::types::{UserRole, UserStatus, VerificationPurpose};
 
 use super::shared::{
     CreateUserWithRoleInput, create_first_admin, create_user_with_role, find_user_by_identifier,
-    is_active_verification_request_error, issue_contact_verification_token, resend_allowed,
+    hash_new_password, is_active_verification_request_error, issue_contact_verification_token,
+    resend_allowed,
 };
 use super::{AuthUserInfo, UserAuditInfo, is_email_verified, user_audit_info};
 
@@ -62,13 +63,14 @@ pub async fn create_user_by_admin(
     password: &str,
     must_change_password: bool,
 ) -> Result<AuthUserInfo> {
+    let password_hash = hash_new_password(state, password).await?;
     let user = create_user_with_role(
         state.writer_db(),
         state,
         CreateUserWithRoleInput {
             username,
             email,
-            password,
+            password_hash: &password_hash,
             role: UserRole::User,
             status: UserStatus::Active,
             must_change_password,
@@ -108,6 +110,7 @@ pub async fn register(
     }
 
     LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(email)?;
+    let password_hash = hash_new_password(state, password).await?;
 
     let policy = RuntimeContactVerificationPolicy::from_runtime_config(state.runtime_config());
     let site_name = branding::title_or_default(state.runtime_config());
@@ -119,7 +122,7 @@ pub async fn register(
         CreateUserWithRoleInput {
             username,
             email,
-            password,
+            password_hash: &password_hash,
             role: UserRole::User,
             status: UserStatus::Active,
             must_change_password: false,
@@ -248,18 +251,13 @@ pub async fn setup(
     password: &str,
 ) -> Result<AuthUserInfo> {
     tracing::debug!("running initial setup");
+    ensure_initial_admin_setup_required(state.writer_db()).await?;
+    let password_hash = hash_new_password(state, password).await?;
     let txn = transaction::begin(state.writer_db()).await?;
     system_initialization_repo::acquire_setup_lock(&txn).await?;
-    if crate::services::system_setup::state(&txn).await?
-        != crate::services::system_setup::SystemSetupState::NeedsAdmin
-    {
-        return Err(validation_error_with_code(
-            ApiErrorCode::ValidationSystemAlreadyInitialized,
-            "system already initialized",
-        ));
-    }
+    ensure_initial_admin_setup_required(&txn).await?;
 
-    let user = create_first_admin(&txn, state, username, email, password)
+    let user = create_first_admin(&txn, state, username, email, &password_hash)
         .await
         .map(AuthUserInfo::from)?;
     transaction::commit(txn).await?;
@@ -273,4 +271,17 @@ pub async fn setup(
     }
     tracing::debug!(user_id = user.id, "completed initial setup");
     Ok(user)
+}
+
+async fn ensure_initial_admin_setup_required<C: sea_orm::ConnectionTrait>(db: &C) -> Result<()> {
+    if crate::services::system_setup::state(db).await?
+        == crate::services::system_setup::SystemSetupState::NeedsAdmin
+    {
+        Ok(())
+    } else {
+        Err(validation_error_with_code(
+            ApiErrorCode::ValidationSystemAlreadyInitialized,
+            "system already initialized",
+        ))
+    }
 }

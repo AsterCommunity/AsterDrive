@@ -117,12 +117,66 @@ pub async fn verify_password(
         .as_deref()
         .ok_or_else(|| AsterError::validation_error("share has no password"))?;
 
-    if !hash::verify_password(password, pw_hash)? {
+    let verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(password, pw_hash)
+        .await?;
+    if !verification.is_valid {
         return Err(AsterError::auth_invalid_credentials("wrong share password"));
+    }
+
+    if verification.needs_rehash {
+        upgrade_share_password_hash(state, &share, pw_hash, password).await;
     }
 
     tracing::debug!("verified share password");
     Ok(())
+}
+
+async fn upgrade_share_password_hash(
+    state: &impl SharedRuntimeState,
+    share: &share::Model,
+    current_hash: &str,
+    password: &str,
+) {
+    let new_hash = match state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(password)
+        .await
+    {
+        Ok(hash) => hash,
+        Err(error) => {
+            tracing::warn!(
+                share_id = share.id,
+                "failed to generate upgraded share password hash: {error}"
+            );
+            return;
+        }
+    };
+
+    match share_repo::update_password_hash_if_current(
+        state.writer_db(),
+        share.id,
+        current_hash,
+        &new_hash,
+    )
+    .await
+    {
+        Ok(true) => {
+            invalidate_share_token_record_cache_for_share(state, share).await;
+            tracing::info!(share_id = share.id, "upgraded share password hash policy");
+        }
+        Ok(false) => tracing::debug!(
+            share_id = share.id,
+            "skipped share password hash upgrade after concurrent credential change"
+        ),
+        Err(error) => tracing::warn!(
+            share_id = share.id,
+            "failed to persist upgraded share password hash: {error}"
+        ),
+    }
 }
 
 /// 用 HMAC-SHA256 对分享 token 签名作为密码验证 cookie。

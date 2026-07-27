@@ -156,6 +156,8 @@ pub struct AuthConfig {
     pub mfa_secret_key: String,
     pub storage_credential_secret_key: String,
     pub webdav_auth_cache_secret: String,
+    #[serde(default = "AuthConfig::default_password_hash_max_concurrency")]
+    pub password_hash_max_concurrency: usize,
     /// 首次初始化 system_config 时，是否把 auth_cookie_secure 设为 false。
     #[serde(default = "AuthConfig::default_bootstrap_insecure_cookies")]
     pub bootstrap_insecure_cookies: bool,
@@ -170,6 +172,7 @@ impl Default for AuthConfig {
             mfa_secret_key: Self::default_mfa_secret_key(),
             storage_credential_secret_key: Self::default_storage_credential_secret_key(),
             webdav_auth_cache_secret: Self::default_webdav_auth_cache_secret(),
+            password_hash_max_concurrency: Self::default_password_hash_max_concurrency(),
             bootstrap_insecure_cookies: Self::default_bootstrap_insecure_cookies(),
         }
     }
@@ -199,6 +202,9 @@ impl AuthConfig {
     }
     fn default_webdav_auth_cache_secret() -> String {
         Self::random_hex_secret()
+    }
+    fn default_password_hash_max_concurrency() -> usize {
+        crate::config::password_hash::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
     }
     fn default_bootstrap_insecure_cookies() -> bool {
         false

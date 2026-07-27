@@ -42,14 +42,18 @@ pub async fn count_unused_for_user<C: ConnectionTrait>(db: &C, user_id: i64) -> 
         .map_err(AsterError::from)
 }
 
-pub async fn mark_used<C: ConnectionTrait>(
+pub async fn mark_used_if_current<C: ConnectionTrait>(
     db: &C,
     id: i64,
+    user_id: i64,
+    code_hash: &str,
     now: chrono::DateTime<Utc>,
 ) -> Result<bool> {
     let result = MfaRecoveryCode::update_many()
         .col_expr(mfa_recovery_code::Column::UsedAt, Expr::value(Some(now)))
         .filter(mfa_recovery_code::Column::Id.eq(id))
+        .filter(mfa_recovery_code::Column::UserId.eq(user_id))
+        .filter(mfa_recovery_code::Column::CodeHash.eq(code_hash))
         .filter(mfa_recovery_code::Column::UsedAt.is_null())
         .exec(db)
         .await

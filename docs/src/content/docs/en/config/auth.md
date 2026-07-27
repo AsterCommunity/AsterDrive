@@ -3,7 +3,7 @@ title: "Login and Sessions"
 ---
 
 :::tip[This page explains two layers]
-- `[auth]` in `config.toml` - **only handles static startup bootstrap**: signing secrets and the first plain-HTTP bootstrap
+- `[auth]` in `config.toml` - **handles static authentication startup settings**: signing secrets, the Argon2 concurrency limit, and the first plain-HTTP bootstrap
 - `Admin -> System Settings` - **daily rules**: public registration, cookies, token TTLs, activation/reset links, and cooldowns
 
 In normal operation, almost everything you actually change is in the admin console. The static part on this page is usually touched only once during initial deployment or migration to another machine.
@@ -19,6 +19,7 @@ direct_link_secret = "<random secret generated on first startup>"
 mfa_secret_key = "<random secret generated on first startup>"
 storage_credential_secret_key = "<random secret generated on first startup>"
 webdav_auth_cache_secret = "<random secret generated on first startup>"
+password_hash_max_concurrency = 2
 bootstrap_insecure_cookies = false
 ```
 
@@ -73,6 +74,14 @@ Back up the entire `[auth]` section together with this key before upgrading or m
 This is the dedicated HMAC secret for WebDAV authentication cache keys. It prevents a leaked Redis key list from exposing a directly testable SHA-256 target for valid passwords. Every Primary sharing the same Redis cache must use the same value.
 
 Changing it makes all existing WebDAV authentication cache entries miss and repopulate after successful authentication; old keys remain only for their existing 60-second TTL. It is independent from the JWT, share-cookie, direct-link, MFA, and storage-credential secrets.
+
+### `password_hash_max_concurrency`
+
+This is the maximum number of Argon2 password hashing or verification tasks that each AsterDrive process runs at the same time. The default is `2`. Argon2 runs on the blocking thread pool instead of an Actix async worker; authentication work above the limit waits asynchronously.
+
+The current default password policy uses about `64 MiB` of working memory per task, so the default limit permits about `128 MiB` of concurrent Argon2 working memory per process. In a multi-Primary deployment, each process enforces its own limit. Small-memory instances can reduce it to `1`; before increasing it, account for instance memory, concurrent logins, and WebDAV/MFA authentication traffic. The value must be greater than `0`, and changing it requires a restart.
+
+The service continues to verify password hashes created with the previous lower work factor. After a successful user login, WebDAV credential check, or share-password verification, it progressively upgrades the stored hash without changing the plaintext password.
 
 ### `bootstrap_insecure_cookies`
 

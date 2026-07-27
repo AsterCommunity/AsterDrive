@@ -902,6 +902,37 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
     }
 }
 
+#[allow(dead_code)]
+pub fn test_password_hash_policy(memory_kib: u32) -> aster_forge_crypto::PasswordHashPolicy {
+    aster_forge_crypto::PasswordHashPolicy::new(
+        aster_forge_crypto::PasswordHashWorkFactor::new(memory_kib, 1, 1, 32).unwrap(),
+        aster_forge_crypto::PasswordHashVerificationLimits::new(64 * 1024, 3, 4, 32).unwrap(),
+    )
+    .unwrap()
+}
+
+#[allow(dead_code)]
+pub async fn configure_test_password_hash_policy(state: &mut PrimaryAppState, memory_kib: u32) {
+    configure_test_password_hash_runtime(state, memory_kib, 1).await;
+}
+
+#[allow(dead_code)]
+pub async fn configure_test_password_hash_runtime(
+    state: &mut PrimaryAppState,
+    memory_kib: u32,
+    max_concurrency: usize,
+) {
+    let runtime_config = std::sync::Arc::new(
+        aster_drive::config::RuntimeConfig::with_password_hash_policy(
+            max_concurrency,
+            test_password_hash_policy(memory_kib),
+        )
+        .unwrap(),
+    );
+    runtime_config.reload(state.writer_db()).await.unwrap();
+    state.runtime_config = runtime_config;
+}
+
 /// Creates a test account while respecting the production initialization lifecycle.
 ///
 /// The first fixture account goes through `setup`; later fixture accounts use ordinary
@@ -1207,6 +1238,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
                 "test-storage-credential-secret-key-for-integration-tests".to_string(),
             webdav_auth_cache_secret: "test-webdav-auth-cache-secret-for-integration-tests"
                 .to_string(),
+            password_hash_max_concurrency: 1,
             bootstrap_insecure_cookies: true,
         },
         ..Default::default()
@@ -1271,7 +1303,11 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     // OnceLock 只设置一次，后续调用忽略
     let _ = aster_drive::config::set_config_for_test(config.clone());
 
-    let runtime_config = std::sync::Arc::new(aster_drive::config::RuntimeConfig::new());
+    let password_hash_policy = test_password_hash_policy(8);
+    let runtime_config = std::sync::Arc::new(
+        aster_drive::config::RuntimeConfig::with_password_hash_policy(1, password_hash_policy)
+            .unwrap(),
+    );
     runtime_config.reload(&db).await.unwrap();
 
     let policy_snapshot = std::sync::Arc::new(aster_drive::storage::PolicySnapshot::new());

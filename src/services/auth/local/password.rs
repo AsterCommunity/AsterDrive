@@ -4,11 +4,11 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::user_repo;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use aster_forge_crypto as hash;
 use aster_forge_db::transaction;
 
 use super::session::{invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection};
 use super::shared::{find_user_by_identifier, update_password_in_connection};
+use super::validate_password;
 use crate::services::auth::mfa::{self, PrimaryLoginCompletion};
 
 use super::{AuthUserInfo, is_email_verified};
@@ -49,7 +49,7 @@ pub async fn login(
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
         }
 
-        if !hash::verify_password(password, &user.password_hash)? {
+        if !verify_user_password(state, &user, password).await? {
             tracing::debug!(user_id = user.id, "login rejected: invalid password");
             failure_reason = Some(LoginFailureReason::InvalidCredentials);
             return Err(AsterError::auth_invalid_credentials("Invalid Credentials"));
@@ -125,7 +125,13 @@ pub async fn change_password(
         ));
     }
 
-    if !hash::verify_password(current_password, &user.password_hash)? {
+    if !state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(current_password, &user.password_hash)
+        .await?
+        .is_valid
+    {
         return Err(AsterError::auth_invalid_credentials("wrong password"));
     }
 
@@ -144,11 +150,17 @@ pub async fn set_password(
     new_password: &str,
 ) -> Result<AuthUserInfo> {
     tracing::debug!(user_id, "setting password");
+    validate_password(new_password)?;
+    let new_password_hash = state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(new_password)
+        .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
         let was_forced = user.must_change_password;
-        let updated = update_password_in_connection(&txn, user, new_password).await?;
+        let updated = update_password_in_connection(&txn, user, new_password_hash).await?;
         purge_all_auth_sessions_in_connection(&txn, updated.id).await?;
         Ok::<_, AsterError>((updated, was_forced))
     }
@@ -173,4 +185,65 @@ pub async fn set_password(
         tracing::info!(user_id = updated.id, "completed forced password change");
     }
     Ok(AuthUserInfo::from(updated))
+}
+
+pub(crate) async fn verify_user_password(
+    state: &impl SharedRuntimeState,
+    user: &crate::entities::user::Model,
+    password: &str,
+) -> Result<bool> {
+    let verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(password, &user.password_hash)
+        .await?;
+    if !verification.is_valid {
+        return Ok(false);
+    }
+
+    if verification.needs_rehash {
+        upgrade_user_password_hash(state, user, password).await;
+    }
+    Ok(true)
+}
+
+async fn upgrade_user_password_hash(
+    state: &impl SharedRuntimeState,
+    user: &crate::entities::user::Model,
+    password: &str,
+) {
+    let new_hash = match state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(password)
+        .await
+    {
+        Ok(hash) => hash,
+        Err(error) => {
+            tracing::warn!(
+                user_id = user.id,
+                "failed to generate upgraded user password hash: {error}"
+            );
+            return;
+        }
+    };
+
+    match user_repo::update_password_hash_if_current(
+        state.writer_db(),
+        user.id,
+        &user.password_hash,
+        &new_hash,
+    )
+    .await
+    {
+        Ok(true) => tracing::info!(user_id = user.id, "upgraded user password hash policy"),
+        Ok(false) => tracing::debug!(
+            user_id = user.id,
+            "skipped user password hash upgrade after concurrent credential change"
+        ),
+        Err(error) => tracing::warn!(
+            user_id = user.id,
+            "failed to persist upgraded user password hash: {error}"
+        ),
+    }
 }

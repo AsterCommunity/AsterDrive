@@ -2,7 +2,7 @@
 
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait, QueryFilter,
-    QueryOrder,
+    QueryOrder, sea_query::Expr,
 };
 
 use crate::entities::webdav_account::{self, Entity as WebdavAccount};
@@ -147,6 +147,23 @@ pub async fn update(
     model: webdav_account::ActiveModel,
 ) -> Result<webdav_account::Model> {
     model.update(db).await.map_err(AsterError::from)
+}
+
+/// Replaces a WebDAV password hash only when it has not changed since verification.
+pub async fn update_password_hash_if_current<C: ConnectionTrait>(
+    db: &C,
+    account_id: i64,
+    current_hash: &str,
+    new_hash: &str,
+) -> Result<bool> {
+    let result = WebdavAccount::update_many()
+        .col_expr(webdav_account::Column::PasswordHash, Expr::value(new_hash))
+        .filter(webdav_account::Column::Id.eq(account_id))
+        .filter(webdav_account::Column::PasswordHash.eq(current_hash))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
 }
 
 pub async fn delete(db: &DatabaseConnection, id: i64) -> Result<()> {

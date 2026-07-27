@@ -552,6 +552,104 @@ async fn test_email_code_wrong_code_keeps_code_available_until_attempt_limit() {
 }
 
 #[tokio::test]
+async fn test_email_code_rotation_rejects_old_code_and_keeps_new_code_available() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    apply_email_code_login_config(&state, false);
+    let db = state.writer_db().clone();
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "emailrotate",
+        "emailrotate@example.com",
+        "password123",
+    )
+    .await;
+
+    let resp = login_raw(&app, "emailrotate", "password123").await;
+    let body: Value = test::read_body_json(resp).await;
+    let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
+
+    let resp = send_email_code(&app, &flow_token).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let memory_sender = aster_forge_mail::memory_sender_ref(&mail_sender)
+        .expect("memory mail sender should be available in tests");
+    let old_code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
+
+    let flow = find_mfa_flow_by_token(&db, &flow_token).await;
+    let current = aster_drive::entities::mfa_email_code::Entity::find()
+        .filter(aster_drive::entities::mfa_email_code::Column::FlowId.eq(flow.id))
+        .filter(aster_drive::entities::mfa_email_code::Column::ConsumedAt.is_null())
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+    let mut active = current.into_active_model();
+    active.created_at = Set(Utc::now() - Duration::minutes(10));
+    active.update(&db).await.unwrap();
+
+    let resp = send_email_code(&app, &flow_token).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let new_code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
+    assert_ne!(old_code, new_code);
+
+    let resp = verify_mfa(&app, &flow_token, "email_code", &old_code).await;
+    let status = resp.status();
+    let body: Value = test::read_body_json(resp).await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{body:#?}");
+    assert_eq!(body["code"], "auth.mfa_code_invalid");
+
+    let resp = verify_mfa(&app, &flow_token, "email_code", &new_code).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_concurrent_email_code_verification_has_one_winner() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    apply_email_code_login_config(&state, false);
+    let mail_sender = state.mail_sender.clone();
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "emailconcurrent",
+        "emailconcurrent@example.com",
+        "password123",
+    )
+    .await;
+
+    let resp = login_raw(&app, "emailconcurrent", "password123").await;
+    let body: Value = test::read_body_json(resp).await;
+    let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
+    let resp = send_email_code(&app, &flow_token).await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let memory_sender = aster_forge_mail::memory_sender_ref(&mail_sender)
+        .expect("memory mail sender should be available in tests");
+    let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
+
+    let (first, second) = tokio::join!(
+        verify_mfa(&app, &flow_token, "email_code", &code),
+        verify_mfa(&app, &flow_token, "email_code", &code),
+    );
+    let statuses = [first.status(), second.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::UNAUTHORIZED)
+            .count(),
+        1
+    );
+}
+
+#[tokio::test]
 async fn test_email_code_wrong_attempt_limit_consumes_flow() {
     let state = common::setup().await;
     apply_email_code_login_config(&state, false);
@@ -851,6 +949,132 @@ async fn test_recovery_code_can_be_used_once() {
     let second_flow = body["data"]["flow_token"].as_str().unwrap().to_string();
     let resp = verify_mfa(&app, &second_flow, "recovery_code", &recovery_code).await;
     assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
+}
+
+#[tokio::test]
+async fn test_concurrent_recovery_code_verification_has_one_winner_across_flows() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_runtime(&mut state, 8, 2).await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "recoveryrace",
+        "recoveryrace@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "recoveryrace", "password123");
+    let (_factor_id, _secret, recovery_codes) = enable_totp(&app, &access).await;
+    let recovery_code = recovery_codes.first().unwrap().clone();
+
+    let first_login = login_raw(&app, "recoveryrace", "password123").await;
+    let first_body: Value = test::read_body_json(first_login).await;
+    let first_flow = first_body["data"]["flow_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let second_login = login_raw(&app, "recoveryrace", "password123").await;
+    let second_body: Value = test::read_body_json(second_login).await;
+    let second_flow = second_body["data"]["flow_token"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let (first, second) = tokio::join!(
+        verify_mfa(&app, &first_flow, "recovery_code", &recovery_code),
+        verify_mfa(&app, &second_flow, "recovery_code", &recovery_code),
+    );
+    let statuses = [first.status(), second.status()];
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::OK)
+            .count(),
+        1
+    );
+    assert_eq!(
+        statuses
+            .iter()
+            .filter(|status| **status == StatusCode::UNAUTHORIZED)
+            .count(),
+        1
+    );
+
+    let used = aster_drive::entities::mfa_recovery_code::Entity::find()
+        .filter(aster_drive::entities::mfa_recovery_code::Column::UsedAt.is_not_null())
+        .count(&db)
+        .await
+        .unwrap();
+    assert_eq!(used, 1);
+}
+
+#[tokio::test]
+async fn test_recovery_code_consume_cas_checks_user_hash_and_unused_state() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    register_user(
+        &app,
+        "recoverycas",
+        "recoverycas@example.com",
+        "password123",
+    )
+    .await;
+    let (access, _) = login_user!(app, "recoverycas", "password123");
+    let _ = enable_totp(&app, &access).await;
+
+    let row = aster_drive::entities::mfa_recovery_code::Entity::find()
+        .order_by_asc(aster_drive::entities::mfa_recovery_code::Column::Id)
+        .one(&db)
+        .await
+        .unwrap()
+        .unwrap();
+
+    assert!(
+        !aster_drive::db::repository::mfa_recovery_code_repo::mark_used_if_current(
+            &db,
+            row.id,
+            row.user_id.saturating_add(1),
+            &row.code_hash,
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+    );
+    assert!(
+        !aster_drive::db::repository::mfa_recovery_code_repo::mark_used_if_current(
+            &db,
+            row.id,
+            row.user_id,
+            "stale-code-hash",
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+    );
+    assert!(
+        aster_drive::db::repository::mfa_recovery_code_repo::mark_used_if_current(
+            &db,
+            row.id,
+            row.user_id,
+            &row.code_hash,
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+    );
+    assert!(
+        !aster_drive::db::repository::mfa_recovery_code_repo::mark_used_if_current(
+            &db,
+            row.id,
+            row.user_id,
+            &row.code_hash,
+            Utc::now(),
+        )
+        .await
+        .unwrap()
+    );
 }
 
 #[tokio::test]

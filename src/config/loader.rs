@@ -406,6 +406,8 @@ mod tests {
         assert!(generated.contains("mfa_secret_key"));
         assert!(generated.contains("storage_credential_secret_key"));
         assert!(generated.contains("webdav_auth_cache_secret"));
+        assert!(generated.contains("password_hash_max_concurrency = 2"));
+        assert_eq!(cfg.auth.password_hash_max_concurrency, 2);
         assert!(
             messages
                 .iter()

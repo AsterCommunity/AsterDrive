@@ -3,7 +3,7 @@
 use crate::runtime::SharedRuntimeState;
 use aster_forge_cache::CacheExt;
 use aster_forge_crypto as hash;
-use sha2::{Digest, Sha256};
+use sha2::{Digest, Sha256, Sha512};
 
 use super::CachedWebdavAuth;
 
@@ -18,6 +18,7 @@ fn credential_cache_component(
     username: &str,
     password: &str,
 ) -> hash::Result<String> {
+    let cache_key = Sha512::digest(cache_secret.as_bytes());
     let username_digest = Sha256::digest(username.as_bytes());
     let password_digest = Sha256::digest(password.as_bytes());
     let mut credential_material = Vec::with_capacity(
@@ -27,7 +28,7 @@ fn credential_cache_component(
     credential_material.extend_from_slice(&username_digest);
     credential_material.extend_from_slice(&password_digest);
 
-    hash::hmac_sha256_hex(cache_secret.as_bytes(), &credential_material)
+    hash::hmac_sha256_hex(&cache_key, &credential_material)
 }
 
 fn auth_cache_prefix(username: &str) -> String {
@@ -113,6 +114,15 @@ mod tests {
         assert!(!key.contains("webdav-user"));
         assert!(!key.contains("secret-password"));
         assert_ne!(key, leaked_sha256_design);
+    }
+
+    #[test]
+    fn credential_component_preserves_v1_derivation_contract() {
+        assert_eq!(
+            credential_cache_component("cache-secret", "webdav-user", "secret-password")
+                .expect("WebDAV auth cache component should be generated"),
+            "6aaa1db1e9b8aa218ddcf16199ffa4b8b9a97c4739b9adc33666c1b386023018"
+        );
     }
 
     #[test]

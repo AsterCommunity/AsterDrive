@@ -11,7 +11,11 @@ pub struct PreparedFollowerRuntime {
 /// 准备从节点运行时（配置和日志应在此之前初始化）
 pub async fn prepare_follower() -> Result<PreparedFollowerRuntime> {
     let common = prepare_common(NodeRuntimeMode::Follower).await?;
-    let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
+    let runtime_config = Arc::new(
+        crate::config::RuntimeConfig::with_password_hash_max_concurrency(
+            common.cfg.auth.password_hash_max_concurrency,
+        )?,
+    );
     runtime_config.reload(&common.database).await?;
     aster_forge_audit::init_global_audit_log_manager(common.database.clone());
 
