@@ -17,7 +17,7 @@
 	"welcome_setup": "Welcome to AsterDrive",
 	"setup_desc": "Set up your admin account to get started.",
 	"setup_complete": "Setup complete.",
-	"setup_admin_created": "The administrator account was created. Continue with default storage setup.",
+	"setup_admin_created": "The administrator account was created. Continuing system setup.",
 	"storage_setup_login_title": "Complete storage setup",
 	"storage_setup_login_desc": "Sign in as the administrator, then create a default storage policy suitable for this deployment.",
 	"create_admin": "Create Admin Account",

@@ -20,17 +20,19 @@ use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::tunnel::is_allowed_tunnel_target;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
-    internal_request_mac, sign_internal_request,
+    REMOTE_CONTROL_PLANE_BODY_LIMIT, internal_request_mac, sign_internal_request,
 };
 
 pub const REMOTE_TUNNEL_PROXY_PATH_PREFIX: &str = "/api/v1/internal/remote-tunnel/proxy";
 const REMOTE_TUNNEL_PROXY_BODY_BRIDGE_CAPACITY: usize = 128 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADERS_LIMIT: usize = 16 * 1024;
 const REMOTE_TUNNEL_PROXY_HEADER_COUNT_LIMIT: usize = 32;
+const REMOTE_TUNNEL_PROXY_RESPONSE_HEADER: &str = "x-aster-remote-tunnel-proxied";
 const HMAC_SHA256_SIGNATURE_LEN: usize = 32;
 
 #[derive(Debug, Deserialize)]
@@ -38,6 +40,8 @@ pub struct RemoteTunnelProxyQuery {
     method: String,
     path_and_query: String,
     fencing_token: String,
+    #[serde(default)]
+    runtime_id: Option<String>,
     #[serde(default)]
     headers: String,
 }
@@ -91,6 +95,7 @@ impl ClusterRemoteTunnelBroker {
             .append_pair("method", method.as_str())
             .append_pair("path_and_query", &path_and_query)
             .append_pair("fencing_token", &owner.fencing_token)
+            .append_pair("runtime_id", self.directory.runtime_id())
             .append_pair("headers", &encoded_headers);
 
         let request_target = match url.query() {
@@ -126,17 +131,24 @@ impl ClusterRemoteTunnelBroker {
             )
         })?;
         let status = response.status();
-        if !status.is_success() {
-            let body = response.text().await.unwrap_or_default();
+        let mut headers = response.headers().clone();
+        let is_proxied_response = take_proxy_response_marker(&mut headers);
+        if !status.is_success() && !is_proxied_response {
+            let body = read_reqwest_response_body_limited(
+                response,
+                "reverse tunnel owner proxy",
+                REMOTE_CONTROL_PLANE_BODY_LIMIT,
+            )
+            .await
+            .unwrap_or_default();
             return Err(storage_driver_error(
                 StorageErrorKind::Transient,
                 format!(
                     "reverse tunnel owner proxy returned HTTP {status}: {}",
-                    body.trim()
+                    String::from_utf8_lossy(&body).trim()
                 ),
             ));
         }
-        let headers = response.headers().clone();
         let stream = response
             .bytes_stream()
             .map_err(|error| std::io::Error::other(error.to_string()));
@@ -310,6 +322,7 @@ pub async fn proxy_tunnel_request<S: RemoteProtocolRuntimeState>(
         req,
         remote_node_id,
         &query.fencing_token,
+        query.runtime_id.as_deref(),
         content_length,
     )
     .await?;
@@ -407,9 +420,17 @@ async fn authorize_proxy_request<S: SharedRuntimeState>(
     req: &actix_web::HttpRequest,
     remote_node_id: i64,
     fencing_token: &str,
+    signed_runtime_id: Option<&str>,
     content_length: Option<u64>,
 ) -> Result<()> {
     let runtime_id = proxy_header(req.headers(), INTERNAL_AUTH_ACCESS_KEY_HEADER)?;
+    if signed_runtime_id.is_some_and(|signed_runtime_id| {
+        signed_runtime_id.trim().is_empty() || runtime_id != signed_runtime_id
+    }) {
+        return Err(AsterError::auth_invalid_credentials(
+            "tunnel proxy runtime identity mismatch",
+        ));
+    }
     let timestamp = proxy_header(req.headers(), INTERNAL_AUTH_TIMESTAMP_HEADER)?
         .parse::<i64>()
         .map_err(|_| AsterError::auth_token_invalid("invalid tunnel proxy timestamp"))?;
@@ -455,7 +476,7 @@ async fn authorize_proxy_request<S: SharedRuntimeState>(
             "tunnel proxy fencing token is stale",
         ));
     }
-    let nonce_key = format!("remote_tunnel_proxy_nonce:{runtime_id}:{nonce}");
+    let nonce_key = format!("remote_tunnel_proxy_nonce:{nonce}");
     if !state
         .cache()
         .set_bytes_if_absent(&nonce_key, Vec::new(), Some(INTERNAL_AUTH_NONCE_TTL_SECS))
@@ -536,12 +557,19 @@ fn proxy_header(headers: &actix_web::http::header::HeaderMap, name: &str) -> Res
         .ok_or_else(|| AsterError::auth_token_invalid(format!("missing header {name}")))
 }
 
+fn take_proxy_response_marker(headers: &mut HeaderMap) -> bool {
+    headers
+        .remove(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER)
+        .is_some_and(|value| value == "1")
+}
+
 fn streaming_proxy_response(response: RemoteTunnelStreamHttpResponse) -> actix_web::HttpResponse {
     let mut builder = actix_web::HttpResponse::build(
         actix_web::http::StatusCode::from_u16(response.status.as_u16())
             .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY),
     );
     copy_proxy_headers(&mut builder, &response.headers);
+    builder.insert_header((REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "1"));
     builder.streaming(ReaderStream::new(response.body))
 }
 
@@ -551,6 +579,7 @@ fn buffered_proxy_response(response: RemoteTunnelHttpResponse) -> actix_web::Htt
             .unwrap_or(actix_web::http::StatusCode::BAD_GATEWAY),
     );
     copy_proxy_headers(&mut builder, &response.headers);
+    builder.insert_header((REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "1"));
     builder.body(response.body)
 }
 
@@ -566,6 +595,9 @@ fn copy_proxy_headers(builder: &mut actix_web::HttpResponseBuilder, headers: &He
         .collect::<HashSet<_>>();
     for (name, value) in headers {
         if is_hop_by_hop_header(name.as_str())
+            || name
+                .as_str()
+                .eq_ignore_ascii_case(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER)
             || connection_headers.contains(&name.as_str().to_ascii_lowercase())
         {
             continue;
@@ -601,6 +633,7 @@ mod tests {
     use crate::config::{Config, DeploymentProfile};
     use crate::entities::managed_follower;
     use crate::runtime::test_support::CacheOnlyState;
+    use crate::storage::remote_protocol::tunnel::server::RemoteTunnelOwnerLease;
     use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -665,6 +698,18 @@ mod tests {
         assert!(!connection_headers.contains("content-type"));
     }
 
+    #[test]
+    fn proxy_response_marker_is_authoritative_and_not_forwarded() {
+        let mut headers = HeaderMap::new();
+        headers.insert(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "1".parse().unwrap());
+        assert!(take_proxy_response_marker(&mut headers));
+        assert!(!headers.contains_key(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER));
+
+        headers.insert(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "0".parse().unwrap());
+        assert!(!take_proxy_response_marker(&mut headers));
+        assert!(!headers.contains_key(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER));
+    }
+
     async fn claimed_directory() -> RemoteTunnelOwnerDirectory {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
@@ -710,11 +755,73 @@ mod tests {
         directory
     }
 
+    fn proxy_remote_node() -> managed_follower::Model {
+        let now = chrono::Utc::now();
+        managed_follower::Model {
+            id: 7,
+            name: "proxy follower".to_string(),
+            base_url: String::new(),
+            access_key: "access".to_string(),
+            secret_key: "secret".to_string(),
+            is_enabled: true,
+            transport_mode: crate::types::RemoteNodeTransportMode::ReverseTunnel,
+            last_capabilities: "{}".to_string(),
+            last_error: String::new(),
+            last_checked_at: None,
+            tunnel_last_error: String::new(),
+            tunnel_last_seen_at: None,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    async fn spawn_proxy_response_server(
+        status: actix_web::http::StatusCode,
+        mark_proxied: bool,
+    ) -> (String, actix_web::dev::ServerHandle) {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let address = listener.local_addr().unwrap();
+        let server = actix_web::HttpServer::new(move || {
+            actix_web::App::new().default_service(actix_web::web::to(move || async move {
+                let mut response = actix_web::HttpResponse::build(status);
+                if mark_proxied {
+                    response.insert_header((REMOTE_TUNNEL_PROXY_RESPONSE_HEADER, "1"));
+                }
+                response.body(r#"{"code":"storage_object_not_found","msg":"missing"}"#)
+            }))
+        })
+        .listen(listener)
+        .unwrap()
+        .run();
+        let handle = server.handle();
+        actix_web::rt::spawn(server);
+        (format!("http://{address}"), handle)
+    }
+
     fn proxy_auth_request(
         secret: &str,
         timestamp: i64,
         nonce: &str,
         fencing_token: &str,
+        runtime_id: &str,
+    ) -> actix_web::HttpRequest {
+        proxy_auth_request_with_identity(
+            secret,
+            timestamp,
+            nonce,
+            fencing_token,
+            Some(runtime_id),
+            runtime_id,
+        )
+    }
+
+    fn proxy_auth_request_with_identity(
+        secret: &str,
+        timestamp: i64,
+        nonce: &str,
+        fencing_token: &str,
+        signed_runtime_id: Option<&str>,
+        header_runtime_id: &str,
     ) -> actix_web::HttpRequest {
         let mut url = reqwest::Url::parse(&format!(
             "http://primary-a:3000{REMOTE_TUNNEL_PROXY_PATH_PREFIX}/7"
@@ -729,13 +836,17 @@ mod tests {
                     crate::storage::remote_protocol::INTERNAL_STORAGE_BASE_PATH
                 ),
             )
-            .append_pair("fencing_token", fencing_token)
-            .append_pair("headers", "W10");
+            .append_pair("fencing_token", fencing_token);
+        if let Some(signed_runtime_id) = signed_runtime_id {
+            url.query_pairs_mut()
+                .append_pair("runtime_id", signed_runtime_id);
+        }
+        url.query_pairs_mut().append_pair("headers", "W10");
         let uri = format!("{}?{}", url.path(), url.query().unwrap());
         let signature = sign_internal_request(secret, "POST", &uri, timestamp, nonce, None);
         actix_web::test::TestRequest::post()
             .uri(&uri)
-            .insert_header((INTERNAL_AUTH_ACCESS_KEY_HEADER, "runtime-b"))
+            .insert_header((INTERNAL_AUTH_ACCESS_KEY_HEADER, header_runtime_id))
             .insert_header((INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string()))
             .insert_header((INTERNAL_AUTH_NONCE_HEADER, nonce))
             .insert_header((INTERNAL_AUTH_SIGNATURE_HEADER, signature))
@@ -752,6 +863,7 @@ mod tests {
             timestamp,
             "replay-nonce",
             directory.fencing_token(),
+            "runtime-b",
         );
         authorize_proxy_request(
             &state,
@@ -759,6 +871,7 @@ mod tests {
             &request,
             7,
             directory.fencing_token(),
+            Some("runtime-b"),
             None,
         )
         .await
@@ -769,6 +882,7 @@ mod tests {
             timestamp,
             "replay-nonce",
             directory.fencing_token(),
+            "runtime-b",
         );
         let error = authorize_proxy_request(
             &state,
@@ -776,6 +890,7 @@ mod tests {
             &replay,
             7,
             directory.fencing_token(),
+            Some("runtime-b"),
             None,
         )
         .await
@@ -799,6 +914,7 @@ mod tests {
                 &missing,
                 7,
                 directory.fencing_token(),
+                Some("runtime-b"),
                 None,
             )
             .await
@@ -813,6 +929,7 @@ mod tests {
             expired_timestamp,
             "expired-nonce",
             directory.fencing_token(),
+            "runtime-b",
         );
         assert!(
             authorize_proxy_request(
@@ -821,6 +938,7 @@ mod tests {
                 &expired,
                 7,
                 directory.fencing_token(),
+                Some("runtime-b"),
                 None,
             )
             .await
@@ -834,6 +952,7 @@ mod tests {
             now,
             "wrong-secret-nonce",
             directory.fencing_token(),
+            "runtime-b",
         );
         assert!(
             authorize_proxy_request(
@@ -842,6 +961,7 @@ mod tests {
                 &wrong,
                 7,
                 directory.fencing_token(),
+                Some("runtime-b"),
                 None,
             )
             .await
@@ -855,6 +975,7 @@ mod tests {
             now,
             "short-signature-nonce",
             directory.fencing_token(),
+            "runtime-b",
         );
         let short = actix_web::test::TestRequest::post()
             .uri(short.uri().path_and_query().unwrap().as_str())
@@ -869,10 +990,206 @@ mod tests {
             &short,
             7,
             directory.fencing_token(),
+            Some("runtime-b"),
             None,
         )
         .await
         .expect_err("short HMAC signature must be rejected");
         assert!(error.message().contains("signature mismatch"));
+    }
+
+    #[actix_web::test]
+    async fn proxy_auth_binds_runtime_identity_and_uses_cluster_wide_nonce() {
+        let state = CacheOnlyState::new().await;
+        let directory = claimed_directory().await;
+        let timestamp = chrono::Utc::now().timestamp();
+        let signed = proxy_auth_request(
+            directory.proxy_secret(),
+            timestamp,
+            "cluster-wide-nonce",
+            directory.fencing_token(),
+            "runtime-b",
+        );
+        let tampered = actix_web::test::TestRequest::post()
+            .uri(signed.uri().path_and_query().unwrap().as_str())
+            .insert_header((INTERNAL_AUTH_ACCESS_KEY_HEADER, "runtime-c"))
+            .insert_header((INTERNAL_AUTH_TIMESTAMP_HEADER, timestamp.to_string()))
+            .insert_header((INTERNAL_AUTH_NONCE_HEADER, "cluster-wide-nonce"))
+            .insert_header((
+                INTERNAL_AUTH_SIGNATURE_HEADER,
+                signed
+                    .headers()
+                    .get(INTERNAL_AUTH_SIGNATURE_HEADER)
+                    .unwrap()
+                    .clone(),
+            ))
+            .to_http_request();
+        let error = authorize_proxy_request(
+            &state,
+            &directory,
+            &tampered,
+            7,
+            directory.fencing_token(),
+            Some("runtime-b"),
+            None,
+        )
+        .await
+        .expect_err("tampered runtime identity must be rejected");
+        assert!(error.message().contains("runtime identity mismatch"));
+
+        let first = proxy_auth_request(
+            directory.proxy_secret(),
+            timestamp,
+            "cluster-wide-nonce",
+            directory.fencing_token(),
+            "runtime-b",
+        );
+        authorize_proxy_request(
+            &state,
+            &directory,
+            &first,
+            7,
+            directory.fencing_token(),
+            Some("runtime-b"),
+            None,
+        )
+        .await
+        .unwrap();
+
+        let second_runtime = proxy_auth_request(
+            directory.proxy_secret(),
+            timestamp,
+            "cluster-wide-nonce",
+            directory.fencing_token(),
+            "runtime-c",
+        );
+        let error = authorize_proxy_request(
+            &state,
+            &directory,
+            &second_runtime,
+            7,
+            directory.fencing_token(),
+            Some("runtime-c"),
+            None,
+        )
+        .await
+        .expect_err("nonce reuse from another runtime must be rejected");
+        assert!(error.message().contains("already been used"));
+    }
+
+    #[actix_web::test]
+    async fn legacy_proxy_auth_remains_rollout_compatible_without_reopening_replay() {
+        let state = CacheOnlyState::new().await;
+        let directory = claimed_directory().await;
+        let timestamp = chrono::Utc::now().timestamp();
+        let first = proxy_auth_request_with_identity(
+            directory.proxy_secret(),
+            timestamp,
+            "legacy-cluster-wide-nonce",
+            directory.fencing_token(),
+            None,
+            "runtime-b",
+        );
+        authorize_proxy_request(
+            &state,
+            &directory,
+            &first,
+            7,
+            directory.fencing_token(),
+            None,
+            None,
+        )
+        .await
+        .expect("legacy sender must remain valid during a rolling update");
+
+        let replay_with_changed_header = proxy_auth_request_with_identity(
+            directory.proxy_secret(),
+            timestamp,
+            "legacy-cluster-wide-nonce",
+            directory.fencing_token(),
+            None,
+            "runtime-c",
+        );
+        let error = authorize_proxy_request(
+            &state,
+            &directory,
+            &replay_with_changed_header,
+            7,
+            directory.fencing_token(),
+            None,
+            None,
+        )
+        .await
+        .expect_err("legacy nonce must remain cluster-wide despite header changes");
+        assert!(error.message().contains("already been used"));
+    }
+
+    #[actix_web::test]
+    async fn proxy_stream_preserves_marked_follower_errors_and_rejects_owner_errors() {
+        let directory = Arc::new(claimed_directory().await);
+        let broker = ClusterRemoteTunnelBroker::new(
+            Arc::new(RemoteTunnelRegistry::new()),
+            directory.clone(),
+        );
+
+        let (proxied_endpoint, proxied_server) =
+            spawn_proxy_response_server(actix_web::http::StatusCode::NOT_FOUND, true).await;
+        let proxied_owner = RemoteTunnelOwnerLease {
+            remote_node_id: 7,
+            runtime_id: "runtime-owner".to_string(),
+            internal_endpoint: proxied_endpoint,
+            fencing_token: "owner-fencing".to_string(),
+            lease_expires_at: chrono::Utc::now() + chrono::Duration::minutes(1),
+        };
+        let mut response = broker
+            .send_proxy_stream(
+                &proxied_owner,
+                &proxy_remote_node(),
+                Method::GET,
+                "/api/v1/internal/storage/objects/missing".to_string(),
+                None,
+                Vec::new(),
+                Box::new(std::io::Cursor::new(Bytes::new())),
+            )
+            .await
+            .expect("marked follower error must remain a protocol response");
+        assert_eq!(response.status, http::StatusCode::NOT_FOUND);
+        assert!(
+            !response
+                .headers
+                .contains_key(REMOTE_TUNNEL_PROXY_RESPONSE_HEADER)
+        );
+        let mut body = String::new();
+        response.body.read_to_string(&mut body).await.unwrap();
+        assert!(body.contains("storage_object_not_found"));
+        proxied_server.stop(true).await;
+
+        let (owner_endpoint, owner_server) =
+            spawn_proxy_response_server(actix_web::http::StatusCode::UNAUTHORIZED, false).await;
+        let owner_error = RemoteTunnelOwnerLease {
+            internal_endpoint: owner_endpoint,
+            ..proxied_owner
+        };
+        let error = broker
+            .send_proxy_stream(
+                &owner_error,
+                &proxy_remote_node(),
+                Method::GET,
+                "/api/v1/internal/storage/objects/missing".to_string(),
+                None,
+                Vec::new(),
+                Box::new(std::io::Cursor::new(Bytes::new())),
+            )
+            .await;
+        let error = match error {
+            Ok(_) => panic!("unmarked owner error must remain a proxy transport failure"),
+            Err(error) => error,
+        };
+        assert_eq!(
+            error.storage_error_kind(),
+            Some(StorageErrorKind::Transient)
+        );
+        assert!(error.message().contains("owner proxy returned HTTP 401"));
+        owner_server.stop(true).await;
     }
 }

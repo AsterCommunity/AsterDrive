@@ -202,7 +202,13 @@ pub async fn create<S: RemoteProtocolRuntimeState>(
     .map_err(map_remote_node_db_err)?;
 
     refresh_registry(state).await?;
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "create",
+        "remote_node",
+        created.id,
+    )
+    .await;
     remote_node_info(state, created).await
 }
 
@@ -253,7 +259,13 @@ pub async fn update<S: RemoteProtocolRuntimeState>(
         .await
         .map_err(map_remote_node_db_err)?;
     refresh_registry(state).await?;
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "update",
+        "remote_node",
+        updated.id,
+    )
+    .await;
     if enrollment_status_for_node(state, updated.id).await? == RemoteNodeEnrollmentStatus::Completed
         && let Err(error) =
             sync_remote_binding_config_with_timeout(state, &updated, REMOTE_BINDING_SYNC_TIMEOUT)
@@ -277,7 +289,13 @@ pub async fn delete<S: RemoteProtocolRuntimeState>(state: &S, id: i64) -> Result
     }
     managed_follower_repo::delete(state.writer_db(), id).await?;
     refresh_registry(state).await?;
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "delete",
+        "remote_node",
+        id,
+    )
+    .await;
     tracing::info!(remote_node_id = id, "deleted remote node");
     Ok(())
 }
@@ -559,14 +577,14 @@ async fn probe_and_persist_node<S: RemoteProtocolRuntimeState>(
         .reload_managed_followers(state.writer_db())
         .await?;
     state.driver_registry().invalidate_all();
-    if capabilities_changed
-        && let Err(error) =
-            crate::services::ops::config::runtime::publish_storage_topology_reload(state).await
-    {
-        tracing::warn!(
-            remote_node_id = node.id,
-            "failed to publish storage topology reload after remote capability change: {error}"
-        );
+    if capabilities_changed {
+        crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+            state,
+            "update_capabilities",
+            "remote_node",
+            node.id,
+        )
+        .await;
     }
 
     Ok(ProbedRemoteNode { model, probe_error })
@@ -722,10 +740,93 @@ fn map_remote_node_db_err(error: DbErr) -> AsterError {
 #[cfg(test)]
 mod tests {
     use super::{
-        CreateRemoteNodeInput, UpdateRemoteNodeInput, generate_managed_credentials,
-        normalize_create_input, normalize_update_input, remote_capabilities_changed,
+        CreateRemoteNodeInput, UpdateRemoteNodeInput, create, delete, generate_managed_credentials,
+        normalize_create_input, normalize_update_input, remote_capabilities_changed, update,
     };
+    use crate::config::{Config, DatabaseConfig, RuntimeConfig};
+    use crate::db;
+    use crate::runtime::SharedRuntimeState;
+    use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::RemoteNodeTransportMode;
+    use aster_forge_cache::CacheConfig;
+    use async_trait::async_trait;
+    use migration::Migrator;
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    struct FailingConfigNotifier {
+        publish_attempts: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl aster_forge_config::ConfigChangeNotifier for FailingConfigNotifier {
+        async fn publish_reload(
+            &self,
+            _message: aster_forge_config::ConfigReloadMessage,
+        ) -> aster_forge_config::Result<()> {
+            self.publish_attempts.fetch_add(1, Ordering::SeqCst);
+            Err(aster_forge_config::ConfigCoreError::notification(
+                "injected config notification failure",
+            ))
+        }
+
+        async fn subscribe(
+            &self,
+        ) -> aster_forge_config::Result<aster_forge_config::ConfigNotification> {
+            Err(aster_forge_config::ConfigCoreError::notification(
+                "injected config subscription failure",
+            ))
+        }
+    }
+
+    async fn setup_state(
+        config_sync: aster_forge_config::ConfigSyncRuntime,
+    ) -> crate::runtime::PrimaryAppState {
+        let database = db::connect_with_metrics(
+            &DatabaseConfig {
+                url: "sqlite::memory:".into(),
+                pool_size: 1,
+                retry_count: 0,
+            },
+            crate::metrics::NoopMetrics::arc(),
+        )
+        .await
+        .expect("remote node service test database should connect");
+        Migrator::up(&database, None)
+            .await
+            .expect("remote node service migrations should succeed");
+        let runtime_config = Arc::new(RuntimeConfig::new());
+        let cache = aster_forge_cache::create_cache(&CacheConfig {
+            backend: "memory".to_string(),
+            ..Default::default()
+        })
+        .await;
+        let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
+            crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
+        );
+        let share_download_rollback =
+            crate::services::share::spawn_detached_share_download_rollback_queue(
+                database.clone(),
+                crate::config::operations::share_download_rollback_queue_capacity(&runtime_config),
+            );
+
+        crate::runtime::PrimaryAppState {
+            db_handles: aster_forge_db::DbHandles::single(database),
+            driver_registry: Arc::new(DriverRegistry::noop()),
+            runtime_config: runtime_config.clone(),
+            policy_snapshot: Arc::new(PolicySnapshot::new()),
+            config: Arc::new(Config::default()),
+            cache,
+            config_sync,
+            metrics: crate::metrics::NoopMetrics::arc(),
+            mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
+            storage_change_bus,
+            share_download_rollback,
+            background_task_dispatch_wakeup:
+                crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
+            remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        }
+    }
 
     #[test]
     fn normalize_create_input_ignores_managed_credentials() {
@@ -791,5 +892,61 @@ mod tests {
         assert!(!remote_capabilities_changed(" invalid ", "invalid"));
         assert!(remote_capabilities_changed("invalid-a", "invalid-b"));
         assert!(remote_capabilities_changed("invalid", "{}"));
+    }
+
+    #[tokio::test]
+    async fn remote_node_crud_returns_committed_results_when_reload_notification_fails() {
+        let notifier = Arc::new(FailingConfigNotifier {
+            publish_attempts: AtomicUsize::new(0),
+        });
+        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
+        let state = setup_state(
+            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+                "aster_drive",
+                "remote-node-notification-failure",
+                shared_notifier,
+            ),
+        )
+        .await;
+
+        let created = create(
+            &state,
+            CreateRemoteNodeInput {
+                name: "Committed remote".to_string(),
+                base_url: "https://remote.example.com".to_string(),
+                transport_mode: RemoteNodeTransportMode::Direct,
+                is_enabled: true,
+            },
+        )
+        .await
+        .expect("notification failure must not change a committed create result");
+        assert_eq!(created.name, "Committed remote");
+        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 3);
+
+        notifier.publish_attempts.store(0, Ordering::SeqCst);
+        let updated = update(
+            &state,
+            created.id,
+            UpdateRemoteNodeInput {
+                name: Some("Updated remote".to_string()),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("notification failure must not change a committed update result");
+        assert_eq!(updated.name, "Updated remote");
+        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 3);
+
+        notifier.publish_attempts.store(0, Ordering::SeqCst);
+        delete(&state, created.id)
+            .await
+            .expect("notification failure must not change a committed delete result");
+        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 3);
+        assert!(
+            crate::db::repository::managed_follower_repo::find_by_id(state.writer_db(), created.id)
+                .await
+                .is_err(),
+            "deleted remote node must stay deleted"
+        );
     }
 }

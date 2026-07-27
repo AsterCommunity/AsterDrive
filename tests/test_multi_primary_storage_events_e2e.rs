@@ -2,7 +2,7 @@
 //!
 //! This test is intentionally ignored in the normal suite because it starts Docker-backed
 //! PostgreSQL/Redis services and two real AsterDrive processes. Run it explicitly with
-//! `cargo test --test test_multi_primary_storage_events_e2e -- --ignored --nocapture`.
+//! `cargo test --features multi-primary-e2e --test test_multi_primary_storage_events_e2e -- --ignored --nocapture`.
 
 use std::process::Command;
 use std::time::Duration;
@@ -15,7 +15,7 @@ use aster_forge_test::{
 };
 use futures::StreamExt;
 use reqwest::{Client, StatusCode};
-use tokio::time::{sleep, timeout};
+use tokio::time::{MissedTickBehavior, interval, sleep, timeout};
 
 const USERNAME: &str = "cross-owner";
 const EMAIL: &str = "cross-primary-owner@example.com";
@@ -95,23 +95,42 @@ async fn storage_events_cross_primary_and_reconnect_after_redis_outage() {
     let mut stream = response.bytes_stream();
 
     create_folder(&client, &base_b, &token, "Cross Primary SSE").await;
-    let mut sse_data = read_sse_until(&mut stream, |data| data.contains("folder.created")).await;
+    let mut sse_data = read_sse_until(&mut stream, "initial cross-primary event", |data| {
+        data.contains("folder.created")
+    })
+    .await;
     assert!(
         sse_data.contains("\"kind\":\"folder.created\""),
         "{sse_data}"
     );
 
     redis.stop().await;
-    sse_data.push_str(&read_sse_until(&mut stream, |data| data.contains("sync.required")).await);
+    sse_data.push_str(
+        &read_sse_until(&mut stream, "disconnect reconciliation", |data| {
+            data.contains("sync.required")
+        })
+        .await,
+    );
     assert!(
         sse_data.contains("\"kind\":\"sync.required\""),
         "{sse_data}"
     );
 
+    create_folder(&client, &base_b, &token, "During Redis Outage").await;
     redis.restart().await;
-    sleep(Duration::from_secs(2)).await;
-    create_folder(&client, &base_b, &token, "After Redis Recovery").await;
-    sse_data.push_str(&read_sse_until(&mut stream, |data| data.contains("folder.created")).await);
+    sse_data.push_str(
+        &read_sse_until(&mut stream, "recovery reconciliation", |data| {
+            data.contains("sync.required")
+        })
+        .await,
+    );
+    assert!(
+        sse_data.matches("\"kind\":\"sync.required\"").count() >= 2,
+        "recovered subscription did not request reconciliation: {sse_data}"
+    );
+
+    wait_until_dependencies_ready(&client, &base_b, &mut primary_b).await;
+    sse_data.push_str(&create_folders_until_sse_event(&client, &base_b, &token, &mut stream).await);
     assert!(
         sse_data.matches("\"kind\":\"folder.created\"").count() >= 2,
         "recovered subscription did not deliver a second folder event: {sse_data}"
@@ -120,6 +139,53 @@ async fn storage_events_cross_primary_and_reconnect_after_redis_outage() {
     primary_a.assert_running();
     primary_b.assert_running();
     database.cleanup().await;
+}
+
+async fn create_folders_until_sse_event<S>(
+    client: &Client,
+    base_url: &str,
+    token: &str,
+    stream: &mut S,
+) -> String
+where
+    S: futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
+{
+    let mut data = String::new();
+    let mut attempt = 0u32;
+    let mut retry = interval(Duration::from_millis(500));
+    retry.set_missed_tick_behavior(MissedTickBehavior::Delay);
+    let deadline = sleep(Duration::from_secs(30));
+    tokio::pin!(deadline);
+
+    loop {
+        tokio::select! {
+            () = &mut deadline => {
+                panic!(
+                    "timed out waiting for post-recovery cross-primary event after {attempt} mutations: {data}"
+                );
+            }
+            chunk = stream.next() => {
+                let Some(chunk) = chunk else {
+                    panic!("SSE stream ended before post-recovery event: {data}");
+                };
+                let chunk = chunk.expect("SSE stream should remain readable after Redis recovery");
+                data.push_str(&String::from_utf8_lossy(&chunk));
+                if data.contains("folder.created") {
+                    return data;
+                }
+            }
+            _ = retry.tick() => {
+                attempt += 1;
+                create_folder(
+                    client,
+                    base_url,
+                    token,
+                    &format!("After Redis Recovery {attempt}"),
+                )
+                .await;
+            }
+        }
+    }
 }
 
 fn spawn_primary(
@@ -187,6 +253,25 @@ async fn wait_until_ready(client: &Client, base_url: &str, process: &mut TestPro
     }
 }
 
+async fn wait_until_dependencies_ready(client: &Client, base_url: &str, process: &mut TestProcess) {
+    let result = timeout(Duration::from_secs(90), async {
+        loop {
+            process.assert_running();
+            match client.get(format!("{base_url}/health/ready")).send().await {
+                Ok(response) if response.status().is_success() => return,
+                _ => sleep(Duration::from_millis(250)).await,
+            }
+        }
+    })
+    .await;
+    if result.is_err() {
+        panic!(
+            "AsterDrive dependencies did not recover at {base_url}\n{}",
+            process.diagnostics()
+        );
+    }
+}
+
 async fn login_access_token(client: &Client, base_url: &str) -> String {
     let response = client
         .post(format!("{base_url}/api/v1/auth/login"))
@@ -223,7 +308,11 @@ async fn create_folder(client: &Client, base_url: &str, token: &str, name: &str)
     );
 }
 
-async fn read_sse_until<S>(stream: &mut S, predicate: impl Fn(&str) -> bool) -> String
+async fn read_sse_until<S>(
+    stream: &mut S,
+    expectation: &str,
+    predicate: impl Fn(&str) -> bool,
+) -> String
 where
     S: futures::Stream<Item = Result<bytes::Bytes, reqwest::Error>> + Unpin,
 {
@@ -239,6 +328,6 @@ where
         panic!("SSE stream ended before expected event: {data}");
     })
     .await
-    .expect("timed out waiting for expected SSE event");
+    .unwrap_or_else(|error| panic!("timed out waiting for {expectation}: {error}"));
     data
 }

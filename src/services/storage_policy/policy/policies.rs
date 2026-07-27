@@ -213,7 +213,13 @@ pub async fn create(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "create",
+        "storage_policy",
+        result.id,
+    )
+    .await;
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
         .map(Into::into)
@@ -314,7 +320,13 @@ pub async fn delete(state: &(impl TaskRuntimeState + Sync), id: i64, force: bool
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "delete",
+        "storage_policy",
+        id,
+    )
+    .await;
     tracing::info!(
         policy_id = id,
         policy_name = %policy.name,
@@ -506,7 +518,13 @@ pub async fn update(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "update",
+        "storage_policy",
+        result.id,
+    )
+    .await;
 
     policy_repo::find_by_id(state.writer_db(), result.id)
         .await
@@ -592,7 +610,13 @@ pub async fn promote_s3_compatible_driver(
     state.policy_snapshot().reload(state.writer_db()).await?;
     crate::services::ops::config::invalidate_public_thumbnail_support_cache();
     crate::services::ops::config::invalidate_public_media_data_support_cache();
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "promote_driver",
+        "storage_policy",
+        id,
+    )
+    .await;
 
     policy_repo::find_by_id(state.writer_db(), id)
         .await
@@ -792,9 +816,21 @@ mod tests {
     use migration::Migrator;
     use sea_orm::ActiveValue::Set;
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use tokio::io::AsyncRead;
 
     async fn setup_state(encryption_key: &str) -> crate::runtime::PrimaryAppState {
+        setup_state_with_config_sync(
+            encryption_key,
+            aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
+        )
+        .await
+    }
+
+    async fn setup_state_with_config_sync(
+        encryption_key: &str,
+        config_sync: aster_forge_config::ConfigSyncRuntime,
+    ) -> crate::runtime::PrimaryAppState {
         let db = db::connect_with_metrics(
             &DatabaseConfig {
                 url: "sqlite::memory:".into(),
@@ -832,7 +868,7 @@ mod tests {
             policy_snapshot: Arc::new(PolicySnapshot::new()),
             config: Arc::new(config),
             cache,
-            config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
+            config_sync,
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
@@ -840,6 +876,66 @@ mod tests {
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
             remote_protocol: crate::runtime::PrimaryAppState::new_remote_protocol(),
+        }
+    }
+
+    struct FlakyConfigNotifier {
+        publish_attempts: AtomicUsize,
+        failures_remaining: AtomicUsize,
+    }
+
+    #[async_trait]
+    impl aster_forge_config::ConfigChangeNotifier for FlakyConfigNotifier {
+        async fn publish_reload(
+            &self,
+            _message: aster_forge_config::ConfigReloadMessage,
+        ) -> aster_forge_config::Result<()> {
+            self.publish_attempts.fetch_add(1, Ordering::SeqCst);
+            if self
+                .failures_remaining
+                .fetch_update(Ordering::SeqCst, Ordering::SeqCst, |remaining| {
+                    remaining.checked_sub(1)
+                })
+                .is_ok()
+            {
+                Err(aster_forge_config::ConfigCoreError::notification(
+                    "injected config notification failure",
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        async fn subscribe(
+            &self,
+        ) -> aster_forge_config::Result<aster_forge_config::ConfigNotification> {
+            Err(aster_forge_config::ConfigCoreError::notification(
+                "injected config subscription failure",
+            ))
+        }
+    }
+
+    fn local_policy_input(name: &str) -> CreateStoragePolicyInput {
+        CreateStoragePolicyInput {
+            name: name.to_string(),
+            connection: StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: "data/uploads".to_string(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path: "data/uploads".to_string(),
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: StoragePolicyOptions::default(),
+            },
+            max_file_size: 0,
+            chunk_size: Some(5_242_880),
+            is_default: false,
+            allowed_types: None,
+            options: None,
+            remote_storage_target_key: None,
+            application_config: Default::default(),
         }
     }
 
@@ -991,6 +1087,59 @@ mod tests {
                 .message()
                 .contains("max_file_size must be non-negative")
         );
+    }
+
+    #[tokio::test]
+    async fn create_returns_committed_policy_when_reload_notification_fails() {
+        let notifier = Arc::new(FlakyConfigNotifier {
+            publish_attempts: AtomicUsize::new(0),
+            failures_remaining: AtomicUsize::new(3),
+        });
+        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
+        let state = setup_state_with_config_sync(
+            "storage-token-test-master-key-32bytes",
+            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+                "aster_drive",
+                "policy-notification-failure",
+                shared_notifier,
+            ),
+        )
+        .await;
+
+        let policy = create(&state, local_policy_input("Committed policy"))
+            .await
+            .expect("notification failure must not change a committed create result");
+        let stored = policy_repo::find_by_id(state.writer_db(), policy.id)
+            .await
+            .expect("committed policy must remain readable");
+
+        assert_eq!(stored.name, "Committed policy");
+        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn create_retries_transient_reload_notification_failure() {
+        let notifier = Arc::new(FlakyConfigNotifier {
+            publish_attempts: AtomicUsize::new(0),
+            failures_remaining: AtomicUsize::new(1),
+        });
+        let shared_notifier: aster_forge_config::SharedConfigChangeNotifier = notifier.clone();
+        let state = setup_state_with_config_sync(
+            "storage-token-test-master-key-32bytes",
+            aster_forge_config::ConfigSyncRuntime::with_notifier_for_test(
+                "aster_drive",
+                "policy-notification-retry",
+                shared_notifier,
+            ),
+        )
+        .await;
+
+        let policy = create(&state, local_policy_input("Retried policy"))
+            .await
+            .expect("a transient notification failure should be retried after commit");
+
+        assert_eq!(policy.name, "Retried policy");
+        assert_eq!(notifier.publish_attempts.load(Ordering::SeqCst), 2);
     }
 
     #[tokio::test]

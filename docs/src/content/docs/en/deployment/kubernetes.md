@@ -72,8 +72,11 @@ Before applying it, replace the RWX StorageClass, image version or digest, host,
 
 The policy intentionally leaves egress unrestricted because a generic template does not know the real addresses of DNS, the database, Redis, object storage, OAuth/OIDC, SMTP, or remote Followers. Enumerate every dependency before adding default-deny egress, otherwise readiness, login, email, remote storage, or download flows can be blocked by the deployment itself.
 
+For a first deployment, create the `asterdrive` Namespace before running a server-side dry-run for the complete overlay. `--dry-run=server` does not persist the Namespace from the same Kustomize output, so namespaced resources such as the StatefulSet, Services, and PVC fail validation when the Namespace does not already exist.
+
 ```bash
 kubectl label namespace ingress-nginx asterdrive.io/ingress-access=true
+kubectl apply -f deploy/kubernetes/base/namespace.yaml
 kubectl kustomize deploy/kubernetes/overlays/production-example
 kubectl apply --dry-run=server -k deploy/kubernetes/overlays/production-example
 kubectl apply -k deploy/kubernetes/overlays/production-example
@@ -91,7 +94,7 @@ helm upgrade --install asterdrive deploy/helm/asterdrive \
   --set avatarPersistence.storageClass=REPLACE_WITH_RWX_STORAGE_CLASS
 ```
 
-The chart references the `asterdrive-cluster` Secret by default. Database URLs, Redis endpoints, and application keys stay out of ordinary Helm values; create the Secret through the cluster's existing secret-management system and set `existingSecret` when using a different name. The chart supports creating or reusing the avatar PVC, Ingress, ingress NetworkPolicy, image tags or digests, resources, scheduling, extra environment variables, and PDB settings. It does not include PostgreSQL, Redis, or object-storage subcharts.
+The chart references the `asterdrive-cluster` Secret by default. Database URLs, Redis endpoints, and application keys stay out of ordinary Helm values; create the Secret through the cluster's existing secret-management system and set `existingSecret` when using a different name. Every Primary must share the avatar directory through an RWX PVC created or referenced by the chart, and template validation rejects disabling avatar persistence. Extra environment variables may add non-authoritative settings but cannot override the cluster profile, per-Pod internal endpoint, database, Redis, internal proxy, or authentication secrets. When NetworkPolicy is enabled, Primary-to-Primary traffic is always allowed; `allowSameNamespace` only controls whether the rest of the Namespace is also admitted. The chart also supports Ingress, image tags or digests, resources, scheduling, and PDB settings. It does not include PostgreSQL, Redis, or object-storage subcharts.
 
 For multi-node production clusters, set `topologySpread.whenUnsatisfiable=DoNotSchedule`. The default remains `ScheduleAnyway` for development and single-node validation. With the strict setting, a Pod stays Pending when there are not enough failure domains; that is the intended protection and should be resolved by adding capacity rather than colocating both Primaries.
 
@@ -113,4 +116,4 @@ docker run --rm -v /tmp:/manifests \
   /manifests/asterdrive-helm.yaml
 ```
 
-`kubectl apply --dry-run=client` may still perform API discovery even when validation is disabled, so it is not a reliable offline validator for CI without a kubeconfig. CI renders the OrbStack and production overlays plus Helm boundary cases for default values, Ingress with NetworkPolicy and digest, and an existing PVC with three replicas, then runs strict schema validation with a pinned kubeconform image. These checks do not prove that the external database, Redis, RWX StorageClass, Ingress, or shared storage is operational. Before applying changes, connect to the target cluster and run `kubectl apply --dry-run=server`; after deployment, complete the [multi-instance launch validation](/en/deployment/load-balancing/#launch-validation).
+`kubectl apply --dry-run=client` may still perform API discovery even when validation is disabled, so it is not a reliable offline validator for CI without a kubeconfig. CI renders the OrbStack and production overlays plus Helm boundary cases for default values, Ingress with NetworkPolicy and digest, and an existing PVC with three replicas, then runs strict schema validation with a pinned kubeconform image. These checks do not prove that the external database, Redis, RWX StorageClass, Ingress, or shared storage is operational. Before applying changes, connect to the target cluster, create the target Namespace, and then run `kubectl apply --dry-run=server`; after deployment, complete the [multi-instance launch validation](/en/deployment/load-balancing/#launch-validation).

@@ -121,6 +121,9 @@ function useLoginPageController() {
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
+	const invalidateSystemSetupState = useSystemSetupStore(
+		(state) => state.invalidate,
+	);
 	const setSystemSetupState = useSystemSetupStore(
 		(state) => state.setSetupState,
 	);
@@ -1042,17 +1045,22 @@ function useLoginPageController() {
 
 			if (mode === "setup") {
 				await authService.setup(un, em, password);
-				const currentSetup = await authService.check();
-				setSystemSetupState(currentSetup.setup_state);
-				setSetupState(currentSetup.setup_state);
-				toast.success(
-					currentSetup.setup_state === "needs_storage"
-						? t("setup_admin_created")
-						: t("setup_complete"),
-				);
+
+				// The administrator now exists. Clear the stale needs_admin snapshot
+				// before any recoverable login or setup-state request can fail.
+				invalidateSystemSetupState();
+				setSetupState(null);
+				setRegistrationClosed(true);
+				setMode("login");
+				setIdentifier(em);
+				setExtraField("");
+				setErrors({});
+				setShowPassword(false);
+				toast.success(t("setup_admin_created"));
+
 				await handleLoginResult(
 					await authService.login(em, password),
-					currentSetup.setup_state === "needs_storage" ? "/setup/storage" : "/",
+					"/",
 					loginSuccessMessage,
 				);
 				return;

@@ -13,6 +13,9 @@ spec:
     - Ingress
   ingress:
     - from:
+        - podSelector:
+            matchLabels:
+              {{- include "asterdrive.selectorLabels" . | nindent 14 }}
         {{- if .Values.networkPolicy.allowSameNamespace }}
         - namespaceSelector:
             matchLabels:

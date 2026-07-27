@@ -1,4 +1,6 @@
+use std::collections::HashMap;
 use std::future::Future;
+use std::sync::Arc;
 use std::time::Duration;
 
 use aster_forge_runtime::{RuntimeLeaseAcquire, RuntimeLeaseClaim, RuntimeLeaseStore};
@@ -42,6 +44,81 @@ pub enum RemoteTunnelOwnerClaim {
     Standby(Option<RemoteTunnelOwnerLease>),
 }
 
+pub(super) struct RemoteTunnelOwnerReleaseGuard {
+    directory: Option<Arc<RemoteTunnelOwnerDirectory>>,
+    remote_node_id: i64,
+}
+
+impl RemoteTunnelOwnerReleaseGuard {
+    fn new(directory: Arc<RemoteTunnelOwnerDirectory>, remote_node_id: i64) -> Self {
+        Self {
+            directory: Some(directory),
+            remote_node_id,
+        }
+    }
+
+    pub(super) fn unmanaged(remote_node_id: i64) -> Self {
+        Self {
+            directory: None,
+            remote_node_id,
+        }
+    }
+
+    pub(super) fn directory(&self) -> Option<Arc<RemoteTunnelOwnerDirectory>> {
+        self.directory.clone()
+    }
+
+    pub(super) async fn run_and_release<T>(
+        mut self,
+        operation: impl Future<Output = Result<T>>,
+    ) -> Result<T> {
+        let result = operation.await;
+        if let Some(directory) = self.directory.as_ref().cloned() {
+            release_stream_owner_with_warning(&directory, self.remote_node_id).await;
+            self.directory = None;
+        }
+        result
+    }
+}
+
+impl Drop for RemoteTunnelOwnerReleaseGuard {
+    fn drop(&mut self) {
+        let Some(directory) = self.directory.take() else {
+            return;
+        };
+        let remote_node_id = self.remote_node_id;
+        let Ok(runtime) = tokio::runtime::Handle::try_current() else {
+            tracing::warn!(
+                remote_node_id,
+                runtime_id = %directory.runtime_id(),
+                "could not schedule reverse tunnel owner lease release without an active Tokio runtime"
+            );
+            return;
+        };
+        let _release_task = runtime.spawn(async move {
+            release_stream_owner_with_warning(&directory, remote_node_id).await;
+        });
+    }
+}
+
+pub(super) enum RemoteTunnelStreamOwnerClaim {
+    Owned(RemoteTunnelOwnerReleaseGuard),
+    Standby(Option<RemoteTunnelOwnerLease>),
+}
+
+async fn release_stream_owner_with_warning(
+    directory: &RemoteTunnelOwnerDirectory,
+    remote_node_id: i64,
+) {
+    if let Err(error) = directory.release_stream_claim(remote_node_id).await {
+        tracing::warn!(
+            remote_node_id,
+            runtime_id = %directory.runtime_id(),
+            "failed to release reverse tunnel owner lease: {error}"
+        );
+    }
+}
+
 #[derive(Clone)]
 pub struct RemoteTunnelOwnerDirectory {
     db: sea_orm::DatabaseConnection,
@@ -49,6 +126,7 @@ pub struct RemoteTunnelOwnerDirectory {
     internal_endpoint: String,
     fencing_token: String,
     proxy_secret: String,
+    stream_claims: Arc<tokio::sync::Mutex<HashMap<i64, usize>>>,
 }
 
 impl RemoteTunnelOwnerDirectory {
@@ -83,6 +161,7 @@ impl RemoteTunnelOwnerDirectory {
             internal_endpoint: normalized_endpoint,
             fencing_token: aster_forge_utils::id::new_uuid(),
             proxy_secret: deployment.internal_proxy_secret.clone(),
+            stream_claims: Arc::new(tokio::sync::Mutex::new(HashMap::new())),
         }))
     }
 
@@ -129,6 +208,25 @@ impl RemoteTunnelOwnerDirectory {
         }
     }
 
+    pub(super) async fn try_claim_stream(
+        self: &Arc<Self>,
+        remote_node_id: i64,
+    ) -> Result<RemoteTunnelStreamOwnerClaim> {
+        let mut stream_claims = self.stream_claims.lock().await;
+        match self.try_claim(remote_node_id).await? {
+            RemoteTunnelOwnerClaim::Owned(_) => {
+                let claim_count = stream_claims.entry(remote_node_id).or_default();
+                *claim_count += 1;
+                Ok(RemoteTunnelStreamOwnerClaim::Owned(
+                    RemoteTunnelOwnerReleaseGuard::new(self.clone(), remote_node_id),
+                ))
+            }
+            RemoteTunnelOwnerClaim::Standby(owner) => {
+                Ok(RemoteTunnelStreamOwnerClaim::Standby(owner))
+            }
+        }
+    }
+
     pub async fn renew(&self, remote_node_id: i64) -> Result<bool> {
         let now = Utc::now();
         let expires_at = lease_expires_at(now);
@@ -163,6 +261,24 @@ impl RemoteTunnelOwnerDirectory {
         )
         .await?;
         Ok(())
+    }
+
+    async fn release_stream_claim(&self, remote_node_id: i64) -> Result<()> {
+        let mut stream_claims = self.stream_claims.lock().await;
+        let Some(claim_count) = stream_claims.get_mut(&remote_node_id) else {
+            tracing::warn!(
+                remote_node_id,
+                runtime_id = %self.runtime_id(),
+                "reverse tunnel stream owner claim was already released"
+            );
+            return Ok(());
+        };
+        if *claim_count > 1 {
+            *claim_count -= 1;
+            return Ok(());
+        }
+        stream_claims.remove(&remote_node_id);
+        self.release(remote_node_id).await
     }
 
     pub async fn current_owner(
@@ -393,6 +509,169 @@ mod tests {
             RemoteTunnelOwnerClaim::Owned(_)
         ));
         assert!(!first.renew(7).await.unwrap());
+    }
+
+    #[tokio::test]
+    async fn release_guard_allows_immediate_takeover_after_operation_finishes() {
+        let (db, config) = setup().await;
+        let first = Arc::new(
+            RemoteTunnelOwnerDirectory::from_deployment(
+                db.clone(),
+                &config.deployment,
+                "runtime-a",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        let second =
+            RemoteTunnelOwnerDirectory::from_deployment(db, &config.deployment, "runtime-b")
+                .unwrap()
+                .unwrap();
+        let RemoteTunnelStreamOwnerClaim::Owned(guard) = first.try_claim_stream(7).await.unwrap()
+        else {
+            panic!("first streaming claimant should own the tunnel");
+        };
+
+        let result = guard
+            .run_and_release(async { Ok::<_, AsterError>("connected") })
+            .await
+            .unwrap();
+
+        assert_eq!(result, "connected");
+        assert!(matches!(
+            second.try_claim(7).await.unwrap(),
+            RemoteTunnelOwnerClaim::Owned(_)
+        ));
+    }
+
+    #[tokio::test]
+    async fn release_guard_preserves_operation_error_when_release_fails() {
+        let (db, config) = setup().await;
+        let directory = Arc::new(
+            RemoteTunnelOwnerDirectory::from_deployment(
+                db.clone(),
+                &config.deployment,
+                "runtime-a",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        let RemoteTunnelStreamOwnerClaim::Owned(guard) =
+            directory.try_claim_stream(7).await.unwrap()
+        else {
+            panic!("streaming claimant should own the tunnel");
+        };
+        db.close().await.unwrap();
+
+        let error = guard
+            .run_and_release(async {
+                Err::<(), _>(AsterError::validation_error("original connection error"))
+            })
+            .await
+            .expect_err("operation error should be preserved");
+
+        assert_eq!(error.message(), "original connection error");
+    }
+
+    #[tokio::test]
+    async fn dropping_release_guard_schedules_owner_release() {
+        let (db, config) = setup().await;
+        let first = Arc::new(
+            RemoteTunnelOwnerDirectory::from_deployment(
+                db.clone(),
+                &config.deployment,
+                "runtime-a",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        let second =
+            RemoteTunnelOwnerDirectory::from_deployment(db, &config.deployment, "runtime-b")
+                .unwrap()
+                .unwrap();
+        let RemoteTunnelStreamOwnerClaim::Owned(guard) = first.try_claim_stream(7).await.unwrap()
+        else {
+            panic!("first streaming claimant should own the tunnel");
+        };
+
+        let entered = Arc::new(tokio::sync::Notify::new());
+        let blocker = Arc::new(tokio::sync::Notify::new());
+        let task = tokio::spawn({
+            let entered = entered.clone();
+            let blocker = blocker.clone();
+            async move {
+                guard
+                    .run_and_release(async move {
+                        entered.notify_one();
+                        blocker.notified().await;
+                        Ok::<_, AsterError>(())
+                    })
+                    .await
+            }
+        });
+        entered.notified().await;
+        task.abort();
+        assert!(task.await.unwrap_err().is_cancelled());
+
+        tokio::time::timeout(Duration::from_secs(2), async {
+            loop {
+                if matches!(
+                    second.try_claim(7).await.unwrap(),
+                    RemoteTunnelOwnerClaim::Owned(_)
+                ) {
+                    break;
+                }
+                tokio::task::yield_now().await;
+            }
+        })
+        .await
+        .expect("drop cleanup should release the owner without waiting for lease expiry");
+    }
+
+    #[tokio::test]
+    async fn release_guard_keeps_owner_until_last_stream_lane_finishes() {
+        let (db, config) = setup().await;
+        let first = Arc::new(
+            RemoteTunnelOwnerDirectory::from_deployment(
+                db.clone(),
+                &config.deployment,
+                "runtime-a",
+            )
+            .unwrap()
+            .unwrap(),
+        );
+        let second =
+            RemoteTunnelOwnerDirectory::from_deployment(db, &config.deployment, "runtime-b")
+                .unwrap()
+                .unwrap();
+        let RemoteTunnelStreamOwnerClaim::Owned(first_lane) =
+            first.try_claim_stream(7).await.unwrap()
+        else {
+            panic!("first lane should own the tunnel");
+        };
+        let RemoteTunnelStreamOwnerClaim::Owned(second_lane) =
+            first.try_claim_stream(7).await.unwrap()
+        else {
+            panic!("second lane on the same runtime should share ownership");
+        };
+
+        first_lane
+            .run_and_release(async { Ok::<_, AsterError>(()) })
+            .await
+            .unwrap();
+        assert!(matches!(
+            second.try_claim(7).await.unwrap(),
+            RemoteTunnelOwnerClaim::Standby(_)
+        ));
+
+        second_lane
+            .run_and_release(async { Ok::<_, AsterError>(()) })
+            .await
+            .unwrap();
+        assert!(matches!(
+            second.try_claim(7).await.unwrap(),
+            RemoteTunnelOwnerClaim::Owned(_)
+        ));
     }
 
     #[tokio::test]

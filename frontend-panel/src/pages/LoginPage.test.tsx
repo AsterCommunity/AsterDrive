@@ -69,6 +69,7 @@ const mockState = vi.hoisted(() => ({
 	passkeyLoginEnabled: true,
 	finishPasskeyLogin: vi.fn(),
 	getPasskeyCredential: vi.fn(),
+	invalidateSystemSetupState: vi.fn(),
 	locationAssign: vi.fn(),
 	linkExternalAuthWithPassword: vi.fn(),
 	listExternalAuthProviders: vi.fn(),
@@ -384,9 +385,14 @@ vi.mock("@/stores/authStore", () => ({
 vi.mock("@/stores/systemSetupStore", () => ({
 	useSystemSetupStore: (
 		selector: (state: {
+			invalidate: typeof mockState.invalidateSystemSetupState;
 			setSetupState: typeof mockState.setSystemSetupState;
 		}) => unknown,
-	) => selector({ setSetupState: mockState.setSystemSetupState }),
+	) =>
+		selector({
+			invalidate: mockState.invalidateSystemSetupState,
+			setSetupState: mockState.setSystemSetupState,
+		}),
 }));
 
 vi.mock("@/lib/webauthn", () => ({
@@ -451,6 +457,7 @@ describe("LoginPage", () => {
 		mockState.listExternalAuthProviders.mockReset();
 		mockState.login.mockReset();
 		mockState.loggerWarn.mockReset();
+		mockState.invalidateSystemSetupState.mockReset();
 		mockState.location = {
 			hash: "",
 			pathname: "/login",
@@ -2016,13 +2023,16 @@ describe("LoginPage", () => {
 		);
 	});
 
-	it("finishes setup immediately when storage was already provisioned", async () => {
-		mockState.check.mockResolvedValueOnce({
-			setup_state: "needs_admin",
-			has_users: false,
-			allow_user_registration: true,
-			passkey_login_enabled: true,
-		});
+	it("commits setup and logs in without a second public auth check", async () => {
+		mockState.check.mockReset();
+		mockState.check
+			.mockResolvedValueOnce({
+				setup_state: "needs_admin",
+				has_users: false,
+				allow_user_registration: true,
+				passkey_login_enabled: true,
+			})
+			.mockRejectedValueOnce(new Error("transient setup-state failure"));
 
 		render(<LoginPage />);
 
@@ -2050,7 +2060,9 @@ describe("LoginPage", () => {
 				"secret123",
 			);
 		});
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("setup_complete");
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("setup_admin_created");
+		expect(mockState.invalidateSystemSetupState).toHaveBeenCalledTimes(1);
+		expect(mockState.check).toHaveBeenCalledTimes(1);
 		expect(mockState.login).toHaveBeenCalledWith(
 			"admin@example.com",
 			"secret123",
@@ -2060,21 +2072,15 @@ describe("LoginPage", () => {
 		});
 	});
 
-	it("continues setup at storage policies after creating the administrator", async () => {
-		mockState.check.mockReset();
-		mockState.check
-			.mockResolvedValueOnce({
-				setup_state: "needs_admin",
-				has_users: false,
-				allow_user_registration: true,
-				passkey_login_enabled: true,
-			})
-			.mockResolvedValueOnce({
-				setup_state: "needs_storage",
-				has_users: true,
-				allow_user_registration: true,
-				passkey_login_enabled: true,
-			});
+	it("keeps the committed administrator in a recoverable login state", async () => {
+		const loginError = new Error("temporary login failure");
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
+			has_users: false,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+		mockState.login.mockRejectedValueOnce(loginError);
 
 		render(<LoginPage />);
 		fireEvent.change(await screen.findByLabelText("email_or_username"), {
@@ -2089,16 +2095,27 @@ describe("LoginPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "create_admin" }));
 
 		await waitFor(() => {
-			expect(mockState.toastSuccess).toHaveBeenCalledWith(
-				"setup_admin_created",
-			);
+			expect(mockState.handleApiError).toHaveBeenCalledWith(loginError);
 		});
+		expect(mockState.setup).toHaveBeenCalledTimes(1);
+		expect(mockState.check).toHaveBeenCalledTimes(1);
+		expect(mockState.invalidateSystemSetupState).toHaveBeenCalledTimes(1);
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeVisible();
+		expect(screen.getByLabelText("email_or_username")).toHaveValue(
+			"cluster-admin@example.com",
+		);
+		expect(screen.getByLabelText("password")).toHaveValue("secret123");
+
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 		await waitFor(() => {
-			expect(mockState.navigate).toHaveBeenCalledWith("/setup/storage", {
-				replace: true,
-			});
+			expect(mockState.login).toHaveBeenCalledTimes(2);
 		});
-		expect(mockState.setSystemSetupState).toHaveBeenCalledWith("needs_storage");
+		expect(mockState.setup).toHaveBeenCalledTimes(1);
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+		});
 	});
 
 	it("routes an existing bootstrap administrator to storage setup after login", async () => {

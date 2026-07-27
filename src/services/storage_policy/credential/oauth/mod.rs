@@ -688,9 +688,13 @@ pub async fn finish_authorization_callback(
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
         .await
         .map_err(storage_authorization_callback_server_error)?;
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state)
-        .await
-        .map_err(storage_authorization_callback_server_error)?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "authorize",
+        "storage_policy_credential",
+        policy_id,
+    )
+    .await;
     log_storage_credential_oauth_audit(
         state,
         &AuditContext {

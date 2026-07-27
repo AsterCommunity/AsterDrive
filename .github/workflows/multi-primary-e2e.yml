@@ -1,0 +1,79 @@
+name: Multi-Primary E2E
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'src/**'
+      - 'migration/**'
+      - 'tests/test_multi_primary_e2e.rs'
+      - 'tests/test_multi_primary_storage_events_e2e.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/multi-primary-e2e.yml'
+  pull_request:
+    branches: [master, develop]
+    paths:
+      - 'src/**'
+      - 'migration/**'
+      - 'tests/test_multi_primary_e2e.rs'
+      - 'tests/test_multi_primary_storage_events_e2e.rs'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'rust-toolchain.toml'
+      - '.github/workflows/multi-primary-e2e.yml'
+
+concurrency:
+  group: multi-primary-e2e-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: '0'
+  CARGO_PROFILE_TEST_CODEGEN_UNITS: '16'
+  CARGO_PROFILE_TEST_DEBUG: '0'
+  CARGO_TERM_COLOR: always
+  TESTCONTAINERS_REUSE_ENABLED: 'true'
+
+jobs:
+  multi-primary:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Cluster fault injection
+            target: test_multi_primary_e2e
+          - name: Cross-primary storage events
+            target: test_multi_primary_storage_events_e2e
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install media processing dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: multi-primary-e2e-v1
+
+      - name: Verify Docker availability
+        run: docker version
+
+      - name: Run ${{ matrix.name }}
+        run: >-
+          cargo test
+          --features multi-primary-e2e
+          --test ${{ matrix.target }}
+          --
+          --ignored
+          --test-threads=1
+          --nocapture

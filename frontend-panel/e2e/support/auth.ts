@@ -7,6 +7,21 @@ import {
 	PREVIEW_APPS_CACHE_KEY,
 } from "./fixtures";
 
+export type InitialStorageSetup =
+	| {
+			kind: "local";
+	  }
+	| {
+			accessKey: string;
+			basePath?: string;
+			bucket: string;
+			endpoint: string;
+			kind: "cluster-s3";
+			secretKey: string;
+	  };
+
+const DEFAULT_INITIAL_STORAGE: InitialStorageSetup = { kind: "local" };
+
 export async function seedClientState(
 	page: Page,
 	entries: Record<string, string> = { ...DEFAULT_STORAGE_STATE },
@@ -74,9 +89,12 @@ export async function authenticate(page: Page, request: APIRequestContext) {
 	await setupAdmin(page);
 }
 
-export async function setupAdmin(page: Page) {
+export async function setupAdmin(
+	page: Page,
+	storage: InitialStorageSetup = DEFAULT_INITIAL_STORAGE,
+) {
 	await createInitialAdmin(page);
-	await configureInitialStorage(page);
+	await configureInitialStorage(page, storage);
 	await ensureCurrentPublicSiteUrl(page);
 }
 
@@ -104,7 +122,10 @@ export async function createInitialAdmin(page: Page) {
 	).toHaveCount(0);
 }
 
-export async function configureInitialStorage(page: Page) {
+export async function configureInitialStorage(
+	page: Page,
+	storage: InitialStorageSetup = DEFAULT_INITIAL_STORAGE,
+) {
 	await expect(page).toHaveURL(/\/setup\/storage$/);
 	await page.getByRole("button", { name: "Start storage setup" }).click();
 	await expect(
@@ -113,7 +134,9 @@ export async function configureInitialStorage(page: Page) {
 		}),
 	).toBeVisible();
 	const storageDriverOptions = page.getByTestId("storage-driver-options");
-	await expect(storageDriverOptions.getByRole("button")).toHaveCount(7);
+	await expect(storageDriverOptions.getByRole("button")).toHaveCount(
+		storage.kind === "cluster-s3" ? 6 : 7,
+	);
 	await expect(
 		storageDriverOptions.getByRole("button", { name: /OneDrive/ }),
 	).toBeDisabled();
@@ -122,9 +145,25 @@ export async function configureInitialStorage(page: Page) {
 			"This connector must be saved and authorized in the browser. Finish system setup, then add it from storage administration.",
 		),
 	).toBeVisible();
-	await page.getByRole("button", { name: /^Local\b/ }).click();
+
+	if (storage.kind === "cluster-s3") {
+		await expect(
+			storageDriverOptions.getByRole("button", { name: /^Local\b/ }),
+		).toHaveCount(0);
+		await storageDriverOptions.getByRole("button", { name: /^S3\b/ }).click();
+	} else {
+		await page.getByRole("button", { name: /^Local\b/ }).click();
+	}
 	await page.getByLabel("Name").fill("System Storage");
-	await page.getByLabel("Base Path").fill("./data");
+	if (storage.kind === "cluster-s3") {
+		await page.getByLabel("Endpoint").fill(storage.endpoint);
+		await page.getByLabel("Bucket").fill(storage.bucket);
+		await page.getByLabel("Access Key").fill(storage.accessKey);
+		await page.getByLabel("Secret Key").fill(storage.secretKey);
+		await page.getByLabel("Base Path").fill(storage.basePath ?? "e2e");
+	} else {
+		await page.getByLabel("Base Path").fill("./data");
+	}
 	await page.getByRole("button", { name: "Test Connection" }).click();
 	await expect(page.getByText("Connection successful")).toBeVisible();
 	await page.getByRole("button", { name: "Review", exact: true }).click();

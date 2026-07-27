@@ -1,4 +1,4 @@
-{{- if and .Values.avatarPersistence.enabled .Values.avatarPersistence.create (not .Values.avatarPersistence.existingClaim) }}
+{{- if and .Values.avatarPersistence.create (not .Values.avatarPersistence.existingClaim) }}
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:

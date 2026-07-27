@@ -100,7 +100,7 @@ pub async fn run_cross_instance_subscription(
             backoff_ms = observation.backoff.as_millis(),
             "cross-instance storage event subscription state changed"
         );
-        if observation.state == aster_forge_events::EventConnectionState::Disconnected {
+        if requires_authoritative_sync(observation.state) {
             super::publish_local(observer_state.as_ref(), StorageChangeEvent::sync_required());
         }
     };
@@ -119,6 +119,14 @@ pub async fn run_cross_instance_subscription(
         }
     })
     .await;
+}
+
+fn requires_authoritative_sync(state: aster_forge_events::EventConnectionState) -> bool {
+    matches!(
+        state,
+        aster_forge_events::EventConnectionState::Disconnected
+            | aster_forge_events::EventConnectionState::Recovered
+    )
 }
 
 fn storage_change_topic(config_topic: &str) -> String {
@@ -160,7 +168,7 @@ mod tests {
 
     use super::{
         build_storage_change_bus, decode_remote_event, encode_transport_message,
-        storage_change_topic,
+        requires_authoritative_sync, storage_change_topic,
     };
     use crate::services::events::storage_change::{StorageChangeEvent, StorageChangeKind};
     use crate::services::workspace::storage::WorkspaceStorageScope;
@@ -176,6 +184,22 @@ mod tests {
             storage_change_topic("custom.notifications"),
             "custom.notifications.storage_events"
         );
+    }
+
+    #[test]
+    fn subscription_reconciles_at_disconnect_and_after_recovery() {
+        use aster_forge_events::EventConnectionState;
+
+        assert!(!requires_authoritative_sync(
+            EventConnectionState::Connected
+        ));
+        assert!(requires_authoritative_sync(
+            EventConnectionState::Disconnected
+        ));
+        assert!(!requires_authoritative_sync(
+            EventConnectionState::Reconnecting
+        ));
+        assert!(requires_authoritative_sync(EventConnectionState::Recovered));
     }
 
     #[test]

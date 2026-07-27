@@ -1,4 +1,7 @@
 {{- include "asterdrive.validateValues" . }}
+{{- $clusterConfigName := include "asterdrive.clusterConfigName" . }}
+{{- $headlessName := include "asterdrive.headlessName" . }}
+{{- $clusterSecretName := include "asterdrive.secretName" . }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -6,7 +9,7 @@ metadata:
   labels:
     {{- include "asterdrive.labels" . | nindent 4 }}
 spec:
-  serviceName: {{ include "asterdrive.fullname" . }}-headless
+  serviceName: {{ $headlessName }}
   replicas: {{ .Values.replicaCount }}
   podManagementPolicy: {{ .Values.podManagementPolicy }}
   minReadySeconds: {{ .Values.minReadySeconds }}
@@ -72,6 +75,9 @@ spec:
               containerPort: 3000
               protocol: TCP
           env:
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
             - name: POD_NAME
               valueFrom:
                 fieldRef:
@@ -81,15 +87,26 @@ spec:
                 fieldRef:
                   fieldPath: metadata.namespace
             - name: ASTER__DEPLOYMENT__INTERNAL_ENDPOINT
-              value: http://$(POD_NAME).{{ include "asterdrive.fullname" . }}-headless.$(POD_NAMESPACE).svc.{{ .Values.clusterDomain }}:3000
-            {{- with .Values.extraEnv }}
-            {{- toYaml . | nindent 12 }}
+              value: http://$(POD_NAME).{{ $headlessName }}.$(POD_NAMESPACE).svc.{{ .Values.clusterDomain }}:3000
+            {{- range $name := list "ASTER__DEPLOYMENT__PROFILE" "ASTER__SERVER__HOST" "ASTER__SERVER__PORT" "ASTER__SERVER__START_MODE" "ASTER__SERVER__TEMP_DIR" "ASTER__SERVER__UPLOAD_TEMP_DIR" "ASTER__CACHE__BACKEND" "ASTER__CONFIG_SYNC__BACKEND" "ASTER__CONFIG_SYNC__TOPIC" "ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $clusterConfigName }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- range $name := list "ASTER__DATABASE__URL" "ASTER__CACHE__ENDPOINT" "ASTER__CONFIG_SYNC__ENDPOINT" "ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET" "ASTER__AUTH__JWT_SECRET" "ASTER__AUTH__SHARE_COOKIE_SECRET" "ASTER__AUTH__DIRECT_LINK_SECRET" "ASTER__AUTH__MFA_SECRET_KEY" "ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY" "ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET" }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $clusterSecretName }}
+                  key: {{ $name }}
             {{- end }}
           envFrom:
             - configMapRef:
-                name: {{ include "asterdrive.fullname" . }}-cluster
+                name: {{ $clusterConfigName }}
             - secretRef:
-                name: {{ include "asterdrive.secretName" . }}
+                name: {{ $clusterSecretName }}
             {{- with .Values.extraEnvFrom }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -120,10 +137,8 @@ spec:
           volumeMounts:
             - name: data
               mountPath: /data
-            {{- if .Values.avatarPersistence.enabled }}
             - name: avatars
               mountPath: /data/avatar
-            {{- end }}
             - name: tmp
               mountPath: /tmp
       volumes:
@@ -134,11 +149,9 @@ spec:
           {{- else }}
           emptyDir: {}
           {{- end }}
-        {{- if .Values.avatarPersistence.enabled }}
         - name: avatars
           persistentVolumeClaim:
             claimName: {{ include "asterdrive.avatarClaimName" . }}
-        {{- end }}
         - name: tmp
           {{- if .Values.tmpVolume.sizeLimit }}
           emptyDir:

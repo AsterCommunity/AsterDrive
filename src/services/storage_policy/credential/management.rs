@@ -83,16 +83,14 @@ pub async fn validate_policy_credential(
                     "failed to reload storage policy credentials after validation failure: {reload_error}"
                 );
             }
-            if status_transition.is_some()
-                && let Err(publish_error) =
-                    crate::services::ops::config::runtime::publish_storage_topology_reload(state)
-                        .await
-            {
-                tracing::warn!(
-                    storage_policy_id = policy_id,
-                    credential_provider = provider.as_str(),
-                    "failed to publish storage topology reload after credential status change: {publish_error}"
-                );
+            if status_transition.is_some() {
+                crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+                    state,
+                    "update_status",
+                    "storage_policy_credential",
+                    policy_id,
+                )
+                .await;
             }
             return Err(error);
         }
@@ -114,7 +112,13 @@ pub async fn validate_policy_credential(
         .driver_registry()
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
         .await?;
-    crate::services::ops::config::runtime::publish_storage_topology_reload(state).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "validate",
+        "storage_policy_credential",
+        policy_id,
+    )
+    .await;
 
     Ok(StoragePolicyCredentialValidationResult {
         credential: credential.into(),

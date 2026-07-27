@@ -72,8 +72,11 @@ Pod 收到终止信号前先执行 10 秒 `preStop` 等待 endpoint 摘流量，
 
 该策略有意不限制出站，因为模板不知道数据库、Redis、对象存储、DNS、OAuth/OIDC、SMTP 和 remote Follower 的真实地址。要启用出站默认拒绝，先按实际环境逐项列出这些依赖，否则 readiness、登录、邮件、远端存储或下载链路会被自己切断。
 
+首次部署时先实际创建 `asterdrive` Namespace，再执行整套 overlay 的 server-side dry-run。`--dry-run=server` 不会持久化同一次 Kustomize 输出中的 Namespace，若目标集群尚无该 Namespace，后续 StatefulSet、Service 和 PVC 校验会报 Namespace 不存在。
+
 ```bash
 kubectl label namespace ingress-nginx asterdrive.io/ingress-access=true
+kubectl apply -f deploy/kubernetes/base/namespace.yaml
 kubectl kustomize deploy/kubernetes/overlays/production-example
 kubectl apply --dry-run=server -k deploy/kubernetes/overlays/production-example
 kubectl apply -k deploy/kubernetes/overlays/production-example
@@ -91,7 +94,7 @@ helm upgrade --install asterdrive deploy/helm/asterdrive \
   --set avatarPersistence.storageClass=REPLACE_WITH_RWX_STORAGE_CLASS
 ```
 
-Chart 默认引用 `asterdrive-cluster` Secret。数据库连接串、Redis endpoint 和应用密钥不进入普通 Helm values；通过集群现有 Secret 管理方案创建 Secret，需要改名时设置 `existingSecret`。Chart 支持自建或复用头像 PVC、Ingress、入站 NetworkPolicy、镜像 tag/digest、资源、调度、额外环境变量和 PDB，但不提供 PostgreSQL、Redis 或对象存储 subchart。
+Chart 默认引用 `asterdrive-cluster` Secret。数据库连接串、Redis endpoint 和应用密钥不进入普通 Helm values；通过集群现有 Secret 管理方案创建 Secret，需要改名时设置 `existingSecret`。所有 Primary 必须通过 Chart 创建或复用的 RWX PVC 共享头像目录；Chart 会拒绝关闭头像持久化。额外环境变量只能补充非权威配置，不能覆盖 cluster profile、每 Pod 内部端点、数据库、Redis、内部代理或认证密钥。启用 NetworkPolicy 后始终允许 Primary 互访，`allowSameNamespace` 仅控制是否额外放行整个 Namespace。Chart 还支持 Ingress、镜像 tag/digest、资源、调度和 PDB，但不提供 PostgreSQL、Redis 或对象存储 subchart。
 
 生产多节点建议设置 `topologySpread.whenUnsatisfiable=DoNotSchedule`。默认保留 `ScheduleAnyway`，便于开发集群和单节点验证；严格设置在可用节点不足时会让新 Pod 保持 Pending，这是正确的故障域保护，不应通过把两个 Primary 挤回同一节点来掩盖容量不足。
 
@@ -113,4 +116,4 @@ docker run --rm -v /tmp:/manifests \
   /manifests/asterdrive-helm.yaml
 ```
 
-`kubectl apply --dry-run=client` 即使关闭 validation 仍可能执行 API discovery，因此不适合作为无 kubeconfig CI 的离线验证器。CI 会渲染 OrbStack、production overlay，以及 Helm 的默认、Ingress+NetworkPolicy+digest、existing PVC+三副本等边界组合，并使用固定版本的 kubeconform 执行严格 schema 校验。上述验证仍不代表外部数据库、Redis、RWX StorageClass、Ingress 或共享存储已经可用；真正部署前应连接目标集群执行 `kubectl apply --dry-run=server`，上线后再完成[多实例上线验收](/deployment/load-balancing/#上线验收)。
+`kubectl apply --dry-run=client` 即使关闭 validation 仍可能执行 API discovery，因此不适合作为无 kubeconfig CI 的离线验证器。CI 会渲染 OrbStack、production overlay，以及 Helm 的默认、Ingress+NetworkPolicy+digest、existing PVC+三副本等边界组合，并使用固定版本的 kubeconform 执行严格 schema 校验。上述验证仍不代表外部数据库、Redis、RWX StorageClass、Ingress 或共享存储已经可用；真正部署前应连接目标集群，先创建目标 Namespace，再执行 `kubectl apply --dry-run=server`，上线后完成[多实例上线验收](/deployment/load-balancing/#上线验收)。

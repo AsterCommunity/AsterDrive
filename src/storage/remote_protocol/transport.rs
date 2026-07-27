@@ -993,4 +993,46 @@ mod tests {
         );
         assert!(error.message().contains("exceeds 4 bytes limit"));
     }
+
+    #[tokio::test]
+    async fn buffered_and_streaming_tunnel_errors_keep_the_same_status_semantics() {
+        let body = Bytes::from_static(br#"{"code":"storage_object_not_found","msg":"missing"}"#);
+        let buffered = ensure_success_response(
+            RemoteTransportResponse::Tunnel(RemoteTunnelHttpResponse {
+                status: StatusCode::NOT_FOUND,
+                headers: http::HeaderMap::new(),
+                body: body.clone(),
+            }),
+            "read remote object",
+        )
+        .await;
+        let buffered = match buffered {
+            Ok(_) => panic!("buffered 404 must remain an error"),
+            Err(error) => error,
+        };
+        let streaming = ensure_success_response(
+            RemoteTransportResponse::TunnelStream(RemoteTunnelStreamHttpResponse {
+                status: StatusCode::NOT_FOUND,
+                headers: http::HeaderMap::new(),
+                body: Box::new(std::io::Cursor::new(body)),
+            }),
+            "read remote object",
+        )
+        .await;
+        let streaming = match streaming {
+            Ok(_) => panic!("streaming 404 must remain an error"),
+            Err(error) => error,
+        };
+
+        assert_eq!(
+            buffered.storage_error_kind(),
+            Some(StorageErrorKind::NotFound)
+        );
+        assert_eq!(
+            streaming.storage_error_kind(),
+            buffered.storage_error_kind()
+        );
+        assert_eq!(streaming.api_error_code(), buffered.api_error_code());
+        assert_eq!(streaming.message(), buffered.message());
+    }
 }

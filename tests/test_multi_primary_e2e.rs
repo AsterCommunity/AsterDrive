@@ -1213,6 +1213,7 @@ async fn stale_fencing_proxy_response(
             &format!("{INTERNAL_STORAGE_BASE_PATH}/capabilities"),
         )
         .append_pair("fencing_token", stale_fencing_token)
+        .append_pair("runtime_id", "stale-e2e-runtime")
         .append_pair("headers", "W10");
     let request_target = format!("{}?{}", url.path(), url.query().unwrap_or_default());
     let timestamp = Utc::now().timestamp();
@@ -1595,6 +1596,7 @@ async fn redis_outage_only_marks_cluster_readiness_unavailable_and_recovers() {
         .expect("build Redis readiness E2E HTTP client");
     let mut primary = ServerProcess::spawn("primary-redis-readiness", &services);
     wait_for_health(&client, &mut primary).await;
+    let _access_token = setup_and_login(&client, &primary).await;
 
     let initial_ready = wait_for_ready_status(
         &client,
@@ -2290,6 +2292,27 @@ async fn reverse_tunnel_request_hitting_non_owner_primary_streams_through_owner(
     assert_eq!(probe["data"]["tunnel"]["status"], "online");
 
     follower.stop().await;
+    let follower_b = spawn_synthetic_tunnel_follower(primary_b.base_url(), remote_node.clone());
+    let owner_b = wait_for_tunnel_owner(
+        &database,
+        remote_node.id,
+        &primary_b.base_url(),
+        &mut primary_b,
+        Duration::from_secs(10),
+    )
+    .await;
+    assert_ne!(
+        owner_b.fencing_token, owner.fencing_token,
+        "a clean tunnel disconnect should release ownership for immediate takeover"
+    );
+    let direct_probe =
+        test_remote_node_through(&client, &primary_b, &access_token, remote_node.id).await;
+    assert_eq!(
+        direct_probe["data"]["capabilities"]["protocol_version"],
+        RemoteStorageCapabilities::current().protocol_version
+    );
+
+    follower_b.stop().await;
     primary_a.terminate();
     primary_b.terminate();
     database

@@ -1,6 +1,7 @@
 //! Cross-process synchronization for runtime system configuration.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use aster_forge_config::{
     ConfigReloadObservation, ConfigSyncConnectionObservation, ConfigSyncRuntime,
@@ -13,6 +14,9 @@ use crate::runtime::SharedRuntimeState;
 pub const CONFIG_RELOAD_NAMESPACE: &str = "aster_drive";
 pub const STORAGE_TOPOLOGY_RELOAD_KEY: &str = "__aster_drive.storage_topology";
 const USER_POLICY_GROUP_RELOAD_KEY_PREFIX: &str = "__aster_drive.user_policy_group.";
+const STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS: u32 = 3;
+const STORAGE_TOPOLOGY_PUBLISH_INITIAL_DELAY: Duration = Duration::from_millis(50);
+const STORAGE_TOPOLOGY_PUBLISH_MAX_DELAY: Duration = Duration::from_millis(200);
 
 pub async fn reconcile_storage_topology(state: &impl SharedRuntimeState) -> Result<()> {
     state.driver_registry().invalidate_all();
@@ -45,6 +49,43 @@ pub async fn publish_storage_topology_reload(state: &impl SharedRuntimeState) ->
         )
         .await
         .map_err(map_config_core_error)
+}
+
+pub async fn publish_storage_topology_reload_after_commit(
+    state: &impl SharedRuntimeState,
+    mutation: &'static str,
+    entity_kind: &'static str,
+    entity_id: i64,
+) {
+    let mut last_error = None;
+    for attempt in 0..STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS {
+        match publish_storage_topology_reload(state).await {
+            Ok(()) => return,
+            Err(error) => last_error = Some(error),
+        }
+        if attempt + 1 < STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS {
+            let delay = aster_forge_utils::backoff::cap_delay(
+                aster_forge_utils::backoff::exponential_delay(
+                    STORAGE_TOPOLOGY_PUBLISH_INITIAL_DELAY,
+                    attempt,
+                ),
+                STORAGE_TOPOLOGY_PUBLISH_MAX_DELAY,
+            );
+            tokio::time::sleep(delay).await;
+        }
+    }
+
+    let Some(error) = last_error else {
+        return;
+    };
+    tracing::warn!(
+        mutation,
+        entity_kind,
+        entity_id,
+        attempts = STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS,
+        %error,
+        "authoritative storage topology mutation committed but cross-instance reload notification failed"
+    );
 }
 
 pub async fn publish_user_policy_group_reload(

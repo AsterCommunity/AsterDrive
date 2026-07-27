@@ -1,7 +1,8 @@
+{{- include "asterdrive.validateValues" . }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "asterdrive.fullname" . }}-cluster
+  name: {{ include "asterdrive.clusterConfigName" . }}
   labels:
     {{- include "asterdrive.labels" . | nindent 4 }}
 data:

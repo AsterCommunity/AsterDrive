@@ -101,7 +101,7 @@
       "additionalProperties": false,
       "required": ["enabled", "create", "existingClaim", "storageClass", "accessModes", "size", "annotations"],
       "properties": {
-        "enabled": { "type": "boolean" },
+        "enabled": { "const": true },
         "create": { "type": "boolean" },
         "existingClaim": { "type": "string" },
         "storageClass": { "type": "string" },
@@ -135,7 +135,14 @@
       }
     },
     "podAnnotations": { "type": "object" },
-    "podLabels": { "type": "object" },
+    "podLabels": {
+      "type": "object",
+      "propertyNames": {
+        "not": {
+          "enum": ["app.kubernetes.io/name", "app.kubernetes.io/instance"]
+        }
+      }
+    },
     "automountServiceAccountToken": { "type": "boolean" },
     "podSecurityContext": { "type": "object" },
     "securityContext": { "type": "object" },
@@ -172,7 +179,23 @@
     },
     "dataVolume": { "$ref": "#/definitions/emptyDir" },
     "tmpVolume": { "$ref": "#/definitions/emptyDir" },
-    "extraEnv": { "type": "array" },
+    "extraEnv": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "value": { "type": "string" },
+          "valueFrom": { "type": "object" }
+        },
+        "oneOf": [
+          { "required": ["value"] },
+          { "required": ["valueFrom"] }
+        ]
+      }
+    },
     "extraEnvFrom": { "type": "array" }
   },
   "definitions": {

@@ -20,6 +20,8 @@ mod response;
 #[cfg(test)]
 mod tests;
 
+use owner::{RemoteTunnelOwnerReleaseGuard, RemoteTunnelStreamOwnerClaim};
+
 pub use auth::authorize_tunnel_request;
 pub use frame::{
     RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame, encode_stream_frame,
@@ -139,15 +141,50 @@ pub async fn complete<S: RemoteProtocolRuntimeState>(
 pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: managed_follower::Model,
-    mut session: actix_ws::Session,
-    mut stream: actix_ws::MessageStream,
+    session: actix_ws::Session,
+    stream: actix_ws::MessageStream,
 ) -> Result<()> {
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
 
-    let owner_directory = claim_tunnel_ownership(state, &remote_node).await?;
+    let owner_release_guard = claim_stream_tunnel_ownership(state, &remote_node).await?;
+    let owner_directory = owner_release_guard.directory();
 
+    owner_release_guard
+        .run_and_release(run_connected_stream(
+            state,
+            remote_node,
+            session,
+            stream,
+            owner_directory,
+        ))
+        .await
+}
+
+async fn claim_stream_tunnel_ownership<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: &managed_follower::Model,
+) -> Result<RemoteTunnelOwnerReleaseGuard> {
+    let Some(owner_directory) = state.remote_protocol().tunnel_owner_directory() else {
+        return Ok(RemoteTunnelOwnerReleaseGuard::unmanaged(remote_node.id));
+    };
+
+    match owner_directory.try_claim_stream(remote_node.id).await? {
+        RemoteTunnelStreamOwnerClaim::Owned(guard) => Ok(guard),
+        RemoteTunnelStreamOwnerClaim::Standby(owner) => {
+            Err(tunnel_owned_by_another_primary_error(remote_node.id, owner))
+        }
+    }
+}
+
+async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: managed_follower::Model,
+    mut session: actix_ws::Session,
+    mut stream: actix_ws::MessageStream,
+    owner_directory: Option<std::sync::Arc<RemoteTunnelOwnerDirectory>>,
+) -> Result<()> {
     let registry = state.remote_protocol().tunnel_registry().clone();
     let (lane_id, mut request_rx, _registration) = registry.register_stream_lane(&remote_node);
     managed_follower_repo::touch_tunnel_result(
@@ -285,23 +322,27 @@ async fn claim_tunnel_ownership<S: RemoteProtocolRuntimeState>(
     match owner_directory.try_claim(remote_node.id).await? {
         RemoteTunnelOwnerClaim::Owned(_) => Ok(Some(owner_directory)),
         RemoteTunnelOwnerClaim::Standby(owner) => {
-            let owner = owner
-                .map(|owner| {
-                    format!(
-                        "runtime {} at {}",
-                        owner.runtime_id, owner.internal_endpoint
-                    )
-                })
-                .unwrap_or_else(|| "another primary".to_string());
-            Err(storage_driver_error(
-                StorageErrorKind::Transient,
-                format!(
-                    "reverse tunnel remote node #{} is owned by {owner}",
-                    remote_node.id
-                ),
-            ))
+            Err(tunnel_owned_by_another_primary_error(remote_node.id, owner))
         }
     }
+}
+
+fn tunnel_owned_by_another_primary_error(
+    remote_node_id: i64,
+    owner: Option<RemoteTunnelOwnerLease>,
+) -> AsterError {
+    let owner = owner
+        .map(|owner| {
+            format!(
+                "runtime {} at {}",
+                owner.runtime_id, owner.internal_endpoint
+            )
+        })
+        .unwrap_or_else(|| "another primary".to_string());
+    storage_driver_error(
+        StorageErrorKind::Transient,
+        format!("reverse tunnel remote node #{remote_node_id} is owned by {owner}"),
+    )
 }
 
 pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(

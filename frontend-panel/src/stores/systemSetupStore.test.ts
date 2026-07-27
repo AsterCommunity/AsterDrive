@@ -122,4 +122,43 @@ describe("useSystemSetupStore", () => {
 			setupState: "needs_storage",
 		});
 	});
+
+	it("invalidates needs_admin without allowing an older check to restore it", async () => {
+		let releaseRequest: (() => void) | undefined;
+		let markRequestStarted: (() => void) | undefined;
+		const requestStarted = new Promise<void>((resolve) => {
+			markRequestStarted = resolve;
+		});
+		const requestGate = new Promise<void>((resolve) => {
+			releaseRequest = resolve;
+		});
+		server.use(
+			http.post("*/api/v1/auth/check", async () => {
+				markRequestStarted?.();
+				await requestGate;
+				return HttpResponse.json(
+					apiResponse({
+						allow_user_registration: true,
+						has_users: false,
+						passkey_login_enabled: true,
+						setup_state: "needs_admin",
+					}),
+				);
+			}),
+		);
+		const store = await loadStore();
+		store.getState().setSetupState("needs_admin");
+
+		const staleRefresh = store.getState().refresh();
+		await requestStarted;
+		store.getState().invalidate();
+		releaseRequest?.();
+
+		await expect(staleRefresh).resolves.toBe("needs_admin");
+		expect(store.getState()).toMatchObject({
+			error: null,
+			isChecking: false,
+			setupState: null,
+		});
+	});
 });

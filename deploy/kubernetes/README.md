@@ -37,9 +37,10 @@
 
 ## 应用与验证
 
-先创建真实 Secret。生产环境从 overlay 开始，替换镜像、RWX StorageClass、域名和网络入口标签后再应用：
+先创建真实 Secret。生产环境从 overlay 开始，替换镜像、RWX StorageClass、域名和网络入口标签后再应用。首次部署要先实际创建 Namespace；同一份 Kustomize 输出中的 Namespace 在 server-side dry-run 时不会持久化，否则后续 namespaced resources 会因为目标 Namespace 尚不存在而校验失败：
 
 ```bash
+kubectl apply -f deploy/kubernetes/base/namespace.yaml
 kubectl kustomize deploy/kubernetes/overlays/production-example
 kubectl apply --dry-run=server -k deploy/kubernetes/overlays/production-example
 kubectl apply -k deploy/kubernetes/overlays/production-example
