@@ -224,7 +224,7 @@ pub struct WebDavConfig {
     /// actix payload 硬上限，改了要重启。运行时软限制从 DB 读。
     #[serde(default = "WebDavConfig::default_payload_limit")]
     pub payload_limit: u64,
-    /// XML 类 WebDAV 请求体上限，改了要重启。仅用于 REPORT/PROPFIND/PROPPATCH/LOCK。
+    /// XML 类 WebDAV 请求体上限，改了要重启。用于 REPORT/PROPFIND/PROPPATCH/LOCK/VERSION-CONTROL。
     #[serde(default = "WebDavConfig::default_xml_payload_limit")]
     pub xml_payload_limit: u64,
 }

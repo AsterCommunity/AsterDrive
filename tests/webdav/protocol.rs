@@ -985,7 +985,7 @@ async fn test_webdav_xml_methods_reject_body_over_limit() {
     let auth = create_webdav_basic_auth!(app, token);
     let over_limit_xml = "<?xml version=\"1.0\"?><D:x xmlns:D=\"DAV:\">too-large</D:x>";
 
-    for method in ["REPORT", "PROPFIND", "PROPPATCH", "LOCK"] {
+    for method in ["REPORT", "PROPFIND", "PROPPATCH", "LOCK", "VERSION-CONTROL"] {
         let req = test::TestRequest::with_uri("/webdav/")
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
@@ -1041,6 +1041,12 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
             "/webdav/xml-limit-small.txt",
             "<D:version-tree xmlns:D=\"DAV:\"/>",
             actix_web::http::StatusCode::MULTI_STATUS,
+        ),
+        (
+            "VERSION-CONTROL",
+            "/webdav/xml-limit-small.txt",
+            "<D:version-control xmlns:D=\"DAV:\"/>",
+            actix_web::http::StatusCode::OK,
         ),
     ];
 
@@ -5780,7 +5786,7 @@ async fn test_webdav_tagged_if_token_only_unlocks_matching_resource() {
 }
 
 #[actix_web::test]
-async fn test_webdav_lock_rejects_invalid_lockinfo_and_timeout_headers() {
+async fn test_webdav_lock_enforces_lockinfo_grammar_and_timeout_headers() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);
     let auth = create_webdav_basic_auth!(app, token);
@@ -5803,11 +5809,11 @@ async fn test_webdav_lock_rejects_invalid_lockinfo_and_timeout_headers() {
 </D:lockinfo>"#,
         ),
         (
-            "ambiguous locktype",
+            "duplicate known locktype",
             r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:lockinfo xmlns:D="DAV:">
   <D:lockscope><D:exclusive/></D:lockscope>
-  <D:locktype><D:write/><D:other/></D:locktype>
+  <D:locktype><D:write/><D:write/></D:locktype>
 </D:lockinfo>"#,
         ),
     ] {
@@ -5825,6 +5831,25 @@ async fn test_webdav_lock_rejects_invalid_lockinfo_and_timeout_headers() {
             "LOCK should reject invalid lockinfo body for case: {label}"
         );
     }
+
+    let extension_lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/><D:future-scope/></D:lockscope>
+  <D:locktype><D:write/><D:other/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri("/webdav/extended-lockinfo.txt")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(extension_lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        201,
+        "unknown DAV: lockinfo extensions must be ignored"
+    );
 
     let valid_lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
 <D:lockinfo xmlns:D="DAV:">
@@ -7901,7 +7926,7 @@ async fn test_webdav_xml_entrypoints_reject_probe_depth_without_crashing_process
     body.push_str("</D:propfind>");
     assert!(body.len() < 1_048_576);
 
-    for method in ["PROPFIND", "PROPPATCH", "LOCK", "REPORT"] {
+    for method in ["PROPFIND", "PROPPATCH", "LOCK", "REPORT", "VERSION-CONTROL"] {
         let req = test::TestRequest::with_uri("/webdav/deep-xml-target.txt")
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
