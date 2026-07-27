@@ -12,12 +12,13 @@ use crate::services::storage_policy::credential::crypto;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
-    StorageConnectorCredentialMode, StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    object_multipart_upload_capabilities, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, storage_connector_field,
+    storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
 use crate::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
 
@@ -50,6 +51,8 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                 base_path_placeholder: "tenant/prefix",
             }),
             credential_mode: StorageConnectorCredentialMode::RemoteNode,
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
             capabilities: StorageConnectorCapabilities {
@@ -120,7 +123,7 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for RemoteConnector {
     fn driver_type() -> DriverType {
         DriverType::Remote

@@ -12,12 +12,16 @@ Users and teams are not bound to storage policies directly. They are bound to **
 
 ## What Exists After the First Startup?
 
-After a newly deployed instance starts for the first time, the system automatically prepares:
+Both deployment profiles use the same setup state machine:
 
-- Default local storage policy `Local Default`
-- Default policy group `Default Policy Group`
+| Profile | First-start behavior |
+| --- | --- |
+| `single` | Enters `needs_storage` after the first administrator is created; the administrator may make `local` or another supported policy the default |
+| `cluster` | Enters the same `needs_storage` state; the default policy must be reachable by every Primary and cannot use `local` |
 
-If you change nothing, new users are automatically bound to the default policy group, and that policy group routes uploads to the default local storage policy. When a system administrator creates a new team without manually choosing a policy group, the default policy group is used.
+When the administrator makes the first policy the default, AsterDrive atomically creates or reconciles the default policy group, assigns administrators that have no group, and moves to `ready`. New users then bind to the current default policy group. Single and cluster invoke the same creation, backfill, and state-transition code; only the permitted storage capabilities differ.
+
+When a system administrator creates a team without choosing a policy group, the current default group is used. See [Kubernetes Deployment](/en/deployment/kubernetes/#probes-and-termination) for the complete cluster setup flow.
 
 ## Currently Supported Storage Types
 

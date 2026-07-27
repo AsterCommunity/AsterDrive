@@ -79,6 +79,35 @@ pub enum StorageConnectorCredentialMode {
     OauthDelegated,
 }
 
+/// Connector-backed policy data is visible from which primary instances.
+///
+/// This is a static connector capability. Deployment-specific filtering and
+/// write guards must consume this field instead of maintaining a separate
+/// `DriverType` allow/deny list.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorDeploymentScope {
+    /// Policy data lives on the primary instance itself and is not shared with
+    /// other primary instances.
+    InstanceLocal,
+    /// Every primary instance can safely resolve the same policy reference.
+    SharedAcrossPrimaryInstances,
+}
+
+impl StorageConnectorDeploymentScope {
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InstanceLocal => "instance_local",
+            Self::SharedAcrossPrimaryInstances => "shared_across_primary_instances",
+        }
+    }
+
+    pub const fn supports_multi_primary(self) -> bool {
+        matches!(self, Self::SharedAcrossPrimaryInstances)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -432,6 +461,12 @@ pub struct StorageConnectorDescriptor {
     pub ui: StorageConnectorUiDescriptor,
     /// connector 的主要凭据模式。
     pub credential_mode: StorageConnectorCredentialMode,
+    /// policy 数据相对于多个 Primary 的可见范围。
+    pub deployment_scope: StorageConnectorDeploymentScope,
+    /// 是否能在首次系统初始化中直接创建一个可用的默认 policy。
+    ///
+    /// 需要先保存 policy、再跳转授权或完成其他后置配置的 connector 应设为 false。
+    pub supports_initial_setup: bool,
     /// 是否需要额外授权才能成为可用 policy。
     pub requires_authorization: bool,
     /// 授权 provider，例如 `microsoft_graph`。
@@ -485,6 +520,8 @@ pub(crate) struct ObjectStorageConnectorDescriptorInput {
     pub(crate) label: &'static str,
     pub(crate) description: &'static str,
     pub(crate) ui: StorageConnectorUiDescriptorInput,
+    pub(crate) deployment_scope: StorageConnectorDeploymentScope,
+    pub(crate) supports_initial_setup: bool,
     pub(crate) fields: ObjectStorageFieldDescriptorInput,
     pub(crate) include_s3_path_style: bool,
     pub(crate) presigned_part_etag_required: bool,
@@ -622,6 +659,8 @@ pub(crate) fn object_storage_connector_descriptor(
         description: input.description.to_string(),
         ui: storage_connector_ui_descriptor(input.ui),
         credential_mode: StorageConnectorCredentialMode::StaticSecret,
+        deployment_scope: input.deployment_scope,
+        supports_initial_setup: input.supports_initial_setup,
         requires_authorization: false,
         authorization_provider: None,
         capabilities: StorageConnectorCapabilities {

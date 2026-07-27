@@ -19,6 +19,7 @@ WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
 COPY migration/ migration/
 COPY benches/ benches/
+COPY tests/test_multi_primary_e2e.rs tests/test_multi_primary_storage_events_e2e.rs tests/
 
 # Pre-build dependencies (cache layer)
 RUN mkdir src && echo 'fn main() {}' > src/main.rs && \

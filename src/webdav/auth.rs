@@ -13,7 +13,6 @@ use crate::db::repository::{user_repo, webdav_account_repo};
 use crate::errors::{AsterError, MapAsterErr, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use aster_forge_crypto as hash;
 
 /// WebDAV 认证结果
 #[derive(Debug)]
@@ -140,7 +139,10 @@ async fn authenticate_basic(
         .split_once(':')
         .ok_or_else(|| AsterError::auth_invalid_credentials("invalid basic auth format"))?;
 
-    if let Some(cached) = cache::load_auth(state, username, password).await {
+    if let Some(cached) = cache::load_auth(state, username, password)
+        .await
+        .map_err(AsterError::from)?
+    {
         tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache hit");
         return Ok(WebdavAuthResult {
             account_id: cached.account_id,
@@ -177,7 +179,12 @@ async fn authenticate_basic(
         .into());
     }
 
-    if !hash::verify_password(password, &account.password_hash).map_err(AsterError::from)? {
+    let password_verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(password, &account.password_hash)
+        .await?;
+    if !password_verification.is_valid {
         rate_limit::record_username_failure(state, protection.enabled(), username).await;
         return Err(AsterError::auth_invalid_credentials("invalid WebDAV credentials").into());
     }
@@ -211,6 +218,13 @@ async fn authenticate_basic(
         },
     };
 
+    if password_verification.needs_rehash {
+        crate::services::webdav::account::upgrade_password_hash_if_needed(
+            state, &account, password,
+        )
+        .await;
+    }
+
     cache::store_auth(
         state,
         username,
@@ -222,7 +236,8 @@ async fn authenticate_basic(
             root_folder_id: account.root_folder_id,
         },
     )
-    .await;
+    .await
+    .map_err(AsterError::from)?;
     rate_limit::clear_username_failures(state, protection.enabled(), username).await;
     tracing::debug!(username_hash = %cache::username_cache_component(username), "webdav auth cache miss");
     Ok(WebdavAuthResult {
@@ -248,7 +263,10 @@ mod tests {
     use actix_web::{HttpRequest, test, web};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
-    use aster_forge_crypto as hash;
+    use aster_forge_crypto::{
+        PasswordHashPolicy, PasswordHashVerificationLimits, PasswordHashWorkFactor,
+        hash_password_with_policy,
+    };
     use base64::Engine;
     use chrono::Utc;
     use migration::Migrator;
@@ -256,10 +274,18 @@ mod tests {
     use std::num::{NonZeroU32, NonZeroU64};
     use std::sync::Arc;
 
+    fn password_hash_policy(memory_kib: u32) -> PasswordHashPolicy {
+        PasswordHashPolicy::new(
+            PasswordHashWorkFactor::new(memory_kib, 1, 1, 32).unwrap(),
+            PasswordHashVerificationLimits::new(64 * 1024, 3, 4, 32).unwrap(),
+        )
+        .unwrap()
+    }
+
     async fn build_auth_test_state() -> PrimaryAppState {
         let db = crate::db::connect_with_metrics(
             &DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },
@@ -271,9 +297,12 @@ mod tests {
             .await
             .expect("webdav auth test migrations should succeed");
 
-        let runtime_config = Arc::new(RuntimeConfig::new());
+        let runtime_config = Arc::new(
+            RuntimeConfig::with_password_hash_policy(1, password_hash_policy(16))
+                .expect("webdav auth test password hash policy should be valid"),
+        );
         let cache = cache::create_cache(&CacheConfig::default()).await;
-        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+        let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let share_download_rollback =
@@ -292,7 +321,7 @@ mod tests {
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
-            storage_change_tx,
+            storage_change_bus,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),
@@ -332,9 +361,12 @@ mod tests {
         let account = webdav_account::ActiveModel {
             user_id: Set(user.id),
             username: Set(username.clone()),
-            password_hash: Set(
-                hash::hash_password(&password).expect("webdav auth test password hash should work")
-            ),
+            password_hash: Set(state
+                .runtime_config()
+                .password_hash_runtime()
+                .hash_password(&password)
+                .await
+                .expect("webdav auth test password hash should work")),
             root_folder_id: Set(root_folder_id),
             is_active: Set(true),
             created_at: Set(now),
@@ -438,6 +470,38 @@ mod tests {
     }
 
     #[actix_web::test]
+    async fn basic_auth_upgrades_legacy_password_hash_before_caching() {
+        let state = build_auth_test_state().await;
+        let (username, password, _, account_id, _) = seed_webdav_account(&state).await;
+        let legacy_hash = hash_password_with_policy(&password, &password_hash_policy(8)).unwrap();
+        let account =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        let mut active = account.into_active_model();
+        active.password_hash = Set(legacy_hash);
+        active.update(state.writer_db()).await.unwrap();
+
+        authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .expect("legacy WebDAV password should authenticate");
+
+        let upgraded =
+            crate::db::repository::webdav_account_repo::find_by_id(state.writer_db(), account_id)
+                .await
+                .unwrap();
+        assert!(
+            upgraded
+                .password_hash
+                .starts_with("$argon2id$v=19$m=16,t=1,p=1$")
+        );
+
+        authenticate_webdav(&basic_request(&username, &password), &state)
+            .await
+            .expect("cached WebDAV authentication should remain valid after rehash");
+    }
+
+    #[actix_web::test]
     async fn basic_auth_wrong_password_returns_invalid_credentials() {
         let state = build_auth_test_state().await;
         let (username, _, _, _, _) = seed_webdav_account(&state).await;
@@ -508,7 +572,11 @@ mod tests {
         .expect("account lookup should work")
         .expect("account should exist");
         let mut active = account.into_active_model();
-        active.password_hash = Set(hash::hash_password("new-webdav-password")
+        active.password_hash = Set(state
+            .runtime_config()
+            .password_hash_runtime()
+            .hash_password("new-webdav-password")
+            .await
             .expect("webdav auth test password hash should work"));
         active
             .update(state.writer_db())

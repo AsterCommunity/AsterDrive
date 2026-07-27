@@ -6,7 +6,6 @@ use crate::db::repository::{
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local;
-use aster_forge_crypto as hash;
 use aster_forge_db::transaction;
 use aster_forge_external_auth::normalize as external_auth_normalize;
 
@@ -17,7 +16,7 @@ use super::{
     ExternalAuthPasswordLinkRequest, ExternalAuthPasswordLinkResult, ExternalAuthPrimaryLogin,
 };
 
-const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRmb3JkdW1teQ$uLpdZ2ciOQUUMGrye7Tyvz/vZ/saqtJiqQBvovmG6ms";
+const DUMMY_PASSWORD_HASH: &str = "$argon2id$v=19$m=65536,t=3,p=4$n0vXvx9kNno+7WMn3NjzQQ$HbceuAm7HxAF4IsSxoy8kD0+IYUK3T6broR+SRLVjrc";
 
 pub async fn link_with_password(
     state: &impl SharedRuntimeState,
@@ -53,16 +52,17 @@ pub async fn link_with_password(
     }
 
     let user = local::shared::find_user_by_identifier(state.writer_db(), identifier).await?;
-    let password_hash = user
-        .as_ref()
-        .map(|user| user.password_hash.as_str())
-        .unwrap_or(DUMMY_PASSWORD_HASH);
-    if !hash::verify_password(&input.password, password_hash)? {
-        return Err(AsterError::auth_invalid_credentials("invalid credentials"));
-    }
     let Some(user) = user else {
+        let _ = state
+            .runtime_config()
+            .password_hash_runtime()
+            .verify_password(&input.password, DUMMY_PASSWORD_HASH)
+            .await?;
         return Err(AsterError::auth_invalid_credentials("invalid credentials"));
     };
+    if !local::verify_user_password(state, &user, &input.password).await? {
+        return Err(AsterError::auth_invalid_credentials("invalid credentials"));
+    }
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }
@@ -105,4 +105,23 @@ pub async fn link_with_password(
             auto_provisioned: resolved.auto_provisioned,
         },
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::config::password_hash::PasswordHashRuntime;
+
+    use super::DUMMY_PASSWORD_HASH;
+
+    #[tokio::test]
+    async fn dummy_hash_tracks_and_verifies_with_the_production_argon2_profile() {
+        assert!(DUMMY_PASSWORD_HASH.starts_with("$argon2id$v=19$m=65536,t=3,p=4$"));
+        let verification = PasswordHashRuntime::new(1)
+            .unwrap()
+            .verify_password("asterdrive-external-auth-dummy", DUMMY_PASSWORD_HASH)
+            .await
+            .unwrap();
+        assert!(verification.is_valid);
+        assert!(!verification.needs_rehash);
+    }
 }

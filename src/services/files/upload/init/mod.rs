@@ -22,6 +22,7 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::files::upload::staging;
+use crate::services::ops::deployment;
 use crate::services::workspace::storage::{WorkspaceStorageScope, resolve_policy_upload_transport};
 use crate::types::{UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
@@ -157,6 +158,8 @@ async fn init_chunked_upload_session(
     let chunk_size = ctx.policy.chunk_size;
     let total_chunks = numbers::calc_total_chunks(ctx.total_size, chunk_size, "chunked upload")?;
     let expires_at = Utc::now() + Duration::hours(24);
+    let session_kind = session_kind_for_transport(transport, UploadMode::Chunked)?;
+    deployment::validate_upload_session_kind(state.config(), session_kind)?;
 
     let upload_id = with_unique_upload_id(|upload_id| async {
         let inserted = try_persist_upload_session(
@@ -172,7 +175,7 @@ async fn init_chunked_upload_session(
                 policy_id: ctx.policy.id,
                 frontend_client_id: ctx.frontend_client_id.as_deref(),
                 status: UploadSessionStatus::Uploading,
-                session_kind: session_kind_for_transport(transport, UploadMode::Chunked)?,
+                session_kind,
                 object_temp_key: None,
                 object_multipart_id: None,
                 provider_session_ciphertext: None,

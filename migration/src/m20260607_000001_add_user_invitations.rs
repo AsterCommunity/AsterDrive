@@ -65,19 +65,40 @@ async fn create_user_invitations(manager: &SchemaManager<'_>) -> Result<(), DbEr
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, UserInvitations::ExpiresAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserInvitations::ExpiresAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, UserInvitations::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserInvitations::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, UserInvitations::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserInvitations::UpdatedAt,
+                    )
+                    .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, UserInvitations::AcceptedAt).null())
-                .col(crate::time::utc_date_time_column(manager, UserInvitations::RevokedAt).null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserInvitations::AcceptedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserInvitations::RevokedAt,
+                    )
+                    .null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_user_invitations_invited_by")

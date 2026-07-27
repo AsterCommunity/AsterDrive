@@ -13,7 +13,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(Passkeys::Table)
                     .if_not_exists()
-                    .col(big_integer_pk(Passkeys::Id))
+                    .col(aster_forge_db_migration::big_integer_primary_key(
+                        Passkeys::Id,
+                    ))
                     .col(ColumnDef::new(Passkeys::UserId).big_integer().not_null())
                     .col(
                         ColumnDef::new(Passkeys::CredentialId)
@@ -46,9 +48,27 @@ impl MigrationTrait for Migration {
                             .not_null()
                             .default(0),
                     )
-                    .col(crate::time::utc_date_time_column(manager, Passkeys::CreatedAt).not_null())
-                    .col(crate::time::utc_date_time_column(manager, Passkeys::UpdatedAt).not_null())
-                    .col(crate::time::utc_date_time_column(manager, Passkeys::LastUsedAt).null())
+                    .col(
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            Passkeys::CreatedAt,
+                        )
+                        .not_null(),
+                    )
+                    .col(
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            Passkeys::UpdatedAt,
+                        )
+                        .not_null(),
+                    )
+                    .col(
+                        aster_forge_db_migration::utc_date_time_column(
+                            manager,
+                            Passkeys::LastUsedAt,
+                        )
+                        .null(),
+                    )
                     .foreign_key(
                         ForeignKey::create()
                             .from(Passkeys::Table, Passkeys::UserId)
@@ -89,19 +109,6 @@ impl MigrationTrait for Migration {
             .drop_table(Table::drop().table(Passkeys::Table).if_exists().to_owned())
             .await
     }
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

@@ -3,7 +3,7 @@ title: "First-Start Checklist"
 ---
 
 :::tip[What this page covers]
-What to check immediately after deployment, what AsterDrive automatically does on first startup, and what the default policy and directories look like.
+What to check immediately after deployment, what AsterDrive automatically does on first startup, and how to complete administrator and default-storage setup.
 Run through the checklist in [Check These Items Immediately After Startup](#check-these-items-immediately-after-startup) to confirm the service is really ready.
 :::
 
@@ -14,17 +14,12 @@ If you just deployed it, the most practical approach is to confirm the service i
 
 - If the current working directory does not have `data/config.toml`, generate a default config automatically.
 - Connect to the database and update the database structure automatically.
-- If the system has no storage policies yet, create the default local policy `Local Default`.
-- Create the default policy group `Default Policy Group`.
+- Neither single nor cluster creates a storage policy automatically; both use the same `needs_admin -> needs_storage -> ready` state machine.
+- After the administrator makes the first permitted policy the default, atomically create or reconcile the default policy group and assign administrators that still have no group.
 - Initialize built-in default entries for admin system settings.
 - Start mail dispatch, background task dispatch, periodic cleanup, and low-level file consistency check tasks.
 
-Default local policy contents:
-
-- Name: `Local Default`
-- Driver: `local`
-- Path: `data/uploads`
-- Default chunk size: `5 MiB`
+In single, the administrator may create a `local` policy, for example with the absolute path `/data/uploads`. Cluster must instead use a data plane reachable by every Primary, such as object storage, SFTP, or a remote Follower. Both profiles use the same setup API, policy creation, default-group backfill, and readiness transition code; only deployment capability validation differs.
 
 The built-in system settings written on first startup cover these categories:
 
@@ -72,7 +67,7 @@ A newly deployed instance usually also has these defaults:
 - public registration is enabled by default
 - public registration users need email activation by default
 - new user quota is unlimited by default
-- new users are automatically bound to the current default policy group
+- after default-storage setup is complete, new users are automatically bound to the current default policy group
 - newly created teams also use the current default policy group unless a policy group is specified separately
 
 If you use `auth.bootstrap_insecure_cookies = true` during first plain HTTP bootstrap, the Cookie security requirement written by the system on first initialization follows that bootstrap value.
@@ -83,12 +78,11 @@ If you use default relative paths, after first startup you will usually see:
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads`
 - `data/.tmp`
 - `data/.uploads`
 - `data/remote-storage-targets` (when a follower uses a local remote storage target)
 
-`data/.tmp` and `data/.uploads` are runtime temporary directories, not long-term data directories.  
+If the administrator manually creates a local policy pointing to `data/uploads`, that directory appears on the first write; startup does not create it as a default. `data/.tmp` and `data/.uploads` are runtime temporary directories, not long-term data directories.
 `data/remote-storage-targets` is the local receiving root managed by the primary for a follower. It only matters if this instance is used as a follower node.
 
 `auth.jwt_secret` and `auth.mfa_secret_key` in `data/config.toml` are written as random values when first generated. Keep them during future backup, migration, and restore. If MFA is enabled, replacing `mfa_secret_key` prevents existing authenticators from continuing to verify.
@@ -96,11 +90,11 @@ If you use default relative paths, after first startup you will usually see:
 ## Check These Items Immediately After Startup
 
 1. Whether `/health` returns 200.
-2. Whether `/health/ready` returns 200.
+2. After administrator and storage setup is complete, whether `/health/ready` returns 200 with `data.status` set to `ready`.
 3. Whether `data/config.toml` is generated in the expected directory.
 4. Whether the database is created in the expected location and updated.
-5. Whether the default storage policy exists.
-6. Whether the default policy group exists.
+5. Whether the administrator has created and tested the default storage policy; in a cluster, it must be shared storage reachable by every Primary.
+6. Whether the default policy group exists and the administrator is assigned to it.
 7. Whether the admin panel opens normally.
 8. Whether default values for all groups are visible under `Admin -> System Settings`.
 9. If WebDAV will be used, whether the mount path matches the configuration.

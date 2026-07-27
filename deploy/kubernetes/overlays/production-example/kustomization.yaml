@@ -1,0 +1,40 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: asterdrive
+resources:
+  - ../../base
+  - ingress.yaml
+  - network-policy.yaml
+images:
+  - name: ghcr.io/astercommunity/asterdrive
+    newTag: 0.4.0
+patches:
+  - target:
+      kind: Namespace
+      name: asterdrive
+    patch: |-
+      - op: add
+        path: /metadata/labels
+        value:
+          pod-security.kubernetes.io/audit: restricted
+          pod-security.kubernetes.io/enforce: restricted
+          pod-security.kubernetes.io/warn: restricted
+  - target:
+      kind: PersistentVolumeClaim
+      name: asterdrive-avatars
+    patch: |-
+      - op: add
+        path: /spec/storageClassName
+        value: REPLACE_WITH_RWX_STORAGE_CLASS
+  - target:
+      kind: StatefulSet
+      name: asterdrive
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/topologySpreadConstraints/0/whenUnsatisfiable
+        value: DoNotSchedule
+      - op: add
+        path: /spec/template/spec/containers/0/resources/limits
+        value:
+          cpu: "2"
+          memory: 2Gi

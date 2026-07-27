@@ -162,6 +162,12 @@ pub fn spawn_primary_background_tasks(
             state.clone(),
         ));
     }
+    if state.storage_change_bus.has_transport() {
+        tasks.push(spawn_storage_change_subscription(
+            shutdown_token.clone(),
+            state.clone(),
+        ));
+    }
 
     tasks.push(
         crate::services::share::share_download_rollback_worker_task(
@@ -177,6 +183,17 @@ pub fn spawn_primary_background_tasks(
     tasks.push(run_primary_runtime_group(shutdown_token.clone(), state));
 
     tasks
+}
+
+async fn spawn_storage_change_subscription(
+    shutdown_token: CancellationToken,
+    state: web::Data<PrimaryAppState>,
+) {
+    crate::services::events::storage_change::run_cross_instance_subscription(
+        state.into_inner(),
+        shutdown_token,
+    )
+    .await;
 }
 
 async fn run_primary_runtime_group(
@@ -626,7 +643,7 @@ where
         {
             tracing::warn!(
                 error = %error,
-                "runtime config reload subscription stopped"
+                "runtime config reload subscription terminated unexpectedly"
             );
         }
     }
@@ -682,7 +699,7 @@ pub(crate) mod test_support {
     pub async fn setup_primary_state() -> web::Data<PrimaryAppState> {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },
@@ -704,7 +721,7 @@ pub(crate) mod test_support {
             .reload(&db)
             .await
             .expect("runtime config should load");
-        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+        let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
@@ -724,7 +741,7 @@ pub(crate) mod test_support {
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
-            storage_change_tx,
+            storage_change_bus,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

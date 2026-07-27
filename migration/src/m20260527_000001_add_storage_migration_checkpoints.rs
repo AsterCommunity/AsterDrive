@@ -87,14 +87,14 @@ impl MigrationTrait for Migration {
                             .null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(
+                        aster_forge_db_migration::utc_date_time_column(
                             manager,
                             StorageMigrationCheckpoints::CreatedAt,
                         )
                         .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(
+                        aster_forge_db_migration::utc_date_time_column(
                             manager,
                             StorageMigrationCheckpoints::UpdatedAt,
                         )

@@ -1,0 +1,178 @@
+name: Kubernetes Manifests
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'deploy/kubernetes/**'
+      - 'deploy/helm/**'
+      - '.github/workflows/kubernetes.yml'
+  pull_request:
+    paths:
+      - 'deploy/kubernetes/**'
+      - 'deploy/helm/**'
+      - '.github/workflows/kubernetes.yml'
+
+permissions:
+  contents: read
+
+env:
+  KUBECONFORM_IMAGE: ghcr.io/yannh/kubeconform:v0.7.0@sha256:85dbef6b4b312b99133decc9c6fc9495e9fc5f92293d4ff3b7e1b30f5611823c
+
+jobs:
+  validate:
+    name: Render and validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup kubectl
+        uses: azure/setup-kubectl@v4
+        with:
+          version: v1.33.9
+
+      - name: Setup Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.18.6
+
+      - name: Render Kustomize variants
+        run: |
+          kubectl kustomize deploy/kubernetes > /tmp/asterdrive-base.yaml
+          kubectl kustomize deploy/kubernetes/overlays/orbstack > /tmp/asterdrive-orbstack.yaml
+          kubectl kustomize deploy/kubernetes/overlays/production-example > /tmp/asterdrive-production.yaml
+
+      - name: Lint Helm chart
+        run: helm lint --strict deploy/helm/asterdrive
+
+      - name: Render Helm boundary cases
+        run: |
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive > /tmp/asterdrive-helm-default.yaml
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive \
+            -f deploy/helm/asterdrive/ci/ingress-network-policy-values.yaml \
+            > /tmp/asterdrive-helm-ingress.yaml
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive \
+            -f deploy/helm/asterdrive/ci/existing-pvc-values.yaml \
+            > /tmp/asterdrive-helm-existing-pvc.yaml
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive \
+            --set networkPolicy.enabled=true \
+            --set networkPolicy.allowSameNamespace=false \
+            > /tmp/asterdrive-helm-primary-only.yaml
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive \
+            --set-string 'podLabels.asterdrive\.io/tier=primary' \
+            > /tmp/asterdrive-helm-custom-label.yaml
+          helm template asterdrive deploy/helm/asterdrive \
+            --namespace asterdrive \
+            --set-string fullnameOverride=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa \
+            > /tmp/asterdrive-helm-max-fullname.yaml
+
+      - name: Validate rendered Kubernetes schemas
+        run: |
+          docker run --rm -v /tmp:/manifests "$KUBECONFORM_IMAGE" \
+            -strict \
+            -summary \
+            /manifests/asterdrive-base.yaml \
+            /manifests/asterdrive-orbstack.yaml \
+            /manifests/asterdrive-production.yaml \
+            /manifests/asterdrive-helm-default.yaml \
+            /manifests/asterdrive-helm-ingress.yaml \
+            /manifests/asterdrive-helm-existing-pvc.yaml \
+            /manifests/asterdrive-helm-primary-only.yaml \
+            /manifests/asterdrive-helm-custom-label.yaml \
+            /manifests/asterdrive-helm-max-fullname.yaml
+
+      - name: Assert Helm boundary cases
+        run: |
+          grep -q 'automountServiceAccountToken: false' /tmp/asterdrive-helm-default.yaml
+          grep -q 'ASTER__DEPLOYMENT__INTERNAL_ENDPOINT' /tmp/asterdrive-helm-default.yaml
+          grep -q 'kind: NetworkPolicy' /tmp/asterdrive-helm-ingress.yaml
+          grep -q 'kind: Ingress' /tmp/asterdrive-helm-ingress.yaml
+          grep -q 'ghcr.io/astercommunity/asterdrive@sha256:' /tmp/asterdrive-helm-ingress.yaml
+          grep -q 'claimName: shared-asterdrive-avatars' /tmp/asterdrive-helm-existing-pvc.yaml
+          grep -q 'name: ASTER__DEPLOYMENT__PROFILE' /tmp/asterdrive-helm-default.yaml
+          grep -q 'asterdrive.io/tier: primary' /tmp/asterdrive-helm-custom-label.yaml
+          grep -q '^  serviceName: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-headless$' /tmp/asterdrive-helm-max-fullname.yaml
+          grep -q '^  name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-headless$' /tmp/asterdrive-helm-max-fullname.yaml
+          grep -q '^  name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-cluster$' /tmp/asterdrive-helm-max-fullname.yaml
+          grep -q '^  name: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa-avatars$' /tmp/asterdrive-helm-max-fullname.yaml
+          if grep -q 'from: null' /tmp/asterdrive-helm-primary-only.yaml; then
+            echo 'primary-only NetworkPolicy must not render an unrestricted source'
+            exit 1
+          fi
+          if grep -q 'namespaceSelector:' /tmp/asterdrive-helm-primary-only.yaml; then
+            echo 'allowSameNamespace=false must not allow the whole namespace'
+            exit 1
+          fi
+          if [ "$(grep -c 'podSelector:' /tmp/asterdrive-helm-primary-only.yaml)" -lt 2 ]; then
+            echo 'NetworkPolicy must always allow direct traffic between AsterDrive primaries'
+            exit 1
+          fi
+          if grep -q 'kind: PersistentVolumeClaim' /tmp/asterdrive-helm-existing-pvc.yaml; then
+            echo 'existing PVC mode must not create a PVC'
+            exit 1
+          fi
+          if grep -q '^kind: Secret$' /tmp/asterdrive-helm-default.yaml; then
+            echo 'the chart must reference, not create, application secrets'
+            exit 1
+          fi
+          if grep -Eq '^  name: (postgres|mysql|redis|rustfs)(-|$)' /tmp/asterdrive-helm-default.yaml; then
+            echo 'the chart must not install external stateful dependencies'
+            exit 1
+          fi
+
+      - name: Reject invalid Helm combinations
+        run: |
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set image.tag= \
+            --set image.digest=; then
+            echo 'an image tag or digest must be required'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set avatarPersistence.create=false \
+            --set avatarPersistence.existingClaim=; then
+            echo 'avatar persistence must create or reference a PVC'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set avatarPersistence.enabled=false; then
+            echo 'cluster deployments must not disable shared avatar persistence'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set podDisruptionBudget.maxUnavailable=1; then
+            echo 'PDB minAvailable and maxUnavailable must be mutually exclusive'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set-string config.extra.ASTER__DEPLOYMENT__PROFILE=single; then
+            echo 'chart-managed cluster settings must not be overridden through config.extra'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --show-only templates/configmap.yaml \
+            --set-string 'config.extra.ASTER__DATABASE__URL=postgres://user:secret@db:5432/asterdrive'; then
+            echo 'database credentials must not be rendered through config.extra'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set-string 'config.extra.ASTER__cache__endpoint__password=redis-secret'; then
+            echo 'Redis credentials must not be rendered through config.extra case variants'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set-string 'extraEnv[0].name=ASTER__deployment__profile' \
+            --set-string 'extraEnv[0].value=single'; then
+            echo 'chart-managed cluster settings must not be overridden through case variants in extraEnv'
+            exit 1
+          fi
+          if helm template asterdrive deploy/helm/asterdrive \
+            --set-string 'podLabels.app\.kubernetes\.io/name=other'; then
+            echo 'podLabels must not override StatefulSet selector labels'
+            exit 1
+          fi

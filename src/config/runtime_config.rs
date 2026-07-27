@@ -5,6 +5,7 @@ use parking_lot::RwLock;
 use sea_orm::ConnectionTrait;
 
 use crate::config::audit::{self, AuditLogRuntimeSettings};
+use crate::config::password_hash::PasswordHashRuntime;
 use crate::db::repository::config_repo;
 use crate::errors::Result;
 use aster_forge_db::system_config;
@@ -12,6 +13,7 @@ use aster_forge_db::system_config;
 pub struct RuntimeConfig {
     snapshot: SyncRuntimeConfig<system_config::Model>,
     audit_log_settings: RwLock<AuditLogRuntimeSettings>,
+    password_hash_runtime: PasswordHashRuntime,
 }
 
 impl RuntimeConfig {
@@ -19,7 +21,26 @@ impl RuntimeConfig {
         Self {
             snapshot: SyncRuntimeConfig::new(),
             audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
+            password_hash_runtime: PasswordHashRuntime::default(),
         }
+    }
+
+    pub fn with_password_hash_max_concurrency(max_concurrency: usize) -> Result<Self> {
+        Self::with_password_hash_policy(
+            max_concurrency,
+            aster_forge_crypto::PasswordHashPolicy::default(),
+        )
+    }
+
+    pub fn with_password_hash_policy(
+        max_concurrency: usize,
+        policy: aster_forge_crypto::PasswordHashPolicy,
+    ) -> Result<Self> {
+        Ok(Self {
+            snapshot: SyncRuntimeConfig::new(),
+            audit_log_settings: RwLock::new(AuditLogRuntimeSettings::default()),
+            password_hash_runtime: PasswordHashRuntime::with_policy(max_concurrency, policy)?,
+        })
     }
 
     pub async fn reload<C: ConnectionTrait>(&self, db: &C) -> Result<()> {
@@ -61,6 +82,10 @@ impl RuntimeConfig {
 
     pub fn should_record_audit_action(&self, action: crate::types::AuditAction) -> bool {
         self.audit_log_settings.read().should_record(action)
+    }
+
+    pub fn password_hash_runtime(&self) -> &PasswordHashRuntime {
+        &self.password_hash_runtime
     }
 
     pub fn get_i64_or(&self, key: &str, default: i64) -> i64 {
@@ -116,7 +141,7 @@ mod tests {
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(
             &DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

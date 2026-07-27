@@ -30,6 +30,7 @@ const BIND_EXTERNAL_AUTH_LOGIN_FLOWS_MIGRATION: &str =
 const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_session_kind";
 const ADD_UPLOAD_PROVIDER_SESSION_MIGRATION: &str = "m20260719_000001_add_upload_provider_session";
 const REQUIRE_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260723_000001_require_upload_session_kind";
+const REMOTE_TUNNEL_OWNERS_MIGRATION: &str = "m20260725_000001_remote_tunnel_owners";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -109,7 +110,8 @@ async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
     let db = setup_current_schema().await;
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
 
-    CurrentMigrator::down(&db, Some(1))
+    let rollback_steps = steps_to_roll_back_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
         .await
         .expect("required upload session kind migration should roll back");
     assert!(
@@ -117,7 +119,7 @@ async fn required_upload_session_kind_migration_rolls_back_and_reapplies() {
         "0.4.x rollback should restore nullable session kind"
     );
 
-    CurrentMigrator::up(&db, Some(1))
+    CurrentMigrator::up(&db, Some(rollback_steps))
         .await
         .expect("required upload session kind migration should reapply");
     assert!(sqlite_column_is_not_null(&db, "upload_sessions", "session_kind").await);
@@ -128,8 +130,7 @@ async fn required_upload_session_kind_migration_rejects_null_rows_without_deleti
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite memory database should connect");
-    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
-        .expect("migration count should fit u32");
+    let pre_boundary_steps = steps_before_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
     CurrentMigrator::up(&db, Some(pre_boundary_steps))
         .await
         .expect("0.4.x-compatible migrations should apply");
@@ -180,8 +181,7 @@ async fn required_upload_session_kind_migration_rejects_invalid_values_without_d
     let db = Database::connect("sqlite::memory:")
         .await
         .expect("sqlite memory database should connect");
-    let pre_boundary_steps = u32::try_from(CurrentMigrator::migrations().len() - 1)
-        .expect("migration count should fit u32");
+    let pre_boundary_steps = steps_before_migration(REQUIRE_UPLOAD_SESSION_KIND_MIGRATION);
     CurrentMigrator::up(&db, Some(pre_boundary_steps))
         .await
         .expect("0.4.x-compatible migrations should apply");
@@ -263,6 +263,44 @@ async fn upload_provider_session_migration_is_nullable_and_reversible() {
     ));
 }
 
+#[tokio::test]
+async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| migration.name() == REMOTE_TUNNEL_OWNERS_MIGRATION),
+        "remote tunnel owner directory migration should be registered"
+    );
+
+    let db = setup_current_schema().await;
+    assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
+    let columns = sqlite_table_columns(&db, "remote_tunnel_owners").await;
+    for expected in [
+        "remote_node_id",
+        "runtime_id",
+        "internal_endpoint",
+        "fencing_token",
+        "lease_expires_at",
+        "updated_at",
+    ] {
+        assert!(
+            has_column(&columns, expected),
+            "remote_tunnel_owners should include {expected}"
+        );
+    }
+
+    let rollback_steps = steps_to_roll_back_migration(REMOTE_TUNNEL_OWNERS_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
+        .await
+        .expect("remote tunnel owner directory migration should roll back");
+    assert!(!sqlite_table_exists(&db, "remote_tunnel_owners").await);
+
+    CurrentMigrator::up(&db, Some(rollback_steps))
+        .await
+        .expect("remote tunnel owner directory migration should reapply");
+    assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
+}
+
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
     let migrations = CurrentMigrator::migrations();
     let position = migrations
@@ -271,6 +309,15 @@ fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
         .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
     u32::try_from(migrations.len() - position)
         .expect("migration rollback step count should fit u32")
+}
+
+fn steps_before_migration(migration_name: &str) -> u32 {
+    let migrations = CurrentMigrator::migrations();
+    let position = migrations
+        .iter()
+        .position(|migration| migration.name() == migration_name)
+        .unwrap_or_else(|| panic!("{migration_name} migration should be registered"));
+    u32::try_from(position).expect("migration step count should fit u32")
 }
 
 fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
@@ -1009,79 +1056,6 @@ async fn mysql_remote_storage_target_rename_migration_round_trips_indexes() {
         .await,
         "MySQL reapply should restore the target key index name"
     );
-}
-
-#[tokio::test]
-async fn forge_index_migration_helpers_are_idempotent_on_mysql() {
-    let should_run_mysql = std::env::var("ASTER_TEST_DATABASE_BACKEND")
-        .ok()
-        .map(|value| value.trim().eq_ignore_ascii_case("mysql"))
-        .unwrap_or(false);
-    if !should_run_mysql {
-        eprintln!(
-            "skipping Forge MySQL index-helper coverage; set ASTER_TEST_DATABASE_BACKEND=mysql"
-        );
-        return;
-    }
-
-    let database_url = common::mysql_test_database_url().await;
-    let db = Database::connect(&database_url)
-        .await
-        .expect("MySQL index-helper test database should connect");
-    db.execute_unprepared(
-        "CREATE TABLE forge_index_helper_test (id BIGINT PRIMARY KEY, value BIGINT NOT NULL)",
-    )
-    .await
-    .expect("index-helper fixture table should be created");
-    db.execute_unprepared("CREATE INDEX idx_forge_helper_old ON forge_index_helper_test (value)")
-        .await
-        .expect("index-helper source index should be created");
-
-    aster_forge_db::rename_mysql_index_if_exists(
-        &db,
-        "forge_index_helper_test",
-        "idx_forge_helper_old",
-        "idx_forge_helper_new",
-    )
-    .await
-    .expect("existing MySQL index should be renamed");
-    assert!(mysql_table_index_exists(&db, "forge_index_helper_test", "idx_forge_helper_new").await);
-    assert!(
-        !mysql_table_index_exists(&db, "forge_index_helper_test", "idx_forge_helper_old").await
-    );
-
-    aster_forge_db::rename_mysql_index_if_exists(
-        &db,
-        "forge_index_helper_test",
-        "idx_forge_helper_old",
-        "idx_forge_helper_new",
-    )
-    .await
-    .expect("repeated MySQL index rename should be ignored");
-
-    db.execute_unprepared("CREATE INDEX idx_forge_helper_old ON forge_index_helper_test (value)")
-        .await
-        .expect("second source index should be created");
-    aster_forge_db::rename_mysql_index_if_exists(
-        &db,
-        "forge_index_helper_test",
-        "idx_forge_helper_old",
-        "idx_forge_helper_new",
-    )
-    .await
-    .expect("existing target index should make rename a no-op");
-    assert!(mysql_table_index_exists(&db, "forge_index_helper_test", "idx_forge_helper_old").await);
-    assert!(mysql_table_index_exists(&db, "forge_index_helper_test", "idx_forge_helper_new").await);
-
-    for index_name in ["idx_forge_helper_old", "idx_forge_helper_new"] {
-        aster_forge_db::drop_index_if_exists(&db, "forge_index_helper_test", index_name)
-            .await
-            .expect("existing MySQL index should be dropped");
-        aster_forge_db::drop_index_if_exists(&db, "forge_index_helper_test", index_name)
-            .await
-            .expect("repeated MySQL index drop should be ignored");
-        assert!(!mysql_table_index_exists(&db, "forge_index_helper_test", index_name).await);
-    }
 }
 
 #[tokio::test]

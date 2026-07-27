@@ -287,17 +287,19 @@ Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()`
 `src/runtime/startup/common.rs` 会做所有节点共享的准备：
 
 1. 创建 `MetricsRecorder`，让数据库连接和后续运行时状态都能共享同一个 recorder
-2. 连接数据库
+2. 连接 writer 数据库
 3. 执行全部 migration
 4. 准备 SQLite 搜索加速能力（若当前后端适用）
-5. 确保至少存在一个默认本地存储策略
-6. 仅 primary 模式下补种默认策略组
-7. 初始化 `auth_cookie_secure` 引导值
-8. 写入 `system_config` 默认值
-9. 清理废弃的 `node_runtime_mode` 和旧 thumbnail 运行时配置键
-10. 重载 `PolicySnapshot`
-11. 根据节点模式重载 `DriverRegistry`
-12. 初始化缓存后端
+5. 保持产品存储初始化与 deployment profile 无关；两种 profile 的启动流程都不会创建存储策略
+6. primary 模式仅在管理员已经配置默认策略时协调默认策略组；多个 Primary 使用数据库锁串行化同一次协调
+7. 初始化 `auth_cookie_secure` 引导值，写入 `system_config` 默认值并清理废弃配置键
+8. follower 模式按需执行环境变量 enrollment bootstrap
+9. primary 模式校验当前数据库中的部署拓扑
+10. 创建 reader 数据库句柄
+11. 重载 `PolicySnapshot`
+12. 根据节点模式重载 `DriverRegistry`
+13. 以显式 `ReturnError` 策略创建配置指定的 cache backend
+14. 构造 config sync runtime
 
 ### 数据库连接句柄
 

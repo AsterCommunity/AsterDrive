@@ -2,5 +2,17 @@
 	"welcome_setup": "Welcome to AsterDrive",
 	"setup_desc": "Set up your admin account to get started.",
 	"setup_complete": "Setup complete.",
-	"create_admin": "Create Admin Account"
+	"create_admin": "Create Admin Account",
+	"storage_setup_page_title": "Configure AsterDrive's first reliable storage",
+	"storage_setup_page_desc": "Before the file workspace opens, choose a storage connector that can be verified immediately and finish its connection settings. AsterDrive will make it the default storage and assign the default policy group to the administrator. Connectors that require browser authorization remain visible, but must be added from storage administration after setup.",
+	"storage_setup_connector_post_setup_only": "This connector must be saved and authorized in the browser. Finish system setup, then add it from storage administration.",
+	"storage_setup_eyebrow": "System setup · Step two",
+	"storage_setup_start": "Start storage setup",
+	"storage_setup_pending_eyebrow": "System setup in progress",
+	"storage_setup_pending_title": "An administrator is configuring system storage",
+	"storage_setup_pending_desc": "This page will open the file workspace automatically after the default storage is ready. You can leave it open.",
+	"storage_setup_pending_refreshing": "Waiting for system storage to become ready…",
+	"storage_setup_state_load_failed_title": "Setup status could not be loaded",
+	"storage_setup_state_load_failed_desc": "The system setup status is temporarily unavailable. Check the connection and try again.",
+	"storage_setup_retry_state": "Reload setup status"
 }

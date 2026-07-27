@@ -155,8 +155,8 @@ impl OneDriveDriver {
             .create_folder(&self.graph_children_path("")?, "files")
             .await?
         {
-            client::MicrosoftGraphCreateFolderOutcome::Created(item) => {
-                ensure_graph_item_is_folder(&item, "OneDrive files container")?;
+            client::MicrosoftGraphCreateFolderOutcome::Created { is_folder } => {
+                ensure_created_graph_item_is_folder(is_folder, "OneDrive files container")?;
             }
             client::MicrosoftGraphCreateFolderOutcome::AlreadyExists => {
                 let item = self
@@ -172,8 +172,8 @@ impl OneDriveDriver {
             .create_folder(&self.graph_children_path("files")?, upload_id)
             .await?
         {
-            client::MicrosoftGraphCreateFolderOutcome::Created(item) => {
-                ensure_graph_item_is_folder(&item, "OneDrive upload namespace")?;
+            client::MicrosoftGraphCreateFolderOutcome::Created { is_folder } => {
+                ensure_created_graph_item_is_folder(is_folder, "OneDrive upload namespace")?;
             }
             client::MicrosoftGraphCreateFolderOutcome::AlreadyExists => {
                 return Err(storage_driver_error(
@@ -295,7 +295,11 @@ impl OneDriveDriver {
 }
 
 fn ensure_graph_item_is_folder(item: &MicrosoftGraphDriveItem, context: &str) -> Result<()> {
-    if item.folder.is_none() {
+    ensure_created_graph_item_is_folder(item.folder.is_some(), context)
+}
+
+fn ensure_created_graph_item_is_folder(is_folder: bool, context: &str) -> Result<()> {
+    if !is_folder {
         return Err(storage_driver_error(
             StorageErrorKind::Precondition,
             format!("{context} is not a folder"),

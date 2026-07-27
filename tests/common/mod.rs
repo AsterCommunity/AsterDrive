@@ -373,7 +373,7 @@ async fn drop_stale_test_databases(
     use sea_orm::ConnectionTrait;
 
     let admin_cfg = aster_drive::config::DatabaseConfig {
-        url: admin_database_url.to_string(),
+        url: admin_database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -398,7 +398,7 @@ async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str)
     use sea_orm::ConnectionTrait;
 
     let admin_cfg = aster_drive::config::DatabaseConfig {
-        url: admin_database_url.to_string(),
+        url: admin_database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -528,7 +528,7 @@ async fn wait_for_database(database_url: &str) {
     let ready = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         loop {
             let cfg = aster_drive::config::DatabaseConfig {
-                url: database_url.to_string(),
+                url: database_url.into(),
                 pool_size: 1,
                 retry_count: 0,
             };
@@ -753,7 +753,7 @@ async fn provision_isolated_test_database_url_with_template(
     use sea_orm::ConnectionTrait;
 
     let admin_cfg = aster_drive::config::DatabaseConfig {
-        url: admin_database_url.to_string(),
+        url: admin_database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -804,7 +804,7 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
         provision_isolated_test_database_url(&admin_database_url, &database_url).await;
 
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: template_database_url.clone(),
+        url: template_database_url.clone().into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -895,11 +895,42 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         config_sync: base.config_sync,
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
-        storage_change_tx: base.storage_change_tx,
+        storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
     }
+}
+
+#[allow(dead_code)]
+pub fn test_password_hash_policy(memory_kib: u32) -> aster_forge_crypto::PasswordHashPolicy {
+    aster_forge_crypto::PasswordHashPolicy::new(
+        aster_forge_crypto::PasswordHashWorkFactor::new(memory_kib, 1, 1, 32).unwrap(),
+        aster_forge_crypto::PasswordHashVerificationLimits::new(64 * 1024, 3, 4, 32).unwrap(),
+    )
+    .unwrap()
+}
+
+#[allow(dead_code)]
+pub async fn configure_test_password_hash_policy(state: &mut PrimaryAppState, memory_kib: u32) {
+    configure_test_password_hash_runtime(state, memory_kib, 1).await;
+}
+
+#[allow(dead_code)]
+pub async fn configure_test_password_hash_runtime(
+    state: &mut PrimaryAppState,
+    memory_kib: u32,
+    max_concurrency: usize,
+) {
+    let runtime_config = std::sync::Arc::new(
+        aster_drive::config::RuntimeConfig::with_password_hash_policy(
+            max_concurrency,
+            test_password_hash_policy(memory_kib),
+        )
+        .unwrap(),
+    );
+    runtime_config.reload(state.writer_db()).await.unwrap();
+    state.runtime_config = runtime_config;
 }
 
 /// Creates a test account while respecting the production initialization lifecycle.
@@ -914,10 +945,18 @@ pub async fn create_test_account(
     email: &str,
     password: &str,
 ) -> aster_drive::errors::Result<aster_drive::services::auth::local::AuthUserInfo> {
-    if aster_drive::services::auth::local::check_auth_state(state).await? {
-        aster_drive::services::auth::local::register(state, username, email, password).await
-    } else {
-        aster_drive::services::auth::local::setup(state, username, email, password).await
+    match aster_drive::services::system_setup::state(state.writer_db()).await? {
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin => {
+            aster_drive::services::auth::local::setup(state, username, email, password).await
+        }
+        aster_drive::services::system_setup::SystemSetupState::Ready => {
+            aster_drive::services::auth::local::register(state, username, email, password).await
+        }
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage => {
+            Err(aster_drive::errors::AsterError::internal_error(
+                "test account helper requires storage setup to be complete",
+            ))
+        }
     }
 }
 
@@ -1002,12 +1041,17 @@ where
     B::Error: std::fmt::Debug,
     E: std::fmt::Debug,
 {
-    let initialized = aster_drive::db::repository::system_initialization_repo::is_initialized(db)
+    let setup_state = aster_drive::services::system_setup::state(db)
         .await
-        .expect("test initialization state should load");
-    if !initialized {
+        .expect("test setup state should load");
+    if setup_state == aster_drive::services::system_setup::SystemSetupState::NeedsAdmin {
         return setup_test_account_via_api(app, username, email, password).await;
     }
+    assert_eq!(
+        setup_state,
+        aster_drive::services::system_setup::SystemSetupState::Ready,
+        "test account helper requires storage setup to be complete"
+    );
 
     let user_id = create_test_account_at_api_endpoint(
         app,
@@ -1097,7 +1141,7 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
         provision_isolated_test_database_url(&admin_database_url, &database_url).await;
 
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: template_database_url.clone(),
+        url: template_database_url.clone().into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -1152,7 +1196,7 @@ async fn clone_mysql_schema_from_template(db: &sea_orm::DatabaseConnection) {
 pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     init_test_process_state();
     let db_cfg = aster_drive::config::DatabaseConfig {
-        url: database_url.to_string(),
+        url: database_url.into(),
         pool_size: 1,
         retry_count: 0,
     };
@@ -1192,12 +1236,15 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             mfa_secret_key: "test-mfa-secret-key-for-integration-tests".to_string(),
             storage_credential_secret_key:
                 "test-storage-credential-secret-key-for-integration-tests".to_string(),
+            webdav_auth_cache_secret: "test-webdav-auth-cache-secret-for-integration-tests"
+                .to_string(),
+            password_hash_max_concurrency: 1,
             bootstrap_insecure_cookies: true,
         },
         ..Default::default()
     });
 
-    // 创建默认本地存储策略
+    // 测试夹具显式创建默认本地存储策略；生产启动流程不会自动创建策略。
     use chrono::Utc;
     use sea_orm::Set;
     let now = Utc::now();
@@ -1256,14 +1303,18 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     // OnceLock 只设置一次，后续调用忽略
     let _ = aster_drive::config::set_config_for_test(config.clone());
 
-    let runtime_config = std::sync::Arc::new(aster_drive::config::RuntimeConfig::new());
+    let password_hash_policy = test_password_hash_policy(8);
+    let runtime_config = std::sync::Arc::new(
+        aster_drive::config::RuntimeConfig::with_password_hash_policy(1, password_hash_policy)
+            .unwrap(),
+    );
     runtime_config.reload(&db).await.unwrap();
 
     let policy_snapshot = std::sync::Arc::new(aster_drive::storage::PolicySnapshot::new());
     policy_snapshot.reload(&db).await.unwrap();
     let mail_sender = aster_forge_mail::memory_sender();
 
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+    let storage_change_bus = aster_drive::services::events::storage_change::StorageChangeBus::new(
         aster_drive::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
@@ -1295,7 +1346,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender,
-        storage_change_tx,
+        storage_change_bus,
         share_download_rollback,
         background_task_dispatch_wakeup:
             aster_drive::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

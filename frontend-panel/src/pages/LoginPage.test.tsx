@@ -69,6 +69,7 @@ const mockState = vi.hoisted(() => ({
 	passkeyLoginEnabled: true,
 	finishPasskeyLogin: vi.fn(),
 	getPasskeyCredential: vi.fn(),
+	invalidateSystemSetupState: vi.fn(),
 	locationAssign: vi.fn(),
 	linkExternalAuthWithPassword: vi.fn(),
 	listExternalAuthProviders: vi.fn(),
@@ -85,6 +86,7 @@ const mockState = vi.hoisted(() => ({
 	requestPasswordReset: vi.fn(),
 	resendRegisterActivation: vi.fn(),
 	sendMfaEmailCode: vi.fn(),
+	setSystemSetupState: vi.fn(),
 	setup: vi.fn(),
 	startExternalAuthEmailVerification: vi.fn(),
 	startExternalAuthLogin: vi.fn(),
@@ -380,6 +382,19 @@ vi.mock("@/stores/authStore", () => ({
 		}),
 }));
 
+vi.mock("@/stores/systemSetupStore", () => ({
+	useSystemSetupStore: (
+		selector: (state: {
+			invalidate: typeof mockState.invalidateSystemSetupState;
+			setSetupState: typeof mockState.setSystemSetupState;
+		}) => unknown,
+	) =>
+		selector({
+			invalidate: mockState.invalidateSystemSetupState,
+			setSetupState: mockState.setSystemSetupState,
+		}),
+}));
+
 vi.mock("@/lib/webauthn", () => ({
 	getPasskeyCredential: (...args: unknown[]) =>
 		mockState.getPasskeyCredential(...args),
@@ -442,6 +457,7 @@ describe("LoginPage", () => {
 		mockState.listExternalAuthProviders.mockReset();
 		mockState.login.mockReset();
 		mockState.loggerWarn.mockReset();
+		mockState.invalidateSystemSetupState.mockReset();
 		mockState.location = {
 			hash: "",
 			pathname: "/login",
@@ -453,6 +469,7 @@ describe("LoginPage", () => {
 		mockState.requestPasswordReset.mockReset();
 		mockState.resendRegisterActivation.mockReset();
 		mockState.sendMfaEmailCode.mockReset();
+		mockState.setSystemSetupState.mockReset();
 		mockState.setup.mockReset();
 		mockState.startExternalAuthEmailVerification.mockReset();
 		mockState.startExternalAuthLogin.mockReset();
@@ -502,6 +519,7 @@ describe("LoginPage", () => {
 			expiresIn: 900,
 		});
 		mockState.check.mockResolvedValue({
+			setup_state: "ready",
 			has_users: true,
 			allow_user_registration: true,
 			passkey_login_enabled: true,
@@ -1925,6 +1943,35 @@ describe("LoginPage", () => {
 		);
 	});
 
+	it("returns external auth to storage setup while initialization is incomplete", async () => {
+		const provider = {
+			display_name: "Example IDP",
+			icon_url: null,
+			key: "example",
+			kind: "oidc",
+		};
+		mockState.check.mockResolvedValue({
+			setup_state: "needs_storage",
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+		mockState.listExternalAuthProviders.mockResolvedValue([provider]);
+
+		render(<LoginPage />);
+
+		fireEvent.click(await screen.findByRole("button", { name: /Example IDP/ }));
+
+		await waitFor(() =>
+			expect(mockState.startExternalAuthLogin).toHaveBeenCalledWith(provider, {
+				return_path: "/setup/storage?external_auth=success",
+			}),
+		);
+		expect(mockState.locationAssign).toHaveBeenCalledWith(
+			"https://idp.example.com/authorize",
+		);
+	});
+
 	it("reports external auth provider loading and login start failures", async () => {
 		const loadError = new Error("providers failed");
 		mockState.listExternalAuthProviders.mockRejectedValueOnce(loadError);
@@ -1976,12 +2023,16 @@ describe("LoginPage", () => {
 		);
 	});
 
-	it("runs initial setup for the first user and then signs them in", async () => {
-		mockState.check.mockResolvedValueOnce({
-			has_users: false,
-			allow_user_registration: true,
-			passkey_login_enabled: true,
-		});
+	it("commits setup and logs in without a second public auth check", async () => {
+		mockState.check.mockReset();
+		mockState.check
+			.mockResolvedValueOnce({
+				setup_state: "needs_admin",
+				has_users: false,
+				allow_user_registration: true,
+				passkey_login_enabled: true,
+			})
+			.mockRejectedValueOnce(new Error("transient setup-state failure"));
 
 		render(<LoginPage />);
 
@@ -2009,7 +2060,9 @@ describe("LoginPage", () => {
 				"secret123",
 			);
 		});
-		expect(mockState.toastSuccess).toHaveBeenCalledWith("setup_complete");
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("setup_admin_created");
+		expect(mockState.invalidateSystemSetupState).toHaveBeenCalledTimes(1);
+		expect(mockState.check).toHaveBeenCalledTimes(1);
 		expect(mockState.login).toHaveBeenCalledWith(
 			"admin@example.com",
 			"secret123",
@@ -2019,8 +2072,85 @@ describe("LoginPage", () => {
 		});
 	});
 
+	it("keeps the committed administrator in a recoverable login state", async () => {
+		const loginError = new Error("temporary login failure");
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
+			has_users: false,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+		mockState.login.mockRejectedValueOnce(loginError);
+
+		render(<LoginPage />);
+		fireEvent.change(await screen.findByLabelText("email_or_username"), {
+			target: { value: "cluster-admin@example.com" },
+		});
+		fireEvent.change(await screen.findByLabelText("username"), {
+			target: { value: "clusteradmin" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "create_admin" }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(loginError);
+		});
+		expect(mockState.setup).toHaveBeenCalledTimes(1);
+		expect(mockState.check).toHaveBeenCalledTimes(1);
+		expect(mockState.invalidateSystemSetupState).toHaveBeenCalledTimes(1);
+		expect(
+			await screen.findByRole("button", { name: "sign_in" }),
+		).toBeVisible();
+		expect(screen.getByLabelText("email_or_username")).toHaveValue(
+			"cluster-admin@example.com",
+		);
+		expect(screen.getByLabelText("password")).toHaveValue("secret123");
+
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+		await waitFor(() => {
+			expect(mockState.login).toHaveBeenCalledTimes(2);
+		});
+		expect(mockState.setup).toHaveBeenCalledTimes(1);
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/", { replace: true });
+		});
+	});
+
+	it("routes an existing bootstrap administrator to storage setup after login", async () => {
+		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_storage",
+			has_users: true,
+			allow_user_registration: true,
+			passkey_login_enabled: true,
+		});
+
+		render(<LoginPage />);
+
+		expect(
+			await screen.findByText("storage_setup_login_title"),
+		).toBeInTheDocument();
+		expect(screen.getByText("storage_setup_login_desc")).toBeInTheDocument();
+		fireEvent.change(screen.getByLabelText("email_or_username"), {
+			target: { value: "cluster-admin@example.com" },
+		});
+		fireEvent.change(screen.getByLabelText("password"), {
+			target: { value: "secret123" },
+		});
+		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
+
+		await waitFor(() => {
+			expect(mockState.navigate).toHaveBeenCalledWith("/setup/storage", {
+				replace: true,
+			});
+		});
+		expect(mockState.setSystemSetupState).toHaveBeenCalledWith("needs_storage");
+	});
+
 	it("uses a username placeholder for the first setup identifier field", async () => {
 		mockState.check.mockResolvedValueOnce({
+			setup_state: "needs_admin",
 			has_users: false,
 			allow_user_registration: true,
 			passkey_login_enabled: true,

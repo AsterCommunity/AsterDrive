@@ -119,6 +119,95 @@ async fn webdav_audit_action_count(
 }
 
 #[actix_web::test]
+async fn test_legacy_webdav_password_rehashes_and_stale_cas_cannot_overwrite_it() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_policy(&mut state, 16).await;
+    let user = common::create_test_account(
+        &state,
+        "davowner",
+        "legacy-webdav-owner@example.com",
+        "owner-password",
+    )
+    .await
+    .unwrap();
+    let created = aster_drive::services::webdav::account::create(
+        &state,
+        user.id,
+        "legacy-webdav-account",
+        Some("legacy-webdav-password"),
+        None,
+    )
+    .await
+    .unwrap();
+    let legacy_hash = aster_forge_crypto::hash_password_with_policy(
+        "legacy-webdav-password",
+        &common::test_password_hash_policy(8),
+    )
+    .unwrap();
+    let account = webdav_account_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .unwrap();
+    let mut active = account.into_active_model();
+    active.password_hash = Set(legacy_hash.clone());
+    webdav_account_repo::update(state.writer_db(), active)
+        .await
+        .unwrap();
+
+    assert!(
+        aster_drive::services::webdav::account::test_credentials(
+            &state,
+            user.id,
+            "legacy-webdav-account",
+            "wrong-password",
+        )
+        .await
+        .is_err()
+    );
+    assert_eq!(
+        webdav_account_repo::find_by_id(state.writer_db(), created.id)
+            .await
+            .unwrap()
+            .password_hash,
+        legacy_hash
+    );
+
+    aster_drive::services::webdav::account::test_credentials(
+        &state,
+        user.id,
+        "legacy-webdav-account",
+        "legacy-webdav-password",
+    )
+    .await
+    .unwrap();
+    let upgraded = webdav_account_repo::find_by_id(state.writer_db(), created.id)
+        .await
+        .unwrap();
+    assert!(
+        upgraded
+            .password_hash
+            .starts_with("$argon2id$v=19$m=16,t=1,p=1$")
+    );
+
+    assert!(
+        !webdav_account_repo::update_password_hash_if_current(
+            state.writer_db(),
+            created.id,
+            &legacy_hash,
+            "must-not-overwrite-current-hash",
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        webdav_account_repo::find_by_id(state.writer_db(), created.id)
+            .await
+            .unwrap()
+            .password_hash,
+        upgraded.password_hash
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_account_crud() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

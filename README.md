@@ -51,7 +51,7 @@ AsterDrive is probably not the right first choice when you need:
 - a complete collaboration suite with calendars, contacts, chat, mail, and an app ecosystem
 - mature native desktop and mobile sync clients today
 - an ultra-minimal web UI over a single server directory
-- multi-primary clustering, automatic failover, or enterprise compliance guarantees
+- managed database/Redis/object-storage high availability, cross-region strong consistency, automatic cross-region traffic failover, or enterprise compliance guarantees
 - a vendor-managed SaaS where someone else owns the deployment and data responsibility
 
 ## Design focus
@@ -123,7 +123,7 @@ On first startup, AsterDrive will automatically:
 - generate `data/config.toml` under the current working directory if it does not exist
 - create the default SQLite database when using the default database URL
 - run all database migrations
-- create the default local storage policy and default policy group
+- initialize the shared three-stage setup state; after creating the administrator, configure a default storage policy suitable for the deployment
 - initialize built-in runtime configuration items in `system_config`
 
 ## Production notes

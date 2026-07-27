@@ -346,7 +346,7 @@ mod tests {
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(
             &DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },

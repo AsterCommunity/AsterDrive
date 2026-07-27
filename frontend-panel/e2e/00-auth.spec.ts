@@ -1,5 +1,14 @@
 import { E2E_API_SUCCESS_CODE } from "./support/api-response";
-import { hasUsers, loginAsAdmin, logout, setupAdmin } from "./support/auth";
+import {
+	configureInitialStorage,
+	createInitialAdmin,
+	ensureCurrentPublicSiteUrl,
+	hasUsers,
+	loginAsAdmin,
+	logout,
+	setupAdmin,
+} from "./support/auth";
+import { fileDropZone } from "./support/files";
 import { expect, test } from "./support/test";
 import {
 	capturePasskeyGetCalls,
@@ -12,17 +21,70 @@ import {
 
 test.describe
 	.serial("Auth E2E", () => {
-		test("creates the initial admin, logs out, and signs back in", async ({
+		test("creates the initial admin, requires storage setup, and synchronizes completion across tabs", async ({
+			context,
 			page,
 			request,
 		}) => {
 			await disablePasskeyBrowserSupport(page);
 			expect(await hasUsers(request)).toBe(false);
-			await setupAdmin(page);
+			await createInitialAdmin(page);
 			expect(await hasUsers(request)).toBe(true);
+
+			await page.goto("/");
+			await expect(page).toHaveURL(/\/setup\/storage$/);
+			await page.goto("/admin/overview");
+			await expect(page).toHaveURL(/\/setup\/storage$/);
+
+			const waitingPage = await context.newPage();
+			await waitingPage.goto("/setup/storage");
+			await expect(
+				waitingPage.getByRole("heading", {
+					name: "Configure AsterDrive's first reliable storage",
+				}),
+			).toBeVisible();
+			await expect(
+				waitingPage.getByRole("button", { name: "Start storage setup" }),
+			).toBeVisible();
+			await expect(waitingPage.getByRole("dialog")).toHaveCount(0);
+
+			await configureInitialStorage(page);
+			await expect(waitingPage).toHaveURL(/\/$/, { timeout: 15_000 });
+			await expect(fileDropZone(waitingPage)).toBeVisible();
+			await waitingPage.close();
+			await ensureCurrentPublicSiteUrl(page);
 
 			await logout(page);
 			await loginAsAdmin(page);
+		});
+
+		test("keeps the PWA workspace shell when cached authentication starts offline", async ({
+			page,
+			request,
+		}) => {
+			await disablePasskeyBrowserSupport(page);
+			if (await hasUsers(request)) {
+				await loginAsAdmin(page);
+			} else {
+				await setupAdmin(page);
+			}
+
+			await page.route("**/api/v1/auth/me**", (route) =>
+				route.abort("internetdisconnected"),
+			);
+			await page.route("**/api/v1/auth/check", (route) =>
+				route.abort("internetdisconnected"),
+			);
+
+			await page.reload();
+
+			await expect(fileDropZone(page)).toBeVisible();
+			await expect(page.getByText("Offline", { exact: true })).toBeVisible();
+			await expect(
+				page.getByRole("heading", {
+					name: "Setup status could not be loaded",
+				}),
+			).toHaveCount(0);
 		});
 
 		test("preserves caret position when editing login inputs in the middle", async ({

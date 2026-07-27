@@ -61,7 +61,7 @@ impl MigrationTrait for Migration {
                     Table::alter()
                         .table(ManagedFollowers::Table)
                         .add_column(
-                            crate::time::utc_date_time_column(
+                            aster_forge_db_migration::utc_date_time_column(
                                 manager,
                                 ManagedFollowers::TunnelLastSeenAt,
                             )

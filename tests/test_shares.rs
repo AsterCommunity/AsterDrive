@@ -11,9 +11,11 @@ use actix_web::{
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::operations::ARCHIVE_DOWNLOAD_SHARE_ENABLED_KEY;
 use aster_drive::config::operations::SHARE_STREAM_SESSION_TTL_SECS_KEY;
+use aster_drive::db::repository::share_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::types::BackgroundTaskStatus;
 use chrono::Utc;
+use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use serde_json::Value;
 use std::io::Cursor;
 
@@ -516,6 +518,92 @@ async fn test_share_password() {
 }
 
 #[actix_web::test]
+async fn test_legacy_share_password_rehashes_and_preserves_concurrent_updates() {
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_policy(&mut state, 16).await;
+    let app = create_test_app!(state.clone());
+    let (token, _) = register_and_login!(app);
+    let file_id = upload_test_file!(app, token);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/shares")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "target": file_target(file_id),
+            "password": "legacy-share-password"
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let share_id = body["data"]["id"].as_i64().unwrap();
+    let share_token = body["data"]["token"].as_str().unwrap().to_string();
+
+    let legacy_hash = aster_forge_crypto::hash_password_with_policy(
+        "legacy-share-password",
+        &common::test_password_hash_policy(8),
+    )
+    .unwrap();
+    let share = share_repo::find_by_id(state.writer_db(), share_id)
+        .await
+        .unwrap();
+    let mut active = share.into_active_model();
+    active.password = Set(Some(legacy_hash.clone()));
+    active.update(state.writer_db()).await.unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(&format!("/api/v1/s/{share_token}"))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .set_json(serde_json::json!({ "password": "wrong-password" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 401 || resp.status() == 403);
+    assert_eq!(
+        share_repo::find_by_id(state.writer_db(), share_id)
+            .await
+            .unwrap()
+            .password
+            .as_deref(),
+        Some(legacy_hash.as_str())
+    );
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/s/{share_token}/verify"))
+        .set_json(serde_json::json!({ "password": "legacy-share-password" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let upgraded = share_repo::find_by_id(state.writer_db(), share_id)
+        .await
+        .unwrap();
+    let upgraded_hash = upgraded.password.as_deref().unwrap();
+    assert!(upgraded_hash.starts_with("$argon2id$v=19$m=16,t=1,p=1$"));
+
+    assert!(
+        !share_repo::update_password_hash_if_current(
+            state.writer_db(),
+            share_id,
+            &legacy_hash,
+            "must-not-overwrite-current-hash",
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        share_repo::find_by_id(state.writer_db(), share_id)
+            .await
+            .unwrap()
+            .password,
+        upgraded.password
+    );
+}
+
+#[actix_web::test]
 async fn test_share_verify_cookie_scoped_and_secure_when_enabled() {
     let state = common::setup().await;
     state.runtime_config.apply(common::system_config_model(
@@ -884,7 +972,7 @@ async fn test_share_download_limit_counter_is_atomic_under_concurrency() {
     let mut dbs = Vec::new();
     for _ in 0..32 {
         let cfg = aster_drive::config::DatabaseConfig {
-            url: database_url.clone(),
+            url: database_url.clone().into(),
             pool_size: 1,
             retry_count: 0,
         };

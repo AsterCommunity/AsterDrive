@@ -92,7 +92,7 @@ async fn test_folder_lock_unlock() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     // 锁定
     let req = test::TestRequest::post()
@@ -190,7 +190,7 @@ async fn test_nested_folder_lock_events_include_parent_folder() {
     assert_eq!(resp.status(), 201);
     let body: Value = test::read_body_json(resp).await;
     let child_id = body["data"]["id"].as_i64().unwrap();
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/folders/{child_id}/lock"))

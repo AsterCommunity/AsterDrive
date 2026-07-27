@@ -13,12 +13,15 @@ pub struct PreparedPrimaryRuntime {
 pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
     let common = prepare_common(NodeRuntimeMode::Primary).await?;
 
-    let runtime_config = Arc::new(crate::config::RuntimeConfig::new());
+    let runtime_config = Arc::new(
+        crate::config::RuntimeConfig::with_password_hash_max_concurrency(
+            common.cfg.auth.password_hash_max_concurrency,
+        )?,
+    );
     runtime_config.reload(&common.database).await?;
     let mail_sender = crate::services::mail::sender::runtime_sender(runtime_config.clone());
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
-        crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
-    );
+    let storage_change_bus =
+        crate::services::events::storage_change::build_storage_change_bus(&common.cfg.config_sync)?;
     let rollback_queue_capacity =
         crate::config::operations::share_download_rollback_queue_capacity(&runtime_config);
     let (share_download_rollback, share_download_rollback_worker) =
@@ -31,6 +34,11 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
 
     let remote_protocol = crate::runtime::PrimaryAppState::new_remote_protocol();
     remote_protocol.set_persistence_db(common.database.clone());
+    remote_protocol.configure_tunnel_owner_directory(
+        common.database.clone(),
+        &common.cfg.deployment,
+        common.config_sync.runtime_id(),
+    )?;
     common
         .driver_registry
         .set_remote_protocol(remote_protocol.clone());
@@ -51,7 +59,7 @@ pub async fn prepare_primary() -> Result<PreparedPrimaryRuntime> {
             config_sync: common.config_sync,
             metrics: common.metrics,
             mail_sender,
-            storage_change_tx,
+            storage_change_bus,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

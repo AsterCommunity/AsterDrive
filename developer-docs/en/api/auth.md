@@ -6,7 +6,7 @@ All paths below are relative to `/api/v1`.
 
 | Method | Path | Description |
 | --- | --- | --- |
-| `POST` | `/auth/check` | Return public authentication state: initialized or not, public registration allowed or not |
+| `POST` | `/auth/check` | Return public setup state, whether users exist, and whether public registration is allowed |
 | `POST` | `/auth/setup` | Initialize the system and create the first admin |
 | `POST` | `/auth/register` | Register an ordinary user after system initialization |
 | `POST` | `/auth/register/resend` | Resend registration activation email |
@@ -56,9 +56,12 @@ All paths below are relative to `/api/v1`.
 
 ## Initialization and registration
 
-- `POST /auth/check` returns `has_users` and `allow_user_registration`; it only tells the frontend which high-level state to show and does not expose whether a specific account exists
+- `POST /auth/check` returns `setup_state`, `has_users`, `allow_user_registration`, and `passkey_login_enabled`. It exposes system-level state only and does not reveal whether a specific account exists. `setup_state` is one of:
+  - `needs_admin`: the database has no users and only first-administrator setup is open
+  - `needs_storage`: an administrator exists, but the default storage policy group or administrator assignment is incomplete; existing administrators may sign in and finish storage setup
+  - `ready`: administrator setup and the default storage route are complete, so ordinary account-creation flows may continue
 - `POST /auth/setup` is the only endpoint that can create the first admin and is available only before any user exists
-- `POST /auth/register` requires completed setup and never grants the admin role; after initialization it is available when `auth_allow_user_registration = true`, and the default quota comes from `default_storage_quota`
+- `POST /auth/register` requires `setup_state = "ready"` and never grants the admin role; it also requires `auth_allow_user_registration = true`, and the default quota comes from `default_storage_quota`
 - `POST /auth/register/resend` resends activation mail for accounts that have not completed activation
 
 Resend request:
@@ -88,7 +91,7 @@ The policy applies to local registration and local email changes only. Internati
 }
 ```
 
-Before setup, `/auth/register` returns `400` with `validation.system_not_initialized`, regardless of the public-registration setting. After setup, disabling public registration makes `/auth/register` return `403`, while `/auth/setup` always reports that the system is already initialized.
+While the system is in `needs_admin` or `needs_storage`, `/auth/register` returns `400` with `validation.system_not_initialized`, regardless of the public-registration setting. It neither replaces `/auth/setup` nor creates ordinary users before the default storage route exists. Invitation acceptance, external-auth auto-provisioning, and administrator-created users also require `ready`. Once ready, disabling public registration makes `/auth/register` return `403`, while `/auth/setup` reports that the system is already initialized.
 
 ### Invitation registration
 

@@ -1,14 +1,9 @@
 //! Database coordination for the one-time system initialization flow.
 
 use crate::config::definitions::AUTH_ALLOW_USER_REGISTRATION_KEY;
-use crate::db::repository::user_repo;
 use crate::errors::{AsterError, Result};
 use aster_forge_db::system_config::{self, Entity as SystemConfig};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, sea_query::Expr};
-
-pub async fn is_initialized<C: ConnectionTrait>(db: &C) -> Result<bool> {
-    user_repo::count_all(db).await.map(|count| count > 0)
-}
 
 /// Serializes setup attempts using an existing, non-deletable system configuration row.
 ///

@@ -73,6 +73,17 @@ pub struct MfaSensitiveActionRequest {
     pub code: Option<String>,
 }
 
+struct PreparedTotpSetup {
+    flow: mfa_totp_setup_flow::Model,
+    secret: Vec<u8>,
+    factor_name: String,
+}
+
+enum PreparedSensitiveMfaCode {
+    Totp { code: String },
+    Recovery(recovery_codes::VerifiedRecoveryCode),
+}
+
 pub async fn get_status(state: &impl SharedRuntimeState, user_id: i64) -> Result<MfaStatus> {
     let factors = mfa_factor_repo::list_for_user(state.writer_db(), user_id)
         .await?
@@ -149,43 +160,24 @@ pub async fn verify_totp_setup(
     input: TotpSetupFinishRequest,
     audit_ctx: &audit::AuditContext,
 ) -> Result<TotpSetupFinishResponse> {
-    let now = now_utc();
     let flow_token_hash = crypto::token_hash(input.flow_token.trim());
+    validate_totp_setup(
+        state.writer_db(),
+        state,
+        user_id,
+        &flow_token_hash,
+        &input,
+        now_utc(),
+    )
+    .await?;
+    let generated_recovery_codes = recovery_codes::generate_for_user(state, user_id).await?;
+
+    let now = now_utc();
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
-        let user = user_repo::find_by_id(&txn, user_id).await?;
-        ensure_user_can_manage_mfa(&user)?;
-        if mfa_factor_repo::find_totp_for_user(&txn, user_id)
-            .await?
-            .is_some()
-        {
-            return Err(auth_forbidden_with_code(
-                ApiErrorCode::AuthMfaFactorAlreadyExists,
-                "TOTP MFA is already enabled",
-            ));
-        }
-        let flow =
-            mfa_totp_setup_flow_repo::find_active_by_flow_token_hash(&txn, &flow_token_hash, now)
-                .await?
-                .ok_or_else(|| AsterError::auth_token_invalid("TOTP setup flow is invalid"))?;
-        if flow.user_id != user_id {
-            return Err(AsterError::auth_forbidden(
-                "TOTP setup flow does not belong to user",
-            ));
-        }
-        let aad = crypto::setup_flow_aad(user_id);
-        let secret = crypto::decrypt_secret(
-            &state.config().auth.mfa_secret_key,
-            aad.as_bytes(),
-            &flow.secret_ciphertext,
-        )?;
-        if !totp::verify_code(&secret, &input.code, now)? {
-            return Err(auth_mfa_failed_with_code(
-                ApiErrorCode::AuthMfaCodeInvalid,
-                "invalid TOTP code",
-            ));
-        }
-        if !mfa_totp_setup_flow_repo::consume(&txn, flow.id, now).await? {
+        let prepared =
+            validate_totp_setup(&txn, state, user_id, &flow_token_hash, &input, now).await?;
+        if !mfa_totp_setup_flow_repo::consume(&txn, prepared.flow.id, now).await? {
             return Err(AsterError::auth_token_invalid(
                 "TOTP setup flow has already been consumed",
             ));
@@ -195,21 +187,14 @@ pub async fn verify_totp_setup(
         let encrypted_secret = crypto::encrypt_secret(
             &state.config().auth.mfa_secret_key,
             factor_aad.as_bytes(),
-            &secret,
+            &prepared.secret,
         )?;
-        let name = input
-            .name
-            .as_deref()
-            .map(str::trim)
-            .filter(|value| !value.is_empty())
-            .unwrap_or("Authenticator app")
-            .to_string();
         let factor = mfa_factor_repo::create(
             &txn,
             mfa_factor::ActiveModel {
                 user_id: Set(user_id),
                 method: Set(MfaPersistentFactorMethod::Totp),
-                name: Set(name),
+                name: Set(prepared.factor_name),
                 secret_ciphertext: Set(encrypted_secret),
                 secret_version: Set(1),
                 enabled_at: Set(now),
@@ -220,7 +205,8 @@ pub async fn verify_totp_setup(
             },
         )
         .await?;
-        let recovery_codes = recovery_codes::replace_for_user(&txn, user_id).await?;
+        let recovery_codes =
+            recovery_codes::replace_for_user(&txn, user_id, generated_recovery_codes).await?;
         Ok::<_, AsterError>((factor_info(factor), recovery_codes))
     }
     .await;
@@ -263,11 +249,14 @@ pub async fn delete_factor(
     input: MfaSensitiveActionRequest,
     audit_ctx: &audit::AuditContext,
 ) -> Result<bool> {
+    let prepared_code =
+        prepare_sensitive_mfa_code(state.writer_db(), state, user_id, input.code.as_deref())
+            .await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
         ensure_user_can_manage_mfa(&user)?;
-        verify_sensitive_mfa_code(&txn, state, user_id, input.code.as_deref()).await?;
+        verify_prepared_sensitive_mfa_code(&txn, state, user_id, &prepared_code).await?;
         let factor = mfa_factor_repo::find_by_id_for_user(&txn, factor_id, user_id)
             .await?
             .ok_or_else(|| AsterError::record_not_found(format!("MFA factor #{factor_id}")))?;
@@ -317,12 +306,16 @@ pub async fn regenerate_recovery_codes(
     input: MfaSensitiveActionRequest,
     audit_ctx: &audit::AuditContext,
 ) -> Result<Vec<String>> {
+    let prepared_code =
+        prepare_sensitive_mfa_code(state.writer_db(), state, user_id, input.code.as_deref())
+            .await?;
+    let generated_recovery_codes = recovery_codes::generate_for_user(state, user_id).await?;
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let user = user_repo::find_by_id(&txn, user_id).await?;
         ensure_user_can_manage_mfa(&user)?;
-        verify_sensitive_mfa_code(&txn, state, user_id, input.code.as_deref()).await?;
-        recovery_codes::replace_for_user(&txn, user_id).await
+        verify_prepared_sensitive_mfa_code(&txn, state, user_id, &prepared_code).await?;
+        recovery_codes::replace_for_user(&txn, user_id, generated_recovery_codes).await
     }
     .await;
     match result {
@@ -409,12 +402,67 @@ pub async fn reset_user_mfa(
     }
 }
 
-async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
+async fn validate_totp_setup<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+    flow_token_hash: &str,
+    input: &TotpSetupFinishRequest,
+    now: chrono::DateTime<Utc>,
+) -> Result<PreparedTotpSetup> {
+    let user = user_repo::find_by_id(db, user_id).await?;
+    ensure_user_can_manage_mfa(&user)?;
+    if mfa_factor_repo::find_totp_for_user(db, user_id)
+        .await?
+        .is_some()
+    {
+        return Err(auth_forbidden_with_code(
+            ApiErrorCode::AuthMfaFactorAlreadyExists,
+            "TOTP MFA is already enabled",
+        ));
+    }
+    let flow = mfa_totp_setup_flow_repo::find_active_by_flow_token_hash(db, flow_token_hash, now)
+        .await?
+        .ok_or_else(|| AsterError::auth_token_invalid("TOTP setup flow is invalid"))?;
+    if flow.user_id != user_id {
+        return Err(AsterError::auth_forbidden(
+            "TOTP setup flow does not belong to user",
+        ));
+    }
+    let aad = crypto::setup_flow_aad(user_id);
+    let secret = crypto::decrypt_secret(
+        &state.config().auth.mfa_secret_key,
+        aad.as_bytes(),
+        &flow.secret_ciphertext,
+    )?;
+    if !totp::verify_code(&secret, &input.code, now)? {
+        return Err(auth_mfa_failed_with_code(
+            ApiErrorCode::AuthMfaCodeInvalid,
+            "invalid TOTP code",
+        ));
+    }
+    let factor_name = input
+        .name
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("Authenticator app")
+        .to_string();
+    Ok(PreparedTotpSetup {
+        flow,
+        secret,
+        factor_name,
+    })
+}
+
+async fn prepare_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
     db: &C,
     state: &impl SharedRuntimeState,
     user_id: i64,
     code: Option<&str>,
-) -> Result<()> {
+) -> Result<PreparedSensitiveMfaCode> {
+    let user = user_repo::find_by_id(db, user_id).await?;
+    ensure_user_can_manage_mfa(&user)?;
     let Some(code) = code.map(str::trim).filter(|value| !value.is_empty()) else {
         return Err(auth_mfa_failed_with_code(
             ApiErrorCode::AuthMfaCodeInvalid,
@@ -431,18 +479,55 @@ async fn verify_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
             &factor.secret_ciphertext,
         )?;
         if totp::verify_code(&secret, code, now_utc())? {
-            return Ok(());
+            return Ok(PreparedSensitiveMfaCode::Totp {
+                code: code.to_string(),
+            });
         }
     }
     if looks_like_recovery_code(code)
-        && recovery_codes::verify_and_consume(db, user_id, code).await?
+        && let Some(verified) = recovery_codes::verify(state, db, user_id, code).await?
     {
-        return Ok(());
+        return Ok(PreparedSensitiveMfaCode::Recovery(verified));
     }
     Err(auth_mfa_failed_with_code(
         ApiErrorCode::AuthMfaCodeInvalid,
         "invalid MFA code",
     ))
+}
+
+async fn verify_prepared_sensitive_mfa_code<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+    prepared: &PreparedSensitiveMfaCode,
+) -> Result<()> {
+    let verified = match prepared {
+        PreparedSensitiveMfaCode::Totp { code } => {
+            if let Some(factor) = mfa_factor_repo::find_totp_for_user(db, user_id).await? {
+                let aad =
+                    crypto::factor_aad(user_id, persistent_factor_method_label(factor.method));
+                let secret = crypto::decrypt_secret(
+                    &state.config().auth.mfa_secret_key,
+                    aad.as_bytes(),
+                    &factor.secret_ciphertext,
+                )?;
+                totp::verify_code(&secret, code, now_utc())?
+            } else {
+                false
+            }
+        }
+        PreparedSensitiveMfaCode::Recovery(verified) => {
+            recovery_codes::consume_verified(db, user_id, verified).await?
+        }
+    };
+    if verified {
+        Ok(())
+    } else {
+        Err(auth_mfa_failed_with_code(
+            ApiErrorCode::AuthMfaCodeInvalid,
+            "invalid MFA code",
+        ))
+    }
 }
 
 fn looks_like_totp_code(code: &str) -> bool {

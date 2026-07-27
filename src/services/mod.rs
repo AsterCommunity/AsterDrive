@@ -11,6 +11,7 @@ pub mod preview;
 pub mod remote;
 pub mod share;
 pub mod storage_policy;
+pub mod system_setup;
 pub mod task;
 pub mod user;
 pub mod webdav;

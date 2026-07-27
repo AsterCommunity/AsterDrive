@@ -217,7 +217,7 @@ pub fn cli_styles() -> Styles {
 pub(super) async fn connect_database(database_url: &str) -> Result<sea_orm::DatabaseConnection> {
     let db = db::connect_with_metrics(
         &crate::config::DatabaseConfig {
-            url: database_url.to_string(),
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -229,19 +229,27 @@ pub(super) async fn connect_database(database_url: &str) -> Result<sea_orm::Data
 }
 
 pub(super) async fn prepare_database(database_url: &str) -> Result<sea_orm::DatabaseConnection> {
+    prepare_database_config(&crate::config::DatabaseConfig {
+        url: database_url.into(),
+        pool_size: 1,
+        retry_count: 0,
+    })
+    .await
+}
+
+pub(super) async fn prepare_database_config(
+    database: &crate::config::DatabaseConfig,
+) -> Result<sea_orm::DatabaseConnection> {
     if crate::config::try_get_config().is_none() {
         crate::config::init_config()?;
     }
     let cfg = crate::config::get_config();
-    let db = db::connect_with_metrics(
-        &crate::config::DatabaseConfig {
-            url: database_url.to_string(),
-            pool_size: 1,
-            retry_count: 0,
-        },
-        crate::metrics::NoopMetrics::arc(),
-    )
-    .await?;
+    let database = crate::config::DatabaseConfig {
+        url: database.url.clone(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let db = db::connect_with_metrics(&database, crate::metrics::NoopMetrics::arc()).await?;
     crate::runtime::startup::initialize_database_state(
         &db,
         cfg.as_ref(),

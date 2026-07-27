@@ -91,7 +91,7 @@ If future versions include similar migrations, they will be clearly marked in th
 After upgrading, run through this checklist:
 
 1. `/health` returns 200.
-2. `/health/ready` returns 200, meaning DB and default storage backend both work.
+2. `/health/ready` returns 200 with `data.status` set to `ready` (this checks the DB, default policy, and lightweight driver prerequisites; it does not prove remote object-storage read/write availability).
 3. The admin panel opens normally.
 4. Use a real account to log in, upload a file, download, share, and restore one trash item.
 5. Run `aster_drive doctor` once.

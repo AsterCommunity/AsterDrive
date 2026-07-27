@@ -72,3 +72,129 @@ jobs:
           path: |
             frontend-panel/playwright-report
             frontend-panel/test-results
+
+  cluster-storage-setup:
+    name: Cluster storage setup
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: asterdrive
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d asterdrive"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 5s
+          --health-retries 30
+      rustfs:
+        image: rustfs/rustfs:1.0.0-alpha.90
+        env:
+          RUSTFS_ACCESS_KEY: rustfsadmin
+          RUSTFS_SECRET_KEY: rustfsadmin123
+        ports:
+          - 9000:9000
+    env:
+      ASTER_E2E_CLUSTER_SETUP: '1'
+      ASTER_E2E_PORT: '3311'
+      ASTER_E2E_S3_ACCESS_KEY: rustfsadmin
+      ASTER_E2E_S3_BUCKET: asterdrive-e2e
+      ASTER_E2E_S3_ENDPOINT: http://127.0.0.1:9000
+      ASTER_E2E_S3_SECRET_KEY: rustfsadmin123
+      ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES: 'true'
+      ASTER__AUTH__DIRECT_LINK_SECRET: e2e-direct-link-secret-0123456789abcdef0123456789abcdef
+      ASTER__AUTH__JWT_SECRET: e2e-jwt-secret-0123456789abcdef0123456789abcdef0123456789abcdef
+      ASTER__AUTH__MFA_SECRET_KEY: e2e-mfa-secret-0123456789abcdef0123456789abcdef0123456789abcdef
+      ASTER__AUTH__SHARE_COOKIE_SECRET: e2e-share-cookie-secret-0123456789abcdef0123456789abcdef
+      ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY: e2e-storage-credential-secret-0123456789abcdef0123456789abcdef
+      ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET: e2e-webdav-cache-secret-0123456789abcdef0123456789abcdef
+      ASTER__CACHE__BACKEND: redis
+      ASTER__CACHE__ENDPOINT: redis://127.0.0.1:6379/0
+      ASTER__CONFIG_SYNC__BACKEND: redis
+      ASTER__CONFIG_SYNC__ENDPOINT: redis://127.0.0.1:6379/0
+      ASTER__CONFIG_SYNC__TOPIC: aster_drive.frontend_cluster_e2e
+      ASTER__DATABASE__URL: postgres://postgres:postgres@127.0.0.1:5432/asterdrive
+      ASTER__DEPLOYMENT__INTERNAL_ENDPOINT: http://127.0.0.1:3311
+      ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET: e2e-internal-proxy-secret-0123456789abcdef0123456789abcdef
+      ASTER__DEPLOYMENT__PROFILE: cluster
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install media processing dependencies
+        run: sudo apt-get update && sudo apt-get install -y libvips-tools ffmpeg
+
+      - name: Setup bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Cache Rust build artifacts
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install frontend dependencies
+        working-directory: frontend-panel
+        run: bun install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: frontend-panel
+        run: bun run build
+
+      - name: Build E2E server
+        run: cargo build --no-default-features --features server --target-dir target/e2e
+
+      - name: Prepare RustFS bucket
+        env:
+          AWS_ACCESS_KEY_ID: rustfsadmin
+          AWS_DEFAULT_REGION: us-east-1
+          AWS_SECRET_ACCESS_KEY: rustfsadmin123
+        run: |
+          for attempt in $(seq 1 60); do
+            if aws --endpoint-url "$ASTER_E2E_S3_ENDPOINT" \
+              s3api create-bucket --bucket "$ASTER_E2E_S3_BUCKET"; then
+              exit 0
+            fi
+            if aws --endpoint-url "$ASTER_E2E_S3_ENDPOINT" \
+              s3api head-bucket --bucket "$ASTER_E2E_S3_BUCKET"; then
+              exit 0
+            fi
+            if [ "$attempt" -eq 60 ]; then
+              echo "RustFS bucket did not become ready"
+              exit 1
+            fi
+            sleep 1
+          done
+
+      - name: Install Playwright browser
+        working-directory: frontend-panel
+        run: PLAYWRIGHT_BROWSERS_PATH=.playwright bunx playwright install --with-deps chromium
+
+      - name: Run Cluster storage setup E2E
+        working-directory: frontend-panel
+        run: >-
+          PLAYWRIGHT_BROWSERS_PATH=.playwright
+          ASTER_E2E_SKIP_BUILD=1
+          bun run test:e2e -- e2e/cluster-storage-setup.spec.ts
+
+      - name: Upload Cluster Playwright artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: cluster-storage-setup-playwright-artifacts
+          path: |
+            frontend-panel/playwright-report
+            frontend-panel/test-results

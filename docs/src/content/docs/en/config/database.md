@@ -51,10 +51,32 @@ url = "sqlite:///data/asterdrive.db?mode=rwc"
 url = "postgres://user:password@localhost:5432/asterdrive"
 ```
 
+When a username or password contains reserved characters such as `@`, `:`, `/`, `?`, or `#`, prefer structured raw credentials. Forge injects and encodes them safely:
+
+```toml
+url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
 ### MySQL
 
 ```toml
 url = "mysql://user:password@localhost:3306/asterdrive"
+```
+
+MySQL supports the same structured form:
+
+```toml
+url = { base_url = "mysql://localhost:3306/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+In structured mode, `username` and `password` are raw values and must not be percent-encoded in advance; `base_url` must not contain userinfo. AsterDrive does not write these two fields into serialized configuration, Debug output, health details, or doctor output. Restrict access to `data/config.toml`; on Kubernetes, prefer mounting the complete configuration from a Secret instead of placing credentials in command arguments or ordinary logs.
+
+Nested environment variables are also supported:
+
+```bash
+ASTER__DATABASE__URL__BASE_URL=postgres://database.internal:5432/asterdrive
+ASTER__DATABASE__URL__USERNAME=RAW_USERNAME
+ASTER__DATABASE__URL__PASSWORD=RAW_PASSWORD
 ```
 
 ## What Happens During Startup

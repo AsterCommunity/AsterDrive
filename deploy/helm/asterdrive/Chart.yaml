@@ -1,0 +1,16 @@
+apiVersion: v2
+name: asterdrive
+description: AsterDrive multi-Primary deployment using external database, Redis, and shared storage services.
+type: application
+version: 0.1.0
+appVersion: "0.4.0"
+home: https://github.com/AsterCommunity/AsterDrive
+sources:
+  - https://github.com/AsterCommunity/AsterDrive
+keywords:
+  - asterdrive
+  - storage
+  - self-hosted
+  - multi-primary
+maintainers:
+  - name: AsterCommunity

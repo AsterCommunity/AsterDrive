@@ -175,11 +175,23 @@ pub(super) async fn ensure_email_available<C: ConnectionTrait>(
 pub(crate) struct CreateUserWithRoleInput<'a> {
     pub username: &'a str,
     pub email: &'a str,
-    pub password: &'a str,
+    pub password_hash: &'a str,
     pub role: UserRole,
     pub status: UserStatus,
     pub must_change_password: bool,
     pub email_verified_at: Option<chrono::DateTime<chrono::Utc>>,
+}
+
+pub(crate) async fn hash_new_password(
+    state: &impl SharedRuntimeState,
+    password: &str,
+) -> Result<String> {
+    validate_password(password)?;
+    state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(password)
+        .await
 }
 
 pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
@@ -187,10 +199,27 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     state: &impl SharedRuntimeState,
     input: CreateUserWithRoleInput<'_>,
 ) -> Result<user::Model> {
+    crate::services::system_setup::require_ready(db).await?;
+    let policy_group_id = crate::services::system_setup::configured_default_policy_group_id(db)
+        .await?
+        .ok_or_else(|| {
+            AsterError::storage_policy_not_found(
+                "no system default storage policy group configured",
+            )
+        })?;
+    create_user_with_policy_group(db, state, input, Some(policy_group_id)).await
+}
+
+async fn create_user_with_policy_group<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    input: CreateUserWithRoleInput<'_>,
+    policy_group_id: Option<i64>,
+) -> Result<user::Model> {
     let CreateUserWithRoleInput {
         username,
         email,
-        password,
+        password_hash,
         role,
         status,
         must_change_password,
@@ -198,14 +227,12 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
     } = input;
     let username = normalize_username(username)?;
     let email = normalize_email(email)?;
-    validate_password(password)?;
 
     if user_repo::find_by_username(db, &username).await?.is_some() {
         return Err(username_exists_error());
     }
     ensure_email_available(db, &email, None).await?;
 
-    let password_hash = hash::hash_password(password)?;
     let now = Utc::now();
 
     let default_quota = state
@@ -217,22 +244,12 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
             }
             0
         });
-    let default_policy_group_id = state
-        .policy_snapshot()
-        .system_default_policy_group()
-        .map(|group| group.id)
-        .ok_or_else(|| {
-            AsterError::storage_policy_not_found(
-                "no system default storage policy group configured",
-            )
-        })?;
-
     let username_for_err = username.clone();
     let email_for_err = email.clone();
     let model = user::ActiveModel {
         username: Set(username),
         email: Set(email),
-        password_hash: Set(password_hash),
+        password_hash: Set(password_hash.to_string()),
         role: Set(role),
         status: Set(status),
         must_change_password: Set(must_change_password),
@@ -241,7 +258,7 @@ pub(crate) async fn create_user_with_role<C: ConnectionTrait>(
         pending_email: Set(None),
         storage_used: Set(0),
         storage_quota: Set(default_quota),
-        policy_group_id: Set(Some(default_policy_group_id)),
+        policy_group_id: Set(policy_group_id),
         created_at: Set(now),
         updated_at: Set(now),
         ..Default::default()
@@ -264,21 +281,24 @@ pub(super) async fn create_first_admin<C: ConnectionTrait>(
     state: &impl SharedRuntimeState,
     username: &str,
     email: &str,
-    password: &str,
+    password_hash: &str,
 ) -> Result<user::Model> {
     tracing::info!("first user registered — granting admin role to '{username}'");
-    create_user_with_role(
+    let policy_group_id =
+        crate::services::system_setup::configured_default_policy_group_id(db).await?;
+    create_user_with_policy_group(
         db,
         state,
         CreateUserWithRoleInput {
             username,
             email,
-            password,
+            password_hash,
             role: UserRole::Admin,
             status: UserStatus::Active,
             must_change_password: false,
             email_verified_at: Some(Utc::now()),
         },
+        policy_group_id,
     )
     .await
 }
@@ -396,13 +416,11 @@ pub(super) async fn password_reset_request_allowed<C: ConnectionTrait>(
 pub(super) async fn update_password_in_connection<C: ConnectionTrait>(
     db: &C,
     user: user::Model,
-    new_password: &str,
+    new_password_hash: String,
 ) -> Result<user::Model> {
-    validate_password(new_password)?;
-
     let next_session_version = user.session_version.saturating_add(1);
     let mut active = user.into_active_model();
-    active.password_hash = Set(hash::hash_password(new_password)?);
+    active.password_hash = Set(new_password_hash);
     active.must_change_password = Set(false);
     active.session_version = Set(next_session_version);
     active.updated_at = Set(Utc::now());

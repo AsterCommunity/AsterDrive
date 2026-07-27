@@ -43,7 +43,8 @@ import {
 import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
-import type { ExternalAuthPublicProvider } from "@/types/api";
+import { useSystemSetupStore } from "@/stores/systemSetupStore";
+import type { ExternalAuthPublicProvider, SystemSetupState } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 import { LoginPageView } from "./login/LoginPageView";
 import {
@@ -120,6 +121,12 @@ function useLoginPageController() {
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
+	const invalidateSystemSetupState = useSystemSetupStore(
+		(state) => state.invalidate,
+	);
+	const setSystemSetupState = useSystemSetupStore(
+		(state) => state.setSetupState,
+	);
 	const publicPasskeyLoginEnabled = useFrontendConfigStore(
 		(s) => s.passkeyLoginEnabled,
 	);
@@ -150,6 +157,7 @@ function useLoginPageController() {
 		boolean | null
 	>(null);
 	const [registrationClosed, setRegistrationClosed] = useState(false);
+	const [setupState, setSetupState] = useState<SystemSetupState | null>(null);
 	const [exiting, setExiting] = useState(false);
 	const [errors, setErrors] = useState<Record<string, string>>({});
 	const [authPanel, dispatchAuthPanel] = useReducer(
@@ -400,13 +408,18 @@ function useLoginPageController() {
 			.check()
 			.then((result) => {
 				if (cancelled) return;
-				if (!result.has_users) {
+				setSystemSetupState(result.setup_state);
+				setSetupState(result.setup_state);
+				if (result.setup_state === "needs_admin" || !result.has_users) {
 					setRegistrationClosed(false);
 					setMode("setup");
 					return;
 				}
 
-				setRegistrationClosed(result.allow_user_registration === false);
+				setRegistrationClosed(
+					result.setup_state === "needs_storage" ||
+						result.allow_user_registration === false,
+				);
 				setCheckedPasskeyLoginEnabled(result.passkey_login_enabled !== false);
 				setMode("login");
 			})
@@ -424,7 +437,7 @@ function useLoginPageController() {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [setSystemSetupState]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -540,9 +553,11 @@ function useLoginPageController() {
 			syncSession(session.expiresIn);
 			await refreshUser();
 			toast.success(successMessage);
-			exitAndNavigateTo(returnPath || "/");
+			exitAndNavigateTo(
+				setupState === "needs_storage" ? "/setup/storage" : returnPath || "/",
+			);
 		},
-		[exitAndNavigateTo, refreshUser, syncSession],
+		[exitAndNavigateTo, refreshUser, setupState, syncSession],
 	);
 
 	const finishPasswordChangeRequiredLogin = useCallback(
@@ -818,7 +833,10 @@ function useLoginPageController() {
 			conditionalPasskeyAbortRef.current = null;
 			setExternalAuthBusyProvider(provider.key);
 			const start = await authService.startExternalAuthLogin(provider, {
-				return_path: "/?external_auth=success",
+				return_path:
+					setupState === "needs_storage"
+						? "/setup/storage?external_auth=success"
+						: "/?external_auth=success",
 			});
 			window.location.assign(start.authorization_url);
 		} catch (error) {
@@ -1027,7 +1045,19 @@ function useLoginPageController() {
 
 			if (mode === "setup") {
 				await authService.setup(un, em, password);
-				toast.success(t("setup_complete"));
+
+				// The administrator now exists. Clear the stale needs_admin snapshot
+				// before any recoverable login or setup-state request can fail.
+				invalidateSystemSetupState();
+				setSetupState(null);
+				setRegistrationClosed(true);
+				setMode("login");
+				setIdentifier(em);
+				setExtraField("");
+				setErrors({});
+				setShowPassword(false);
+				toast.success(t("setup_admin_created"));
+
 				await handleLoginResult(
 					await authService.login(em, password),
 					"/",
@@ -1097,6 +1127,8 @@ function useLoginPageController() {
 		if (showPasswordResetRequest) return t("password_reset_request_desc");
 		if (mode === "setup") return t("setup_desc");
 		if (mode === "register") return t("create_new_account");
+		if (mode === "login" && setupState === "needs_storage")
+			return t("storage_setup_login_desc");
 		if (mode === "login") return t("enter_password");
 		return t("sign_in_to_account");
 	};
@@ -1146,7 +1178,9 @@ function useLoginPageController() {
 							? t("forgot_password_title")
 							: mode === "setup"
 								? t("welcome_setup")
-								: t("sign_in_to_account"),
+								: setupState === "needs_storage"
+									? t("storage_setup_login_title")
+									: t("sign_in_to_account"),
 		onActivationResendBack: closeActivationResendRequest,
 		onActivationResendEmailChange: (value: string, error: string) => {
 			dispatchAuthPanel({

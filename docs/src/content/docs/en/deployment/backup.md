@@ -27,7 +27,7 @@ If any users have MFA enabled, losing or replacing `auth.mfa_secret_key` makes e
 
 Here, "local persistent directories" usually include:
 
-- the default local storage policy directory, `data/uploads`
+- local storage policy directories created in the admin panel, such as `/data/uploads` or `data/uploads`
 - the local directory for `Admin -> System Settings -> User Management -> Avatar Directory`; the default is `data/avatar`
 - any other `local` storage policy root directories you configured manually
 
@@ -75,11 +75,11 @@ sudo tar -C /var/lib/asterdrive \
 sudo systemctl start asterdrive
 ```
 
-If you use the default SQLite database, default local upload directory, and default avatar directory, this archive usually covers:
+If you use the default SQLite database, a local policy under `data/uploads`, and the default avatar directory, this archive usually covers:
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads/`
+- `data/uploads/` (only when you manually configured a local policy there)
 - `data/avatar/`
 
 Docker deployment is essentially the same thing:  

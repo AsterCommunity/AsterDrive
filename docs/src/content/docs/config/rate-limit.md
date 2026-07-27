@@ -100,6 +100,12 @@ enabled = true
 
 如果你不想在应用层处理这件事，也可以继续关掉 AsterDrive 限流，把限流交给反向代理（Nginx `limit_req`、Caddy `rate_limit`、Traefik `RateLimit` 中间件）。但不建议两边都配置得很紧，否则排障时容易混淆。
 
+## 多实例计数边界
+
+AsterDrive 的 HTTP Governor 和 WebDAV IP token bucket 都在每个进程内独立计数。多个 Primary 放在负载均衡器后面时，同一客户端可能分别消耗每个实例的 burst 配额，因此这里的值不是 cluster-wide 全局限额。
+
+需要严格全局配额时，在 Ingress、API gateway 或负载均衡层执行；应用内限流仍可作为每个 Primary 的第二层保护。多 Primary 的完整入口要求见[负载均衡与多实例](/deployment/load-balancing/#限流不是全局计数)。
+
 ## 几条经验
 
 - 第一次启用保守一点，`burst_size` 不要设得太小

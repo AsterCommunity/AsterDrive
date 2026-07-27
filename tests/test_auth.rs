@@ -9,9 +9,7 @@ use actix_web::test;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::pagination::AdminAuditLogSortBy;
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
-use aster_drive::db::repository::{
-    audit_log_repo, auth_session_repo, passkey_repo, system_initialization_repo, user_repo,
-};
+use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
 use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
@@ -624,6 +622,80 @@ async fn test_register_and_login() {
 }
 
 #[actix_web::test]
+async fn test_legacy_user_password_rehashes_once_without_overwriting_newer_hash() {
+    use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
+
+    let mut state = common::setup().await;
+    common::configure_test_password_hash_policy(&mut state, 16).await;
+    let user = common::create_test_account(
+        &state,
+        "legacyuser",
+        "legacy-login-user@example.com",
+        "legacy-password",
+    )
+    .await
+    .unwrap();
+    let legacy_hash = aster_forge_crypto::hash_password_with_policy(
+        "legacy-password",
+        &common::test_password_hash_policy(8),
+    )
+    .unwrap();
+    let mut active = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap()
+        .into_active_model();
+    active.password_hash = Set(legacy_hash.clone());
+    active.update(state.writer_db()).await.unwrap();
+
+    let wrong = local::login(&state, "legacyuser", "wrong-password", None, None)
+        .await
+        .unwrap_err();
+    assert_eq!(wrong.api_error_code(), ApiErrorCode::CredentialsFailed);
+    let unchanged = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
+    assert_eq!(unchanged.password_hash, legacy_hash);
+
+    local::login(&state, "legacyuser", "legacy-password", None, None)
+        .await
+        .unwrap();
+    let upgraded = user_repo::find_by_id(state.writer_db(), user.id)
+        .await
+        .unwrap();
+    assert!(
+        upgraded
+            .password_hash
+            .starts_with("$argon2id$v=19$m=16,t=1,p=1$")
+    );
+    assert_eq!(upgraded.session_version, unchanged.session_version);
+    let verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password("legacy-password", &upgraded.password_hash)
+        .await
+        .unwrap();
+    assert!(verification.is_valid);
+    assert!(!verification.needs_rehash);
+
+    let stale_update = user_repo::update_password_hash_if_current(
+        state.writer_db(),
+        user.id,
+        &legacy_hash,
+        "must-not-overwrite-current-hash",
+    )
+    .await
+    .unwrap();
+    assert!(!stale_update);
+    assert_eq!(
+        user_repo::find_by_id(state.writer_db(), user.id)
+            .await
+            .unwrap()
+            .password_hash,
+        upgraded.password_hash
+    );
+}
+
+#[actix_web::test]
 async fn test_register_requires_completed_setup_even_when_public_registration_is_enabled() {
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -646,7 +718,10 @@ async fn test_register_requires_completed_setup_even_when_public_registration_is
     );
     assert_eq!(body["msg"], "system is not initialized");
     assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
-    assert!(!local::check_auth_state(&state).await.unwrap());
+    assert_eq!(
+        local::check_auth_state(&state).await.unwrap().state,
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin
+    );
 }
 
 #[actix_web::test]
@@ -685,10 +760,11 @@ async fn test_failed_setup_releases_initialization_claim() {
         .await
         .expect_err("invalid setup should fail");
     assert_eq!(error.message(), "password must be at least 8 characters");
-    assert!(
-        !system_initialization_repo::is_initialized(state.writer_db())
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
             .await
-            .unwrap()
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::NeedsAdmin
     );
     assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 0);
 
@@ -696,11 +772,92 @@ async fn test_failed_setup_releases_initialization_claim() {
         .await
         .expect("valid setup should retry after rollback");
     assert!(admin.role.is_admin());
-    assert!(
-        system_initialization_repo::is_initialized(state.writer_db())
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::Ready
+    );
+}
+
+#[actix_web::test]
+async fn test_setup_state_machine_is_identical_across_deployment_profiles() {
+    use sea_orm::ConnectionTrait;
+
+    for (index, profile) in [
+        aster_drive::config::DeploymentProfile::Single,
+        aster_drive::config::DeploymentProfile::Cluster,
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let mut state = common::setup().await;
+        state
+            .writer_db()
+            .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
+            .await
+            .unwrap();
+        state
+            .policy_snapshot
+            .reload(state.writer_db())
+            .await
+            .unwrap();
+        let mut config = state.config.as_ref().clone();
+        config.deployment.profile = profile;
+        state.config = std::sync::Arc::new(config);
+        let app = create_test_app!(state.clone());
+        let username = format!("setupadmin{index}");
+        let email = format!("setup-admin-{index}@example.com");
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/setup")
+            .peer_addr("127.0.0.1:12345".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": username.clone(),
+                "email": email,
+                "password": "secret123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 201, "{} setup", profile.as_str());
+
+        let admin = user_repo::find_by_username(state.writer_db(), &username)
             .await
             .unwrap()
-    );
+            .expect("first admin should be created");
+        assert!(admin.role.is_admin());
+        assert_eq!(admin.policy_group_id, None);
+        assert_eq!(
+            local::check_auth_state(&state).await.unwrap().state,
+            aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+        );
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/check")
+            .peer_addr("127.0.0.1:12346".parse().unwrap())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["data"]["setup_state"], "needs_storage");
+        assert_eq!(body["data"]["has_users"], true);
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/auth/register")
+            .peer_addr("127.0.0.1:12347".parse().unwrap())
+            .set_json(serde_json::json!({
+                "username": format!("earlyuser{index}"),
+                "email": format!("early-user-{index}@example.com"),
+                "password": "secret123"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 400);
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], "validation.system_not_initialized");
+        assert_eq!(body["msg"], "system storage setup is incomplete");
+        assert_eq!(user_repo::count_all(state.writer_db()).await.unwrap(), 1);
+    }
 }
 
 #[actix_web::test]
@@ -794,7 +951,7 @@ async fn assert_concurrent_setup_across_independent_connections(database_url: St
     let state_a = common::setup_with_database_url(&database_url).await;
     let second_db = aster_drive::db::connect_with_metrics(
         &aster_drive::config::DatabaseConfig {
-            url: database_url,
+            url: database_url.into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -1900,6 +2057,7 @@ async fn test_check_reports_public_registration_flag() {
     assert_eq!(resp.status(), 200);
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["data"]["has_users"], true);
+    assert_eq!(body["data"]["setup_state"], "ready");
     assert_eq!(body["data"]["allow_user_registration"], false);
     assert_eq!(body["data"]["passkey_login_enabled"], false);
 }
@@ -4003,7 +4161,7 @@ async fn test_user_status_cached_in_auth_middleware() {
         config_sync: base.config_sync,
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
-        storage_change_tx: base.storage_change_tx,
+        storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,
@@ -4051,7 +4209,7 @@ async fn test_disable_user_invalidates_status_cache() {
         config_sync: base.config_sync,
         metrics: aster_drive::metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
-        storage_change_tx: base.storage_change_tx,
+        storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
         background_task_dispatch_wakeup: base.background_task_dispatch_wakeup,
         remote_protocol: base.remote_protocol,

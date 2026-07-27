@@ -18,7 +18,7 @@ Follower nodes are suitable for these scenarios:
 - You want to route large files or files from a specific team to an independent node
 - You want a follower node to write to its own local disk or to S3 / MinIO that it can access
 
-It is not a multi-primary cluster or automatic failover. The primary node is still the only control plane.
+The Follower itself is not a second Primary and does not provide an independent control plane. The controlling side may remain one Primary or run multiple Primaries under the [cluster load-balancing contract](/en/deployment/load-balancing/); both topologies use the Follower as a remote storage data plane.
 
 :::caution[Choose transport according to your network]
 Follower nodes now have three transport modes:

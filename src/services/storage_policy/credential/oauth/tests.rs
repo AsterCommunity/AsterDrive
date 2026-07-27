@@ -176,7 +176,7 @@ fn microsoft_token_response(
 async fn setup_db() -> sea_orm::DatabaseConnection {
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },
@@ -197,7 +197,7 @@ async fn setup_file_db(pool_size: u32) -> (sea_orm::DatabaseConnection, std::pat
     ));
     let db = db::connect_with_metrics(
         &DatabaseConfig {
-            url: format!("sqlite://{}?mode=rwc", db_path.display()),
+            url: format!("sqlite://{}?mode=rwc", db_path.display()).into(),
             pool_size,
             retry_count: 0,
         },
@@ -227,7 +227,7 @@ async fn build_oauth_test_state(
     .await;
     let mut config = crate::config::Config::default();
     config.auth.storage_credential_secret_key = encryption_key.to_string();
-    let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+    let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
         crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
     );
     let share_download_rollback =
@@ -246,7 +246,7 @@ async fn build_oauth_test_state(
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
         metrics: crate::metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
-        storage_change_tx,
+        storage_change_bus,
         share_download_rollback,
         background_task_dispatch_wakeup:
             crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

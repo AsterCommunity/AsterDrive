@@ -33,6 +33,8 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
     let mut backend = None;
     let mut checks = Vec::new();
 
+    let static_config = load_static_config_check(args, &mut checks);
+
     let Some((db, db_backend)) =
         connect_doctor_database(args, &redacted_database_url, &mut backend, &mut checks).await
     else {
@@ -62,6 +64,10 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
 
     checks.push(doctor_storage_policy_check(&db).await);
 
+    if let Some(config) = static_config.as_ref() {
+        checks.push(doctor_deployment_topology_check(&db, config).await);
+    }
+
     let (effective_policy_id, policy_filter_valid) =
         resolve_policy_filter(&db, args, deep, &mut checks).await;
 
@@ -77,6 +83,96 @@ pub(super) async fn execute_doctor_command_impl(args: &DoctorArgs) -> DoctorRepo
     .await;
 
     DoctorReport::new(args, redacted_database_url, backend, deep, scopes, checks)
+}
+
+fn load_static_config_check(
+    args: &DoctorArgs,
+    checks: &mut Vec<DoctorCheck>,
+) -> Option<std::sync::Arc<crate::config::Config>> {
+    let config = match crate::config::try_get_config() {
+        Some(config) => config,
+        None => match crate::config::load_config_read_only() {
+            Ok(config) => std::sync::Arc::new(config),
+            Err(error) => {
+                checks.push(doctor_check(
+                    "static_config",
+                    "Static configuration",
+                    DoctorStatus::Fail,
+                    "failed to load static configuration",
+                    vec![error.message().to_string()],
+                    Some("Fix config.toml and rerun doctor.".to_string()),
+                ));
+                return None;
+            }
+        },
+    };
+    let issues =
+        crate::config::deployment::static_issues(config.as_ref(), Some(args.database_url.as_str()));
+    if issues.is_empty() {
+        checks.push(doctor_check(
+            "static_config",
+            "Static configuration",
+            DoctorStatus::Ok,
+            format!(
+                "deployment profile '{}' has valid static dependencies",
+                config.deployment.profile.as_str()
+            ),
+            Vec::new(),
+            None,
+        ));
+    } else {
+        checks.push(doctor_check(
+            "static_config",
+            "Static configuration",
+            DoctorStatus::Fail,
+            "deployment profile has invalid static dependencies",
+            issues,
+            Some("Use shared PostgreSQL/MySQL, Redis cache, and Redis config sync for cluster deployments.".to_string()),
+        ));
+    }
+
+    Some(config)
+}
+
+async fn doctor_deployment_topology_check(
+    db: &DatabaseConnection,
+    config: &crate::config::Config,
+) -> DoctorCheck {
+    match crate::services::ops::deployment::inspect_primary_topology(db, config).await {
+        Ok(report) if report.has_issues() => doctor_check(
+            "deployment_topology",
+            "Deployment topology",
+            DoctorStatus::Fail,
+            format!(
+                "deployment profile '{}' has incompatible primary topology",
+                config.deployment.profile.as_str()
+            ),
+            report.issue_messages(),
+            Some(
+                "Use direct remote transport and shared object storage for cluster primaries."
+                    .to_string(),
+            ),
+        ),
+        Ok(_) => doctor_check(
+            "deployment_topology",
+            "Deployment topology",
+            DoctorStatus::Ok,
+            format!(
+                "deployment profile '{}' has no known topology conflicts",
+                config.deployment.profile.as_str()
+            ),
+            Vec::new(),
+            None,
+        ),
+        Err(error) => doctor_check(
+            "deployment_topology",
+            "Deployment topology",
+            DoctorStatus::Fail,
+            "failed to inspect deployment topology",
+            vec![error.message().to_string()],
+            Some("Check database access and rerun doctor.".to_string()),
+        ),
+    }
 }
 
 async fn connect_doctor_database(

@@ -24,13 +24,22 @@ pub async fn ensure_policy_groups_seeded<C>(db: &C) -> Result<()>
 where
     C: sea_orm::ConnectionTrait + TransactionTrait,
 {
-    let default_policy = match policy_repo::find_default(db).await? {
-        Some(policy) => policy,
-        None => return Ok(()),
-    };
+    if policy_repo::find_default(db).await?.is_none() {
+        return Ok(());
+    }
 
     let txn = transaction::begin(db).await?;
     let result: Result<()> = async {
+        // Serialize the complete default-policy/group reconciliation before
+        // reading or creating a group. Multiple Primaries run this same startup
+        // path, so locking only after group creation would still allow them to
+        // create competing default groups.
+        lock_default_group_assignment(&txn).await?;
+        let default_policy = policy_repo::find_default(&txn).await?.ok_or_else(|| {
+            AsterError::internal_error(
+                "default storage policy disappeared while reconciling its policy group",
+            )
+        })?;
         let default_group = match policy_group_repo::find_default_group(&txn).await? {
             Some(group) => {
                 let items = policy_group_repo::find_group_items(&txn, group.id).await?;
@@ -84,7 +93,6 @@ where
                 group
             }
         };
-        lock_default_group_assignment(&txn).await?;
         policy_group_repo::set_only_default_group(&txn, default_group.id).await?;
 
         user_repo::assign_policy_group_to_unassigned(&txn, default_group.id, Utc::now())
@@ -175,6 +183,13 @@ pub async fn create_group(
     }
     transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "create",
+        "storage_policy_group",
+        group.id,
+    )
+    .await;
     let group = policy_group_repo::find_group_by_id(state.writer_db(), group.id).await?;
     Ok(build_group_info(state, &group))
 }
@@ -268,6 +283,13 @@ pub async fn update_group(
 
     transaction::commit(txn).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "update",
+        "storage_policy_group",
+        group.id,
+    )
+    .await;
     let group = policy_group_repo::find_group_by_id(state.writer_db(), group.id).await?;
     Ok(build_group_info(state, &group))
 }
@@ -303,6 +325,13 @@ pub async fn delete_group(state: &impl SharedRuntimeState, id: i64) -> Result<()
 
     policy_group_repo::delete_group(state.writer_db(), id).await?;
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "delete",
+        "storage_policy_group",
+        id,
+    )
+    .await;
     tracing::info!(
         policy_group_id = id,
         policy_group_name = %group.name,
@@ -364,6 +393,13 @@ pub async fn migrate_group_assignments(
         });
     }
     state.policy_snapshot().reload(state.writer_db()).await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "migrate_assignments",
+        "storage_policy_group",
+        source_group_id,
+    )
+    .await;
 
     Ok(PolicyGroupAssignmentMigrationResult {
         source_group_id,

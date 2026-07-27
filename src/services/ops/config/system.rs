@@ -427,7 +427,7 @@ mod tests {
     async fn test_state() -> (PrimaryAppState, aster_forge_config::ConfigNotification) {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },
@@ -458,7 +458,7 @@ mod tests {
             "service-test-runtime",
             notifier as aster_forge_config::SharedConfigChangeNotifier,
         );
-        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+        let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
@@ -479,7 +479,7 @@ mod tests {
                 config_sync,
                 metrics: crate::metrics::NoopMetrics::arc(),
                 mail_sender: aster_forge_mail::memory_sender(),
-                storage_change_tx,
+                storage_change_bus,
                 share_download_rollback,
                 background_task_dispatch_wakeup:
                     PrimaryAppState::new_background_task_dispatch_wakeup(),

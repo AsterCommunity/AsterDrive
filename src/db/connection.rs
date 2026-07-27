@@ -47,14 +47,41 @@ mod tests {
     #[test]
     fn forge_config_preserves_drive_database_settings() {
         let config = forge_database_config(&DatabaseConfig {
-            url: "sqlite://drive.db".to_string(),
+            url: "sqlite://drive.db".into(),
             pool_size: 12,
             retry_count: 4,
         });
 
-        assert_eq!(config.url, "sqlite://drive.db");
+        assert_eq!(config.url.as_url(), Some("sqlite://drive.db"));
         assert_eq!(config.pool_size, 12);
         assert_eq!(config.retry_count, 4);
+    }
+
+    #[test]
+    fn forge_config_preserves_structured_database_credentials() {
+        let raw_username = "drive user";
+        let raw_password = "raw#[]{}^+=*@:/?%secret";
+        let config = forge_database_config(&DatabaseConfig {
+            url: aster_forge_db::DatabaseUrl::credentials(
+                "postgres://database.internal:5432/asterdrive",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            ),
+            pool_size: 12,
+            retry_count: 4,
+        });
+
+        assert_eq!(
+            config.url,
+            aster_forge_db::DatabaseUrl::credentials(
+                "postgres://database.internal:5432/asterdrive",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+        let debug = format!("{config:?}");
+        assert!(!debug.contains(raw_username));
+        assert!(!debug.contains(raw_password));
     }
 
     #[tokio::test]
@@ -65,7 +92,7 @@ mod tests {
         );
         let db = super::connect_with_metrics(
             &DatabaseConfig {
-                url,
+                url: url.into(),
                 pool_size: 10,
                 retry_count: 0,
             },
@@ -82,7 +109,7 @@ mod tests {
     #[tokio::test]
     async fn drive_adapter_uses_single_handle_for_sqlite_memory() {
         let cfg = DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 4,
             retry_count: 0,
         };
@@ -111,7 +138,7 @@ mod tests {
             uuid::Uuid::new_v4()
         );
         let cfg = DatabaseConfig {
-            url,
+            url: url.into(),
             pool_size: 4,
             retry_count: 0,
         };

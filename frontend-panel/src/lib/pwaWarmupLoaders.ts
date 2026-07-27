@@ -41,6 +41,11 @@ export const userRouteWarmupLoaders = [
 		label: "ErrorPage",
 		load: () => import("@/pages/ErrorPage"),
 	},
+	{
+		key: "route:storage-setup-pending",
+		label: "StorageSetupPendingPage",
+		load: () => import("@/pages/StorageSetupPendingPage"),
+	},
 	fileBrowserRouteWarmupLoader,
 	{
 		key: "route:category-browser",
@@ -105,6 +110,11 @@ export const userRouteWarmupLoaders = [
 ] satisfies WarmupLoaderEntry[];
 
 export const adminRouteWarmupLoaders = [
+	{
+		key: "route:storage-setup",
+		label: "StorageSetupPage",
+		load: () => import("@/pages/StorageSetupPage"),
+	},
 	{
 		key: "route:admin-overview",
 		label: "AdminOverviewPage",

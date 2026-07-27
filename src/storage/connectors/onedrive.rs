@@ -11,13 +11,13 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    start_authorization_action_descriptor, storage_connector_field,
-    storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
+    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
     validate_credential_action_descriptor,
 };
 use crate::storage::drivers::onedrive::{
@@ -72,6 +72,8 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 base_path_placeholder: "tenant/prefix",
             }),
             credential_mode: StorageConnectorCredentialMode::OauthDelegated,
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: false,
             requires_authorization: true,
             authorization_provider: Some("microsoft_graph".to_string()),
             capabilities: StorageConnectorCapabilities {
@@ -219,7 +221,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for OneDriveConnector {
     fn driver_type() -> DriverType {
         DriverType::OneDrive

@@ -114,6 +114,51 @@ export function useStorageChangeEvents() {
 		let refreshAttemptedForFailureStreak = false;
 		let cancelled = false;
 
+		const handleStorageChange = (event: StorageChangeEventPayload) => {
+			if (consumeStorageEventEcho(event)) {
+				return;
+			}
+
+			const workspace = useWorkspaceStore.getState().workspace;
+			const { breadcrumb, currentFolderId } = useFileStore.getState();
+			const decision = decideRemoteStorageMutation(event, {
+				currentWorkspace: workspace,
+				folder: {
+					currentFolderId,
+					breadcrumbFolderIds: breadcrumb.flatMap((item) =>
+						item.id === null ? [] : [item.id],
+					),
+				},
+				isRefreshGateActive: isStorageRefreshGateActive(),
+				pathname: currentPathname(),
+			});
+
+			refreshStorageUsage(decision.refreshStorageUsage);
+
+			if (!decision.publishToWorkspace) {
+				return;
+			}
+
+			publishStorageChange(event);
+
+			if (decision.invalidateAllResourceCaches) {
+				invalidateAllFileResourceCaches();
+			} else {
+				invalidatePreviewCaches(decision.invalidateFileResourceCacheIds);
+			}
+
+			switch (decision.refreshCurrentFolder) {
+				case "defer":
+					deferStorageRefresh();
+					return;
+				case "now":
+					void refreshCurrentFolder();
+					return;
+				case "none":
+					return;
+			}
+		};
+
 		const scheduleReconnect = () => {
 			if (cancelled || !useAuthStore.getState().isAuthenticated) return;
 			if (failureCount >= SSE_RECONNECT_FAILURE_LIMIT) {
@@ -167,9 +212,24 @@ export function useStorageChangeEvents() {
 			);
 
 			source.onopen = () => {
+				if (cancelled) return;
+				const recovered = failureCount > 0;
 				// 连接确认建立后才重置失败计数；浏览器在 onopen 之前的重连不算成功
 				failureCount = 0;
 				refreshAttemptedForFailureStreak = false;
+				if (recovered) {
+					handleStorageChange({
+						kind: "sync.required",
+						workspace: null,
+						file_ids: [],
+						folder_ids: [],
+						affected_parent_ids: [],
+						root_affected: false,
+						affects_quota: true,
+						storage_delta: null,
+						at: new Date().toISOString(),
+					});
+				}
 			};
 
 			source.onmessage = (message) => {
@@ -181,48 +241,7 @@ export function useStorageChangeEvents() {
 					return;
 				}
 
-				if (consumeStorageEventEcho(event)) {
-					return;
-				}
-
-				const workspace = useWorkspaceStore.getState().workspace;
-				const { breadcrumb, currentFolderId } = useFileStore.getState();
-				const decision = decideRemoteStorageMutation(event, {
-					currentWorkspace: workspace,
-					folder: {
-						currentFolderId,
-						breadcrumbFolderIds: breadcrumb.flatMap((item) =>
-							item.id === null ? [] : [item.id],
-						),
-					},
-					isRefreshGateActive: isStorageRefreshGateActive(),
-					pathname: currentPathname(),
-				});
-
-				refreshStorageUsage(decision.refreshStorageUsage);
-
-				if (!decision.publishToWorkspace) {
-					return;
-				}
-
-				publishStorageChange(event);
-
-				if (decision.invalidateAllResourceCaches) {
-					invalidateAllFileResourceCaches();
-				} else {
-					invalidatePreviewCaches(decision.invalidateFileResourceCacheIds);
-				}
-
-				switch (decision.refreshCurrentFolder) {
-					case "defer":
-						deferStorageRefresh();
-						return;
-					case "now":
-						void refreshCurrentFolder();
-						return;
-					case "none":
-						return;
-				}
+				handleStorageChange(event);
 			};
 
 			source.onerror = (error) => {

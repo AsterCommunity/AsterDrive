@@ -51,10 +51,32 @@ url = "sqlite:///data/asterdrive.db?mode=rwc"
 url = "postgres://user:password@localhost:5432/asterdrive"
 ```
 
+用户名或密码含 `@`、`:`、`/`、`?`、`#` 等保留字符时，推荐使用结构化原始凭据，Forge 会安全注入并编码：
+
+```toml
+url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
 ### MySQL
 
 ```toml
 url = "mysql://user:password@localhost:3306/asterdrive"
+```
+
+MySQL 同样支持结构化写法：
+
+```toml
+url = { base_url = "mysql://localhost:3306/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+结构化模式中的 `username` 和 `password` 是原始值，不要预先 percent-encode；`base_url` 不能再包含 userinfo。AsterDrive 不会把这两个字段写入配置序列化、Debug、health 或 doctor 输出。请限制 `data/config.toml` 的读取权限；在 Kubernetes 中优先通过 Secret 挂载完整配置文件，避免把凭据放进命令行或普通日志。
+
+也可以通过嵌套环境变量注入：
+
+```bash
+ASTER__DATABASE__URL__BASE_URL=postgres://database.internal:5432/asterdrive
+ASTER__DATABASE__URL__USERNAME=RAW_USERNAME
+ASTER__DATABASE__URL__PASSWORD=RAW_PASSWORD
 ```
 
 ## 启动时会自动做什么

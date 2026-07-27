@@ -16,6 +16,7 @@ import {
 	supportsStorageNativeProcessing,
 } from "@/components/admin/storage-policy-dialog/descriptorPredicates";
 import type { PolicyFormData } from "@/components/admin/storage-policy-dialog/formTypes";
+import { AsterDriveWordmark } from "@/components/common/AsterDriveWordmark";
 import { InlineConfirm } from "@/components/common/ManagerDialogShell";
 import { Button } from "@/components/ui/button";
 import {
@@ -105,6 +106,10 @@ interface StoragePolicyDialogProps {
 	onCreateStepChange: (step: number) => void;
 	onCreateNext: () => void;
 	onSyncNormalizedObjectStorageForm: () => void;
+	showCloseButton?: boolean;
+	forceDefaultPolicy?: boolean;
+	presentation?: "dialog" | "setup";
+	onSetupLogout?: () => void;
 }
 
 interface StorageNativeLabelOptions {
@@ -183,12 +188,18 @@ function useStoragePolicyDialogContent({
 	onCreateStepChange,
 	onCreateNext,
 	onSyncNormalizedObjectStorageForm,
+	showCloseButton = true,
+	forceDefaultPolicy = false,
+	presentation = "dialog",
+	onSetupLogout,
 }: StoragePolicyDialogProps) {
 	const { t } = useTranslation("admin");
 	const isCreateMode = mode === "create";
+	const isSetupPresentation = presentation === "setup";
 	const storageOptions = buildStoragePolicyDriverOptions(
 		storageDriverDescriptors,
 		t,
+		isSetupPresentation,
 	);
 	const canUseObjectStorageConnection = supportsObjectStorageConnection(
 		storageDriverDescriptor,
@@ -524,12 +535,55 @@ function useStoragePolicyDialogContent({
 
 	return (
 		<Dialog open={open} onOpenChange={onOpenChange}>
-			<DialogContent className="flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl">
-				<DialogHeader className="shrink-0 px-6 pt-5 pb-0 pr-14">
+			<DialogContent
+				showCloseButton={showCloseButton}
+				overlayClassName={
+					isSetupPresentation
+						? "bg-background backdrop-blur-none dark:bg-background"
+						: undefined
+				}
+				className={`flex max-h-[min(90vh,calc(100vh-2rem))] flex-col gap-0 overflow-hidden p-0 sm:max-w-[calc(100%-2rem)] lg:max-w-4xl ${
+					isSetupPresentation ? "shadow-xl" : ""
+				}`}
+			>
+				{isSetupPresentation ? (
+					<div className="flex shrink-0 items-center justify-between gap-4 border-b border-border/70 px-6 py-4">
+						<AsterDriveWordmark
+							alt="AsterDrive"
+							className="h-8 w-auto max-w-44"
+						/>
+						<Button
+							type="button"
+							variant="outline"
+							size="sm"
+							onClick={onSetupLogout}
+						>
+							{t("core:logout")}
+						</Button>
+					</div>
+				) : null}
+				<DialogHeader
+					className={`shrink-0 px-6 pt-5 pb-0 ${
+						showCloseButton ? "pr-14" : "pr-6"
+					}`}
+				>
+					{isSetupPresentation ? (
+						<p className="text-xs font-semibold tracking-[0.18em] text-primary uppercase">
+							{t("auth:storage_setup_eyebrow")}
+						</p>
+					) : null}
 					<DialogTitle>
-						{isCreateMode ? t("create_policy") : t("edit_policy")}
+						{isSetupPresentation
+							? t("auth:storage_setup_page_title")
+							: isCreateMode
+								? t("create_policy")
+								: t("edit_policy")}
 					</DialogTitle>
-					{isCreateMode ? null : (
+					{isSetupPresentation ? (
+						<DialogDescription>
+							{t("auth:storage_setup_page_desc")}
+						</DialogDescription>
+					) : isCreateMode ? null : (
 						<DialogDescription>{t("policies_intro")}</DialogDescription>
 					)}
 				</DialogHeader>
@@ -554,6 +608,7 @@ function useStoragePolicyDialogContent({
 								currentStorageOption={currentStorageOption}
 								endpointValidationMessage={createEndpointError}
 								form={form}
+								forceDefaultPolicy={forceDefaultPolicy}
 								storageDriverDescriptorsError={driverOptionsError}
 								storageDriverDescriptorsLoading={
 									storageDriverDescriptorsLoading && storageOptions.length === 0
@@ -838,15 +893,27 @@ function TencentCosCorsButton({
 function buildStoragePolicyDriverOptions(
 	descriptors: StorageConnectorDescriptor[],
 	t: (key: string) => string,
+	disableUnsupportedInitialSetup: boolean,
 ): StoragePolicyDriverOption[] {
 	if (descriptors.length > 0) {
-		return descriptors.map((descriptor) =>
-			storagePolicyDriverOptionFromUi(
+		return descriptors.map((descriptor) => {
+			const option = storagePolicyDriverOptionFromUi(
 				descriptor.driver_type,
 				descriptor.ui ?? fallbackStorageConnectorUi(),
 				t,
-			),
-		);
+			);
+			if (
+				disableUnsupportedInitialSetup &&
+				!descriptor.supports_initial_setup
+			) {
+				return {
+					...option,
+					disabled: true,
+					disabledReason: t("auth:storage_setup_connector_post_setup_only"),
+				};
+			}
+			return option;
+		});
 	}
 
 	return [];

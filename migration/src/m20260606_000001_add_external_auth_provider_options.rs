@@ -1,6 +1,8 @@
 //! Add provider-specific options JSON for external auth providers.
 
-use crate::column::{json_text_column_for_final_schema, nullable_json_text_column_for_backfill};
+use aster_forge_db_migration::{
+    json_text_column_for_final_schema, nullable_json_text_column_for_backfill,
+};
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
 

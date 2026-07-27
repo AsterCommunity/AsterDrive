@@ -4,6 +4,8 @@ import type { PolicyFormData } from "./formTypes";
 
 export interface StoragePolicyDriverOption {
 	description: string;
+	disabled?: boolean;
+	disabledReason?: string;
 	iconName?: IconName;
 	iconSrc?: string;
 	type: DriverType;

@@ -16,7 +16,7 @@ title: "生产上线检查清单"
 | 登录安全 | `jwt_secret` 已固定，Cookie 仅 HTTPS 发送已开启 | [登录与会话](/config/auth/) |
 | 存储路线 | 默认存储策略、默认策略组、用户/团队绑定都符合预期 | [存储策略](/config/storage/) |
 | 邮件 | 注册激活、密码重置、邮箱改绑邮件能发通 | [邮件](/config/mail/) |
-| 多实例配置同步 | 多实例共享数据库、Redis endpoint 和 topic，跨实例修改已验收 | [配置同步](/config/config-sync/) |
+| 负载均衡与多实例 | Primary 共享数据库、Redis、静态密钥和支持的存储数据面，跨实例切换已验收 | [负载均衡与多实例](/deployment/load-balancing/) |
 | 监控 | 如需 Prometheus，已按需编译 `metrics` feature，并限制 `/health/metrics` 访问来源 | [监控与 Grafana](/deployment/monitoring/) |
 | 备份 | 至少完成一次备份，并知道恢复顺序 | [备份与恢复](/deployment/backup/) |
 | 升级 | 知道当前版本来源，升级前已看更新日志 | [升级与版本迁移](/deployment/upgrade/) |
@@ -27,7 +27,7 @@ title: "生产上线检查清单"
 
 - `data/config.toml`
 - 数据库文件，或者外部数据库实例
-- 默认本地存储目录
+- 管理端配置的本地存储目录（如果使用 `local`）
 - 额外创建的本地 `local` 存储策略目录
 - 头像目录，默认通常是 `data/avatar`
 - 从节点的 `remote_storage_target_local_root`，如果你用了本地远程存储目标
@@ -189,26 +189,28 @@ AsterDrive 当前不对 `/health/metrics` 做应用层鉴权。这个选择是�
 
 Grafana dashboard 和本地 Prometheus + Grafana 示例见 [监控与 Grafana](/deployment/monitoring/)。
 
-## 10. 多实例配置同步
+## 10. 负载均衡与多实例
 
 如果只运行一个 AsterDrive 进程，保持 `[config_sync].backend = "disabled"`。
 
 如果运行多个实例，确认：
 
-- 所有实例连接同一份权威数据库
-- 所有实例都能访问配置的 Redis endpoint
-- 所有实例使用完全相同的 `aster_drive.config_reload` topic
-- 在实例 A 修改系统设置后，实例 B 能及时看到变化
-- Redis 中断和恢复后的处理流程已经演练
+- 所有 primary 实例显式设置 `[deployment].profile = "cluster"`
+- 数据库、cache Redis、config sync Redis/topic、认证与加密静态密钥在所有 Primary 上一致
+- 默认策略和所有用户/团队可命中的存储策略符合 cluster 支持矩阵，没有 `local` policy 或 Pod-local staging 依赖
+- 上传头像时，`avatar_dir` 是所有 Primary 可读写的共享目录
+- 负载均衡器只转发到 `/health/ready` 成功的实例，并支持流式请求、SSE、WebSocket Upgrade 和优雅摘流量
+- reverse tunnel、migration、Redis 故障恢复、调度 owner 接管、后台任务 fencing 和跨实例上传已经按权威验收清单测试
+- 严格全局限流配置在 Ingress/LB 层，而不是把每个进程的应用内计数误当成全局配额
 
-完整配置、故障语义和验收步骤见 [配置同步](/config/config-sync/)。
+完整限制和验收步骤见[负载均衡与多实例](/deployment/load-balancing/)，配置通知的具体故障语义见[配置同步](/config/config-sync/)。
 
 ## 11. 最后一轮验收
 
 上线前用真实域名、真实账号、真实客户端跑一遍：
 
 1. `/health` 返回 200
-2. `/health/ready` 返回 200
+2. `/health/ready` 返回 200，且响应里的 `data.status` 是 `ready`；cluster 环境同时验证 Redis 停止时会变为 503、恢复后回到 `200 + ready`
 3. 如果启用了 metrics，受限来源访问 `/health/metrics` 返回 Prometheus 文本
 4. 登录、刷新页面、退出登录都正常
 5. 上传一个小文件和一个大文件

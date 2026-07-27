@@ -62,6 +62,7 @@ export type ActionMessageResp = components["schemas"]["ActionMessageResp"];
 export type AuthSessionInfo = components["schemas"]["AuthSessionInfo"];
 export type AuthTokenResp = components["schemas"]["AuthTokenResp"];
 export type CheckResp = components["schemas"]["CheckResp"];
+export type SystemSetupState = components["schemas"]["SystemSetupState"];
 export type ChangePasswordRequest = components["schemas"]["ChangePasswordReq"];
 export type CreateUserReq = components["schemas"]["CreateUserReq"];
 export type CreateUserResponse = OperationData<"create_user">;
@@ -407,6 +408,12 @@ export type StoragePolicy = components["schemas"]["StoragePolicy"];
 export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
 export type StorageConnectorDescriptor =
 	OperationData<"list_storage_driver_descriptors">[number];
+export type StorageConnectorCatalogQuery =
+	OperationQuery<"list_storage_driver_descriptors">;
+export type StorageConnectorCatalogContext =
+	components["schemas"]["StorageConnectorCatalogContext"];
+export type StorageConnectorDeploymentScope =
+	components["schemas"]["StorageConnectorDeploymentScope"];
 export type StorageConnectorFieldDescriptor =
 	components["schemas"]["StorageConnectorFieldDescriptor"];
 export type StorageConnectorUiDescriptor =

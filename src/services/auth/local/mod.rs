@@ -23,6 +23,7 @@ pub use contact_verification::{
     cleanup_expired_contact_verification_tokens, confirm_contact_verification,
     confirm_password_reset, request_email_change, request_password_reset, resend_email_change,
 };
+pub(crate) use password::verify_user_password;
 pub use password::{change_password, login, set_password};
 pub use registration::{
     RegisterActivationResendOutcome, check_auth_state, create_user_by_admin, register,

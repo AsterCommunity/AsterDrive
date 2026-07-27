@@ -29,11 +29,35 @@ For single-node, NAS, personal, or small-team deployments, the memory cache is e
 | `endpoint` | `""` | Redis connection URL, used only when `backend = "redis"` |
 | `default_ttl` | `3600` | Default TTL in seconds |
 
+## Redis Authentication
+
+Existing complete URL strings remain compatible:
+
+```toml
+endpoint = "redis://encoded-user:encoded-password@cache.internal:6379/0"
+```
+
+When the username or password contains reserved characters, prefer raw structured credentials:
+
+```toml
+endpoint = { base_url = "redis://cache.internal:6379/0", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+For Redis deployments with a password but no ACL username, use `username = ""`. Do not pre-encode raw credentials, and do not include userinfo in `base_url`; AsterDrive and Forge omit username/password from Debug and configuration serialization. Restrict production configuration permissions, and on Kubernetes prefer mounting the complete configuration from a Secret.
+
+Equivalent structured environment variables:
+
+```bash
+ASTER__CACHE__ENDPOINT__BASE_URL=redis://cache.internal:6379/0
+ASTER__CACHE__ENDPOINT__USERNAME=
+ASTER__CACHE__ENDPOINT__PASSWORD=RAW_PASSWORD
+```
+
 ## What Happens If Redis Is Unreachable
 
-If `backend` is set to `redis` but Redis cannot be reached, AsterDrive will **automatically fall back to memory cache and continue running**.
+If `backend` is set to `redis` but Redis is unreachable during startup, AsterDrive asks the Forge cache constructor to use the `ReturnError` policy, returns the connection error, and exits. This keeps both single and cluster from silently using process-local cache when operators configured Redis, and lets the orchestrator retry after Redis recovers.
 
-The service usually will not fail to start just because Redis is temporarily unavailable, but cache will no longer be shared across instances.
+After a Redis backend has been established successfully, a temporary runtime outage enters a controlled fallback/circuit state: `/health` still reports process liveness while `/health/ready` fails. The backend returns to ready after the connection recovers.
 
 ## Environment Variables
 

@@ -14,7 +14,7 @@ use crate::entities::{user, user_invitation};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
-    auth::local::shared::{CreateUserWithRoleInput, create_user_with_role},
+    auth::local::shared::{CreateUserWithRoleInput, create_user_with_role, hash_new_password},
     mail::outbox,
     mail::template::MailTemplatePayload,
 };
@@ -174,6 +174,11 @@ pub async fn accept_invitation(
     password: &str,
 ) -> Result<user::Model> {
     let token_hash = invitation_token_hash(token)?;
+    let invitation = find_valid_invitation_by_token(state.writer_db(), token).await?;
+    LocalEmailPolicy::from_runtime_config(state.runtime_config()).check(&invitation.email)?;
+    ensure_email_available(state.writer_db(), &invitation.email).await?;
+    let password_hash = hash_new_password(state, password).await?;
+
     let txn = transaction::begin(state.writer_db()).await?;
     let result = async {
         let Some(invitation) = user_invitation_repo::find_by_token_hash(&txn, &token_hash).await?
@@ -192,7 +197,7 @@ pub async fn accept_invitation(
             CreateUserWithRoleInput {
                 username,
                 email: &invitation.email,
-                password,
+                password_hash: &password_hash,
                 role: UserRole::User,
                 status: UserStatus::Active,
                 must_change_password: false,
@@ -221,6 +226,12 @@ pub async fn accept_invitation(
         state
             .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
+        crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+            state,
+            "accept_invitation",
+            user.id,
+        )
+        .await;
     }
     Ok(user)
 }

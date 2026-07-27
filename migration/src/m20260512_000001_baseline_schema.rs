@@ -3,7 +3,7 @@
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::{ConnectionTrait, DbBackend};
 
-use crate::search_acceleration::{
+use aster_forge_db_migration::{
     SqliteFtsConfig, ensure_postgres_extension, execute_sqlite_statements,
     mysql_fulltext_index_sql, postgres_drop_index, postgres_trigram_index,
     sqlite_fts_down_statements, sqlite_fts_up_statements,
@@ -120,19 +120,6 @@ impl MigrationTrait for Migration {
     }
 }
 
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
-}
-
 fn text_not_null_for_backend<T>(
     backend: DbBackend,
     column: T,
@@ -157,7 +144,9 @@ async fn create_storage_policy_groups(manager: &SchemaManager<'_>) -> Result<(),
             Table::create()
                 .table(StoragePolicyGroups::Table)
                 .if_not_exists()
-                .col(big_integer_pk(StoragePolicyGroups::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    StoragePolicyGroups::Id,
+                ))
                 .col(
                     ColumnDef::new(StoragePolicyGroups::Name)
                         .string_len(128)
@@ -182,12 +171,18 @@ async fn create_storage_policy_groups(manager: &SchemaManager<'_>) -> Result<(),
                         .default(false),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyGroups::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyGroups::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyGroups::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyGroups::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -202,7 +197,9 @@ async fn create_managed_followers(manager: &SchemaManager<'_>) -> Result<(), DbE
             Table::create()
                 .table(ManagedFollowers::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ManagedFollowers::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ManagedFollowers::Id,
+                ))
                 .col(
                     ColumnDef::new(ManagedFollowers::Name)
                         .string_len(128)
@@ -241,16 +238,25 @@ async fn create_managed_followers(manager: &SchemaManager<'_>) -> Result<(), DbE
                     Some(""),
                 ))
                 .col(
-                    crate::time::utc_date_time_column(manager, ManagedFollowers::LastCheckedAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ManagedFollowers::LastCheckedAt,
+                    )
+                    .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ManagedFollowers::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ManagedFollowers::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ManagedFollowers::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ManagedFollowers::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -263,7 +269,7 @@ async fn create_users(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     table
         .table(Users::Table)
         .if_not_exists()
-        .col(big_integer_pk(Users::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(Users::Id))
         .col(
             ColumnDef::new(Users::Username)
                 .string_len(64)
@@ -299,7 +305,7 @@ async fn create_users(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .not_null()
                 .default(1),
         )
-        .col(crate::time::utc_date_time_column(manager, Users::EmailVerifiedAt).null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Users::EmailVerifiedAt).null())
         .col(ColumnDef::new(Users::PendingEmail).string_len(255).null())
         .col(
             ColumnDef::new(Users::StorageUsed)
@@ -314,8 +320,8 @@ async fn create_users(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .default(0),
         )
         .col(ColumnDef::new(Users::PolicyGroupId).big_integer().null())
-        .col(crate::time::utc_date_time_column(manager, Users::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Users::UpdatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Users::CreatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Users::UpdatedAt).not_null())
         .col(ColumnDef::new(Users::Config).text().null());
 
     if backend != DbBackend::Sqlite {
@@ -337,7 +343,9 @@ async fn create_storage_policies(manager: &SchemaManager<'_>) -> Result<(), DbEr
     table
         .table(StoragePolicies::Table)
         .if_not_exists()
-        .col(big_integer_pk(StoragePolicies::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(
+            StoragePolicies::Id,
+        ))
         .col(
             ColumnDef::new(StoragePolicies::Name)
                 .string_len(128)
@@ -411,8 +419,14 @@ async fn create_storage_policies(manager: &SchemaManager<'_>) -> Result<(), DbEr
                 .not_null()
                 .default(5_242_880i64),
         )
-        .col(crate::time::utc_date_time_column(manager, StoragePolicies::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, StoragePolicies::UpdatedAt).not_null());
+        .col(
+            aster_forge_db_migration::utc_date_time_column(manager, StoragePolicies::CreatedAt)
+                .not_null(),
+        )
+        .col(
+            aster_forge_db_migration::utc_date_time_column(manager, StoragePolicies::UpdatedAt)
+                .not_null(),
+        );
 
     if backend != DbBackend::Sqlite {
         table.foreign_key(
@@ -433,7 +447,9 @@ async fn create_storage_policy_group_items(manager: &SchemaManager<'_>) -> Resul
             Table::create()
                 .table(StoragePolicyGroupItems::Table)
                 .if_not_exists()
-                .col(big_integer_pk(StoragePolicyGroupItems::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    StoragePolicyGroupItems::Id,
+                ))
                 .col(
                     ColumnDef::new(StoragePolicyGroupItems::GroupId)
                         .big_integer()
@@ -463,8 +479,11 @@ async fn create_storage_policy_group_items(manager: &SchemaManager<'_>) -> Resul
                         .default(0),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyGroupItems::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyGroupItems::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -495,7 +514,7 @@ async fn create_teams(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(Teams::Table)
                 .if_not_exists()
-                .col(big_integer_pk(Teams::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(Teams::Id))
                 .col(ColumnDef::new(Teams::Name).string_len(128).not_null())
                 .col(
                     ColumnDef::new(Teams::Description)
@@ -517,9 +536,18 @@ async fn create_teams(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .default(0),
                 )
                 .col(ColumnDef::new(Teams::PolicyGroupId).big_integer().null())
-                .col(crate::time::utc_date_time_column(manager, Teams::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, Teams::UpdatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, Teams::ArchivedAt).null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, Teams::CreatedAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, Teams::UpdatedAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, Teams::ArchivedAt)
+                        .null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(Teams::Table, Teams::CreatedBy)
@@ -543,7 +571,9 @@ async fn create_folders(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     table
         .table(Folders::Table)
         .if_not_exists()
-        .col(big_integer_pk(Folders::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(
+            Folders::Id,
+        ))
         .col(ColumnDef::new(Folders::Name).string_len(255).not_null())
         .col(ColumnDef::new(Folders::ParentId).big_integer().null())
         .col(ColumnDef::new(Folders::TeamId).big_integer().null())
@@ -560,9 +590,9 @@ async fn create_folders(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .default(""),
         )
         .col(ColumnDef::new(Folders::PolicyId).big_integer().null())
-        .col(crate::time::utc_date_time_column(manager, Folders::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Folders::UpdatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Folders::DeletedAt).null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Folders::CreatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Folders::UpdatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Folders::DeletedAt).null())
         .col(
             ColumnDef::new(Folders::IsLocked)
                 .boolean()
@@ -615,7 +645,9 @@ async fn create_file_blobs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(FileBlobs::Table)
                 .if_not_exists()
-                .col(big_integer_pk(FileBlobs::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    FileBlobs::Id,
+                ))
                 .col(ColumnDef::new(FileBlobs::Hash).string_len(64).not_null())
                 .col(ColumnDef::new(FileBlobs::Size).big_integer().not_null())
                 .col(ColumnDef::new(FileBlobs::PolicyId).big_integer().not_null())
@@ -645,8 +677,14 @@ async fn create_file_blobs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default(1),
                 )
-                .col(crate::time::utc_date_time_column(manager, FileBlobs::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, FileBlobs::UpdatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, FileBlobs::CreatedAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, FileBlobs::UpdatedAt)
+                        .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(FileBlobs::Table, FileBlobs::PolicyId)
@@ -663,7 +701,7 @@ async fn create_files(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     table
         .table(Files::Table)
         .if_not_exists()
-        .col(big_integer_pk(Files::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(Files::Id))
         .col(ColumnDef::new(Files::Name).string_len(255).not_null())
         .col(ColumnDef::new(Files::FolderId).big_integer().null())
         .col(ColumnDef::new(Files::TeamId).big_integer().null())
@@ -683,9 +721,9 @@ async fn create_files(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .default(""),
         )
         .col(ColumnDef::new(Files::MimeType).string_len(128).not_null())
-        .col(crate::time::utc_date_time_column(manager, Files::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Files::UpdatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Files::DeletedAt).null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Files::CreatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Files::UpdatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Files::DeletedAt).null())
         .col(
             ColumnDef::new(Files::IsLocked)
                 .boolean()
@@ -740,7 +778,9 @@ async fn create_system_config(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
             Table::create()
                 .table(SystemConfig::Table)
                 .if_not_exists()
-                .col(big_integer_pk(SystemConfig::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    SystemConfig::Id,
+                ))
                 .col(
                     ColumnDef::new(SystemConfig::Key)
                         .string_len(128)
@@ -789,7 +829,13 @@ async fn create_system_config(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                     SystemConfig::Description,
                     Some(""),
                 ))
-                .col(crate::time::utc_date_time_column(manager, SystemConfig::UpdatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        SystemConfig::UpdatedAt,
+                    )
+                    .not_null(),
+                )
                 .col(ColumnDef::new(SystemConfig::UpdatedBy).big_integer().null())
                 .to_owned(),
         )
@@ -859,9 +905,18 @@ async fn create_upload_sessions(manager: &SchemaManager<'_>) -> Result<(), DbErr
         .col(ColumnDef::new(UploadSessions::S3TempKey).text().null())
         .col(ColumnDef::new(UploadSessions::S3MultipartId).text().null())
         .col(ColumnDef::new(UploadSessions::FileId).big_integer().null())
-        .col(crate::time::utc_date_time_column(manager, UploadSessions::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, UploadSessions::ExpiresAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, UploadSessions::UpdatedAt).not_null())
+        .col(
+            aster_forge_db_migration::utc_date_time_column(manager, UploadSessions::CreatedAt)
+                .not_null(),
+        )
+        .col(
+            aster_forge_db_migration::utc_date_time_column(manager, UploadSessions::ExpiresAt)
+                .not_null(),
+        )
+        .col(
+            aster_forge_db_migration::utc_date_time_column(manager, UploadSessions::UpdatedAt)
+                .not_null(),
+        )
         .foreign_key(
             ForeignKey::create()
                 .from(UploadSessions::Table, UploadSessions::UserId)
@@ -888,7 +943,9 @@ async fn create_webdav_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr
             Table::create()
                 .table(WebdavAccounts::Table)
                 .if_not_exists()
-                .col(big_integer_pk(WebdavAccounts::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    WebdavAccounts::Id,
+                ))
                 .col(
                     ColumnDef::new(WebdavAccounts::UserId)
                         .big_integer()
@@ -917,12 +974,18 @@ async fn create_webdav_accounts(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         .default(true),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, WebdavAccounts::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        WebdavAccounts::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, WebdavAccounts::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        WebdavAccounts::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -941,7 +1004,9 @@ async fn create_entity_properties(manager: &SchemaManager<'_>) -> Result<(), DbE
             Table::create()
                 .table(EntityProperties::Table)
                 .if_not_exists()
-                .col(big_integer_pk(EntityProperties::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    EntityProperties::Id,
+                ))
                 .col(
                     ColumnDef::new(EntityProperties::EntityType)
                         .string_len(16)
@@ -975,7 +1040,9 @@ async fn create_resource_locks(manager: &SchemaManager<'_>) -> Result<(), DbErr>
             Table::create()
                 .table(ResourceLocks::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ResourceLocks::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ResourceLocks::Id,
+                ))
                 .col(
                     ColumnDef::new(ResourceLocks::Token)
                         .string()
@@ -995,7 +1062,13 @@ async fn create_resource_locks(manager: &SchemaManager<'_>) -> Result<(), DbErr>
                 .col(ColumnDef::new(ResourceLocks::Path).string().not_null())
                 .col(ColumnDef::new(ResourceLocks::OwnerId).big_integer().null())
                 .col(ColumnDef::new(ResourceLocks::OwnerInfo).text().null())
-                .col(crate::time::utc_date_time_column(manager, ResourceLocks::TimeoutAt).null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ResourceLocks::TimeoutAt,
+                    )
+                    .null(),
+                )
                 .col(
                     ColumnDef::new(ResourceLocks::Shared)
                         .boolean()
@@ -1009,7 +1082,11 @@ async fn create_resource_locks(manager: &SchemaManager<'_>) -> Result<(), DbErr>
                         .default(false),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, ResourceLocks::CreatedAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        ResourceLocks::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -1022,7 +1099,9 @@ async fn create_file_versions(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
             Table::create()
                 .table(FileVersions::Table)
                 .if_not_exists()
-                .col(big_integer_pk(FileVersions::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    FileVersions::Id,
+                ))
                 .col(
                     ColumnDef::new(FileVersions::FileId)
                         .big_integer()
@@ -1035,7 +1114,13 @@ async fn create_file_versions(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                 )
                 .col(ColumnDef::new(FileVersions::Version).integer().not_null())
                 .col(ColumnDef::new(FileVersions::Size).big_integer().not_null())
-                .col(crate::time::utc_date_time_column(manager, FileVersions::CreatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        FileVersions::CreatedAt,
+                    )
+                    .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(FileVersions::Table, FileVersions::BlobId)
@@ -1053,7 +1138,9 @@ async fn create_audit_logs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(AuditLogs::Table)
                 .if_not_exists()
-                .col(big_integer_pk(AuditLogs::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    AuditLogs::Id,
+                ))
                 .col(ColumnDef::new(AuditLogs::UserId).big_integer().not_null())
                 .col(ColumnDef::new(AuditLogs::Action).string_len(64).not_null())
                 .col(ColumnDef::new(AuditLogs::EntityType).string_len(16).null())
@@ -1062,7 +1149,10 @@ async fn create_audit_logs(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .col(ColumnDef::new(AuditLogs::Details).text().null())
                 .col(ColumnDef::new(AuditLogs::IpAddress).string_len(45).null())
                 .col(ColumnDef::new(AuditLogs::UserAgent).string_len(512).null())
-                .col(crate::time::utc_date_time_column(manager, AuditLogs::CreatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, AuditLogs::CreatedAt)
+                        .not_null(),
+                )
                 .to_owned(),
         )
         .await
@@ -1074,7 +1164,9 @@ async fn create_upload_session_parts(manager: &SchemaManager<'_>) -> Result<(), 
             Table::create()
                 .table(UploadSessionParts::Table)
                 .if_not_exists()
-                .col(big_integer_pk(UploadSessionParts::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    UploadSessionParts::Id,
+                ))
                 .col(
                     ColumnDef::new(UploadSessionParts::UploadId)
                         .string_len(36)
@@ -1097,12 +1189,18 @@ async fn create_upload_session_parts(manager: &SchemaManager<'_>) -> Result<(), 
                         .default(0),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, UploadSessionParts::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UploadSessionParts::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, UploadSessionParts::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UploadSessionParts::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -1121,7 +1219,9 @@ async fn create_team_members(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(TeamMembers::Table)
                 .if_not_exists()
-                .col(big_integer_pk(TeamMembers::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    TeamMembers::Id,
+                ))
                 .col(ColumnDef::new(TeamMembers::TeamId).big_integer().not_null())
                 .col(ColumnDef::new(TeamMembers::UserId).big_integer().not_null())
                 .col(
@@ -1130,8 +1230,14 @@ async fn create_team_members(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default("member"),
                 )
-                .col(crate::time::utc_date_time_column(manager, TeamMembers::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, TeamMembers::UpdatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, TeamMembers::CreatedAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, TeamMembers::UpdatedAt)
+                        .not_null(),
+                )
                 .check(Expr::col(TeamMembers::Role).is_in(["owner", "admin", "member"]))
                 .foreign_key(
                     ForeignKey::create()
@@ -1156,7 +1262,9 @@ async fn create_shares(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     table
         .table(Shares::Table)
         .if_not_exists()
-        .col(big_integer_pk(Shares::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(
+            Shares::Id,
+        ))
         .col(
             ColumnDef::new(Shares::Token)
                 .string_len(32)
@@ -1168,7 +1276,7 @@ async fn create_shares(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
         .col(ColumnDef::new(Shares::FileId).big_integer().null())
         .col(ColumnDef::new(Shares::FolderId).big_integer().null())
         .col(ColumnDef::new(Shares::Password).string_len(255).null())
-        .col(crate::time::utc_date_time_column(manager, Shares::ExpiresAt).null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Shares::ExpiresAt).null())
         .col(
             ColumnDef::new(Shares::MaxDownloads)
                 .big_integer()
@@ -1187,8 +1295,8 @@ async fn create_shares(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .not_null()
                 .default(0),
         )
-        .col(crate::time::utc_date_time_column(manager, Shares::CreatedAt).not_null())
-        .col(crate::time::utc_date_time_column(manager, Shares::UpdatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Shares::CreatedAt).not_null())
+        .col(aster_forge_db_migration::utc_date_time_column(manager, Shares::UpdatedAt).not_null())
         .check((
             Alias::new(SHARE_TARGET_CHECK_NAME),
             Expr::cust("(file_id IS NULL) <> (folder_id IS NULL)"),
@@ -1223,7 +1331,9 @@ async fn create_contact_verification_tokens(manager: &SchemaManager<'_>) -> Resu
             Table::create()
                 .table(ContactVerificationTokens::Table)
                 .if_not_exists()
-                .col(big_integer_pk(ContactVerificationTokens::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    ContactVerificationTokens::Id,
+                ))
                 .col(
                     ColumnDef::new(ContactVerificationTokens::UserId)
                         .big_integer()
@@ -1251,21 +1361,21 @@ async fn create_contact_verification_tokens(manager: &SchemaManager<'_>) -> Resu
                         .unique_key(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ContactVerificationTokens::ExpiresAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ContactVerificationTokens::ConsumedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         ContactVerificationTokens::CreatedAt,
                     )
@@ -1291,7 +1401,9 @@ async fn create_mail_outbox(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(MailOutbox::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MailOutbox::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MailOutbox::Id,
+                ))
                 .col(
                     ColumnDef::new(MailOutbox::TemplateCode)
                         .string_len(32)
@@ -1312,17 +1424,32 @@ async fn create_mail_outbox(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .default(0),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MailOutbox::NextAttemptAt)
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MailOutbox::NextAttemptAt,
+                    )
+                    .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MailOutbox::ProcessingStartedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MailOutbox::SentAt)
+                        .null(),
+                )
+                .col(ColumnDef::new(MailOutbox::LastError).text().null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MailOutbox::CreatedAt)
                         .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MailOutbox::ProcessingStartedAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(manager, MailOutbox::UpdatedAt)
+                        .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, MailOutbox::SentAt).null())
-                .col(ColumnDef::new(MailOutbox::LastError).text().null())
-                .col(crate::time::utc_date_time_column(manager, MailOutbox::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, MailOutbox::UpdatedAt).not_null())
                 .to_owned(),
         )
         .await
@@ -1334,7 +1461,9 @@ async fn create_background_tasks(manager: &SchemaManager<'_>) -> Result<(), DbEr
             Table::create()
                 .table(BackgroundTasks::Table)
                 .if_not_exists()
-                .col(big_integer_pk(BackgroundTasks::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    BackgroundTasks::Id,
+                ))
                 .col(
                     ColumnDef::new(BackgroundTasks::Kind)
                         .string_len(32)
@@ -1398,8 +1527,11 @@ async fn create_background_tasks(manager: &SchemaManager<'_>) -> Result<(), DbEr
                         .default(3),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::NextRunAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::NextRunAt,
+                    )
+                    .not_null(),
                 )
                 .col(
                     ColumnDef::new(BackgroundTasks::ProcessingToken)
@@ -1408,22 +1540,40 @@ async fn create_background_tasks(manager: &SchemaManager<'_>) -> Result<(), DbEr
                         .default(0),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         BackgroundTasks::ProcessingStartedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::LastHeartbeatAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::LastHeartbeatAt,
+                    )
+                    .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::LeaseExpiresAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::LeaseExpiresAt,
+                    )
+                    .null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, BackgroundTasks::StartedAt).null())
-                .col(crate::time::utc_date_time_column(manager, BackgroundTasks::FinishedAt).null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::StartedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::FinishedAt,
+                    )
+                    .null(),
+                )
                 .col(ColumnDef::new(BackgroundTasks::LastError).text().null())
                 .col(
                     ColumnDef::new(BackgroundTasks::FailureCanRetry)
@@ -1431,16 +1581,25 @@ async fn create_background_tasks(manager: &SchemaManager<'_>) -> Result<(), DbEr
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::ExpiresAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::ExpiresAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, BackgroundTasks::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        BackgroundTasks::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -1453,7 +1612,9 @@ async fn create_wopi_sessions(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
             Table::create()
                 .table(WopiSessions::Table)
                 .if_not_exists()
-                .col(big_integer_pk(WopiSessions::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    WopiSessions::Id,
+                ))
                 .col(
                     ColumnDef::new(WopiSessions::TokenHash)
                         .string_len(64)
@@ -1481,8 +1642,20 @@ async fn create_wopi_sessions(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                         .string_len(255)
                         .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, WopiSessions::ExpiresAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, WopiSessions::CreatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        WopiSessions::ExpiresAt,
+                    )
+                    .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        WopiSessions::CreatedAt,
+                    )
+                    .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(WopiSessions::Table, WopiSessions::ActorUserId)
@@ -1539,8 +1712,20 @@ async fn create_user_profiles(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                         .not_null()
                         .default(0),
                 )
-                .col(crate::time::utc_date_time_column(manager, UserProfiles::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, UserProfiles::UpdatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserProfiles::CreatedAt,
+                    )
+                    .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        UserProfiles::UpdatedAt,
+                    )
+                    .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(UserProfiles::Table, UserProfiles::UserId)
@@ -1580,16 +1765,35 @@ async fn create_auth_sessions(manager: &SchemaManager<'_>) -> Result<(), DbErr> 
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, AuthSessions::RefreshExpiresAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        AuthSessions::RefreshExpiresAt,
+                    )
+                    .not_null(),
                 )
                 .col(ColumnDef::new(AuthSessions::IpAddress).text().null())
                 .col(ColumnDef::new(AuthSessions::UserAgent).text().null())
-                .col(crate::time::utc_date_time_column(manager, AuthSessions::CreatedAt).not_null())
                 .col(
-                    crate::time::utc_date_time_column(manager, AuthSessions::LastSeenAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        AuthSessions::CreatedAt,
+                    )
+                    .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, AuthSessions::RevokedAt).null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        AuthSessions::LastSeenAt,
+                    )
+                    .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        AuthSessions::RevokedAt,
+                    )
+                    .null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(AuthSessions::Table, AuthSessions::UserId)
@@ -1607,7 +1811,9 @@ async fn create_follower_enrollment_sessions(manager: &SchemaManager<'_>) -> Res
             Table::create()
                 .table(FollowerEnrollmentSessions::Table)
                 .if_not_exists()
-                .col(big_integer_pk(FollowerEnrollmentSessions::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    FollowerEnrollmentSessions::Id,
+                ))
                 .col(
                     ColumnDef::new(FollowerEnrollmentSessions::ManagedFollowerId)
                         .big_integer()
@@ -1624,32 +1830,35 @@ async fn create_follower_enrollment_sessions(manager: &SchemaManager<'_>) -> Res
                         .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         FollowerEnrollmentSessions::ExpiresAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         FollowerEnrollmentSessions::RedeemedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, FollowerEnrollmentSessions::AckedAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        FollowerEnrollmentSessions::AckedAt,
+                    )
+                    .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         FollowerEnrollmentSessions::InvalidatedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         FollowerEnrollmentSessions::CreatedAt,
                     )
@@ -1675,7 +1884,9 @@ async fn create_master_bindings(manager: &SchemaManager<'_>) -> Result<(), DbErr
             Table::create()
                 .table(MasterBindings::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MasterBindings::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MasterBindings::Id,
+                ))
                 .col(
                     ColumnDef::new(MasterBindings::Name)
                         .string_len(128)
@@ -1708,12 +1919,18 @@ async fn create_master_bindings(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         .default(true),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MasterBindings::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MasterBindings::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MasterBindings::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MasterBindings::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .to_owned(),
         )
@@ -1726,7 +1943,9 @@ async fn create_managed_ingress_profiles(manager: &SchemaManager<'_>) -> Result<
     table
         .table(ManagedIngressProfiles::Table)
         .if_not_exists()
-        .col(big_integer_pk(ManagedIngressProfiles::Id))
+        .col(aster_forge_db_migration::big_integer_primary_key(
+            ManagedIngressProfiles::Id,
+        ))
         .col(
             ColumnDef::new(ManagedIngressProfiles::MasterBindingId)
                 .big_integer()
@@ -1807,12 +2026,18 @@ async fn create_managed_ingress_profiles(manager: &SchemaManager<'_>) -> Result<
             Some(""),
         ))
         .col(
-            crate::time::utc_date_time_column(manager, ManagedIngressProfiles::CreatedAt)
-                .not_null(),
+            aster_forge_db_migration::utc_date_time_column(
+                manager,
+                ManagedIngressProfiles::CreatedAt,
+            )
+            .not_null(),
         )
         .col(
-            crate::time::utc_date_time_column(manager, ManagedIngressProfiles::UpdatedAt)
-                .not_null(),
+            aster_forge_db_migration::utc_date_time_column(
+                manager,
+                ManagedIngressProfiles::UpdatedAt,
+            )
+            .not_null(),
         );
 
     if backend != DbBackend::Sqlite {
@@ -2360,13 +2585,14 @@ async fn create_contact_verification_single_active_index(
 async fn create_search_acceleration(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     match manager.get_database_backend() {
         DbBackend::Sqlite => {
+            let statements = sqlite_fts_up_statements(&files_name_fts_config())?
+                .into_iter()
+                .chain(sqlite_fts_up_statements(&folders_name_fts_config())?)
+                .chain(sqlite_fts_up_statements(&users_search_fts_config())?)
+                .chain(sqlite_fts_up_statements(&teams_search_fts_config())?);
             execute_sqlite_statements(
                 manager,
-                sqlite_fts_up_statements(&files_name_fts_config())
-                    .into_iter()
-                    .chain(sqlite_fts_up_statements(&folders_name_fts_config()))
-                    .chain(sqlite_fts_up_statements(&users_search_fts_config()))
-                    .chain(sqlite_fts_up_statements(&teams_search_fts_config())),
+                statements,
                 "SQLite search acceleration baseline requires FTS5 with trigram tokenizer support",
             )
             .await
@@ -2420,22 +2646,18 @@ async fn create_search_acceleration(manager: &SchemaManager<'_>) -> Result<(), D
         }
         DbBackend::MySql => {
             for statement in [
-                "CREATE FULLTEXT INDEX idx_files_name_fulltext \
-                 ON files (name) WITH PARSER ngram"
-                    .to_string(),
-                "CREATE FULLTEXT INDEX idx_folders_name_fulltext \
-                 ON folders (name) WITH PARSER ngram"
-                    .to_string(),
+                mysql_fulltext_index_sql("idx_files_name_fulltext", "files", &["name"])?,
+                mysql_fulltext_index_sql("idx_folders_name_fulltext", "folders", &["name"])?,
                 mysql_fulltext_index_sql(
                     MYSQL_USERS_SEARCH_FULLTEXT_INDEX,
                     "users",
                     &["username", "email"],
-                ),
+                )?,
                 mysql_fulltext_index_sql(
                     MYSQL_TEAMS_SEARCH_FULLTEXT_INDEX,
                     "teams",
                     &["name", "description"],
-                ),
+                )?,
             ] {
                 manager
                     .get_connection()
@@ -2453,13 +2675,14 @@ async fn create_search_acceleration(manager: &SchemaManager<'_>) -> Result<(), D
 async fn drop_search_acceleration(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     match manager.get_database_backend() {
         DbBackend::Sqlite => {
+            let statements = sqlite_fts_down_statements(&teams_search_fts_config())?
+                .into_iter()
+                .chain(sqlite_fts_down_statements(&users_search_fts_config())?)
+                .chain(sqlite_fts_down_statements(&folders_name_fts_config())?)
+                .chain(sqlite_fts_down_statements(&files_name_fts_config())?);
             execute_sqlite_statements(
                 manager,
-                sqlite_fts_down_statements(&teams_search_fts_config())
-                    .into_iter()
-                    .chain(sqlite_fts_down_statements(&users_search_fts_config()))
-                    .chain(sqlite_fts_down_statements(&folders_name_fts_config()))
-                    .chain(sqlite_fts_down_statements(&files_name_fts_config())),
+                statements,
                 "drop SQLite search acceleration baseline objects",
             )
             .await

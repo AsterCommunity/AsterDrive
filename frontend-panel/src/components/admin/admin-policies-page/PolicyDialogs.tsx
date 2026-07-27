@@ -60,6 +60,10 @@ interface PolicyDialogsProps {
 	remoteStorageTargetsLoading: boolean;
 	saveAnywayConfirmOpen: boolean;
 	submitting: boolean;
+	showStorageDialogCloseButton?: boolean;
+	forceDefaultPolicy?: boolean;
+	storageDialogPresentation?: "dialog" | "setup";
+	onStorageSetupLogout?: () => void;
 	onApplyS3CompatibleDriverSuggestion: () => void;
 	onCancelCosCorsConfigure: () => void;
 	onCancelSaveAnyway: () => void;
@@ -127,6 +131,10 @@ export function PolicyDialogs({
 	remoteStorageTargetsLoading,
 	saveAnywayConfirmOpen,
 	submitting,
+	showStorageDialogCloseButton = true,
+	forceDefaultPolicy = false,
+	storageDialogPresentation = "dialog",
+	onStorageSetupLogout,
 	onApplyS3CompatibleDriverSuggestion,
 	onCancelCosCorsConfigure,
 	onCancelSaveAnyway,
@@ -234,6 +242,10 @@ export function PolicyDialogs({
 				onCreateStepChange={onCreateStepChange}
 				onCreateNext={onCreateNext}
 				onSyncNormalizedObjectStorageForm={onSyncNormalizedObjectStorageForm}
+				showCloseButton={showStorageDialogCloseButton}
+				forceDefaultPolicy={forceDefaultPolicy}
+				presentation={storageDialogPresentation}
+				onSetupLogout={onStorageSetupLogout}
 			/>
 		</>
 	);

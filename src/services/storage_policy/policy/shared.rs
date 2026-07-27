@@ -4,7 +4,7 @@ use chrono::Utc;
 use sea_orm::Set;
 use validator::Validate;
 
-use crate::db::repository::{policy_group_repo, policy_repo};
+use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
 use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
@@ -239,6 +239,18 @@ pub(super) async fn ensure_singleton_group_for_policy<C: sea_orm::ConnectionTrai
     )
     .await?;
     Ok(group.id)
+}
+
+pub(super) async fn set_default_policy_and_group<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    policy_id: i64,
+) -> Result<i64> {
+    lock_default_group_assignment(db).await?;
+    policy_repo::set_only_default(db, policy_id).await?;
+    let default_group_id = ensure_singleton_group_for_policy(db, policy_id).await?;
+    policy_group_repo::set_only_default_group(db, default_group_id).await?;
+    user_repo::assign_policy_group_to_unassigned(db, default_group_id, Utc::now()).await?;
+    Ok(default_group_id)
 }
 
 #[cfg(test)]

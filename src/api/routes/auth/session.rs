@@ -145,7 +145,7 @@ pub async fn get_storage_events(
             .ok_or_else(|| {
                 AsterError::internal_error("visible teams missing after SSE auth check")
             })?;
-    let mut rx = state.get_ref().storage_change_tx().subscribe();
+    let mut rx = state.get_ref().storage_change_bus().subscribe();
 
     let stream = async_stream::stream! {
         let mut heartbeat = tokio::time::interval(std::time::Duration::from_secs(15));

@@ -33,6 +33,13 @@ describe("i18n", () => {
 		);
 		expect(i18n.getResource("zh", "login", "back_to_sign_in")).toBe("返回登录");
 		expect(i18n.t("auth:go_to_login")).toBe("去登录");
+		expect(i18n.t("auth:storage_setup_state_load_failed_title")).toBe(
+			"初始化状态读取失败",
+		);
+		expect(i18n.t("auth:storage_setup_state_load_failed_desc")).toBe(
+			"暂时没有取得系统初始化状态。检查网络连接后重新读取。",
+		);
+		expect(i18n.t("auth:storage_setup_retry_state")).toBe("重新读取状态");
 		expect(i18n.getResource("zh", "auth", "login_success")).toBeUndefined();
 		expect(
 			i18n.getResource("zh", "admin", "overview_total_users"),

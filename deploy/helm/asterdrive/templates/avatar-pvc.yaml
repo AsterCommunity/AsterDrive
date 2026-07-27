@@ -1,0 +1,21 @@
+{{- if and .Values.avatarPersistence.create (not .Values.avatarPersistence.existingClaim) }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "asterdrive.avatarClaimName" . }}
+  labels:
+    {{- include "asterdrive.labels" . | nindent 4 }}
+  {{- with .Values.avatarPersistence.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  accessModes:
+    {{- toYaml .Values.avatarPersistence.accessModes | nindent 4 }}
+  {{- with .Values.avatarPersistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.avatarPersistence.size }}
+{{- end }}

@@ -12,18 +12,30 @@ use std::time::Duration;
 
 mod auth;
 mod frame;
+mod owner;
 mod payload;
+mod proxy;
 mod registry;
 mod response;
 #[cfg(test)]
 mod tests;
 
+use owner::{RemoteTunnelOwnerReleaseGuard, RemoteTunnelStreamOwnerClaim};
+
 pub use auth::authorize_tunnel_request;
 pub use frame::{
     RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame, encode_stream_frame,
 };
+pub use owner::{
+    REMOTE_TUNNEL_OWNER_RENEW_INTERVAL, RemoteTunnelOwnerClaim, RemoteTunnelOwnerDirectory,
+    RemoteTunnelOwnerLease,
+};
 pub use payload::{
     RemoteTunnelPollRequest, RemoteTunnelPollResponse, RemoteTunnelRequest, RemoteTunnelResponse,
+};
+pub use proxy::{
+    ClusterRemoteTunnelBroker, REMOTE_TUNNEL_PROXY_PATH_PREFIX, RemoteTunnelProxyQuery,
+    proxy_tunnel_request,
 };
 pub use registry::{
     RemoteTunnelBroker, RemoteTunnelHttpResponse, RemoteTunnelRegistry,
@@ -70,6 +82,8 @@ pub async fn poll<S: RemoteProtocolRuntimeState>(
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
+
+    claim_tunnel_ownership(state, remote_node).await?;
 
     let registry = state.remote_protocol().tunnel_registry();
     let (request_rx, _registration) = registry.register_poll(remote_node);
@@ -127,13 +141,50 @@ pub async fn complete<S: RemoteProtocolRuntimeState>(
 pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node: managed_follower::Model,
-    mut session: actix_ws::Session,
-    mut stream: actix_ws::MessageStream,
+    session: actix_ws::Session,
+    stream: actix_ws::MessageStream,
 ) -> Result<()> {
     if !remote_node.is_enabled {
         return Err(AsterError::validation_error("remote node is disabled"));
     }
 
+    let owner_release_guard = claim_stream_tunnel_ownership(state, &remote_node).await?;
+    let owner_directory = owner_release_guard.directory();
+
+    owner_release_guard
+        .run_and_release(run_connected_stream(
+            state,
+            remote_node,
+            session,
+            stream,
+            owner_directory,
+        ))
+        .await
+}
+
+async fn claim_stream_tunnel_ownership<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: &managed_follower::Model,
+) -> Result<RemoteTunnelOwnerReleaseGuard> {
+    let Some(owner_directory) = state.remote_protocol().tunnel_owner_directory() else {
+        return Ok(RemoteTunnelOwnerReleaseGuard::unmanaged(remote_node.id));
+    };
+
+    match owner_directory.try_claim_stream(remote_node.id).await? {
+        RemoteTunnelStreamOwnerClaim::Owned(guard) => Ok(guard),
+        RemoteTunnelStreamOwnerClaim::Standby(owner) => {
+            Err(tunnel_owned_by_another_primary_error(remote_node.id, owner))
+        }
+    }
+}
+
+async fn run_connected_stream<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: managed_follower::Model,
+    mut session: actix_ws::Session,
+    mut stream: actix_ws::MessageStream,
+    owner_directory: Option<std::sync::Arc<RemoteTunnelOwnerDirectory>>,
+) -> Result<()> {
     let registry = state.remote_protocol().tunnel_registry().clone();
     let (lane_id, mut request_rx, _registration) = registry.register_stream_lane(&remote_node);
     managed_follower_repo::touch_tunnel_result(
@@ -145,9 +196,41 @@ pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     .await?;
     registry.clear_error(remote_node.id);
 
+    let mut owner_renewal = tokio::time::interval(REMOTE_TUNNEL_OWNER_RENEW_INTERVAL);
+    owner_renewal.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    owner_renewal.tick().await;
+
     loop {
         tokio::select! {
             biased;
+            _ = owner_renewal.tick(), if owner_directory.is_some() => {
+                let Some(directory) = owner_directory.as_ref() else {
+                    continue;
+                };
+                match directory.renew(remote_node.id).await {
+                    Ok(true) => {
+                        if session.ping(b"owner-renew".as_slice()).await.is_err() {
+                            break;
+                        }
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            remote_node_id = remote_node.id,
+                            runtime_id = %directory.runtime_id(),
+                            "reverse tunnel owner lease was fenced by another primary"
+                        );
+                        break;
+                    }
+                    Err(error) => {
+                        tracing::warn!(
+                            remote_node_id = remote_node.id,
+                            runtime_id = %directory.runtime_id(),
+                            "reverse tunnel owner lease renewal failed: {error}"
+                        );
+                        break;
+                    }
+                }
+            }
             message = tokio::time::timeout(REMOTE_TUNNEL_STREAM_READ_TIMEOUT, stream.next()) => {
                 let Some(message) = (match message {
                     Ok(message) => message,
@@ -226,6 +309,40 @@ pub async fn connect_stream<S: RemoteProtocolRuntimeState>(
     }
 
     Ok(())
+}
+
+async fn claim_tunnel_ownership<S: RemoteProtocolRuntimeState>(
+    state: &S,
+    remote_node: &managed_follower::Model,
+) -> Result<Option<std::sync::Arc<RemoteTunnelOwnerDirectory>>> {
+    let Some(owner_directory) = state.remote_protocol().tunnel_owner_directory() else {
+        return Ok(None);
+    };
+
+    match owner_directory.try_claim(remote_node.id).await? {
+        RemoteTunnelOwnerClaim::Owned(_) => Ok(Some(owner_directory)),
+        RemoteTunnelOwnerClaim::Standby(owner) => {
+            Err(tunnel_owned_by_another_primary_error(remote_node.id, owner))
+        }
+    }
+}
+
+fn tunnel_owned_by_another_primary_error(
+    remote_node_id: i64,
+    owner: Option<RemoteTunnelOwnerLease>,
+) -> AsterError {
+    let owner = owner
+        .map(|owner| {
+            format!(
+                "runtime {} at {}",
+                owner.runtime_id, owner.internal_endpoint
+            )
+        })
+        .unwrap_or_else(|| "another primary".to_string());
+    storage_driver_error(
+        StorageErrorKind::Transient,
+        format!("reverse tunnel remote node #{remote_node_id} is owned by {owner}"),
+    )
 }
 
 pub fn tunnel_info_for_node<S: RemoteProtocolRuntimeState>(

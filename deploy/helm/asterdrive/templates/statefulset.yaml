@@ -1,0 +1,161 @@
+{{- include "asterdrive.validateValues" . }}
+{{- $clusterConfigName := include "asterdrive.clusterConfigName" . }}
+{{- $headlessName := include "asterdrive.headlessName" . }}
+{{- $clusterSecretName := include "asterdrive.secretName" . }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "asterdrive.fullname" . }}
+  labels:
+    {{- include "asterdrive.labels" . | nindent 4 }}
+spec:
+  serviceName: {{ $headlessName }}
+  replicas: {{ .Values.replicaCount }}
+  podManagementPolicy: {{ .Values.podManagementPolicy }}
+  minReadySeconds: {{ .Values.minReadySeconds }}
+  revisionHistoryLimit: {{ .Values.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "asterdrive.selectorLabels" . | nindent 6 }}
+  updateStrategy:
+    type: RollingUpdate
+  template:
+    metadata:
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "asterdrive.selectorLabels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      automountServiceAccountToken: {{ .Values.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.topologySpread.enabled }}
+      topologySpreadConstraints:
+        - maxSkew: {{ .Values.topologySpread.maxSkew }}
+          topologyKey: {{ .Values.topologySpread.topologyKey }}
+          whenUnsatisfiable: {{ .Values.topologySpread.whenUnsatisfiable }}
+          labelSelector:
+            matchLabels:
+              {{- include "asterdrive.selectorLabels" . | nindent 14 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.priorityClassName }}
+      priorityClassName: {{ . }}
+      {{- end }}
+      containers:
+        - name: asterdrive
+          image: {{ include "asterdrive.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          env:
+            {{- with .Values.extraEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: ASTER__DEPLOYMENT__INTERNAL_ENDPOINT
+              value: http://$(POD_NAME).{{ $headlessName }}.$(POD_NAMESPACE).svc.{{ .Values.clusterDomain }}:3000
+            {{- range $name := list "ASTER__DEPLOYMENT__PROFILE" "ASTER__SERVER__HOST" "ASTER__SERVER__PORT" "ASTER__SERVER__START_MODE" "ASTER__SERVER__TEMP_DIR" "ASTER__SERVER__UPLOAD_TEMP_DIR" "ASTER__CACHE__BACKEND" "ASTER__CONFIG_SYNC__BACKEND" "ASTER__CONFIG_SYNC__TOPIC" "ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES" }}
+            - name: {{ $name }}
+              valueFrom:
+                configMapKeyRef:
+                  name: {{ $clusterConfigName }}
+                  key: {{ $name }}
+            {{- end }}
+            {{- range $name := list "ASTER__DATABASE__URL" "ASTER__CACHE__ENDPOINT" "ASTER__CONFIG_SYNC__ENDPOINT" "ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET" "ASTER__AUTH__JWT_SECRET" "ASTER__AUTH__SHARE_COOKIE_SECRET" "ASTER__AUTH__DIRECT_LINK_SECRET" "ASTER__AUTH__MFA_SECRET_KEY" "ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY" "ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET" }}
+            - name: {{ $name }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $clusterSecretName }}
+                  key: {{ $name }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ $clusterConfigName }}
+            - secretRef:
+                name: {{ $clusterSecretName }}
+            {{- with .Values.extraEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml .Values.probes.startup | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            {{- toYaml .Values.probes.liveness | nindent 12 }}
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            {{- toYaml .Values.probes.readiness | nindent 12 }}
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - sleep {{ .Values.preStopDelaySeconds }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: avatars
+              mountPath: /data/avatar
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: data
+          {{- if .Values.dataVolume.sizeLimit }}
+          emptyDir:
+            sizeLimit: {{ .Values.dataVolume.sizeLimit }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: avatars
+          persistentVolumeClaim:
+            claimName: {{ include "asterdrive.avatarClaimName" . }}
+        - name: tmp
+          {{- if .Values.tmpVolume.sizeLimit }}
+          emptyDir:
+            sizeLimit: {{ .Values.tmpVolume.sizeLimit }}
+          {{- else }}
+          emptyDir: {}
+          {{- end }}

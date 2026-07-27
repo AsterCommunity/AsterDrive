@@ -115,13 +115,21 @@ struct MicrosoftGraphCreateFolderRequest<'a> {
 #[derive(Debug, Default, Serialize)]
 struct MicrosoftGraphFolderFacet {}
 
+#[derive(Debug, Deserialize)]
+struct MicrosoftGraphCreatedFolder {
+    #[serde(default)]
+    folder: Option<serde_json::Value>,
+}
+
+impl MicrosoftGraphCreatedFolder {
+    fn is_folder(&self) -> bool {
+        self.folder.is_some()
+    }
+}
+
 #[derive(Debug)]
-#[expect(
-    clippy::large_enum_variant,
-    reason = "folder creation is a short-lived internal result; boxing would add an allocation without changing retained state"
-)]
 pub(super) enum MicrosoftGraphCreateFolderOutcome {
-    Created(MicrosoftGraphDriveItem),
+    Created { is_folder: bool },
     AlreadyExists,
 }
 
@@ -369,13 +377,15 @@ impl MicrosoftGraphClient {
             .ensure_success(response, "create OneDrive folder")
             .await?;
         let item = response
-            .json::<MicrosoftGraphDriveItem>()
+            .json::<MicrosoftGraphCreatedFolder>()
             .await
             .map_aster_err_ctx(
                 "create OneDrive folder: invalid Microsoft Graph JSON",
                 AsterError::storage_driver_error,
             )?;
-        Ok(MicrosoftGraphCreateFolderOutcome::Created(item))
+        Ok(MicrosoftGraphCreateFolderOutcome::Created {
+            is_folder: item.is_folder(),
+        })
     }
 
     pub async fn query_upload_session(

@@ -502,6 +502,7 @@ async fn github_callback_uses_verified_primary_email_from_email_list() {
     let state = common::setup().await;
     configure_oauth2_public_site_url(&state);
     let app = create_test_app!(state.clone());
+    let (_admin_token, _) = register_and_login!(app);
     let provider_model =
         github_external_auth_provider_model("github-mock", &mock_provider.base_url, true)
             .insert(state.writer_db())

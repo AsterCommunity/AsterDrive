@@ -1,6 +1,6 @@
 //! Add generic OAuth-managed storage policy credentials and authorization flows.
 
-use crate::column::json_text_column_for_final_schema;
+use aster_forge_db_migration::json_text_column_for_final_schema;
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -33,7 +33,9 @@ async fn create_storage_policy_credentials(manager: &SchemaManager<'_>) -> Resul
             Table::create()
                 .table(StoragePolicyCredentials::Table)
                 .if_not_exists()
-                .col(big_integer_pk(StoragePolicyCredentials::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    StoragePolicyCredentials::Id,
+                ))
                 .col(
                     ColumnDef::new(StoragePolicyCredentials::PolicyId)
                         .big_integer()
@@ -94,37 +96,46 @@ async fn create_storage_policy_credentials(manager: &SchemaManager<'_>) -> Resul
                         .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyCredentials::ExpiresAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyCredentials::ExpiresAt,
+                    )
+                    .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyCredentials::AuthorizedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyCredentials::LastRefreshedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyCredentials::LastValidatedAt,
                     )
                     .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyCredentials::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyCredentials::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, StoragePolicyCredentials::UpdatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        StoragePolicyCredentials::UpdatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -148,7 +159,9 @@ async fn create_storage_policy_authorization_flows(
             Table::create()
                 .table(StoragePolicyAuthorizationFlows::Table)
                 .if_not_exists()
-                .col(big_integer_pk(StoragePolicyAuthorizationFlows::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    StoragePolicyAuthorizationFlows::Id,
+                ))
                 .col(
                     ColumnDef::new(StoragePolicyAuthorizationFlows::Provider)
                         .string_len(32)
@@ -194,21 +207,21 @@ async fn create_storage_policy_authorization_flows(
                         .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyAuthorizationFlows::CreatedAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyAuthorizationFlows::ExpiresAt,
                     )
                     .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(
+                    aster_forge_db_migration::utc_date_time_column(
                         manager,
                         StoragePolicyAuthorizationFlows::ConsumedAt,
                     )
@@ -291,16 +304,6 @@ async fn create_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                 .to_owned(),
         )
         .await
-}
-
-fn big_integer_pk<T: IntoIden>(name: T) -> ColumnDef {
-    let mut column = ColumnDef::new(name);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

@@ -16,6 +16,8 @@ AsterDrive 不内置 TLS 终端。
 不要把 `:3000` 直接裸露到公网。  
 这只适合本机或内网临时引导；正式上线请把 AsterDrive 绑定到内网地址，然后让 Caddy / Nginx / Traefik 对外暴露 `443`。
 
+本页示例默认代理到一个 Primary。需要让同一个入口分发到多个 Primary 时，先按[负载均衡与多实例](/deployment/load-balancing/)准备共享数据库、Redis、存储、静态密钥、readiness 和 graceful drain，再把 upstream 扩为多实例；不要先靠 sticky session 把单机状态藏在负载均衡器后面。
+
 ## 上线前先对齐这几个值
 
 - `管理 -> 系统设置 -> 站点配置 -> 公开站点地址` 填成真实的 `https://` 来源，多个公开域名逐项添加，例如 `https://drive.example.com`

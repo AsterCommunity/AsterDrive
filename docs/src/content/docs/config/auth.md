@@ -3,7 +3,7 @@ title: "登录与会话"
 ---
 
 :::tip[这一篇分两层讲]
-- `config.toml` 里的 `[auth]` —— **只负责启动时的静态引导**（签名密钥、首次纯 HTTP 引导）
+- `config.toml` 里的 `[auth]` —— **负责启动时的静态认证配置**（签名密钥、Argon2 并发上限、首次纯 HTTP 引导）
 - `管理 -> 系统设置` —— **日常规则**（公开注册、Cookie、Token 有效期、激活 / 重置链接、各种冷却时间）
 
 平时真正常改的几乎都在后台，本页静态部分只在初次部署或换机时碰一次。
@@ -18,6 +18,8 @@ share_cookie_secret = "<首次生成的一串随机密钥>"
 direct_link_secret = "<首次生成的一串随机密钥>"
 mfa_secret_key = "<首次生成的一串随机密钥>"
 storage_credential_secret_key = "<首次生成的一串随机密钥>"
+webdav_auth_cache_secret = "<首次生成的一串随机密钥>"
+password_hash_max_concurrency = 2
 bootstrap_insecure_cookies = false
 ```
 
@@ -66,6 +68,20 @@ S3、Azure Blob、腾讯云 COS 的 `access_key` / `secret_key`，以及远程�
 
 升级或换机前，把整个 `[auth]` 段连同这把密钥一起备份。
 :::
+
+### `webdav_auth_cache_secret`
+
+这是 WebDAV 认证缓存 key 的专用 HMAC 密钥，用来避免 Redis key 列表把有效密码暴露成可直接离线枚举的 SHA-256 目标。所有共享同一 Redis cache 的 Primary 必须使用相同值。
+
+修改后，已有 WebDAV 认证缓存会全部 miss 并在认证成功后重新写入；旧 key 最多保留原有的 60 秒 TTL。它与 JWT、分享 Cookie、直链、MFA 和存储凭据密钥相互独立。
+
+### `password_hash_max_concurrency`
+
+这是每个 AsterDrive 进程同时执行的 Argon2 密码哈希或验证任务上限，默认是 `2`。Argon2 使用 blocking 线程池执行，不会占住 Actix 异步 worker；超过上限的认证任务会异步等待。
+
+当前默认密码策略每个任务使用约 `64 MiB` 工作内存，因此默认上限对应每个进程最多约 `128 MiB` 的并发 Argon2 工作内存。多 Primary 部署时，这个限制按进程分别计算。小内存实例可以降到 `1`；提高之前要同时核对实例内存、登录并发和 WebDAV/MFA 认证流量。值必须大于 `0`，修改后需要重启。
+
+服务会继续验证旧版较低参数的密码 hash，并在用户成功登录、WebDAV 凭据成功验证或分享密码成功验证后渐进升级；这个过程不会修改明文密码。
 
 ### `bootstrap_insecure_cookies`
 
@@ -283,6 +299,7 @@ share_cookie_secret = "replace-with-share-cookie-secret"
 direct_link_secret = "replace-with-direct-link-secret"
 mfa_secret_key = "replace-with-another-stable-secret"
 storage_credential_secret_key = "replace-with-storage-credential-secret"
+webdav_auth_cache_secret = "replace-with-webdav-auth-cache-secret"
 bootstrap_insecure_cookies = false
 ```
 
@@ -294,6 +311,7 @@ ASTER__AUTH__SHARE_COOKIE_SECRET="replace-with-share-cookie-secret"
 ASTER__AUTH__DIRECT_LINK_SECRET="replace-with-direct-link-secret"
 ASTER__AUTH__MFA_SECRET_KEY="replace-with-another-stable-secret"
 ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY="replace-with-storage-credential-secret"
+ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET="replace-with-webdav-auth-cache-secret"
 ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES=false
 ```
 

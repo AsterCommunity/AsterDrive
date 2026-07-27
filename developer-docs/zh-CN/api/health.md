@@ -9,7 +9,7 @@
 | 方法 | 路径 | 说明 |
 | --- | --- | --- |
 | `GET` / `HEAD` | `/health` | 存活检查 |
-| `GET` / `HEAD` | `/health/ready` | 就绪检查，包含数据库和存储可用性 |
+| `GET` / `HEAD` | `/health/ready` | 就绪检查，包含数据库、setup 状态和节点模式对应的轻量前置条件 |
 | `GET` | `/health/memory` | 堆内存统计，仅 `debug_assertions + openapi feature` 构建注册 |
 | `GET` | `/health/metrics` | Prometheus 指标，仅 `metrics` feature 启用时存在 |
 
@@ -36,23 +36,29 @@
 
 ## `GET /health/ready`
 
-这条接口不是只看数据库。当前逻辑会先 `ping` 数据库，再做节点模式对应的轻量存储就绪检查：
+这条接口不是只看数据库。所有 deployment profile 都会检查数据库和实际 cache backend。`single` profile 在配置的远端 cache 启动失败并回退到健康的 memory cache 时保持 ready，同时在诊断健康报告中标记为 degraded；要求共享运行时状态的 profile 则要求配置和实际 backend 都是 Redis。随后按节点模式继续：
 
-- `primary`：检查主节点默认存储策略存在、驱动可实例化，以及本地存储目录这类低成本前置条件
+- `primary`：检查动态 cluster 拓扑和权威 setup 状态。`needs_admin` / `needs_storage` 直接以 `200` 返回；只有进入 `ready` 后才要求默认存储策略存在、driver 可实例化，并执行该 driver 的轻量 readiness 检查
 - `follower`：检查 follower 当前的存储驱动和绑定所需状态
 
 `/health/ready` 是高频探针路径，不会对 S3 / remote 等远端存储执行写入、读取或删除对象的网络探测。需要验证 S3 凭证、bucket 权限和远端对象写删能力时，使用管理端存储策略的“测试连接”接口。
 
-返回语义：
+`primary` 成功响应里的 `data.status` 有三种值：
 
-- 全部就绪：`200`
+- `needs_admin`：`200`，基础依赖健康，但还没有首个管理员
+- `needs_storage`：`200`，管理员已存在，但默认存储策略组或管理员绑定尚未完成
+- `ready`：`200`，产品初始化完成，默认 driver 的轻量 readiness 检查也已通过
+
+错误响应：
+
 - 数据库不可用：`503`，消息是 `Database unavailable`
-- 存储不可用：`503`，消息是 `Storage unavailable`
+- 实际 cache 不健康：`503`，消息是 `Cache unavailable`；cluster 中实际 backend 与配置不一致也返回 `503`，并要求配置和实际 backend 都是 Redis
+- cluster 拓扑、默认策略、driver 构造或轻量 readiness 检查失败：`503`，消息是 `Storage unavailable`
 
 部署建议：
 
 - 用 `/health` 做 liveness / 基础探活
-- 用 `/health/ready` 做 readiness / 上线前探针
+- 用 `/health/ready` 做 Kubernetes readiness；最终上线验收还要确认 `data.status = "ready"`
 
 ## `GET /health/memory`
 

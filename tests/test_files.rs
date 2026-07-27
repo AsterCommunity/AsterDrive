@@ -829,7 +829,7 @@ async fn test_file_lock_unlock() {
 
     let (token, _) = register_and_login!(app);
     let file_id = upload_test_file!(app, token);
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     // 锁定文件
     let req = test::TestRequest::post()
@@ -917,7 +917,7 @@ async fn test_nested_file_lock_events_include_parent_folder() {
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
     let file_id = upload_test_file_to_folder!(app, token, folder_id);
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     let req = test::TestRequest::post()
         .uri(&format!("/api/v1/files/{file_id}/lock"))

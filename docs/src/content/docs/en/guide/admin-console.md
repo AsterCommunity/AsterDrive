@@ -221,7 +221,7 @@ Policy groups decide "which storage policy a user or team should hit when upload
 
 The most common patterns:
 
-- The default policy group has one rule, and all files use the default local policy
+- The default policy group has one rule, and all files use the current default policy; single may use a local policy, while multiple Primaries should use shared storage
 - When using local and S3 together, split into multiple rules by file size
 - Different users or teams bind to different policy groups
 - Set one policy group as the default for new users

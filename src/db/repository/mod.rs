@@ -26,6 +26,7 @@ pub mod policy_group_repo;
 pub mod policy_repo;
 pub mod property_repo;
 pub mod remote_storage_target_repo;
+pub mod remote_tunnel_owner_repo;
 pub mod search_repo;
 pub mod share_repo;
 pub mod storage_connector_application_config_repo;

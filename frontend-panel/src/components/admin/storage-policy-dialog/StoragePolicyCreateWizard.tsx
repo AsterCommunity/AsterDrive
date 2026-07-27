@@ -64,6 +64,7 @@ interface StoragePolicyCreateWizardProps {
 	currentStorageOption: StoragePolicyDriverOption;
 	endpointValidationMessage: string | null;
 	form: PolicyFormData;
+	forceDefaultPolicy: boolean;
 	storageDriverDescriptorsError: string | null;
 	storageDriverDescriptorsLoading: boolean;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
@@ -100,6 +101,7 @@ export function StoragePolicyCreateWizard({
 	currentStorageOption,
 	endpointValidationMessage,
 	form,
+	forceDefaultPolicy,
 	storageDriverDescriptorsError,
 	storageDriverDescriptorsLoading,
 	storageDriverDescriptor,
@@ -206,6 +208,7 @@ export function StoragePolicyCreateWizard({
 								createRemoteTargetError={createRemoteTargetError}
 								currentStorageOption={currentStorageOption}
 								form={form}
+								forceDefaultPolicy={forceDefaultPolicy}
 								storageDriverDescriptor={storageDriverDescriptor}
 								onFieldChange={onFieldChange}
 								remoteNodes={remoteNodes}
@@ -339,18 +342,22 @@ function DriverSelectionStep({
 
 	return (
 		<div>
-			<div className="grid gap-3 md:grid-cols-2">
+			<div
+				data-testid="storage-driver-options"
+				className="grid gap-3 md:grid-cols-2"
+			>
 				{storageOptions.map((option) => (
 					<button
 						type="button"
 						key={option.type}
 						aria-pressed={form.driver_type === option.type}
+						disabled={option.disabled}
 						onClick={() => {
 							onDriverTypeChange(option.type);
 							onCreateStepChange(1);
 						}}
 						className={cn(
-							"rounded-2xl border border-border p-4 text-left transition hover:border-primary/40 hover:bg-muted/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30",
+							"rounded-2xl border border-border p-4 text-left transition hover:border-primary/40 hover:bg-muted/20 focus-visible:border-ring focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:border-border disabled:hover:bg-background",
 							form.driver_type === option.type
 								? "bg-muted/15"
 								: "bg-background",
@@ -370,6 +377,11 @@ function DriverSelectionStep({
 								<p className="mt-1 line-clamp-2 text-xs leading-5 text-muted-foreground">
 									{option.description}
 								</p>
+								{option.disabledReason ? (
+									<p className="mt-2 text-xs font-medium leading-5 text-amber-700 dark:text-amber-300">
+										{option.disabledReason}
+									</p>
+								) : null}
 							</div>
 						</div>
 					</button>
@@ -660,6 +672,7 @@ interface BehaviorStepProps {
 	createRemoteTargetError: string | null;
 	currentStorageOption: StoragePolicyDriverOption;
 	form: PolicyFormData;
+	forceDefaultPolicy: boolean;
 	storageDriverDescriptor: StorageConnectorDescriptor | null;
 	onFieldChange: StoragePolicyFieldChangeHandler;
 	remoteNodes: RemoteNodeInfo[];
@@ -674,6 +687,7 @@ function BehaviorStep({
 	createRemoteTargetError,
 	currentStorageOption,
 	form,
+	forceDefaultPolicy,
 	storageDriverDescriptor,
 	onFieldChange,
 	remoteNodes,
@@ -698,7 +712,13 @@ function BehaviorStep({
 					t={t}
 				/>
 				<LimitsFields form={form} t={t} onFieldChange={onFieldChange} />
-				<DefaultPolicyToggle form={form} t={t} onFieldChange={onFieldChange} />
+				{forceDefaultPolicy ? null : (
+					<DefaultPolicyToggle
+						form={form}
+						t={t}
+						onFieldChange={onFieldChange}
+					/>
+				)}
 				{supportsStorageNativeProcessing(storageDriverDescriptor) ? (
 					<div className="space-y-3 border-t border-border/70 pt-4">
 						<PolicySectionIntro

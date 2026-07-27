@@ -39,13 +39,14 @@ sudo cp config.toml /var/lib/asterdrive/data/config.toml
 sudo chown -R asterdrive:asterdrive /var/lib/asterdrive/data
 ```
 
-如果继续使用默认相对路径，工作目录下通常会出现：
+使用默认相对路径时，工作目录下通常会出现：
 
 - `data/config.toml`
 - `data/asterdrive.db`
-- `data/uploads`
 - `data/.tmp`
 - `data/.uploads`
+
+如果你在管理端创建本地策略并把路径设为 `data/uploads`，该目录会在首次写入时出现；首次启动本身不会创建默认本地策略。
 
 长期部署时，建议数据库路径、本地存储路径和临时目录都尽量使用绝对路径。
 
@@ -95,7 +96,7 @@ journalctl -u asterdrive -f
 ## 7. 首次验收
 
 - `/health` 返回 200
-- `/health/ready` 返回 200
+- 完成管理员和存储初始化后，`/health/ready` 返回 200，且 `data.status` 是 `ready`
 - 首页响应头里已经带上 AsterDrive 返回的页面基线 `Content-Security-Policy`
 - 首次启动日志里已完成数据库更新和默认策略初始化
 - 管理后台里能看到默认策略组

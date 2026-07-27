@@ -5,12 +5,13 @@ use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_field, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, storage_connector_field,
+    storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::local::LocalDriver;
 use crate::types::DriverType;
@@ -39,6 +40,8 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 base_path_placeholder: "./data",
             }),
             credential_mode: StorageConnectorCredentialMode::None,
+            deployment_scope: StorageConnectorDeploymentScope::InstanceLocal,
+            supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
             capabilities: StorageConnectorCapabilities {
@@ -89,7 +92,7 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
     }
 }
 
-#[async_trait(?Send)]
+#[async_trait]
 impl StorageConnector for LocalConnector {
     fn driver_type() -> DriverType {
         DriverType::Local

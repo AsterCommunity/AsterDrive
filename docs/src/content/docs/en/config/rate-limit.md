@@ -100,6 +100,12 @@ The rules are simple:
 
 If you do not want to handle this at the application layer, you can keep AsterDrive rate limiting disabled and delegate it to the reverse proxy, such as Nginx `limit_req`, Caddy `rate_limit`, or Traefik `RateLimit` middleware. Avoid configuring both sides too tightly, or troubleshooting becomes confusing.
 
+## Multi-Instance Counting Boundary
+
+AsterDrive's HTTP Governor and WebDAV IP token buckets count independently inside each process. Behind a load balancer, the same client may consume the burst allowance of each Primary, so these values are not a cluster-wide global limit.
+
+Enforce strict global quotas at the Ingress, API gateway, or load-balancer layer. Application limits can remain as a second layer of per-Primary protection. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/#rate-limits-are-not-global-counters) for the complete entry contract.
+
 ## Practical Notes
 
 - Start conservatively when enabling it for the first time. Do not set `burst_size` too low.

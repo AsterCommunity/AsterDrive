@@ -1,3 +1,8 @@
+[deployment]
+profile = "single"  # "single" | "cluster"; cluster requires shared PostgreSQL/MySQL, Redis, and object storage
+internal_endpoint = ""  # cluster reverse-tunnel proxy URL for this primary, e.g. http://primary-a:3000
+internal_proxy_secret = ""  # same secret on every primary; leave both empty for direct-only cluster
+
 [server]
 host = "127.0.0.1"
 port = 3000
@@ -11,6 +16,8 @@ remote_storage_target_local_root = "remote-storage-targets"
 
 [database]
 url = "sqlite://asterdrive.db?mode=rwc"  # 或 postgres://user:pass@localhost/asterdrive
+# PostgreSQL/MySQL 原始凭据可写成 inline table，无需手工 percent-encode：
+# url = { base_url = "postgres://localhost:5432/asterdrive", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
 pool_size = 10
 retry_count = 3
 
@@ -20,16 +27,21 @@ share_cookie_secret = "change-me-in-production-share-cookie"
 direct_link_secret = "change-me-in-production-direct-link"
 mfa_secret_key = "change-me-in-production-mfa"
 storage_credential_secret_key = "change-me-in-production-storage-credential"
+webdav_auth_cache_secret = "change-me-in-production-webdav-auth-cache"
+password_hash_max_concurrency = 2  # 每个进程同时执行的 Argon2 任务上限；默认最多约占用 128 MiB 工作内存
 bootstrap_insecure_cookies = false  # 仅首次初始化 auth_cookie_secure 时生效；纯 HTTP 首启可临时设为 true
 
 [cache]
 backend = "memory"   # "memory" | "redis"
 endpoint = ""
+# Redis 原始凭据可写成：
+# endpoint = { base_url = "redis://localhost:6379/0", username = "", password = "RAW_PASSWORD" }
 default_ttl = 3600
 
 [config_sync]
 backend = "disabled" # "disabled" | "redis"
 endpoint = ""
+# endpoint = { base_url = "redis://localhost:6379/0", username = "", password = "RAW_PASSWORD" }
 topic = "aster_drive.config_reload"
 
 [logging]
@@ -42,6 +54,10 @@ max_backups = 5           # 保留的历史日志文件数量
 [webdav]
 prefix = "/webdav"
 payload_limit = 10737418240  # 10 GiB
+xml_payload_limit = 1048576  # 1 MiB，仅限制 PROPFIND/PROPPATCH/REPORT/LOCK 等 XML 控制请求
+
+[network_trust]
+trusted_proxies = []  # 仅填写实际连接到 AsterDrive、由你控制的代理 IP 或 CIDR
 
 # Rate limiting 配置（默认不启用，按需开启）
 # [rate_limit]

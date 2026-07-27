@@ -20,7 +20,6 @@ use crate::services::{
     workspace::storage::WorkspaceStorageScope,
 };
 use aster_forge_api::OffsetPage;
-use aster_forge_crypto as hash;
 
 fn webdav_username_exists_error() -> AsterError {
     validation_error_with_code(
@@ -163,7 +162,11 @@ async fn create_in_scope(
         _ => generate_random_password(16),
     };
 
-    let password_hash = hash::hash_password(&plain_password)?;
+    let password_hash = state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(&plain_password)
+        .await?;
     let now = Utc::now();
 
     // 如果指定了 root_folder_id，验证文件夹属于账号所在工作空间。
@@ -448,7 +451,12 @@ pub async fn test_credentials(
         return Err(invalid_credentials());
     }
 
-    if !hash::verify_password(password, &account.password_hash)? {
+    let verification = state
+        .runtime_config()
+        .password_hash_runtime()
+        .verify_password(password, &account.password_hash)
+        .await?;
+    if !verification.is_valid {
         return Err(invalid_credentials());
     }
 
@@ -466,7 +474,55 @@ pub async fn test_credentials(
         return Err(invalid_credentials());
     }
 
+    if verification.needs_rehash {
+        upgrade_password_hash_if_needed(state, &account, password).await;
+    }
+
     Ok(())
+}
+
+pub(crate) async fn upgrade_password_hash_if_needed(
+    state: &impl SharedRuntimeState,
+    account: &webdav_account::Model,
+    password: &str,
+) {
+    let new_hash = match state
+        .runtime_config()
+        .password_hash_runtime()
+        .hash_password(password)
+        .await
+    {
+        Ok(hash) => hash,
+        Err(error) => {
+            tracing::warn!(
+                webdav_account_id = account.id,
+                "failed to generate upgraded WebDAV password hash: {error}"
+            );
+            return;
+        }
+    };
+
+    match webdav_account_repo::update_password_hash_if_current(
+        state.writer_db(),
+        account.id,
+        &account.password_hash,
+        &new_hash,
+    )
+    .await
+    {
+        Ok(true) => tracing::info!(
+            webdav_account_id = account.id,
+            "upgraded WebDAV password hash policy"
+        ),
+        Ok(false) => tracing::debug!(
+            webdav_account_id = account.id,
+            "skipped WebDAV password hash upgrade after concurrent credential change"
+        ),
+        Err(error) => tracing::warn!(
+            webdav_account_id = account.id,
+            "failed to persist upgraded WebDAV password hash: {error}"
+        ),
+    }
 }
 
 /// 生成随机密码

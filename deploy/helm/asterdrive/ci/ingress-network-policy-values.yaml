@@ -1,0 +1,22 @@
+image:
+  tag: ""
+  digest: sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+
+topologySpread:
+  whenUnsatisfiable: DoNotSchedule
+
+ingress:
+  enabled: true
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+  tls:
+    - hosts:
+        - drive.example.com
+      secretName: asterdrive-tls
+
+networkPolicy:
+  enabled: true
+  ingressFrom:
+    - namespaceSelector:
+        matchLabels:
+          asterdrive.io/ingress-access: "true"

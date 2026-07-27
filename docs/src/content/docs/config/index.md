@@ -82,7 +82,7 @@ ASTER__WEBDAV__PREFIX=/dav
 
 | 类型 | 示例 | 什么时候用 |
 | --- | --- | --- |
-| 启动配置覆盖 | `ASTER__SERVER__HOST`、`ASTER__DATABASE__URL`、`ASTER__SERVER__START_MODE` | 服务启动前就要确定的配置；优先级高于 `config.toml` |
+| 启动配置覆盖 | `ASTER__DEPLOYMENT__PROFILE`、`ASTER__SERVER__HOST`、`ASTER__DATABASE__URL`、`ASTER__SERVER__START_MODE` | 服务启动前就要确定的配置；优先级高于 `config.toml` |
 | 首次引导开关 | `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES` | 只影响系统设置第一次写入默认值；初始化完成后，后续请在后台系统设置里改 |
 | 从节点自动接入 | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL`、`ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | Docker follower 首次启动时自动 enroll；成功后建议移除 |
 | 媒体处理默认值 | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI`、`ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI` | 只在媒体处理系统设置还不存在时，用来决定初始默认处理器 |
@@ -98,6 +98,7 @@ ASTER__WEBDAV__PREFIX=/dav
 
 | 分区 | 作用 |
 | --- | --- |
+| [deployment](/config/deployment/) | 单实例或多 primary 集群部署声明，以及共享依赖检查 |
 | [server](/config/server/) | 监听地址、端口、线程数、临时目录、节点模式、follower 接收根目录 |
 | [database](/config/database/) | 数据库连接、连接池、启动重试 |
 | [auth](/config/auth/) | 登录签名密钥、MFA 加密密钥、首次纯 HTTP 引导 |
@@ -152,13 +153,13 @@ ASTER__WEBDAV__PREFIX=/dav
 
 ## 路径要分清是相对谁
 
-如果你写相对路径，记住三套语义不一样：
+如果你写相对路径，记住配置文件路径和存储策略路径的语义不一样：
 
 - `data/config.toml` 的位置 —— **相对当前工作目录**
 - `[database]` 和 `[server]` 里的相对路径 —— **相对 `data/config.toml` 所在目录**（也就是 `./data/`）
-- 默认本地存储策略的 `base_path = "data/uploads"` —— **相对当前工作目录**，通常就是工作目录下的 `data/uploads`
+- 管理端手动创建的本地存储策略 `base_path` —— **相对当前工作目录**；长期部署更推荐直接填写绝对路径，例如 Docker 中的 `/data/uploads`
 
-也就是说，自动生成的 `[server].temp_dir = ".tmp"` 会在运行时落到 `data/.tmp`；而默认本地存储策略本身已经把 `data/` 写进了 `base_path`，不会再按 `data/config.toml` 的目录额外拼成 `data/data/uploads`。
+也就是说，自动生成的 `[server].temp_dir = ".tmp"` 会在运行时落到 `data/.tmp`；存储策略不属于 `config.toml`，它的相对路径不会再按 `data/config.toml` 的目录拼接。首次启动也不会自动创建本地存储策略。
 
 不同部署方式默认落点：
 

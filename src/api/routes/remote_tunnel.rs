@@ -26,6 +26,27 @@ pub fn routes() -> impl actix_web::dev::HttpServiceFactory + use<> {
         .route("/poll", web::post().to(poll_remote_tunnel))
         .route("/complete", web::post().to(complete_remote_tunnel))
         .route("/connect", web::get().to(connect_remote_tunnel))
+        .route(
+            "/proxy/{remote_node_id}",
+            web::post().to(proxy_remote_tunnel),
+        )
+}
+
+pub async fn proxy_remote_tunnel(
+    state: web::Data<PrimaryAppState>,
+    req: HttpRequest,
+    remote_node_id: web::Path<i64>,
+    query: web::Query<tunnel::RemoteTunnelProxyQuery>,
+    body: web::Payload,
+) -> Result<HttpResponse> {
+    tunnel::proxy_tunnel_request(
+        state.get_ref(),
+        &req,
+        remote_node_id.into_inner(),
+        query.into_inner(),
+        body,
+    )
+    .await
 }
 
 pub async fn poll_remote_tunnel(

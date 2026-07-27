@@ -72,6 +72,7 @@ import type {
 	ShareInfo,
 	StartStorageAuthorizationRequest,
 	StorageAuthorizationStartResponse,
+	StorageConnectorCatalogQuery,
 	StorageConnectorDescriptor,
 	StorageCredentialProvider,
 	StorageCredentialProviderInfo,
@@ -318,8 +319,12 @@ export const adminPolicyService = {
 	getCapacity: (id: number) =>
 		api.get<StoragePolicyCapacityInfo>(`/admin/policies/${id}/capacity`),
 
-	listStorageDriverDescriptors: () =>
-		api.get<StorageConnectorDescriptor[]>("/admin/policies/storage-drivers"),
+	listStorageDriverDescriptors: (query?: StorageConnectorCatalogQuery) =>
+		api.get<StorageConnectorDescriptor[]>(
+			withQuery("/admin/policies/storage-drivers", {
+				context: query?.context,
+			}),
+		),
 
 	create: (data: CreatePolicyRequest) =>
 		api.post<StoragePolicy>("/admin/policies", data),

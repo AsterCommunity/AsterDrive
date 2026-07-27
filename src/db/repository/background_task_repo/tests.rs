@@ -15,7 +15,7 @@ use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 async fn build_test_db() -> sea_orm::DatabaseConnection {
     let db = crate::db::connect_with_metrics(
         &DatabaseConfig {
-            url: "sqlite::memory:".to_string(),
+            url: "sqlite::memory:".into(),
             pool_size: 1,
             retry_count: 0,
         },

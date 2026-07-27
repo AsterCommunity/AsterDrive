@@ -10,6 +10,33 @@ use actix_web::test;
 use chrono::{Duration, Utc};
 use serde_json::Value;
 
+async fn list_storage_driver_descriptors_via_admin<S, B>(
+    app: &S,
+    token: &str,
+    context: Option<&str>,
+) -> Vec<Value>
+where
+    S: actix_web::dev::Service<
+            actix_http::Request,
+            Response = actix_web::dev::ServiceResponse<B>,
+            Error = actix_web::Error,
+        >,
+    B: actix_web::body::MessageBody + 'static,
+{
+    let uri = context.map_or_else(
+        || "/api/v1/admin/policies/storage-drivers".to_string(),
+        |context| format!("/api/v1/admin/policies/storage-drivers?context={context}"),
+    );
+    let req = test::TestRequest::get()
+        .uri(&uri)
+        .insert_header(("Cookie", common::access_cookie_header(token)))
+        .to_request();
+    let resp = test::call_service(app, req).await;
+    assert_eq!(resp.status(), 200);
+    let body: Value = test::read_body_json(resp).await;
+    body["data"].as_array().expect("descriptor list").to_vec()
+}
+
 async fn create_local_policy_via_admin<S, B>(app: &S, token: &str, name: &str) -> i64
 where
     S: actix_web::dev::Service<
@@ -93,6 +120,11 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
 
     let onedrive = descriptor("one_drive");
     assert_eq!(onedrive["credential_mode"], "oauth_delegated");
+    assert_eq!(
+        onedrive["deployment_scope"],
+        "shared_across_primary_instances"
+    );
+    assert_eq!(onedrive["supports_initial_setup"], false);
     assert_eq!(onedrive["requires_authorization"], true);
     assert_eq!(onedrive["capabilities"]["presigned_download"], true);
     assert_eq!(onedrive["authorization_provider"], "microsoft_graph");
@@ -234,6 +266,8 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     assert_eq!(s3_path_style["visible_when_driver_types"][0], "s3");
 
     let local = descriptor("local");
+    assert_eq!(local["deployment_scope"], "instance_local");
+    assert_eq!(local["supports_initial_setup"], true);
     assert_eq!(local["upload_workflows"]["object_multipart_upload"], false);
     assert_eq!(local["capabilities"]["remote_node_binding"], false);
 
@@ -248,6 +282,172 @@ async fn test_admin_storage_driver_descriptors_expose_capability_matrix() {
     let remote = descriptor("remote");
     assert_eq!(remote["upload_workflows"]["object_multipart_upload"], true);
     assert_eq!(remote["capabilities"]["remote_node_binding"], true);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_catalog_contexts_are_backend_authoritative_in_single_profile() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let manage = list_storage_driver_descriptors_via_admin(&app, &token, None).await;
+    let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
+    let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
+
+    assert_eq!(manage.len(), 7);
+    assert_eq!(create.len(), 7);
+    assert_eq!(setup.len(), 7);
+    assert!(setup.iter().any(|item| item["driver_type"] == "local"));
+    let onedrive = setup
+        .iter()
+        .find(|item| item["driver_type"] == "one_drive")
+        .expect("setup catalog should describe OneDrive");
+    assert_eq!(onedrive["supports_initial_setup"], false);
+}
+
+#[actix_web::test]
+async fn test_cluster_storage_driver_catalog_hides_local_only_from_new_policy_flows() {
+    let mut state = common::setup().await;
+    let mut config = (*state.config).clone();
+    config.deployment.profile = aster_drive::config::DeploymentProfile::Cluster;
+    state.config = std::sync::Arc::new(config);
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let manage = list_storage_driver_descriptors_via_admin(&app, &token, Some("manage")).await;
+    let create = list_storage_driver_descriptors_via_admin(&app, &token, Some("create")).await;
+    let setup = list_storage_driver_descriptors_via_admin(&app, &token, Some("setup")).await;
+
+    assert_eq!(manage.len(), 7);
+    assert!(manage.iter().any(|item| item["driver_type"] == "local"));
+    assert_eq!(create.len(), 6);
+    assert!(!create.iter().any(|item| item["driver_type"] == "local"));
+    assert!(create.iter().any(|item| item["driver_type"] == "one_drive"));
+    assert_eq!(setup.len(), 6);
+    assert!(!setup.iter().any(|item| item["driver_type"] == "local"));
+    let onedrive = setup
+        .iter()
+        .find(|item| item["driver_type"] == "one_drive")
+        .expect("cluster setup catalog should describe OneDrive");
+    assert_eq!(onedrive["supports_initial_setup"], false);
+}
+
+#[actix_web::test]
+async fn test_storage_driver_catalog_rejects_unknown_context() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::get()
+        .uri("/api/v1/admin/policies/storage-drivers?context=unknown")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+
+    assert_eq!(resp.status(), 400);
+}
+
+#[actix_web::test]
+async fn test_cluster_rejects_direct_local_policy_creation_without_side_effects() {
+    let mut state = common::setup().await;
+    let db = state.writer_db().clone();
+    let initial_policies = aster_drive::db::repository::policy_repo::find_all(&db)
+        .await
+        .expect("initial policy list");
+    let mut config = (*state.config).clone();
+    config.deployment.profile = aster_drive::config::DeploymentProfile::Cluster;
+    state.config = std::sync::Arc::new(config);
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Unsafe local policy",
+            "driver_type": "local",
+            "base_path": "/tmp/unsafe-cluster-local",
+            "max_file_size": 0,
+            "is_default": false
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(body["msg"].as_str().is_some_and(|message| {
+        message.contains("shared by every primary") && message.contains("instance_local")
+    }));
+
+    let final_policies = aster_drive::db::repository::policy_repo::find_all(&db)
+        .await
+        .expect("final policy list");
+    assert_eq!(final_policies.len(), initial_policies.len());
+    assert!(
+        !final_policies
+            .iter()
+            .any(|policy| policy.name == "Unsafe local policy")
+    );
+}
+
+#[actix_web::test]
+async fn test_initial_storage_setup_rejects_connectors_requiring_post_setup_configuration() {
+    let state = common::setup().await;
+    let db = state.writer_db().clone();
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let default_group = aster_drive::db::repository::policy_group_repo::find_default_group(&db)
+        .await
+        .expect("load default policy group")
+        .expect("default policy group should exist");
+    aster_drive::db::repository::policy_group_repo::delete_group_items_by_group(
+        &db,
+        default_group.id,
+    )
+    .await
+    .expect("empty default policy group");
+    assert_eq!(
+        aster_drive::services::system_setup::state(&db)
+            .await
+            .expect("inspect setup state"),
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/admin/policies")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Premature OneDrive",
+            "driver_type": "one_drive",
+            "base_path": "files",
+            "max_file_size": 0,
+            "is_default": true
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 400);
+    let body: Value = test::read_body_json(resp).await;
+    assert!(
+        body["msg"]
+            .as_str()
+            .is_some_and(|message| message.contains("post-setup configuration"))
+    );
+
+    assert_eq!(
+        aster_drive::services::system_setup::state(&db)
+            .await
+            .expect("setup state should remain inspectable"),
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
+    assert!(
+        !aster_drive::db::repository::policy_repo::find_all(&db)
+            .await
+            .expect("list policies after rejected setup connector")
+            .iter()
+            .any(|policy| policy.name == "Premature OneDrive")
+    );
 }
 
 #[actix_web::test]
@@ -605,11 +805,18 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
         .await
         .unwrap()
         .expect("default group should exist");
+    let initial_group_count = policy_group_repo::find_all_groups(state.writer_db())
+        .await
+        .unwrap()
+        .len();
 
     let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
     user_active.policy_group_id = Set(None);
     user_active.update(state.writer_db()).await.unwrap();
 
+    policy::ensure_policy_groups_seeded(state.writer_db())
+        .await
+        .unwrap();
     policy::ensure_policy_groups_seeded(state.writer_db())
         .await
         .unwrap();
@@ -619,6 +826,182 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
         .unwrap()
         .expect("user should exist");
     assert_eq!(updated.policy_group_id, Some(default_group.id));
+    assert_eq!(
+        policy_group_repo::find_all_groups(state.writer_db())
+            .await
+            .unwrap()
+            .len(),
+        initial_group_count,
+        "repeated reconciliation must not create duplicate policy groups"
+    );
+}
+
+#[actix_web::test]
+async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::storage_policy::policy;
+    use aster_drive::types::DriverType;
+    use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "storagebootstrap",
+        "storage-bootstrap@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    active.policy_group_id = Set(None);
+    active.update(state.writer_db()).await.unwrap();
+    state
+        .writer_db()
+        .execute_unprepared("UPDATE storage_policies SET is_default = FALSE;")
+        .await
+        .unwrap();
+    state
+        .writer_db()
+        .execute_unprepared("UPDATE storage_policy_groups SET is_default = FALSE;")
+        .await
+        .unwrap();
+    state
+        .policy_snapshot
+        .reload(state.writer_db())
+        .await
+        .unwrap();
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::NeedsStorage
+    );
+
+    let base_path = format!("/tmp/asterdrive-storage-bootstrap-{}", uuid::Uuid::new_v4());
+    std::fs::create_dir_all(&base_path).unwrap();
+    let created = policy::create(
+        &state,
+        policy::CreateStoragePolicyInput {
+            name: "First Setup Default".to_string(),
+            connection: policy::StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path,
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: Default::default(),
+            },
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: true,
+            allowed_types: None,
+            options: None,
+            remote_storage_target_key: None,
+            application_config: Default::default(),
+        },
+    )
+    .await
+    .unwrap();
+
+    let updated = user_repo::find_by_email(state.writer_db(), "storage-bootstrap@example.com")
+        .await
+        .unwrap()
+        .expect("bootstrap admin should still exist");
+    let assigned_group_id = updated
+        .policy_group_id
+        .expect("first default policy should backfill the bootstrap admin");
+    assert_eq!(
+        state.policy_snapshot.resolve_default_policy_id(updated.id),
+        Some(created.id)
+    );
+    assert_eq!(
+        state
+            .policy_snapshot
+            .system_default_policy_group()
+            .expect("default policy group should exist")
+            .id,
+        assigned_group_id
+    );
+    assert_eq!(
+        aster_drive::services::system_setup::state(state.writer_db())
+            .await
+            .unwrap(),
+        aster_drive::services::system_setup::SystemSetupState::Ready
+    );
+}
+
+#[actix_web::test]
+async fn test_promoting_policy_backfills_unassigned_users() {
+    use aster_drive::db::repository::user_repo;
+    use aster_drive::services::storage_policy::policy;
+    use aster_drive::types::DriverType;
+    use sea_orm::{ActiveModelTrait, Set};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "promotebackfill",
+        "promote-backfill@example.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    active.policy_group_id = Set(None);
+    active.update(state.writer_db()).await.unwrap();
+
+    let base_path = format!("/tmp/asterdrive-promote-backfill-{}", uuid::Uuid::new_v4());
+    std::fs::create_dir_all(&base_path).unwrap();
+    let policy = policy::create(
+        &state,
+        policy::CreateStoragePolicyInput {
+            name: "Promoted Default".to_string(),
+            connection: policy::StoragePolicyConnectionInput {
+                driver_type: DriverType::Local,
+                endpoint: String::new(),
+                bucket: String::new(),
+                access_key: String::new(),
+                secret_key: String::new(),
+                base_path,
+                remote_node_id: None,
+                remote_storage_target_key: None,
+                options: Default::default(),
+            },
+            max_file_size: 0,
+            chunk_size: None,
+            is_default: false,
+            allowed_types: None,
+            options: None,
+            remote_storage_target_key: None,
+            application_config: Default::default(),
+        },
+    )
+    .await
+    .unwrap();
+
+    policy::update(
+        &state,
+        policy.id,
+        policy::UpdateStoragePolicyInput {
+            is_default: Some(true),
+            ..Default::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    let updated = user_repo::find_by_email(state.writer_db(), "promote-backfill@example.com")
+        .await
+        .unwrap()
+        .expect("unassigned user should still exist");
+    assert!(updated.policy_group_id.is_some());
+    assert_eq!(
+        state.policy_snapshot.resolve_default_policy_id(updated.id),
+        Some(policy.id)
+    );
 }
 
 #[actix_web::test]

@@ -6,7 +6,7 @@ use sea_orm::ActiveValue::Set;
 use crate::db::repository::mfa_recovery_code_repo;
 use crate::entities::mfa_recovery_code;
 use crate::errors::{AsterError, Result};
-use aster_forge_crypto as hash;
+use crate::runtime::SharedRuntimeState;
 
 use super::{RECOVERY_CODE_CHARS, RECOVERY_CODE_COUNT, now_utc};
 
@@ -18,14 +18,27 @@ pub struct GeneratedRecoveryCodes {
     pub models: Vec<mfa_recovery_code::ActiveModel>,
 }
 
-pub fn generate_for_user(user_id: i64) -> Result<GeneratedRecoveryCodes> {
+#[derive(Clone, Debug)]
+pub struct VerifiedRecoveryCode {
+    id: i64,
+    code_hash: String,
+}
+
+pub async fn generate_for_user(
+    state: &impl SharedRuntimeState,
+    user_id: i64,
+) -> Result<GeneratedRecoveryCodes> {
     let now = now_utc();
     let mut plaintext = Vec::with_capacity(RECOVERY_CODE_COUNT);
     let mut models = Vec::with_capacity(RECOVERY_CODE_COUNT);
     for _ in 0..RECOVERY_CODE_COUNT {
         let code = generate_code();
         let normalized = normalize_code(&code)?;
-        let code_hash = hash::hash_password(&normalized)?;
+        let code_hash = state
+            .runtime_config()
+            .password_hash_runtime()
+            .hash_password(&normalized)
+            .await?;
         plaintext.push(code);
         models.push(mfa_recovery_code::ActiveModel {
             user_id: Set(user_id),
@@ -41,26 +54,51 @@ pub fn generate_for_user(user_id: i64) -> Result<GeneratedRecoveryCodes> {
 pub async fn replace_for_user<C: sea_orm::ConnectionTrait>(
     db: &C,
     user_id: i64,
+    generated: GeneratedRecoveryCodes,
 ) -> Result<Vec<String>> {
-    let generated = generate_for_user(user_id)?;
     mfa_recovery_code_repo::delete_all_for_user(db, user_id).await?;
     mfa_recovery_code_repo::create_many(db, generated.models).await?;
     Ok(generated.plaintext)
 }
 
-pub async fn verify_and_consume<C: sea_orm::ConnectionTrait>(
+pub async fn verify<C: sea_orm::ConnectionTrait>(
+    state: &impl SharedRuntimeState,
     db: &C,
     user_id: i64,
     code: &str,
-) -> Result<bool> {
+) -> Result<Option<VerifiedRecoveryCode>> {
     let code = normalize_code(code)?;
     let unused = mfa_recovery_code_repo::list_unused_for_user(db, user_id).await?;
     for item in unused {
-        if hash::verify_password(&code, &item.code_hash)? {
-            return mfa_recovery_code_repo::mark_used(db, item.id, now_utc()).await;
+        if state
+            .runtime_config()
+            .password_hash_runtime()
+            .verify_password(&code, &item.code_hash)
+            .await?
+            .is_valid
+        {
+            return Ok(Some(VerifiedRecoveryCode {
+                id: item.id,
+                code_hash: item.code_hash,
+            }));
         }
     }
-    Ok(false)
+    Ok(None)
+}
+
+pub async fn consume_verified<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    verified: &VerifiedRecoveryCode,
+) -> Result<bool> {
+    mfa_recovery_code_repo::mark_used_if_current(
+        db,
+        verified.id,
+        user_id,
+        &verified.code_hash,
+        now_utc(),
+    )
+    .await
 }
 
 pub fn looks_like_code(code: &str) -> bool {

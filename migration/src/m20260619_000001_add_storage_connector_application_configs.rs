@@ -1,6 +1,6 @@
 //! Add canonical connector application config storage separate from OAuth credentials.
 
-use crate::column::json_text_column_for_final_schema;
+use aster_forge_db_migration::json_text_column_for_final_schema;
 use sea_orm_migration::prelude::*;
 
 #[derive(DeriveMigrationName)]
@@ -14,7 +14,9 @@ impl MigrationTrait for Migration {
                 Table::create()
                     .table(StorageConnectorApplicationConfigs::Table)
                     .if_not_exists()
-                    .col(big_integer_pk(StorageConnectorApplicationConfigs::Id))
+                    .col(aster_forge_db_migration::big_integer_primary_key(
+                        StorageConnectorApplicationConfigs::Id,
+                    ))
                     .col(
                         ColumnDef::new(StorageConnectorApplicationConfigs::PolicyId)
                             .big_integer()
@@ -50,14 +52,14 @@ impl MigrationTrait for Migration {
                         StorageConnectorApplicationConfigs::Metadata,
                     ))
                     .col(
-                        crate::time::utc_date_time_column(
+                        aster_forge_db_migration::utc_date_time_column(
                             manager,
                             StorageConnectorApplicationConfigs::CreatedAt,
                         )
                         .not_null(),
                     )
                     .col(
-                        crate::time::utc_date_time_column(
+                        aster_forge_db_migration::utc_date_time_column(
                             manager,
                             StorageConnectorApplicationConfigs::UpdatedAt,
                         )
@@ -109,16 +111,6 @@ impl MigrationTrait for Migration {
             )
             .await
     }
-}
-
-fn big_integer_pk<T: IntoIden>(name: T) -> ColumnDef {
-    let mut column = ColumnDef::new(name);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

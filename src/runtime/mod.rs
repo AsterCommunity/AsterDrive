@@ -9,7 +9,7 @@ pub mod tasks;
 use crate::config::{Config, RuntimeConfig};
 use crate::metrics::SharedMetricsRecorder;
 use crate::services::{
-    events::storage_change::StorageChangeEvent, share::ShareDownloadRollbackQueue,
+    events::storage_change::StorageChangeBus, share::ShareDownloadRollbackQueue,
 };
 use crate::storage::{DriverRegistry, PolicySnapshot, remote_protocol::RemoteProtocolRuntime};
 use aster_forge_db::DbHandles;
@@ -29,8 +29,8 @@ pub struct PrimaryAppState {
     pub config_sync: aster_forge_config::ConfigSyncRuntime,
     pub metrics: SharedMetricsRecorder,
     pub mail_sender: Arc<dyn MailSender>,
-    /// 文件/文件夹变更广播（SSE 消费）
-    pub storage_change_tx: tokio::sync::broadcast::Sender<StorageChangeEvent>,
+    /// Local storage-change broadcast with an optional cross-instance transport.
+    pub storage_change_bus: StorageChangeBus,
     /// 公开分享下载中途断连时的 download_count 回滚队列
     pub share_download_rollback: ShareDownloadRollbackQueue,
     /// 后台任务 dispatcher 唤醒信号。任务创建/重试后用它打断空闲退避 sleep。
@@ -68,7 +68,7 @@ pub trait MailRuntimeState: SharedRuntimeState {
 }
 
 pub trait StorageChangeRuntimeState: SharedRuntimeState {
-    fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent>;
+    fn storage_change_bus(&self) -> &StorageChangeBus;
 }
 
 pub trait ShareDownloadRuntimeState: SharedRuntimeState {
@@ -173,8 +173,8 @@ impl MailRuntimeState for PrimaryAppState {
 }
 
 impl StorageChangeRuntimeState for PrimaryAppState {
-    fn storage_change_tx(&self) -> &tokio::sync::broadcast::Sender<StorageChangeEvent> {
-        &self.storage_change_tx
+    fn storage_change_bus(&self) -> &StorageChangeBus {
+        &self.storage_change_bus
     }
 }
 
@@ -248,6 +248,7 @@ pub(crate) mod test_support {
 
     pub(crate) struct CacheOnlyState {
         cache: Arc<dyn aster_forge_cache::CacheBackend>,
+        config: Arc<Config>,
         config_sync: aster_forge_config::ConfigSyncRuntime,
     }
 
@@ -259,6 +260,7 @@ pub(crate) mod test_support {
                     ..Default::default()
                 })
                 .await,
+                config: Arc::new(Config::default()),
                 config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test(
                     "aster_drive",
                 ),
@@ -288,7 +290,7 @@ pub(crate) mod test_support {
         }
 
         fn config(&self) -> &Arc<Config> {
-            panic!("cache-only test state must not access config")
+            &self.config
         }
 
         fn cache(&self) -> &Arc<dyn aster_forge_cache::CacheBackend> {
@@ -318,7 +320,7 @@ mod tests {
     async fn setup_state() -> PrimaryAppState {
         let db = crate::db::connect_with_metrics(
             &crate::config::DatabaseConfig {
-                url: "sqlite::memory:".to_string(),
+                url: "sqlite::memory:".into(),
                 pool_size: 1,
                 retry_count: 0,
             },
@@ -333,7 +335,7 @@ mod tests {
         })
         .await;
         let runtime_config = Arc::new(RuntimeConfig::new());
-        let (storage_change_tx, _) = tokio::sync::broadcast::channel(
+        let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
         let (share_download_rollback, _worker) =
@@ -349,7 +351,7 @@ mod tests {
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
             metrics: crate::metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
-            storage_change_tx,
+            storage_change_bus,
             share_download_rollback,
             background_task_dispatch_wakeup:
                 crate::runtime::PrimaryAppState::new_background_task_dispatch_wakeup(),

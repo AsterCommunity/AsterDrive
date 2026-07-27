@@ -10,6 +10,8 @@ use aster_forge_logging::LoggingConfig;
 #[derive(Debug, Deserialize, Serialize, Clone, Default)]
 pub struct Config {
     #[serde(default)]
+    pub deployment: crate::config::deployment::DeploymentConfig,
+    #[serde(default)]
     pub server: ServerConfig,
     #[serde(default)]
     pub database: DatabaseConfig,
@@ -114,7 +116,7 @@ impl ServerConfig {
 #[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DatabaseConfig {
     #[serde(default = "DatabaseConfig::default_url")]
-    pub url: String,
+    pub url: aster_forge_db::DatabaseUrl,
     #[serde(default = "DatabaseConfig::default_pool_size")]
     pub pool_size: u32,
     #[serde(default = "DatabaseConfig::default_retry_count")]
@@ -132,8 +134,8 @@ impl Default for DatabaseConfig {
 }
 
 impl DatabaseConfig {
-    fn default_url() -> String {
-        crate::config::paths::DEFAULT_CONFIG_SQLITE_DATABASE_URL.to_string()
+    fn default_url() -> aster_forge_db::DatabaseUrl {
+        crate::config::paths::DEFAULT_CONFIG_SQLITE_DATABASE_URL.into()
     }
     fn default_pool_size() -> u32 {
         10
@@ -153,6 +155,9 @@ pub struct AuthConfig {
     pub direct_link_secret: String,
     pub mfa_secret_key: String,
     pub storage_credential_secret_key: String,
+    pub webdav_auth_cache_secret: String,
+    #[serde(default = "AuthConfig::default_password_hash_max_concurrency")]
+    pub password_hash_max_concurrency: usize,
     /// 首次初始化 system_config 时，是否把 auth_cookie_secure 设为 false。
     #[serde(default = "AuthConfig::default_bootstrap_insecure_cookies")]
     pub bootstrap_insecure_cookies: bool,
@@ -166,6 +171,8 @@ impl Default for AuthConfig {
             direct_link_secret: Self::default_direct_link_secret(),
             mfa_secret_key: Self::default_mfa_secret_key(),
             storage_credential_secret_key: Self::default_storage_credential_secret_key(),
+            webdav_auth_cache_secret: Self::default_webdav_auth_cache_secret(),
+            password_hash_max_concurrency: Self::default_password_hash_max_concurrency(),
             bootstrap_insecure_cookies: Self::default_bootstrap_insecure_cookies(),
         }
     }
@@ -192,6 +199,12 @@ impl AuthConfig {
     }
     fn default_storage_credential_secret_key() -> String {
         Self::random_hex_secret()
+    }
+    fn default_webdav_auth_cache_secret() -> String {
+        Self::random_hex_secret()
+    }
+    fn default_password_hash_max_concurrency() -> usize {
+        crate::config::password_hash::DEFAULT_PASSWORD_HASH_MAX_CONCURRENCY
     }
     fn default_bootstrap_insecure_cookies() -> bool {
         false

@@ -61,8 +61,9 @@ pub async fn validate_policy_credential(
         Ok(validation) => validation,
         Err(error) => {
             let mut active = credential.clone().into_active_model();
-            if let Some(status) = credential_status_for_validation_error(error.storage_error_kind())
-            {
+            let status_transition =
+                credential_status_transition(credential.status, error.storage_error_kind());
+            if let Some(status) = status_transition {
                 active.status = Set(status);
             }
             active.status_reason = Set(Some(error.message().to_string()));
@@ -71,10 +72,26 @@ pub async fn validate_policy_credential(
                 .update(state.writer_db())
                 .await
                 .map_err(AsterError::from)?;
-            let _ = state
+            if let Err(reload_error) = state
                 .driver_registry()
                 .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
+                .await
+            {
+                tracing::warn!(
+                    storage_policy_id = policy_id,
+                    credential_provider = provider.as_str(),
+                    "failed to reload storage policy credentials after validation failure: {reload_error}"
+                );
+            }
+            if status_transition.is_some() {
+                crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+                    state,
+                    "update_status",
+                    "storage_policy_credential",
+                    policy_id,
+                )
                 .await;
+            }
             return Err(error);
         }
     };
@@ -95,6 +112,13 @@ pub async fn validate_policy_credential(
         .driver_registry()
         .reload_storage_policy_credentials(state.writer_db(), state.config().as_ref())
         .await?;
+    crate::services::ops::config::runtime::publish_storage_topology_reload_after_commit(
+        state,
+        "validate",
+        "storage_policy_credential",
+        policy_id,
+    )
+    .await;
 
     Ok(StoragePolicyCredentialValidationResult {
         credential: credential.into(),
@@ -112,6 +136,14 @@ fn credential_status_for_validation_error(
         Some(StorageErrorKind::Misconfigured) => Some(StorageCredentialStatus::Invalid),
         _ => None,
     }
+}
+
+fn credential_status_transition(
+    current: StorageCredentialStatus,
+    kind: Option<StorageErrorKind>,
+) -> Option<StorageCredentialStatus> {
+    let next = credential_status_for_validation_error(kind)?;
+    (next != current).then_some(next)
 }
 
 #[cfg(test)]
@@ -144,5 +176,56 @@ mod tests {
             credential_status_for_validation_error(Some(StorageErrorKind::Unknown)),
             None
         );
+    }
+
+    #[test]
+    fn credential_status_transition_only_reports_topology_changes() {
+        let current_statuses = [
+            StorageCredentialStatus::Authorized,
+            StorageCredentialStatus::ReauthRequired,
+            StorageCredentialStatus::PermissionDenied,
+            StorageCredentialStatus::Revoked,
+            StorageCredentialStatus::Invalid,
+        ];
+        let deterministic_failures = [
+            (
+                StorageErrorKind::Auth,
+                StorageCredentialStatus::ReauthRequired,
+            ),
+            (
+                StorageErrorKind::Permission,
+                StorageCredentialStatus::PermissionDenied,
+            ),
+            (
+                StorageErrorKind::Misconfigured,
+                StorageCredentialStatus::Invalid,
+            ),
+        ];
+
+        for (kind, target) in deterministic_failures {
+            for current in current_statuses {
+                assert_eq!(
+                    credential_status_transition(current, Some(kind)),
+                    (current != target).then_some(target),
+                    "unexpected transition from {} after {kind:?}",
+                    current.as_str(),
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn credential_status_transition_ignores_non_deterministic_failures() {
+        for kind in [
+            None,
+            Some(StorageErrorKind::Transient),
+            Some(StorageErrorKind::RateLimited),
+            Some(StorageErrorKind::Unknown),
+        ] {
+            assert_eq!(
+                credential_status_transition(StorageCredentialStatus::Authorized, kind),
+                None
+            );
+        }
     }
 }

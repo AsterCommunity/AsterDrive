@@ -1,0 +1,65 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: asterdrive
+resources:
+  - ../../base
+  - postgres.yaml
+  - redis.yaml
+  - rustfs.yaml
+images:
+  - name: ghcr.io/astercommunity/asterdrive
+    newName: asterdrive
+    newTag: issue-399
+generatorOptions:
+  disableNameSuffixHash: true
+secretGenerator:
+  - name: postgres-local
+    literals:
+      - username=asterdrive
+      - password=asterdrive-local-postgres
+      - database=asterdrive
+  - name: redis-local
+    literals:
+      - password=asterdrive-local-redis
+  - name: rustfs-local
+    literals:
+      - access-key=rustfsadmin
+      - secret-key=rustfsadmin123
+  - name: asterdrive-cluster
+    literals:
+      - ASTER__DATABASE__URL=postgres://asterdrive:asterdrive-local-postgres@postgres:5432/asterdrive
+      - ASTER__CACHE__ENDPOINT=redis://:asterdrive-local-redis@redis:6379/0
+      - ASTER__CONFIG_SYNC__ENDPOINT=redis://:asterdrive-local-redis@redis:6379/0
+      - ASTER__DEPLOYMENT__INTERNAL_PROXY_SECRET=orbstack-internal-proxy-secret-issue-399
+      - ASTER__AUTH__JWT_SECRET=orbstack-jwt-secret-issue-399-do-not-use-in-production
+      - ASTER__AUTH__SHARE_COOKIE_SECRET=orbstack-share-cookie-secret-issue-399
+      - ASTER__AUTH__DIRECT_LINK_SECRET=orbstack-direct-link-secret-issue-399
+      - ASTER__AUTH__MFA_SECRET_KEY=orbstack-mfa-secret-issue-399
+      - ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY=orbstack-storage-credential-secret-issue-399
+      - ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET=orbstack-webdav-auth-cache-secret-issue-399
+patches:
+  - target:
+      kind: PersistentVolumeClaim
+      name: asterdrive-avatars
+    patch: |-
+      - op: replace
+        path: /spec/accessModes
+        value:
+          - ReadWriteOnce
+  - target:
+      kind: ConfigMap
+      name: asterdrive-cluster
+    patch: |-
+      - op: add
+        path: /data/ASTER__DATABASE__POOL_SIZE
+        value: "5"
+      - op: add
+        path: /data/ASTER__DATABASE__RETRY_COUNT
+        value: "30"
+  - target:
+      kind: StatefulSet
+      name: asterdrive
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/imagePullPolicy
+        value: Never

@@ -7,7 +7,7 @@ use serde::Serialize;
 
 use super::shared::{
     CliTerminalPalette, OutputFormat, ResolvedOutputFormat, human_key, prepare_database,
-    render_error_json, render_success_envelope,
+    prepare_database_config, render_error_json, render_success_envelope,
 };
 
 #[derive(Debug, Clone, Subcommand)]
@@ -65,8 +65,10 @@ pub fn render_node_error(format: OutputFormat, err: &AsterError) -> String {
 async fn execute_enroll(args: &NodeEnrollArgs) -> Result<NodeEnrollReport> {
     let config_path = ensure_follower_start_mode()?;
     let config = crate::config::get_config();
-    let database_url = resolve_database_url(args.database_url.as_deref())?;
-    let db = prepare_database(&database_url).await?;
+    let db = match args.database_url.as_deref() {
+        Some(database_url) => prepare_database(database_url).await?,
+        None => prepare_database_config(&config.database).await?,
+    };
     let result = crate::services::remote::node_enrollment::enroll(
         &db,
         crate::services::remote::node_enrollment::NodeEnrollmentInput {
@@ -111,15 +113,6 @@ fn ensure_follower_start_mode() -> Result<String> {
         "before enrolling this node, set [server].start_mode = \"follower\" in {} and rerun the command",
         config_path
     )))
-}
-
-fn resolve_database_url(explicit: Option<&str>) -> Result<String> {
-    if let Some(database_url) = explicit {
-        return Ok(database_url.to_string());
-    }
-
-    crate::config::init_config()?;
-    Ok(crate::config::get_config().database.url.clone())
 }
 
 fn render_node_human(report: &NodeEnrollReport) -> String {

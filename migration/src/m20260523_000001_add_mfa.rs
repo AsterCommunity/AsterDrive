@@ -35,7 +35,9 @@ async fn create_mfa_factors(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
             Table::create()
                 .table(MfaFactors::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MfaFactors::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MfaFactors::Id,
+                ))
                 .col(ColumnDef::new(MfaFactors::UserId).big_integer().not_null())
                 .col(ColumnDef::new(MfaFactors::Method).string_len(16).not_null())
                 .col(ColumnDef::new(MfaFactors::Name).string_len(128).not_null())
@@ -50,10 +52,22 @@ async fn create_mfa_factors(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
                         .not_null()
                         .default(1),
                 )
-                .col(crate::time::utc_date_time_column(manager, MfaFactors::EnabledAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, MfaFactors::LastUsedAt).null())
-                .col(crate::time::utc_date_time_column(manager, MfaFactors::CreatedAt).not_null())
-                .col(crate::time::utc_date_time_column(manager, MfaFactors::UpdatedAt).not_null())
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MfaFactors::EnabledAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MfaFactors::LastUsedAt)
+                        .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MfaFactors::CreatedAt)
+                        .not_null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(manager, MfaFactors::UpdatedAt)
+                        .not_null(),
+                )
                 .foreign_key(
                     ForeignKey::create()
                         .from(MfaFactors::Table, MfaFactors::UserId)
@@ -90,7 +104,9 @@ async fn create_mfa_recovery_codes(manager: &SchemaManager<'_>) -> Result<(), Db
             Table::create()
                 .table(MfaRecoveryCodes::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MfaRecoveryCodes::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MfaRecoveryCodes::Id,
+                ))
                 .col(
                     ColumnDef::new(MfaRecoveryCodes::UserId)
                         .big_integer()
@@ -101,10 +117,19 @@ async fn create_mfa_recovery_codes(manager: &SchemaManager<'_>) -> Result<(), Db
                         .string_len(255)
                         .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, MfaRecoveryCodes::UsedAt).null())
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaRecoveryCodes::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaRecoveryCodes::UsedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaRecoveryCodes::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -141,7 +166,9 @@ async fn create_mfa_login_flows(manager: &SchemaManager<'_>) -> Result<(), DbErr
             Table::create()
                 .table(MfaLoginFlows::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MfaLoginFlows::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MfaLoginFlows::Id,
+                ))
                 .col(
                     ColumnDef::new(MfaLoginFlows::FlowTokenHash)
                         .string_len(64)
@@ -180,11 +207,25 @@ async fn create_mfa_login_flows(manager: &SchemaManager<'_>) -> Result<(), DbErr
                         .default(0),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaLoginFlows::ExpiresAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaLoginFlows::ExpiresAt,
+                    )
+                    .not_null(),
                 )
-                .col(crate::time::utc_date_time_column(manager, MfaLoginFlows::ConsumedAt).null())
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaLoginFlows::CreatedAt).not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaLoginFlows::ConsumedAt,
+                    )
+                    .null(),
+                )
+                .col(
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaLoginFlows::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -226,7 +267,9 @@ async fn create_mfa_totp_setup_flows(manager: &SchemaManager<'_>) -> Result<(), 
             Table::create()
                 .table(MfaTotpSetupFlows::Table)
                 .if_not_exists()
-                .col(big_integer_pk(MfaTotpSetupFlows::Id))
+                .col(aster_forge_db_migration::big_integer_primary_key(
+                    MfaTotpSetupFlows::Id,
+                ))
                 .col(
                     ColumnDef::new(MfaTotpSetupFlows::FlowTokenHash)
                         .string_len(64)
@@ -249,16 +292,25 @@ async fn create_mfa_totp_setup_flows(manager: &SchemaManager<'_>) -> Result<(), 
                         .default(1),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaTotpSetupFlows::ExpiresAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaTotpSetupFlows::ExpiresAt,
+                    )
+                    .not_null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaTotpSetupFlows::ConsumedAt)
-                        .null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaTotpSetupFlows::ConsumedAt,
+                    )
+                    .null(),
                 )
                 .col(
-                    crate::time::utc_date_time_column(manager, MfaTotpSetupFlows::CreatedAt)
-                        .not_null(),
+                    aster_forge_db_migration::utc_date_time_column(
+                        manager,
+                        MfaTotpSetupFlows::CreatedAt,
+                    )
+                    .not_null(),
                 )
                 .foreign_key(
                     ForeignKey::create()
@@ -292,19 +344,6 @@ async fn create_mfa_totp_setup_flows(manager: &SchemaManager<'_>) -> Result<(), 
     }
 
     Ok(())
-}
-
-fn big_integer_pk<T>(column: T) -> ColumnDef
-where
-    T: IntoIden,
-{
-    let mut column = ColumnDef::new(column);
-    column
-        .big_integer()
-        .not_null()
-        .auto_increment()
-        .primary_key();
-    column
 }
 
 #[derive(DeriveIden)]

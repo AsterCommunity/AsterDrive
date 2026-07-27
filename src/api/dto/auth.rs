@@ -35,6 +35,7 @@ pub struct ResendRegisterActivationReq {
 #[derive(serde::Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct CheckResp {
+    pub setup_state: crate::services::system_setup::SystemSetupState,
     pub has_users: bool,
     pub allow_user_registration: bool,
     pub passkey_login_enabled: bool,

@@ -2714,7 +2714,7 @@ async fn setup_internal_hmac_binding_state(
     let mut provider_state = common::setup().await;
     provider_state.cache = aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig {
         backend: "memory".to_string(),
-        endpoint: String::new(),
+        endpoint: Default::default(),
         default_ttl: 60,
     })
     .await;

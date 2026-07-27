@@ -6,6 +6,11 @@ import { AdminRoute } from "./AdminRoute";
 import { Loading } from "./Loading";
 import { LoginGuard } from "./LoginGuard";
 import { ProtectedRoute } from "./ProtectedRoute";
+import {
+	PendingSystemSetupRoute,
+	ReadySystemSetupRoute,
+	StorageSystemSetupRoute,
+} from "./SystemSetupRoute";
 import { WorkspaceRoute } from "./WorkspaceRoute";
 
 function lazyPage<TProps extends object>(
@@ -32,6 +37,14 @@ function localizedLazyPage<TProps extends object>(
 }
 
 const LoginPage = lazyPage(() => import("@/pages/LoginPage"));
+const StorageSetupPage = localizedLazyPage(
+	["admin", "auth", "core", "errors"],
+	() => import("@/pages/StorageSetupPage"),
+);
+const StorageSetupPendingPage = localizedLazyPage(
+	["auth", "core"],
+	() => import("@/pages/StorageSetupPendingPage"),
+);
 const ForcePasswordChangePage = localizedLazyPage(
 	["auth", "core", "settings", "validation"],
 	() => import("@/pages/ForcePasswordChangePage"),
@@ -157,50 +170,73 @@ export const router = createBrowserRouter([
 		),
 	},
 	{
+		element: <StorageSystemSetupRoute />,
+		errorElement,
+		children: [{ path: "/setup/storage", element: <StorageSetupPage /> }],
+	},
+	{
+		element: <PendingSystemSetupRoute />,
+		errorElement,
+		children: [
+			{ path: "/setup/pending", element: <StorageSetupPendingPage /> },
+		],
+	},
+	{
 		element: <ProtectedRoute />,
 		errorElement,
 		children: [
 			{
-				element: workspaceRouteElement,
+				element: <ReadySystemSetupRoute />,
 				children: [
-					{ path: "/", element: <FileBrowserPage /> },
-					{ path: "/folder/:folderId", element: <FileBrowserPage /> },
-					{ path: "/category/:category", element: <CategoryBrowserPage /> },
-					{ path: "/search", element: <SearchBrowserPage /> },
-					{ path: "/shares", element: <MySharesPage /> },
-					{ path: "/tasks", element: <TasksPage /> },
-					{ path: "/trash", element: <TrashPage /> },
+					{
+						element: workspaceRouteElement,
+						children: [
+							{ path: "/", element: <FileBrowserPage /> },
+							{ path: "/folder/:folderId", element: <FileBrowserPage /> },
+							{
+								path: "/category/:category",
+								element: <CategoryBrowserPage />,
+							},
+							{ path: "/search", element: <SearchBrowserPage /> },
+							{ path: "/shares", element: <MySharesPage /> },
+							{ path: "/tasks", element: <TasksPage /> },
+							{ path: "/trash", element: <TrashPage /> },
+						],
+					},
+					{
+						path: "/teams/:teamId",
+						element: workspaceRouteElement,
+						children: [
+							{ index: true, element: <FileBrowserPage /> },
+							{ path: "folder/:folderId", element: <FileBrowserPage /> },
+							{
+								path: "category/:category",
+								element: <CategoryBrowserPage />,
+							},
+							{ path: "search", element: <SearchBrowserPage /> },
+							{ path: "shares", element: <MySharesPage /> },
+							{ path: "tasks", element: <TasksPage /> },
+							{ path: "trash", element: <TrashPage /> },
+						],
+					},
+					{ path: "/settings/webdav", element: <WebdavAccountsPage /> },
+					{
+						path: "/settings",
+						element: <Navigate to="/settings/profile" replace />,
+					},
+					{
+						path: "/settings/:section",
+						element: <SettingsPage />,
+					},
+					{
+						path: "/settings/teams/:teamId",
+						element: <TeamManagePage />,
+					},
+					{
+						path: "/settings/teams/:teamId/:section",
+						element: <TeamManagePage />,
+					},
 				],
-			},
-			{
-				path: "/teams/:teamId",
-				element: workspaceRouteElement,
-				children: [
-					{ index: true, element: <FileBrowserPage /> },
-					{ path: "folder/:folderId", element: <FileBrowserPage /> },
-					{ path: "category/:category", element: <CategoryBrowserPage /> },
-					{ path: "search", element: <SearchBrowserPage /> },
-					{ path: "shares", element: <MySharesPage /> },
-					{ path: "tasks", element: <TasksPage /> },
-					{ path: "trash", element: <TrashPage /> },
-				],
-			},
-			{ path: "/settings/webdav", element: <WebdavAccountsPage /> },
-			{
-				path: "/settings",
-				element: <Navigate to="/settings/profile" replace />,
-			},
-			{
-				path: "/settings/:section",
-				element: <SettingsPage />,
-			},
-			{
-				path: "/settings/teams/:teamId",
-				element: <TeamManagePage />,
-			},
-			{
-				path: "/settings/teams/:teamId/:section",
-				element: <TeamManagePage />,
 			},
 		],
 	},
@@ -215,101 +251,109 @@ export const router = createBrowserRouter([
 		element: <AdminRoute />,
 		errorElement,
 		children: [
-			{ path: "/admin", element: <Navigate to="/admin/overview" replace /> },
-			{ path: "/admin/overview", element: <AdminOverviewPage /> },
 			{
-				path: "/admin/users/invitations",
-				element: <AdminUserInvitationsPage />,
+				element: <ReadySystemSetupRoute />,
+				children: [
+					{
+						path: "/admin",
+						element: <Navigate to="/admin/overview" replace />,
+					},
+					{ path: "/admin/overview", element: <AdminOverviewPage /> },
+					{
+						path: "/admin/users/invitations",
+						element: <AdminUserInvitationsPage />,
+					},
+					{ path: "/admin/users", element: <AdminUsersPage /> },
+					{ path: "/admin/teams", element: <AdminTeamsPage /> },
+					{ path: "/admin/teams/:teamId", element: <AdminTeamDetailPage /> },
+					{
+						path: "/admin/teams/:teamId/:section",
+						element: <AdminTeamDetailPage />,
+					},
+					{ path: "/admin/policies", element: <AdminPoliciesPage /> },
+					{ path: "/admin/remote-nodes", element: <AdminRemoteNodesPage /> },
+					{ path: "/admin/external-auth", element: <AdminExternalAuthPage /> },
+					{ path: "/admin/policy-groups", element: <AdminPolicyGroupsPage /> },
+					{ path: "/admin/shares", element: <AdminSharesPage /> },
+					{ path: "/admin/files", element: <AdminFilesPage kind="files" /> },
+					{
+						path: "/admin/file-blobs",
+						element: <AdminFilesPage kind="blobs" />,
+					},
+					{ path: "/admin/tasks", element: <AdminTasksPage /> },
+					{ path: "/admin/locks", element: <AdminLocksPage /> },
+					{
+						path: "/admin/settings",
+						element: <Navigate to="/admin/settings/site" replace />,
+					},
+					{
+						path: "/admin/settings/site",
+						element: <AdminSettingsPage section="site" />,
+					},
+					{
+						path: "/admin/settings/auth",
+						element: <AdminSettingsPage section="auth" />,
+					},
+					{
+						path: "/admin/settings/mail",
+						element: <AdminSettingsPage section="mail" />,
+					},
+					{
+						path: "/admin/settings/user",
+						element: <AdminSettingsPage section="user" />,
+					},
+					{
+						path: "/admin/settings/network",
+						element: <AdminSettingsPage section="network" />,
+					},
+					{
+						path: "/admin/settings/runtime",
+						element: <AdminSettingsPage section="runtime" />,
+					},
+					{
+						path: "/admin/settings/storage",
+						element: <AdminSettingsPage section="storage" />,
+					},
+					{
+						path: "/admin/settings/file-processing",
+						element: <AdminSettingsPage section="file_processing" />,
+					},
+					{
+						path: "/admin/settings/file_processing",
+						element: <Navigate to="/admin/settings/file-processing" replace />,
+					},
+					{
+						path: "/admin/settings/webdav",
+						element: <AdminSettingsPage section="webdav" />,
+					},
+					{
+						path: "/admin/settings/audit",
+						element: <AdminSettingsPage section="audit" />,
+					},
+					{
+						path: "/admin/settings/general",
+						element: <Navigate to="/admin/settings/site" replace />,
+					},
+					{
+						path: "/admin/settings/operations",
+						element: <Navigate to="/admin/settings/runtime" replace />,
+					},
+					{
+						path: "/admin/settings/custom",
+						element: <AdminSettingsPage section="custom" />,
+					},
+					{
+						path: "/admin/settings/other",
+						element: <AdminSettingsPage section="other" />,
+					},
+					{
+						path: "/admin/settings/:section",
+						element: <Navigate to="/admin/settings/site" replace />,
+					},
+					{ path: "/admin/audit", element: <AdminAuditPage /> },
+					{ path: "/admin/about", element: <AdminAboutPage /> },
+				],
 			},
-			{ path: "/admin/users", element: <AdminUsersPage /> },
-			{ path: "/admin/teams", element: <AdminTeamsPage /> },
-			{ path: "/admin/teams/:teamId", element: <AdminTeamDetailPage /> },
-			{
-				path: "/admin/teams/:teamId/:section",
-				element: <AdminTeamDetailPage />,
-			},
-			{ path: "/admin/policies", element: <AdminPoliciesPage /> },
-			{ path: "/admin/remote-nodes", element: <AdminRemoteNodesPage /> },
-			{ path: "/admin/external-auth", element: <AdminExternalAuthPage /> },
-			{ path: "/admin/policy-groups", element: <AdminPolicyGroupsPage /> },
-			{ path: "/admin/shares", element: <AdminSharesPage /> },
-			{ path: "/admin/files", element: <AdminFilesPage kind="files" /> },
-			{
-				path: "/admin/file-blobs",
-				element: <AdminFilesPage kind="blobs" />,
-			},
-			{ path: "/admin/tasks", element: <AdminTasksPage /> },
-			{ path: "/admin/locks", element: <AdminLocksPage /> },
-			{
-				path: "/admin/settings",
-				element: <Navigate to="/admin/settings/site" replace />,
-			},
-			{
-				path: "/admin/settings/site",
-				element: <AdminSettingsPage section="site" />,
-			},
-			{
-				path: "/admin/settings/auth",
-				element: <AdminSettingsPage section="auth" />,
-			},
-			{
-				path: "/admin/settings/mail",
-				element: <AdminSettingsPage section="mail" />,
-			},
-			{
-				path: "/admin/settings/user",
-				element: <AdminSettingsPage section="user" />,
-			},
-			{
-				path: "/admin/settings/network",
-				element: <AdminSettingsPage section="network" />,
-			},
-			{
-				path: "/admin/settings/runtime",
-				element: <AdminSettingsPage section="runtime" />,
-			},
-			{
-				path: "/admin/settings/storage",
-				element: <AdminSettingsPage section="storage" />,
-			},
-			{
-				path: "/admin/settings/file-processing",
-				element: <AdminSettingsPage section="file_processing" />,
-			},
-			{
-				path: "/admin/settings/file_processing",
-				element: <Navigate to="/admin/settings/file-processing" replace />,
-			},
-			{
-				path: "/admin/settings/webdav",
-				element: <AdminSettingsPage section="webdav" />,
-			},
-			{
-				path: "/admin/settings/audit",
-				element: <AdminSettingsPage section="audit" />,
-			},
-			{
-				path: "/admin/settings/general",
-				element: <Navigate to="/admin/settings/site" replace />,
-			},
-			{
-				path: "/admin/settings/operations",
-				element: <Navigate to="/admin/settings/runtime" replace />,
-			},
-			{
-				path: "/admin/settings/custom",
-				element: <AdminSettingsPage section="custom" />,
-			},
-			{
-				path: "/admin/settings/other",
-				element: <AdminSettingsPage section="other" />,
-			},
-			{
-				path: "/admin/settings/:section",
-				element: <Navigate to="/admin/settings/site" replace />,
-			},
-			{ path: "/admin/audit", element: <AdminAuditPage /> },
-			{ path: "/admin/about", element: <AdminAboutPage /> },
 		],
 	},
 	{ path: "*", element: <Navigate to="/" replace /> },

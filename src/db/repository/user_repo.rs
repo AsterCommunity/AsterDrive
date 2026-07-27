@@ -161,6 +161,23 @@ pub async fn count_by_policy_group<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn count_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
+    User::find()
+        .filter(user::Column::Role.eq(role))
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn count_unassigned_by_role<C: ConnectionTrait>(db: &C, role: UserRole) -> Result<u64> {
+    User::find()
+        .filter(user::Column::Role.eq(role))
+        .filter(user::Column::PolicyGroupId.is_null())
+        .count(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 pub async fn assign_policy_group_to_unassigned<C: ConnectionTrait>(
     db: &C,
     policy_group_id: i64,
@@ -291,6 +308,24 @@ pub async fn delete<C: ConnectionTrait>(db: &C, id: i64) -> Result<()> {
         return Err(AsterError::record_not_found(format!("user #{id}")));
     }
     Ok(())
+}
+
+/// Replaces a password hash only when the persisted hash still matches the value that was
+/// verified. This prevents a progressive rehash from overwriting a concurrent password change.
+pub async fn update_password_hash_if_current<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    current_hash: &str,
+    new_hash: &str,
+) -> Result<bool> {
+    let result = User::update_many()
+        .col_expr(user::Column::PasswordHash, Expr::value(new_hash))
+        .filter(user::Column::Id.eq(user_id))
+        .filter(user::Column::PasswordHash.eq(current_hash))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
 }
 
 /// 检查用户配额是否足够。quota=0 表示不限。

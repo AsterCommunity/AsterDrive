@@ -29,11 +29,35 @@ default_ttl = 3600
 | `endpoint` | `""` | Redis 连接地址，仅 `backend = "redis"` 时使用 |
 | `default_ttl` | `3600` | 默认 TTL，单位秒 |
 
+## Redis 认证
+
+现有完整 URL 字符串继续兼容：
+
+```toml
+endpoint = "redis://encoded-user:encoded-password@cache.internal:6379/0"
+```
+
+用户名或密码含保留字符时，推荐直接传原始凭据：
+
+```toml
+endpoint = { base_url = "redis://cache.internal:6379/0", username = "RAW_USERNAME", password = "RAW_PASSWORD" }
+```
+
+无 ACL 用户名、只有密码的 Redis 使用 `username = ""`。原始凭据不要预编码，`base_url` 不能包含 userinfo；AsterDrive 和 Forge 的 Debug/配置序列化不会输出 username/password。生产环境应限制配置文件权限，Kubernetes 建议通过 Secret 挂载完整配置。
+
+对应的结构化环境变量：
+
+```bash
+ASTER__CACHE__ENDPOINT__BASE_URL=redis://cache.internal:6379/0
+ASTER__CACHE__ENDPOINT__USERNAME=
+ASTER__CACHE__ENDPOINT__PASSWORD=RAW_PASSWORD
+```
+
 ## Redis 连不上会怎样
 
-把 `backend` 设成 `redis` 但 Redis 连不上时，AsterDrive 会**自动回退到内存缓存继续运行**。
+把 `backend` 设成 `redis` 但启动时 Redis 连不上时，AsterDrive 会让 Forge cache 构造器使用 `ReturnError` 策略，直接返回连接错误并终止启动。这样 single 和 cluster 都不会在运维人员以为正在使用 Redis 时悄悄改成进程本地缓存，编排器也能在 Redis 恢复后重试启动。
 
-服务一般不会因为 Redis 暂时不可用就直接起不来——但多实例之间也就不再共享缓存了。
+如果 Redis backend 已经成功建立，运行期短暂断线会进入受控 fallback/circuit 状态：`/health` 继续表示进程存活，`/health/ready` 返回失败；连接恢复后 backend 会重新变为 ready。
 
 ## 对应环境变量
 

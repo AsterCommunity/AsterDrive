@@ -29,7 +29,15 @@ impl From<SystemHealthReport> for task::RuntimeTaskRunOutcome {
     }
 }
 
-pub async fn check_primary_ready<S: SharedRuntimeState>(state: &S) -> Result<()> {
+pub async fn check_primary_ready<S: SharedRuntimeState>(
+    state: &S,
+) -> Result<crate::services::system_setup::SystemSetupState> {
+    crate::services::ops::deployment::validate_primary_topology(state.reader_db(), state.config())
+        .await?;
+    let setup_state = crate::services::system_setup::state(state.writer_db()).await?;
+    if !setup_state.is_ready() {
+        return Ok(setup_state);
+    }
     let policy = state
         .policy_snapshot()
         .system_default_policy()
@@ -37,7 +45,8 @@ pub async fn check_primary_ready<S: SharedRuntimeState>(state: &S) -> Result<()>
             AsterError::storage_policy_not_found("system default storage policy not found")
         })?;
     let driver = state.driver_registry().get_driver(&policy)?;
-    driver.readiness_check().await
+    driver.readiness_check().await?;
+    Ok(setup_state)
 }
 
 pub async fn check_follower_ready<S: FollowerRuntimeState>(state: &S) -> Result<()> {

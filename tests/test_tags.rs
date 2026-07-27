@@ -132,7 +132,7 @@ async fn test_personal_tags_attach_list_search_and_delete_cleanup() {
     let file_id = upload_test_file_named!(app, token, "tagged-report.txt");
     let other_file_id = upload_test_file_named!(app, token, "untagged-report.txt");
     let tag_id = create_tag(&app, &token, "Important", "#3b82f6").await;
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/tags/{tag_id}/file/{file_id}"))
@@ -236,7 +236,7 @@ async fn test_tag_update_and_delete_publish_bound_entity_events() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
 
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/tags/{tag_id}"))
         .insert_header(("Cookie", common::access_cookie_header(&token)))
@@ -281,7 +281,7 @@ async fn test_unbound_tag_create_and_update_publish_tag_only_events() {
     let app = create_test_app!(state.clone());
 
     let (token, _) = register_and_login!(app);
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
     let tag_id = create_tag(&app, &token, "Library Only", "#64748b").await;
 
     let event = tokio::time::timeout(Duration::from_secs(1), storage_events.recv())
@@ -321,7 +321,7 @@ async fn test_empty_batch_tag_mutation_publishes_empty_assignment_event() {
 
     let (token, _) = register_and_login!(app);
     let tag_id = create_tag(&app, &token, "Empty Batch", "#0891b2").await;
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/tags/{tag_id}/batch"))
@@ -613,7 +613,7 @@ async fn test_batch_tag_events_deduplicate_affected_parent_ids() {
     let first_file_id = upload_test_file_to_folder!(app, token, folder_id);
     let second_file_id = upload_test_file_to_folder!(app, token, folder_id);
     let tag_id = create_tag(&app, &token, "Batch Parents", "#0891b2").await;
-    let mut storage_events = state.storage_change_tx.subscribe();
+    let mut storage_events = state.storage_change_bus.subscribe();
 
     let req = test::TestRequest::put()
         .uri(&format!("/api/v1/tags/{tag_id}/batch"))
