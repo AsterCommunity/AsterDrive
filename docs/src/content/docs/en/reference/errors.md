@@ -1,4 +1,5 @@
 ---
+description: "Authoritative AsterDrive error-code reference: the top-level code contract, what each code means, and the right entry points for users and administrators."
 title: "Error Code Handling"
 ---
 
@@ -427,7 +428,7 @@ Administrators can continue with:
 
 1. Check server logs for the same time range.
 2. If the problem involves uploads, storage, thumbnails, archive preview, or offline downloads, inspect `Admin -> Tasks`.
-3. If storage metadata may not match underlying objects, run `doctor` from [Operations CLI](/en/deployment/ops-cli/).
+3. If storage metadata may not match underlying objects, run `doctor` from [Operations CLI](/en/ops/cli/).
 4. If it is likely an AsterDrive bug, open a [GitHub Issue](https://github.com/AsterCommunity/AsterDrive/issues) with reproduction steps and the error response.
 
 Error codes are the fastest entry point for diagnosis. Paste `code` first, not only the UI message.

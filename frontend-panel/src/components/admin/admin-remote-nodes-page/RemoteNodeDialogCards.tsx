@@ -19,7 +19,7 @@ import {
 } from "./shared";
 
 export const DOCKER_FOLLOWER_DOCS_URL =
-	"https://drive.astercosm.com/deployment/docker-follower/";
+	"https://drive.astercosm.com/deploy/follower-node/";
 
 function RemoteNodeTransportBadgeContent({
 	mode,

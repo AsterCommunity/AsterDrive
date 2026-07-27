@@ -20,7 +20,7 @@
 | `storage::store_from_temp_with_hints` | 从服务端临时文件创建或覆盖文件；可走本地 dedup 或 non-dedup preuploaded blob | 普通 multipart server path、local direct 会落到这里 |
 | `storage::store_preuploaded_nondedup` | 从已经写入 driver 的 non-dedup blob 创建或覆盖文件 | streaming direct 会落到这里 |
 | `storage_core::finalize_upload_session_blob_with_actor_username` | 在一个 DB 边界里创建文件、更新配额、把 session 标记 completed | local chunked、stream relay chunked 直接使用 |
-| `storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart、provider direct resumable 使用 |
+| `storage_core::finalize_upload_session_file` | 为 opaque object 找到或创建 blob，再调用 session finalize，并发布 storage change event | presigned single、presigned object multipart、relay object multipart、provider resumable 使用 |
 | `upload::shared::run_upload_completion_stage` | complete 前把 session 从 expected status 切到 assembling；失败后按错误类型恢复或标 failed | 所有 upload session complete 路径共享 |
 
 ## 内部 verified blob 契约
@@ -35,7 +35,7 @@
 - `source`：content-addressed dedup、opaque object 或 preuploaded non-dedup blob。
 - `cleanup`：DB finalize 失败后要删除对象、清理 preuploaded blob、保留给 orphan GC，还是保留已完成 multipart object。
 
-当前 `VerifiedUploadedBlob` 覆盖 presigned single、presigned object multipart、relay object multipart、provider direct resumable、local chunked 和 stream relay chunked。
+当前 `VerifiedUploadedBlob` 覆盖 presigned single、presigned object multipart、relay object multipart、provider direct/relay resumable、local chunked 和 stream relay chunked。
 
 `src/services/workspace/storage/store/contract.rs` 定义非 session 型 `store_from_temp` 路径使用的 `VerifiedTempStoreBlob`，覆盖普通 multipart/server path 和 local direct 最终进入 `store_from_temp_with_hints` 的落账契约。它把 content-addressed dedup、preuploaded non-dedup、staged dedup rollback、preuploaded cleanup 这些以前散在 `persist.rs` 里的约定集中起来。
 
@@ -74,6 +74,7 @@ Init 根据 connector-owned `PolicyUploadTransport` 持久化执行计划，不�
 | `provider_presigned_single` / `remote_presigned_single` | provider temp object | presigned single complete |
 | `provider_presigned_multipart` / `remote_presigned_multipart` | provider multipart parts | presigned multipart complete |
 | `provider_direct_resumable` | provider upload session（浏览器直传 range） | provider resumable complete |
+| `provider_relay_resumable` | provider upload session（服务端顺序流式转发 range）+ DB receipt | provider resumable complete |
 
 从 0.5.0 起 `session_kind` 为 `NOT NULL`。升级迁移遇到 null 或非法 kind 会直接失败并保留原行；部署方需要先清理这些过期 session。显式 kind 与 multipart 字段组合不一致时，接口返回 `upload.session_corrupted`，不会降级到另一条数据面。
 
@@ -110,31 +111,42 @@ Local completion 直接消费这份 staging file：开启 `content_dedup` 时会
 
 0.5.0 不读取或迁移 0.4.x 的 payload-per-chunk session，也不创建或复用 `assembled`。升级迁移会在发现 null/非法 `session_kind` 时停止，旧 session 的清理责任属于部署方。
 
-## Provider direct resumable 契约
+## Provider resumable 契约
 
-OneDrive（Microsoft Graph）这类 provider 自己提供 upload session：浏览器拿到 provider 签发的 upload URL 后按 range 直传，字节不经过 AsterDrive。这条路径和 presigned 的区别在于 provider session 是有状态、可查询进度的，和 relay multipart 的区别在于 AsterDrive 完全不 relay 数据面。
+OneDrive（Microsoft Graph）这类 provider 自己提供有状态、可查询进度的 upload session。Connector 可以选择两条数据面：`FrontendDirect` 把临时 upload URL 交给已认证浏览器；`ServerRelay` 只把 AsterDrive upload ID 和分片调度返回给浏览器，由 Primary 把请求体顺序流式转发到同一个 provider session。
 
 ### Init 阶段
 
-- 只有 connector 声明 `ProviderResumable(FrontendDirect)` transport，且 `driver.extensions().provider_resumable` 存在、`frontend_direct_upload = true` 时才进入本路径；否则回退其他 transport 或直接报错，不静默降级。
-- `chunk_size` 采用 provider 的 `default_fragment_size`，并校验 min/max/alignment；`total_chunks` 按它计算。前端必须按 `next_expected_ranges` 顺序上传，不能并发乱序写 range。
-- Init 调用 `create_frontend_upload_session(object_temp_key)` 创建 provider session。`object_temp_key` 由 storage policy 对应 connector descriptor 的 `object_naming` 能力生成：`opaque_uuid` 使用 `files/{upload_id}`，`original_filename` 使用 `files/{upload_id}/{normalized_filename}`。OneDrive 属于后者，因此 Graph item 保留原始文件名；命名规则统一由 descriptor 能力提供，上传 service 仅消费解析结果。upload URL 本身等价于写凭据，因此加密存入 `upload_sessions.provider_session_ciphertext`：密钥用 `auth.storage_credential_secret_key`，AAD 为 `upload_session:{upload_id}:provider_resumable`。
+- Connector 必须声明 `ProviderResumable(FrontendDirect | ServerRelay)` transport，driver 必须暴露 `provider_resumable`；只有 direct 路径额外要求 `frontend_direct_upload = true`。
+- `chunk_size` 采用 provider 的 `default_fragment_size`，并校验 min/max/alignment；`total_chunks` 按它计算。所有 range 都必须顺序提交：direct 前端跟随 `next_expected_ranges`，relay 后端通过调度元数据和共享 DB 状态机限制并发乱序。
+- Init 调用 `create_upload_session(object_temp_key)` 创建 provider session。`object_temp_key` 由 storage policy 对应 connector descriptor 的 `object_naming` 能力生成：`opaque_uuid` 使用 `files/{upload_id}`，`original_filename` 使用 `files/{upload_id}/{normalized_filename}`。OneDrive 属于后者，因此 Graph item 保留原始文件名；命名规则统一由 descriptor 能力提供，上传 service 仅消费解析结果。upload URL 本身等价于写凭据，因此加密存入 `upload_sessions.provider_session_ciphertext`：密钥用 `auth.storage_credential_secret_key`，AAD 为 `upload_session:{upload_id}:provider_resumable`。
+- Direct session 持久化为 `provider_direct_resumable`，响应包含临时 provider upload URL；relay session 持久化为 `provider_relay_resumable`，响应保持 `chunked` 模式，不暴露 upload URL，并声明 `sequential / max_chunk_concurrency = 1`。
 - `expires_at` 取 provider session 过期时间和默认 24 小时的较小值。
-- DB 持久化失败（包括 upload_id 冲突重试）时必须调用 `abort_frontend_upload_session` 回收 provider session，不允许泄露悬挂 session。
+- DB 持久化失败（包括 upload_id 冲突重试）时必须调用 `abort_upload_session` 并删除 `object_temp_key`，不允许泄露悬挂 session 或命名空间。
 
-### 数据面
+### Frontend direct 数据面
 
 浏览器直接向 upload URL `PUT` 带 `Content-Range` 的 fragment，不带 AsterDrive 凭据。range 冲突（416）和瞬时失败由前端按 `next_expected_ranges` 重试。Provider 在最后一个 range 接收后隐式完成 session（`implicit_completion`），对象直接落在 `object_temp_key`，没有独立的 complete 请求发给 provider。
 
+### Server relay 数据面
+
+- 浏览器只调用 AsterDrive 的 authenticated chunk PUT；Graph upload URL 始终加密保存在服务端。
+- Primary 使用固定 64 KiB duplex pipe，把 Actix request payload 直接接到 `upload_session_fragment_reader`，不会把完整分片落盘或整体缓存在内存。
+- Graph range PUT 必须带准确的 `Content-Length` / `Content-Range`，不能向预认证 upload URL 附加 OAuth header。OneDrive 非最终分片保持 320 KiB 对齐，单次请求不超过 50 MiB。
+- `upload_session_parts` 的 `(upload_id, part_number)` 唯一键承担共享数据库 claim；空 ETag 表示 active claim，`provider-range-v1` 表示 provider 已确认接受该 range。`received_count` 是下一段唯一合法的 chunk number，乱序请求必须拒绝。
+- 长时间 PUT 每 30 秒刷新 claim；超过 120 秒的 claim 也只能在 provider 仍期待相同起点时回收。多个 Primary 不依赖 sticky session 或共享本地临时目录。
+
 ### Progress 恢复
 
-Progress 不解本地 receipt，而是解密 `provider_session_ciphertext` 后调用 `query_frontend_upload_session`，把 provider 返回的 `next_expected_ranges` 换算成已完成 chunk 列表。provider session 过期后被 query 会返回 NotFound：此时用 `object_temp_key` 的存在性区分“尚未提交”与“已隐式完成”——对象已存在则按全部 chunk 完成返回，否则把错误透传给客户端重建 session。
+Direct progress 解密 `provider_session_ciphertext` 后调用 `query_upload_session`，把 provider 返回的 `next_expected_ranges` 换算成已完成 chunk 列表。Relay progress 还会按 provider offset 顺序补齐缺失的 DB receipt 和 `received_count`。
+
+Relay PUT 返回错误时不能直接假设失败：provider offset 已越过当前 range 就补写 receipt；仍等于 range 起点才释放 claim；落在 range 中间则标记 session corrupted；query 同时失败时保留 claim，等待后续请求对账，避免重复 PUT。provider session 返回 NotFound 时，用 `object_temp_key` 的存在性区分“尚未提交”与“最终 range 已隐式完成”。
 
 ### Complete 与取消
 
-- Complete 读取 `object_temp_key` 的对象 metadata，实际 size 必须等于 `session.total_size`（最后一个 range 可能未提交时对象不存在，报“final range may not have committed”）。
+- Relay Complete 先再次按 provider 进度补 receipt，并要求 `received_count == total_chunks`；两条路径随后都读取 `object_temp_key` metadata，实际 size 必须等于 `session.total_size`。
 - verified blob 使用 `VerifiedUploadedBlob::precommitted_provider_object`：source 为 opaque object，cleanup 为 `DeleteStorageObjectOnDbFailure`，之后走 `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file`，quota 在 DB 事务内原子落账。
-- 取消或过期清理解密 ciphertext 后调用 provider abort（driver 声明 `abort_supported` 时）。abort 失败按错误分类处理：provider 侧 session 已不存在视为清理完成；其他错误只记日志并把 session 保留为 deferred（等待重试或人工干预），不当场丢弃本地记录。
+- 取消、过期或强制删除策略时先调用 provider abort，再删除 `object_temp_key`。provider session 已不存在视为清理完成；瞬时错误保留 session 等待重试，权限或配置错误保留给人工处理。
 
 ## 模式矩阵
 
@@ -148,6 +160,7 @@ Progress 不解本地 receipt，而是解密 `provider_session_ciphertext` 后�
 | presigned object multipart | session status `presigned`；客户端直传 object multipart parts，complete 时客户端回传 parts | provider `list_uploaded_part_details` 的 part size 求和，必须等于 `session.total_size`；multipart complete 后再读 object metadata | multipart complete 前先用 part size total `check_quota`；`finalize_upload_session_file` 在 DB 事务内 atomic charge、标 completed | `complete_presigned_multipart` -> `complete_object_multipart_upload_session` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | completed parts 和 provider uploaded parts 必须连续且数量匹配；preflight size/parts/quota 失败会 abort multipart；complete 出现 retryable storage error 且 object 已存在时继续 finalize；multipart object 一旦 complete，`VerifiedUploadedBlob.cleanup = RetainCompletedMultipartObject`，因此 `finalize_upload_session_file`/DB finalize 失败后不删除已完成对象，留给后续重试或 orphan cleanup；completed retry 返回已有文件 |
 | relay object multipart | session status `uploading`；每个 chunk 由服务端 relay 到 object multipart，并把 part metadata 写入 `upload_session_parts` | chunk 阶段按 `expected_chunk_size_for_upload` 验每个 payload；complete 阶段读取服务端 parts 清单，再用 provider part details 求和，必须等于 `session.total_size` | chunk 阶段不 charge；complete multipart 前用 verified part total precheck；`finalize_upload_session_file` 在 DB 事务内 atomic charge、标 completed | `complete_relay_multipart` -> `complete_object_multipart_upload_session` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | part claim 防止同一 part 并发重复上传；upload 或 DB 写 part metadata 失败会 release claim；complete preflight 失败会 abort multipart；multipart object 一旦 complete，`VerifiedUploadedBlob.cleanup = RetainCompletedMultipartObject`，因此 `finalize_upload_session_file`/DB finalize 失败后不删除已完成对象，留给后续重试或 orphan cleanup；completed retry 返回已有文件 |
 | provider direct resumable | session status `uploading`；Init 创建 provider upload session，upload URL 加密存 `provider_session_ciphertext`；浏览器按 `next_expected_ranges` 顺序直传 range，不经过 AsterDrive | provider 隐式完成后读 `object_temp_key` metadata，必须等于 `session.total_size` | complete 阶段没有独立 quota precheck；`finalize_upload_session_file` 在 DB 事务内创建 blob/file、atomic charge、标 completed | `complete_provider_resumable_upload` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | Init 持久化失败 abort provider session；取消/过期解密 ciphertext 后 provider abort；DB finalize 失败删除已提交对象；progress 用 provider query 恢复，session 404 时按对象存在性判断隐式完成；completed retry 返回已有文件 |
+| provider relay resumable | session status `uploading`；Init 创建 provider upload session，upload URL 只加密留在服务端；浏览器 chunk 由 Primary 顺序流式转发到 provider range PUT | 每个请求体必须等于 expected chunk size；provider `nextExpectedRanges` / 最终对象存在性是 range 是否提交的事实源；complete 再校验最终 metadata size | chunk claim、receipt 和 `received_count` 通过共享 writer DB 事务顺序推进；最终 quota 仍由 `finalize_upload_session_file` 原子落账 | `provider_relay::upload_payload` / `upload_bytes` -> `complete_provider_resumable_upload` -> `finalize_verified_opaque_upload_session` -> `finalize_upload_session_file` | DB 唯一 claim + heartbeat 防止多 Primary 重复 PUT；模糊响应先 query provider 再决定补 receipt、释放 claim或保留待对账；取消/过期先 abort provider session 再删临时对象；completed retry 返回已有文件 |
 | remote/follower upload transports | remote policy 通过 remote driver 暴露 direct、presigned、presigned multipart 或 relay multipart；session 状态和 `object_temp_key` / `object_multipart_id` 与对应 object-storage transport 相同 | direct relay 使用 streaming direct metadata；remote presigned single 使用 temp/final metadata；remote presigned multipart 和 remote relay multipart 使用 provider part details + final metadata | 与实际选择的 transport 相同；remote relay direct 走 `store_preuploaded_nondedup`，remote presigned / multipart 走 upload session finalize | `init_remote_upload` 只选择 transport；完成阶段复用 `upload_streaming_direct`、`complete_presigned_upload`、`complete_presigned_multipart` 或 `complete_relay_multipart` | cleanup/idempotency 继承实际 transport；remote/follower 的特殊性只在 driver/protocol 层，产品层不应新增一套平行 finalize 语义 |
 
 ## session status 与完成计划
@@ -158,7 +171,8 @@ Progress 不解本地 receipt，而是解密 `provider_session_ciphertext` 后�
 - `provider_presigned_single` / `remote_presigned_single` -> `CompletePresigned`。
 - `provider_presigned_multipart` / `remote_presigned_multipart` -> `CompletePresignedMultipart`，客户端必须提交 parts。
 - `provider_relay_multipart` / `remote_relay_multipart` -> `CompleteRelayMultipart`，parts 来自服务端已保存的 `upload_session_parts`。
-- `provider_direct_resumable` -> `CompleteProviderResumable`，parts 不存在于服务端；以 provider 侧对象 metadata 为完成依据。
+- `provider_direct_resumable` -> `CompleteProviderResumable`，以 provider 侧对象 metadata 为完成依据。
+- `provider_relay_resumable` -> 先按 provider 进度补齐服务端 receipt；全部 range 完成后进入 `CompleteProviderResumable`。
 - `offset_staging` / `stream_staging` -> `CompleteChunked`，要求 `received_count == total_chunks`。
 
 `run_upload_completion_stage` 会先把 expected status 切到 `assembling`。非 retryable 失败会把 session 标为 `failed`；retryable storage error 会尝试恢复到原状态，允许客户端重试。

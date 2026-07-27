@@ -1,0 +1,172 @@
+---
+description: AsterDrive configuration overview, explaining config.toml, admin system settings, storage policies, policy groups, follower nodes, WebDAV, rate limiting, cache, configuration synchronization, and logging.
+title: "Configuration Overview"
+---
+
+:::tip[This page first helps you decide "where to change it"]
+AsterDrive separates configuration cleanly. Once you separate these layers, it becomes much easier to tell which issues are deployment issues, which are admin rules, and which should be written into `config.toml`.
+First identify which layer you need to change, then open the corresponding page. You do not need to read this page from top to bottom.
+:::
+
+## What Layers Are There?
+
+- **`config.toml`** - Decides how the service starts: listen address, node mode, database, logging, WebDAV prefix, network trust, and rate limiting
+- **`Admin -> System Settings`** - Site-wide rules: public site URL, branding, registration/login, mail, CORS, task scheduling, share streaming playback, media processing, archive preview, trash, version history, WOPI, WebDAV switch, and audit logs
+- **`Admin -> External Authentication`** - External identity providers: OIDC / Generic OAuth2 / SSO login entries, redirect URIs, account binding, and auto-create policies
+- **`Admin -> Storage Policies`** - Where files are actually stored, and which upload method is used
+- **`Admin -> Policy Groups`** - Which storage route different users, teams, or file sizes use
+- **`Admin -> Follower Nodes`** - How the primary connects to followers, and where the follower receives objects by default
+- **Reverse proxy / object storage configuration** - HTTPS, large uploads, WebDAV passthrough, and direct S3 / Azure Blob / COS uploads
+
+The earlier layers are managed by AsterDrive itself. The last layer belongs to the reverse proxy, object storage, and external network environment.
+
+```mermaid
+flowchart TD
+  Start["Start service"]
+  Start --> Static["config.toml / ASTER__ environment variables<br/>Listen address, database, logging, WebDAV prefix, node mode"]
+  Start --> Runtime["System settings in the database<br/>Site, registration, cookies, mail, share streaming playback, archive preview, trash, WOPI, audit"]
+  Start --> Auth["External authentication providers<br/>OIDC / Generic OAuth2 / SSO login entries, external identity binding rules"]
+  Start --> Storage["Storage policies + policy groups<br/>File placement, upload method, user/team routing"]
+  Start --> Environment["External environment<br/>HTTPS, reverse proxy, object-storage CORS, WebDAV method passthrough"]
+```
+
+:::tip[Rule of thumb]
+Anything the service must know before startup usually belongs in `config.toml`. Site-wide rules adjusted after the service is already available usually belong in admin system settings. File placement belongs in storage policies and policy groups. Public ingress, certificates, and upload body limits belong in the reverse proxy.
+:::
+
+## I Want to Do This. Where Should I Change It?
+
+| What you want to do | Where to change it |
+| --- | --- |
+| Change listen address, port, worker count, temporary directories, or primary / follower mode | [Server](/en/reference/config/server/) |
+| Change database address, connection pool, or startup retries | [Database](/en/reference/config/database/) |
+| Pin the login signing secret, MFA encryption key, or first plain-HTTP bootstrap | [Login and Sessions](/en/reference/config/auth/) |
+| Public site URL, branding, registration, cookies, tokens, scheduling, share streaming playback, archive preview, trash, versions, quotas, WOPI, WebDAV, audit | [Runtime System Settings](/en/reference/config/runtime/) |
+| Connect OIDC / Generic OAuth2 / SSO external login and manage external identity providers | [External Authentication](/en/reference/config/external-auth/) / [Login and Sessions](/en/reference/config/auth/) |
+| Configure SMTP, send test mail, or edit mail templates | [Mail](/en/admin/mail/) |
+| Configure link import, the built-in downloader, or aria2 offline download | [Offline Download](/en/admin/offline-download/) |
+| Decide where files are stored and how uploads/downloads work | [Storage Policies](/en/admin/storage-policies/) |
+| Follow a tutorial for S3 / MinIO / R2 / Azure Blob / Tencent COS / OneDrive / SFTP backends | [Storage Policy Backends](/en/admin/storage-backends/) |
+| Decide which storage route different users/teams use | [Storage Policies](/en/admin/storage-policies/) |
+| Connect a follower node and configure the default remote storage target | [Follower Nodes](/en/admin/follower-nodes/) |
+| Change the WebDAV path or hard WebDAV upload limit | [WebDAV](/en/reference/config/webdav/) |
+| Add rate limiting to the public entry point | [Rate Limiting](/en/reference/config/rate-limit/) |
+| Change cache or log output behavior | [Cache](/en/reference/config/cache/) / [Logging](/en/reference/config/logging/) |
+| Synchronize system-setting and config CLI changes across instances | [Configuration Synchronization](/en/reference/config/config-sync/) |
+
+## Where Is `config.toml`, and How Should I Write It?
+
+On first startup, if the current working directory does not contain `data/config.toml`, AsterDrive automatically generates a default configuration file, including random `jwt_secret`, `share_cookie_secret`, `direct_link_secret`, and `mfa_secret_key` values.
+
+:::tip[Write only the items you want to override]
+You do not need to copy the full default configuration. Put only the items you want to change in `config.toml`; the rest keep their defaults.
+:::
+
+Configuration precedence:
+
+```text
+ASTER__ environment variables  >  config.toml  >  built-in defaults
+```
+
+Environment variables use double underscores `__` to represent nesting:
+
+```bash
+ASTER__SERVER__PORT=8080
+ASTER__DATABASE__URL="postgres://user:pass@localhost/asterdrive"
+ASTER__WEBDAV__PREFIX=/dav
+```
+
+If you start the bare binary, the process first reads `.env` in the current working directory, then starts with the same environment variable rules. For long-running deployments, put `.env` in the actual working directory of the service and tighten its permissions.
+
+## Common Environment Variable Categories
+
+| Type | Example | When to use |
+| --- | --- | --- |
+| Startup configuration overrides | `ASTER__DEPLOYMENT__PROFILE`, `ASTER__SERVER__HOST`, `ASTER__DATABASE__URL`, `ASTER__SERVER__START_MODE` | Configuration that must be decided before the service starts; higher priority than `config.toml` |
+| First-bootstrap switches | `ASTER__AUTH__BOOTSTRAP_INSECURE_COOKIES` | Only affects the default value written the first time system settings are initialized; after initialization, change it in admin system settings |
+| Follower node auto-enrollment | `ASTER_BOOTSTRAP_REMOTE_MASTER_URL`, `ASTER_BOOTSTRAP_REMOTE_ENROLLMENT_TOKEN` | Automatically enroll a Docker follower on first startup; remove after success |
+| Media processing defaults | `ASTER_BOOTSTRAP_ENABLE_VIPS_CLI`, `ASTER_BOOTSTRAP_ENABLE_FFMPEG_CLI`, `ASTER_BOOTSTRAP_ENABLE_FFPROBE_CLI` | Used only when media-processing system settings do not yet exist, to decide initial default processors |
+| Operations CLI arguments | `ASTER_CLI_DATABASE_URL`, `ASTER_CLI_OUTPUT_FORMAT` | Use in scripts to avoid writing long arguments every time. See [operations CLI](/en/ops/cli/) |
+
+:::tip[Should an ENV stay long term?]
+Variables such as `ASTER__SERVER__START_MODE` and `ASTER__DATABASE__URL` are long-running configuration and can stay.
+
+One-time bootstrap inputs such as enrollment tokens can be removed after success, so later troubleshooting does not mistakenly assume they still take effect.
+:::
+
+## Sections in `config.toml`
+
+| Section | Purpose |
+| --- | --- |
+| [deployment](/en/reference/config/deployment/) | Single-instance or multi-primary cluster declaration and shared-dependency checks |
+| [server](/en/reference/config/server/) | Listen address, port, worker count, temporary directories, node mode, follower local target root |
+| [database](/en/reference/config/database/) | Database connection, connection pool, startup retries |
+| [auth](/en/reference/config/auth/) | Login signing secret, MFA encryption key, first plain-HTTP bootstrap |
+| [cache](/en/reference/config/cache/) | Memory cache / Redis |
+| [config_sync](/en/reference/config/config-sync/) | Multi-instance runtime configuration reload notifications, disabled by default |
+| [logging](/en/reference/config/logging/) | Log level, format, output file, rotation |
+| [webdav](/en/reference/config/webdav/) | WebDAV path prefix and hard upload size limit |
+| `[network_trust]` | Trusted reverse proxy addresses, affecting real client IP detection |
+| [rate_limit](/en/reference/config/rate-limit/) | Rate limiting rules for login, public shares, and general access |
+
+## Current Admin System Settings Groups
+
+`Admin -> System Settings` currently displays these groups:
+
+- Site Configuration
+- User Management
+- Authentication and Cookies
+- Mail Delivery
+- Network Access
+- Runtime
+- Storage and Retention
+- File Processing
+- WebDAV
+- Audit Logs
+- Custom Configuration
+- Other
+
+:::tip[Easy-to-miss items before going online]
+- Before exposing the site publicly, set `Public Site URL`; add multiple public domains one by one and put the default origin first
+- Before enabling registration, password recovery, or email address changes, verify that mail can be sent
+- Before enabling external authentication, set `Public Site URL` correctly, then copy the redirect URI from `Admin -> External Authentication`; see [External Authentication](/en/reference/config/external-auth/) for details
+- Disable the HTTPS requirement for cookies only in plain-HTTP test environments
+- When capacity is tight, shorten retention for trash, historical versions, and task artifacts
+- If thumbnails do not behave as expected, check `File Processing -> Media Processing`
+- If you need archive manifest preview, check `File Processing -> Archive Preview`
+- If you need online preview such as OnlyOffice, adjust `Site Configuration -> Preview Apps`
+- When connecting follower nodes, after enrollment succeeds, create the default remote storage target in the follower node details
+:::
+
+See [runtime system settings](/en/reference/config/runtime/) and [mail](/en/admin/mail/) for details.
+
+If the admin console is temporarily unavailable, or you want to inspect, validate, or batch-write system settings offline during a maintenance window, use the [operations CLI](/en/ops/cli/).
+
+## Storage Policies and Policy Groups Are Not in `config.toml`
+
+They are maintained in admin pages and decide:
+
+- **Storage policy** - Where files are actually stored, single-file size limit, chunk size, and upload method
+- **Policy group** - Which storage policy a user or team hits when uploading
+
+See [storage policies](/en/admin/storage-policies/) for details.
+
+## Know What Relative Paths Are Relative To
+
+If you write relative paths, remember that config-file paths and storage-policy paths use different semantics:
+
+- Location of `data/config.toml` - **relative to the current working directory**
+- Relative paths in `[database]` and `[server]` - **relative to the directory containing `data/config.toml`**, meaning `./data/`
+- A local storage policy `base_path` created manually in the admin panel - **relative to the current working directory**. For long-running deployments, prefer an absolute path such as `/data/uploads` in Docker
+
+In other words, the generated `[server].temp_dir = ".tmp"` resolves to `data/.tmp` at runtime. Storage policies do not live in `config.toml`, so their relative paths are not joined against the `data/config.toml` directory. First startup does not create a local storage policy automatically.
+
+Default locations by deployment method:
+
+- Run locally: `data/` under the project directory
+- systemd: `WorkingDirectory/data/`
+- Official Docker image: `/data` inside the container
+
+:::caution[Use absolute paths for long-running deployments]
+Database paths, local storage paths, and temporary directories should preferably be absolute paths to avoid later surprises from working directory changes.
+:::

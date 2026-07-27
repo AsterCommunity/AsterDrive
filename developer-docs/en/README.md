@@ -12,6 +12,7 @@ This is the source-level documentation library for AsterDrive contributors, inte
 | Change storage, upload, authentication, or remote-node behavior | [Domain design and contracts](./design/README.md) |
 | Run database, WebDAV, or diagnostic checks | [Testing and diagnostics](./testing/index.md) |
 | Read draft discussions or historical design context | [Draft and historical records](./records/README.md) |
+| Prepare to edit user documentation or this site | [Documentation contribution guide](./contributing/documentation.md) |
 
 ## Documentation library
 
@@ -45,6 +46,10 @@ The [API overview](./api/index.md) links every endpoint page across authenticati
 - [Draft and historical record index](./records/README.md)
 - [Static configuration secret-handling memo](../zh-CN/records/static-config-secret-handling.md) — **draft, translation pending**
 - [Service modularization refactor plan](../zh-CN/records/service-modularization-refactor-plan.md) — **historical snapshot, translation pending**
+
+### Contributing
+
+- [Documentation contribution guide](./contributing/documentation.md): placement rules, writing conventions, Chinese-English sync policy, and verification commands for both the user documentation and this site.
 
 ## Document status
 

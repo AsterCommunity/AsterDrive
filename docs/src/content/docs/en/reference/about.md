@@ -6,7 +6,7 @@ title: "About AsterDrive"
 :::tip[This page does not teach operations]
 This is closer to an author's note.
 
-If you only want to get the service running first, go to [Getting Started](/en/guide/getting-started/). If you want to know why this project exists, keep reading.
+If you only want to get the service running first, go to [Getting Started](/en/start/quick-trial/). If you want to know why this project exists, keep reading.
 :::
 
 ## The First Alpha
@@ -95,7 +95,7 @@ If your most urgent need is a mature local folder two-way sync client, calm down
 
 If you only want to wrap a web management UI around one directory on a server, AsterDrive may be too heavy.
 
-If you need cross-region strong-consistency replication, automatic traffic management across regions, complex enterprise permission matrices, or compliance certification, AsterDrive is also not suitable today. The current release can run multiple Primaries over shared PostgreSQL/MySQL, Redis, and shared storage, including instance takeover and reverse-tunnel owner routing. It is still not a complete cluster orchestration system that manages the database, Redis, object storage, and cross-region replication for you. See [Load Balancing and Multi-Instance Deployments](/en/deployment/load-balancing/) for the exact boundary.
+If you need cross-region strong-consistency replication, automatic traffic management across regions, complex enterprise permission matrices, or compliance certification, AsterDrive is also not suitable today. The current release can run multiple Primaries over shared PostgreSQL/MySQL, Redis, and shared storage, including instance takeover and reverse-tunnel owner routing. It is still not a complete cluster orchestration system that manages the database, Redis, object storage, and cross-region replication for you. See [Load Balancing and Multi-Instance Deployments](/en/deploy/multi-instance/) for the exact boundary.
 
 Admitting these boundaries matters. When a file system promises too much, user data is what gets hurt.
 
@@ -105,7 +105,7 @@ I will not write phrases like "absolutely secure" or "100% reliable".
 
 Disks fail, networks drop, disks fill up, and software has bugs. What AsterDrive can do is make upload, download, metadata, trash, versions, and background cleanup as solid as possible; provide checks such as `doctor`; emit logs and error codes that help locate problems; and document backup and restore clearly.
 
-Backups remain the deployer's responsibility. You can start from [Backup and Restore](/en/deployment/backup/), and you can also walk through the [Production Checklist](/en/deployment/production-checklist/) before going live.
+Backups remain the deployer's responsibility. You can start from [Backup and Restore](/en/ops/backup/), and you can also walk through the [Production Checklist](/en/ops/launch-checklist/) before going live.
 
 I want AsterDrive to make people feel safe. That safety should come from clear mechanisms, not just pretty slogans.
 
@@ -129,7 +129,7 @@ But I will keep writing it into a place I am willing to trust with files.
 
 ## Want to Participate
 
-- **Run it first**: start from [Getting Started](/en/guide/getting-started/).
+- **Run it first**: start from [Getting Started](/en/start/quick-trial/).
 - **Hit a problem**: describe the reproduction path clearly in [GitHub Issues](https://github.com/AsterCommunity/AsterDrive/issues).
 - **Find a security issue**: do not open a public issue first. Report it privately through the [security policy](https://github.com/AsterCommunity/AsterDrive/security/policy); automated tools can also discover the site's [`security.txt`](https://drive.astercosm.com/.well-known/security.txt).
 - **Want to change code**: fork, change, and open a PR. Changes driven by real problems are the most valuable.

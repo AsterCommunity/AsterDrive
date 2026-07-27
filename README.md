@@ -14,11 +14,11 @@
 <p align="center">
   <a href="https://drive.astercosm.com/"><img alt="Documentation Site" src="https://img.shields.io/badge/docs-Astro_Starlight-7C3AED?style=for-the-badge&logo=astro&logoColor=white"></a>
   <a href="README.zh.md"><img alt="中文 README" src="https://img.shields.io/badge/README-中文-E11D48?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/guide/getting-started/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/deployment/ops-cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/en/start/quick-trial/"><img alt="Quick Start" src="https://img.shields.io/badge/quick%20start-guide-2563EB?style=for-the-badge"></a>
+  <a href="https://drive.astercosm.com/en/ops/cli/"><img alt="Ops CLI" src="https://img.shields.io/badge/ops-CLI-0EA5E9?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/developer/en/architecture/"><img alt="Architecture" src="https://img.shields.io/badge/architecture-overview-0F172A?style=for-the-badge"></a>
   <a href="https://drive.astercosm.com/developer/en/api/"><img alt="API Docs" src="https://img.shields.io/badge/API-reference-059669?style=for-the-badge"></a>
-  <a href="https://drive.astercosm.com/en/deployment/docker/"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
+  <a href="https://drive.astercosm.com/en/deploy/docker/"><img alt="Docker" src="https://img.shields.io/badge/docker-deployment-2496ED?style=for-the-badge&logo=docker&logoColor=white"></a>
 </p>
 
 <p align="center">
@@ -39,7 +39,7 @@ AsterDrive is a good fit when you want:
 
 - a single self-hosted service with embedded frontend assets
 - SQLite out of the box, with optional PostgreSQL / MySQL later
-- local filesystem, S3-compatible object storage, or remote AsterDrive follower-node storage
+- local filesystem, S3-compatible object storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, or remote AsterDrive follower-node storage
 - upload strategies for both small files and large objects: direct, resumable chunked, object-storage presigned, and object-storage multipart
 - personal and team workspaces with quotas, shares, trash, tasks, audit logs, and storage policy groups
 - WebDAV access with independent accounts and scoped root folders
@@ -57,7 +57,7 @@ AsterDrive is probably not the right first choice when you need:
 ## Design focus
 
 - **File safety first** - trash, version history, locks, quota checks, and cleanup tasks are part of the core workflow, not decorative extras.
-- **Storage control** - policies can route uploads to local storage, S3-compatible storage, or remote follower nodes by user, team, and file size.
+- **Storage control** - policies can route uploads to local storage, S3-compatible storage, Azure Blob, Tencent COS, OneDrive, SFTP, or remote follower nodes by user, team, and file size.
 - **Large-file paths** - the backend negotiates direct uploads, chunked uploads, object-storage presigned uploads, and object-storage multipart uploads based on policy and object size.
 - **Interoperability without sprawl** - WebDAV and WOPI cover practical client and Office workflows without turning the project into an all-in-one cloud suite.
 - **Operations built in** - health checks, runtime configuration, audit logs, background tasks, storage tests, `doctor`, and migration commands are first-class features.
@@ -102,7 +102,7 @@ sudo chown -R 10001:10001 ./data
 docker compose up -d
 ```
 
-See the [Docker deployment guide](https://drive.astercosm.com/en/deployment/docker/) for the full setup.
+See the [Docker deployment guide](https://drive.astercosm.com/en/deploy/docker/) for the full setup.
 
 ### Run from source
 
@@ -131,7 +131,7 @@ On first startup, AsterDrive will automatically:
 - Do not expose `:3000` directly to the public Internet. Put AsterDrive behind a reverse proxy that handles HTTPS, upload limits, WebDAV/WOPI passthrough, and security headers.
 - Configure public site URLs before relying on share links, WebDAV URLs, mail links, or WOPI callbacks.
 - Run `./aster_drive doctor` after deployment and upgrades. The default SQLite search acceleration expects `FTS5 + trigram tokenizer` support.
-- Plan backups for the database, uploaded blobs, config, and any external object-storage credentials. Start with [Backup and restore](https://drive.astercosm.com/en/deployment/backup/).
+- Plan backups for the database, uploaded blobs, config, and any external object-storage credentials. Start with [Backup and restore](https://drive.astercosm.com/en/ops/backup/).
 - If you enable WOPI, test real `docx`, `xlsx`, and `pptx` files through the final public URL and confirm that edits save back into AsterDrive.
 
 ## Core capabilities
@@ -162,7 +162,7 @@ On first startup, AsterDrive will automatically:
 
 ### Storage and delivery
 
-- local storage, S3-compatible storage, and remote follower-node storage policies
+- local storage, S3-compatible storage, Azure Blob Storage, Tencent COS, OneDrive / SharePoint, SFTP, and remote follower-node storage policies
 - policy groups that route uploads by user, team, and file size
 - optional local-only blob deduplication using SHA-256 and reference counting
 - object-storage upload/download strategies: `relay_stream`, `presigned`, and multipart uploads
@@ -183,17 +183,17 @@ On first startup, AsterDrive will automatically:
 
 The user and deployment documentation is published with Astro Starlight at [drive.astercosm.com](https://drive.astercosm.com/en/).
 
-- [Getting started](https://drive.astercosm.com/en/guide/getting-started/)
-- [User guide](https://drive.astercosm.com/en/guide/user-guide/)
-- [Teams and permissions](https://drive.astercosm.com/en/guide/teams-and-permissions/)
-- [Sharing and public access](https://drive.astercosm.com/en/guide/sharing/)
-- [Preview and WOPI](https://drive.astercosm.com/en/guide/preview-and-wopi/)
-- [Storage backends](https://drive.astercosm.com/en/storage/)
-- [Remote follower storage](https://drive.astercosm.com/en/storage/remote-follower/)
-- [Docker deployment](https://drive.astercosm.com/en/deployment/docker/)
-- [Production checklist](https://drive.astercosm.com/en/deployment/production-checklist/)
-- [Backup and restore](https://drive.astercosm.com/en/deployment/backup/)
-- [Operations CLI](https://drive.astercosm.com/en/deployment/ops-cli/)
+- [Getting started](https://drive.astercosm.com/en/start/quick-trial/)
+- [User guide](https://drive.astercosm.com/en/using/)
+- [Workspaces and teams](https://drive.astercosm.com/en/using/workspaces-teams/)
+- [Sharing and public access](https://drive.astercosm.com/en/using/sharing/)
+- [Preview processing and WOPI](https://drive.astercosm.com/en/admin/preview-processing/)
+- [Storage backends](https://drive.astercosm.com/en/admin/storage-backends/)
+- [Remote follower storage](https://drive.astercosm.com/en/admin/storage-backends/remote-follower/)
+- [Docker deployment](https://drive.astercosm.com/en/deploy/docker/)
+- [Production checklist](https://drive.astercosm.com/en/ops/launch-checklist/)
+- [Backup and restore](https://drive.astercosm.com/en/ops/backup/)
+- [Operations CLI](https://drive.astercosm.com/en/ops/cli/)
 - [Developer docs](https://drive.astercosm.com/developer/en/)
 - [Architecture](https://drive.astercosm.com/developer/en/architecture/)
 - [API overview](https://drive.astercosm.com/developer/en/api/)

@@ -1,4 +1,5 @@
 ---
+description: "AsterDrive 错误码权威参考：顶层 code 契约、各错误码的含义、用户与管理员各自的排查入口。"
 title: "错误码处理"
 ---
 
@@ -427,7 +428,7 @@ msg: ...
 
 1. 在同一时间段查服务端日志。
 2. 如果牵涉上传、存储、缩略图、压缩包预览或离线下载，去 `管理 -> 任务` 看任务失败原因。
-3. 如果怀疑存储元数据和底层对象不一致，运行 [运维 CLI](/deployment/ops-cli/) 里的 `doctor`。
+3. 如果怀疑存储元数据和底层对象不一致，运行 [运维 CLI](/ops/cli/) 里的 `doctor`。
 4. 如果确认是 AsterDrive 问题，在 [GitHub Issues](https://github.com/AsterCommunity/AsterDrive/issues) 提交复现步骤和错误响应。
 
 错误码是定位问题最快的入口。优先贴 `code`，别只贴一句界面文案。

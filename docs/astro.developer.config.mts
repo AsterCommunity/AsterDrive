@@ -184,6 +184,23 @@ const sidebar = assertUniqueSidebarLinks([
 				label: '服务模块化（历史）',
 				translations: { en: 'Service Modularization (Historical)' },
 				link: '/records/service-modularization-refactor-plan/'
+			},
+			{
+				label: '用户文档 IA 迁移地图',
+				translations: { en: 'User Docs IA Migration Map' },
+				link: '/records/user-docs-ia-migration-map/'
+			}
+		]
+	},
+	{
+		label: '贡献',
+		translations: { en: 'Contributing' },
+		collapsed: false,
+		items: [
+			{
+				label: '文档贡献指南',
+				translations: { en: 'Documentation Guide' },
+				link: '/contributing/documentation/'
 			}
 		]
 	}

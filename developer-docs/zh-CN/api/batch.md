@@ -258,4 +258,4 @@
 
 - [文件 API](./files.md)
 - [文件夹 API](./folders.md)
-- [核心流程](https://drive.astercosm.com/guide/core-workflows/)
+- [核心流程](https://drive.astercosm.com/start/common-workflows/)

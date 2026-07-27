@@ -6,5 +6,6 @@
 | --- | --- | --- |
 | [静态配置密钥处理备忘](./static-config-secret-handling.md) | 草稿 | 评估敏感配置的脱敏、内存驻留和 `SecretString` 取舍 |
 | [服务层模块化重构历史方案](./service-modularization-refactor-plan.md) | 历史快照 | 保存服务目录迁移前的分析和仍然有效的边界建议 |
+| [用户文档 IA 重构迁移地图](./user-docs-ia-migration-map.md) | 执行中 | issue #435 的页面处置、概念权威页、重定向规则和中英同步策略，随各批次更新 |
 
 草稿不代表已接受的路线，历史快照中的旧 `*_service` 名称也不是当前代码位置。当前服务层边界以[后端服务所有权边界](../architecture/backend-service-ownership.md)为准。

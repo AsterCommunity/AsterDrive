@@ -12,6 +12,7 @@
 | 修改存储、上传或远端节点链路 | [领域设计与契约](./design/README.md) |
 | 运行数据库、WebDAV 或诊断测试 | [测试与诊断](./testing/index.md) |
 | 查阅尚未落地的讨论或历史决策背景 | [草稿与历史记录](./records/README.md) |
+| 准备修改用户文档或本站的写法规则 | [文档贡献指南](./contributing/documentation.md) |
 
 ## 文档库
 
@@ -45,6 +46,10 @@
 - [草稿与历史记录索引](./records/README.md)
 - [静态配置密钥处理备忘](./records/static-config-secret-handling.md) — **草稿**
 - [服务层模块化重构历史方案](./records/service-modularization-refactor-plan.md) — **历史快照**
+
+### 贡献
+
+- [文档贡献指南](./contributing/documentation.md)：用户文档和开发者文档的分层归属、写法规则、中英同步策略和验证命令。
 
 ## 文档状态
 

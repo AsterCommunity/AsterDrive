@@ -17,6 +17,7 @@ design/        Domain design notes and cross-layer contracts
 api/           REST, WebDAV, WOPI, and internal protocol reference
 testing/       Test infrastructure, compliance checks, and diagnostics
 records/       Draft notes and historical decision snapshots
+contributing/  Documentation contribution guides (placement, writing rules, sync policy)
 ```
 
 Current implementation documents are authoritative only when they agree with the current code. Files under `records/` preserve drafts or historical context and must state their status explicitly.

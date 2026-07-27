@@ -6,7 +6,7 @@ title: "关于 AsterDrive"
 :::tip[这一页没有教你怎么操作]
 这一篇更像作者自述。
 
-如果你只想先把服务跑起来，去 [快速开始](/guide/getting-started/)；如果你想知道这个项目为什么会存在，可以继续往下看。
+如果你只想先把服务跑起来，去 [快速开始](/start/quick-trial/)；如果你想知道这个项目为什么会存在，可以继续往下看。
 :::
 
 ## 第一个 alpha
@@ -95,7 +95,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 如果你只想给服务器上的一个目录套个网页管理界面，AsterDrive 可能太重。
 
-如果你需要跨地域强一致复制、跨区域自动流量调度、复杂企业权限矩阵或合规认证，AsterDrive 现在也不适合。当前版本已经支持在共享 PostgreSQL/MySQL、Redis 和共享存储之上运行多个 Primary，并覆盖实例接管与 reverse tunnel owner 路由；但它仍不是一套替你管理数据库、Redis、对象存储和跨区域复制的完整集群编排系统。具体边界见[负载均衡与多实例](/deployment/load-balancing/)。
+如果你需要跨地域强一致复制、跨区域自动流量调度、复杂企业权限矩阵或合规认证，AsterDrive 现在也不适合。当前版本已经支持在共享 PostgreSQL/MySQL、Redis 和共享存储之上运行多个 Primary，并覆盖实例接管与 reverse tunnel owner 路由；但它仍不是一套替你管理数据库、Redis、对象存储和跨区域复制的完整集群编排系统。具体边界见[负载均衡与多实例](/deploy/multi-instance/)。
 
 承认这些边界很重要。文件系统承诺太多，最后受伤的是用户的数据。
 
@@ -105,7 +105,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 硬盘会坏，网络会断，磁盘会满，软件会有 bug。AsterDrive 能做的是把上传、下载、元数据、回收站、版本和后台清理尽量做扎实，提供 `doctor` 这类检查工具，给出能定位问题的日志和错误码，再把备份恢复文档写清楚。
 
-备份仍然是部署者自己的责任。你可以从 [备份与恢复](/deployment/backup/) 开始看，也可以在上线前走一遍 [生产检查清单](/deployment/production-checklist/)。
+备份仍然是部署者自己的责任。你可以从 [备份与恢复](/ops/backup/) 开始看，也可以在上线前走一遍 [生产检查清单](/ops/launch-checklist/)。
 
 我希望 AsterDrive 让人安心。这份安心应该来自清楚的机制，不该只靠漂亮的口号。
 
@@ -129,7 +129,7 @@ AsterDrive 的第一个 alpha 版本，其实只是一个 file browser。
 
 ## 想参与
 
-- **先跑起来**：从 [快速开始](/guide/getting-started/) 开始。
+- **先跑起来**：从 [快速开始](/start/quick-trial/) 开始。
 - **遇到问题**：去 [GitHub Issues](https://github.com/AsterCommunity/AsterDrive/issues) 说清楚复现路径。
 - **发现安全问题**：不要先发公开 issue。按 [安全策略](https://github.com/AsterCommunity/AsterDrive/security/policy) 里的方式私密报告；自动化工具也可以读取站点的 [`security.txt`](https://drive.astercosm.com/.well-known/security.txt)。
 - **想改代码**：fork，改，提 PR。带着真实问题来的改动最有价值。
