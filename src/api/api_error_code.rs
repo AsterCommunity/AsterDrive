@@ -1,17 +1,16 @@
 //! Stable string API error codes.
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer, de};
 use std::str::FromStr;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
 macro_rules! define_api_error_codes {
     ($($variant:ident => $value:literal),+ $(,)?) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+        #[derive(Debug, Clone, Copy, PartialEq, Eq)]
         #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
         pub enum ApiErrorCode {
             $(
-                #[serde(rename = $value)]
                 #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(rename = $value))]
                 $variant,
             )+
@@ -369,6 +368,41 @@ define_api_error_codes! {
     InternalStorageComposeExpectedSizeInvalid => "internal_storage.compose_expected_size_invalid",
 }
 
+impl Serialize for ApiErrorCode {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for ApiErrorCode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        struct ApiErrorCodeVisitor;
+
+        impl de::Visitor<'_> for ApiErrorCodeVisitor {
+            type Value = ApiErrorCode;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a valid API error code string")
+            }
+
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
+            where
+                E: de::Error,
+            {
+                ApiErrorCode::parse(value).ok_or_else(|| E::custom(ParseApiErrorCodeError))
+            }
+        }
+
+        deserializer.deserialize_str(ApiErrorCodeVisitor)
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ParseApiErrorCodeError;
 
@@ -449,36 +483,40 @@ mod tests {
     }
 
     #[test]
-    fn api_error_codes_serialize_to_wire_values() {
-        assert_eq!(
-            serde_json::to_value(ApiErrorCode::AuthFailed).unwrap(),
-            serde_json::json!("auth.failed")
-        );
-        assert_eq!(
-            serde_json::to_value(ApiErrorCode::UploadChunkSizeMismatch).unwrap(),
-            serde_json::json!("upload.chunk_size_mismatch")
-        );
-        assert_eq!(
-            serde_json::to_value(ApiErrorCode::StorageTransient).unwrap(),
-            serde_json::json!("storage.transient")
-        );
+    fn api_error_codes_serde_round_trip_all_wire_values() {
+        for &code in ApiErrorCode::ALL {
+            let wire_value = serde_json::json!(code.as_str());
+
+            assert_eq!(serde_json::to_value(code).unwrap(), wire_value);
+            assert_eq!(
+                serde_json::from_value::<ApiErrorCode>(wire_value).unwrap(),
+                code
+            );
+        }
     }
 
     #[test]
-    fn api_error_codes_deserialize_from_wire_values() {
-        assert_eq!(
-            serde_json::from_value::<ApiErrorCode>(serde_json::json!("auth.failed")).unwrap(),
-            ApiErrorCode::AuthFailed
-        );
-        assert_eq!(
-            serde_json::from_value::<ApiErrorCode>(serde_json::json!("upload.chunk_size_mismatch"))
-                .unwrap(),
-            ApiErrorCode::UploadChunkSizeMismatch
-        );
-        assert!(serde_json::from_value::<ApiErrorCode>(serde_json::json!("AuthFailed")).is_err());
-        assert!(
-            serde_json::from_value::<ApiErrorCode>(serde_json::json!("remote.dynamic")).is_err()
-        );
+    fn api_error_codes_serde_rejects_invalid_values() {
+        for value in [
+            "",
+            "AuthFailed",
+            "AUTH.FAILED",
+            "auth.failed ",
+            "remote.dynamic",
+        ] {
+            assert!(
+                serde_json::from_value::<ApiErrorCode>(serde_json::json!(value)).is_err(),
+                "{value:?} should not deserialize as ApiErrorCode"
+            );
+        }
+
+        for value in [
+            serde_json::Value::Null,
+            serde_json::json!(2000),
+            serde_json::json!({ "code": "auth.failed" }),
+        ] {
+            assert!(serde_json::from_value::<ApiErrorCode>(value).is_err());
+        }
     }
 
     #[test]
