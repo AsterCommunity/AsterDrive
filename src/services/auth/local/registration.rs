@@ -82,8 +82,12 @@ pub async fn create_user_by_admin(
         state
             .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
-        crate::services::ops::config::runtime::publish_user_policy_group_reload(state, user.id)
-            .await?;
+        crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+            state,
+            "create_by_admin",
+            user.id,
+        )
+        .await;
     }
     Ok(AuthUserInfo::from(user))
 }
@@ -152,8 +156,10 @@ pub async fn register(
         state
             .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
-        crate::services::ops::config::runtime::publish_user_policy_group_reload(state, user.id)
-            .await?;
+        crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+            state, "register", user.id,
+        )
+        .await;
     }
 
     tracing::debug!(
@@ -266,8 +272,10 @@ pub async fn setup(
         state
             .policy_snapshot()
             .set_user_policy_group(user.id, policy_group_id);
-        crate::services::ops::config::runtime::publish_user_policy_group_reload(state, user.id)
-            .await?;
+        crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+            state, "setup", user.id,
+        )
+        .await;
     }
     tracing::debug!(user_id = user.id, "completed initial setup");
     Ok(user)

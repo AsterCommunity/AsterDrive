@@ -39,9 +39,9 @@ pub fn connector_compatible_with_deployment(
 pub async fn validate_connector_for_current_setup_state<C: ConnectionTrait>(
     db: &C,
     descriptor: &StorageConnectorDescriptor,
-) -> Result<()> {
-    if crate::services::system_setup::state(db).await?
-        == crate::services::system_setup::SystemSetupState::NeedsStorage
+) -> Result<crate::services::system_setup::SystemSetupState> {
+    let setup_state = crate::services::system_setup::state(db).await?;
+    if setup_state == crate::services::system_setup::SystemSetupState::NeedsStorage
         && !descriptor.supports_initial_setup
     {
         return Err(AsterError::validation_error(format!(
@@ -49,7 +49,7 @@ pub async fn validate_connector_for_current_setup_state<C: ConnectionTrait>(
             descriptor.driver_type.as_str()
         )));
     }
-    Ok(())
+    Ok(setup_state)
 }
 
 fn connector_visible_in_context(

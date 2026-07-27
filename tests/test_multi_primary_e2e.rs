@@ -1446,37 +1446,67 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
             .contains("instance_local")
     );
 
-    let create_policy_response = client
-        .post(format!("{}/api/v1/admin/policies", primary_b.base_url()))
-        .bearer_auth(&access_token)
-        .json(&json!({
-            "name": "Fresh Shared Default",
-            "driver_type": "s3",
-            "endpoint": "http://127.0.0.1:9000",
-            "bucket": "asterdrive-fresh-e2e",
-            "access_key": "e2e-access",
-            "secret_key": "e2e-secret",
-            "base_path": "",
-            "max_file_size": 0,
-            "chunk_size": 5_242_880,
-            "is_default": true,
-            "options": {
-                "object_storage_upload_strategy": "presigned",
-                "s3_path_style": true
-            }
-        }))
-        .send()
-        .await
-        .expect("create first shared policy through primary B");
-    let create_policy_status = create_policy_response.status();
-    let create_policy_body: Value = create_policy_response
+    let create_initial_policy = |primary: &ServerProcess, name: &str| {
+        client
+            .post(format!("{}/api/v1/admin/policies", primary.base_url()))
+            .bearer_auth(&access_token)
+            .json(&json!({
+                "name": name,
+                "driver_type": "s3",
+                "endpoint": "http://127.0.0.1:9000",
+                "bucket": "asterdrive-fresh-e2e",
+                "access_key": "e2e-access",
+                "secret_key": "e2e-secret",
+                "base_path": "",
+                "max_file_size": 0,
+                "chunk_size": 5_242_880,
+                "is_default": true,
+                "options": {
+                    "object_storage_upload_strategy": "presigned",
+                    "s3_path_style": true
+                }
+            }))
+            .send()
+    };
+    let (create_policy_a, create_policy_b) = tokio::join!(
+        create_initial_policy(&primary_a, "Fresh Shared Default A"),
+        create_initial_policy(&primary_b, "Fresh Shared Default B"),
+    );
+    let initial_policy_responses = [
+        create_policy_a.expect("create initial shared policy through primary A"),
+        create_policy_b.expect("create initial shared policy through primary B"),
+    ];
+    let mut created_count = 0;
+    let mut rejected_response = None;
+    for response in initial_policy_responses {
+        if response.status() == reqwest::StatusCode::CREATED {
+            created_count += 1;
+        } else {
+            assert!(
+                rejected_response.is_none(),
+                "only one concurrent initial policy request may be rejected"
+            );
+            rejected_response = Some(response);
+        }
+    }
+    assert_eq!(
+        created_count, 1,
+        "exactly one concurrent initial policy request must commit"
+    );
+    let rejected_response =
+        rejected_response.expect("one concurrent initial policy request must be rejected");
+    assert_eq!(
+        rejected_response.status(),
+        reqwest::StatusCode::BAD_REQUEST,
+        "the losing initial policy request must return a stable validation error"
+    );
+    let rejected_body: Value = rejected_response
         .json()
         .await
-        .expect("decode first shared policy response");
+        .expect("decode rejected concurrent initial policy response");
     assert_eq!(
-        create_policy_status,
-        reqwest::StatusCode::CREATED,
-        "first shared policy creation failed: {create_policy_body}"
+        rejected_body["code"], "validation.system_already_initialized",
+        "the loser must observe the completed initial setup transition"
     );
 
     let (ready_a, ready_b) = tokio::join!(

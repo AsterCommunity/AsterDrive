@@ -6,7 +6,9 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
-use crate::db::repository::{file_repo, policy_group_repo, policy_repo, upload_session_repo};
+use crate::db::repository::{
+    file_repo, policy_group_repo, policy_repo, system_initialization_repo, upload_session_repo,
+};
 use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
@@ -148,11 +150,12 @@ pub async fn create(
     )?;
     crate::services::ops::deployment::validate_storage_policy_driver(state.config(), driver_type)?;
     let descriptor = crate::storage::connectors::storage_driver_descriptor(driver_type)?;
-    crate::services::storage_policy::connector_catalog::validate_connector_for_current_setup_state(
-        state.writer_db(),
-        &descriptor,
-    )
-    .await?;
+    let setup_state_at_admission =
+        crate::services::storage_policy::connector_catalog::validate_connector_for_current_setup_state(
+            state.writer_db(),
+            &descriptor,
+        )
+        .await?;
     let allowed_types = allowed_types.unwrap_or_default();
     let options = options.unwrap_or_default().normalized();
     let serialized_options = serialize_options(&options)?;
@@ -174,8 +177,15 @@ pub async fn create(
         true,
     )
     .await?;
+    let creates_initial_default_policy = is_default
+        && setup_state_at_admission
+            == crate::services::system_setup::SystemSetupState::NeedsStorage;
 
     let txn = transaction::begin(state.writer_db()).await?;
+    if creates_initial_default_policy {
+        system_initialization_repo::acquire_setup_lock(&txn).await?;
+        crate::services::system_setup::require_needs_storage(&txn).await?;
+    }
     let now = Utc::now();
     let model = storage_policy::ActiveModel {
         name: Set(name),

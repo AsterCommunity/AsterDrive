@@ -302,8 +302,10 @@ async fn update_with_audit_diff(
         } else {
             state.policy_snapshot().remove_user_policy_group(updated.id);
         }
-        crate::services::ops::config::runtime::publish_user_policy_group_reload(state, updated.id)
-            .await?;
+        crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+            state, "update", updated.id,
+        )
+        .await;
     }
     if role_changed || status_changed || email_verified_changed || must_change_password_changed {
         local::invalidate_auth_snapshot_cache(state, id).await;
@@ -483,8 +485,12 @@ pub async fn force_delete(
     state
         .policy_snapshot
         .remove_user_policy_group(target_user_id);
-    crate::services::ops::config::runtime::publish_user_policy_group_reload(state, target_user_id)
-        .await?;
+    crate::services::ops::config::runtime::publish_user_policy_group_reload_after_commit(
+        state,
+        "force_delete",
+        target_user_id,
+    )
+    .await;
 
     tracing::info!(
         "force-deleted user #{} ({}) and all associated data ({} files, {} folders)",

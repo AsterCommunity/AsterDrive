@@ -1,5 +1,6 @@
 //! Cross-process synchronization for runtime system configuration.
 
+use std::future::Future;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,9 +15,9 @@ use crate::runtime::SharedRuntimeState;
 pub const CONFIG_RELOAD_NAMESPACE: &str = "aster_drive";
 pub const STORAGE_TOPOLOGY_RELOAD_KEY: &str = "__aster_drive.storage_topology";
 const USER_POLICY_GROUP_RELOAD_KEY_PREFIX: &str = "__aster_drive.user_policy_group.";
-const STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS: u32 = 3;
-const STORAGE_TOPOLOGY_PUBLISH_INITIAL_DELAY: Duration = Duration::from_millis(50);
-const STORAGE_TOPOLOGY_PUBLISH_MAX_DELAY: Duration = Duration::from_millis(200);
+const RELOAD_PUBLISH_ATTEMPTS: u32 = 3;
+const RELOAD_PUBLISH_INITIAL_DELAY: Duration = Duration::from_millis(50);
+const RELOAD_PUBLISH_MAX_DELAY: Duration = Duration::from_millis(200);
 
 pub async fn reconcile_storage_topology(state: &impl SharedRuntimeState) -> Result<()> {
     state.driver_registry().invalidate_all();
@@ -57,19 +58,35 @@ pub async fn publish_storage_topology_reload_after_commit(
     entity_kind: &'static str,
     entity_id: i64,
 ) {
+    publish_reload_after_commit(mutation, entity_kind, entity_id, "storage_topology", || {
+        publish_storage_topology_reload(state)
+    })
+    .await;
+}
+
+async fn publish_reload_after_commit<F, Fut>(
+    mutation: &'static str,
+    entity_kind: &'static str,
+    entity_id: i64,
+    reload_kind: &'static str,
+    mut publish: F,
+) where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = Result<()>>,
+{
     let mut last_error = None;
-    for attempt in 0..STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS {
-        match publish_storage_topology_reload(state).await {
+    for attempt in 0..RELOAD_PUBLISH_ATTEMPTS {
+        match publish().await {
             Ok(()) => return,
             Err(error) => last_error = Some(error),
         }
-        if attempt + 1 < STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS {
+        if attempt + 1 < RELOAD_PUBLISH_ATTEMPTS {
             let delay = aster_forge_utils::backoff::cap_delay(
                 aster_forge_utils::backoff::exponential_delay(
-                    STORAGE_TOPOLOGY_PUBLISH_INITIAL_DELAY,
+                    RELOAD_PUBLISH_INITIAL_DELAY,
                     attempt,
                 ),
-                STORAGE_TOPOLOGY_PUBLISH_MAX_DELAY,
+                RELOAD_PUBLISH_MAX_DELAY,
             );
             tokio::time::sleep(delay).await;
         }
@@ -82,9 +99,10 @@ pub async fn publish_storage_topology_reload_after_commit(
         mutation,
         entity_kind,
         entity_id,
-        attempts = STORAGE_TOPOLOGY_PUBLISH_ATTEMPTS,
+        reload_kind,
+        attempts = RELOAD_PUBLISH_ATTEMPTS,
         %error,
-        "authoritative storage topology mutation committed but cross-instance reload notification failed"
+        "authoritative mutation committed but cross-instance reload notification failed"
     );
 }
 
@@ -100,6 +118,21 @@ pub async fn publish_user_policy_group_reload(
         )
         .await
         .map_err(map_config_core_error)
+}
+
+pub async fn publish_user_policy_group_reload_after_commit(
+    state: &impl SharedRuntimeState,
+    mutation: &'static str,
+    user_id: i64,
+) {
+    publish_reload_after_commit(
+        mutation,
+        "user_policy_group",
+        user_id,
+        "user_policy_group",
+        || publish_user_policy_group_reload(state, user_id),
+    )
+    .await;
 }
 
 async fn reconcile_user_policy_groups(
@@ -237,6 +270,7 @@ pub(crate) fn map_config_core_error(error: aster_forge_config::ConfigCoreError) 
 #[cfg(test)]
 mod tests {
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
     use aster_forge_config::ConfigSyncConfig;
@@ -325,6 +359,43 @@ mod tests {
             error
                 .to_string()
                 .contains("config_sync.endpoint is required")
+        );
+    }
+
+    #[tokio::test]
+    async fn post_commit_notification_retries_until_publish_succeeds() {
+        let attempts = AtomicU32::new(0);
+
+        super::publish_reload_after_commit("create", "user_policy_group", 7, "test", || async {
+            let attempt = attempts.fetch_add(1, Ordering::SeqCst);
+            if attempt < 2 {
+                Err(crate::errors::AsterError::internal_error(
+                    "transient publish failure",
+                ))
+            } else {
+                Ok(())
+            }
+        })
+        .await;
+
+        assert_eq!(attempts.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn post_commit_notification_stops_after_bounded_failures() {
+        let attempts = AtomicU32::new(0);
+
+        super::publish_reload_after_commit("delete", "user_policy_group", 7, "test", || async {
+            attempts.fetch_add(1, Ordering::SeqCst);
+            Err(crate::errors::AsterError::internal_error(
+                "persistent publish failure",
+            ))
+        })
+        .await;
+
+        assert_eq!(
+            attempts.load(Ordering::SeqCst),
+            super::RELOAD_PUBLISH_ATTEMPTS
         );
     }
 

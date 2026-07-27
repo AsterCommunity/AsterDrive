@@ -85,6 +85,24 @@ pub async fn require_ready<C: ConnectionTrait>(db: &C) -> Result<()> {
     }
 }
 
+/// Requires that the one-time storage setup transition is still pending.
+///
+/// Call this after acquiring the setup lock and before creating the initial
+/// default policy, so a concurrent request cannot create a second candidate.
+pub async fn require_needs_storage<C: ConnectionTrait>(db: &C) -> Result<()> {
+    match state(db).await? {
+        SystemSetupState::NeedsStorage => Ok(()),
+        SystemSetupState::NeedsAdmin => Err(validation_error_with_code(
+            ApiErrorCode::ValidationSystemNotInitialized,
+            "system administrator setup is incomplete",
+        )),
+        SystemSetupState::Ready => Err(validation_error_with_code(
+            ApiErrorCode::ValidationSystemAlreadyInitialized,
+            "system storage setup is already complete",
+        )),
+    }
+}
+
 pub async fn configured_default_policy_group_id<C: ConnectionTrait>(db: &C) -> Result<Option<i64>> {
     if policy_repo::find_default(db).await?.is_none() {
         return Ok(None);
@@ -230,6 +248,13 @@ mod tests {
 
         assert_eq!(state(&db).await.unwrap(), SystemSetupState::NeedsAdmin);
         assert!(!inspect(&db).await.unwrap().has_users);
+        assert_eq!(
+            require_needs_storage(&db)
+                .await
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::ValidationSystemNotInitialized
+        );
     }
 
     #[tokio::test]
@@ -247,6 +272,7 @@ mod tests {
         insert_user(&db, "admin", UserRole::Admin, None).await;
 
         assert_eq!(state(&db).await.unwrap(), SystemSetupState::NeedsStorage);
+        require_needs_storage(&db).await.unwrap();
     }
 
     #[tokio::test]
@@ -288,5 +314,12 @@ mod tests {
 
         assert_eq!(state(&db).await.unwrap(), SystemSetupState::Ready);
         require_ready(&db).await.unwrap();
+        assert_eq!(
+            require_needs_storage(&db)
+                .await
+                .unwrap_err()
+                .api_error_code(),
+            ApiErrorCode::ValidationSystemAlreadyInitialized
+        );
     }
 }
