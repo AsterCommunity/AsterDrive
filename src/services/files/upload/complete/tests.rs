@@ -104,6 +104,24 @@ fn determine_completion_plan_returns_chunked_completion_when_all_chunks_arrived(
 }
 
 #[test]
+fn provider_relay_resumable_requires_all_provider_ranges_before_finalization() {
+    let mut session = mock_session(UploadSessionStatus::Uploading);
+    session.session_kind = UploadSessionKind::ProviderRelayResumable;
+    session.object_temp_key = Some("files/provider-relay".to_string());
+    session.provider_session_ciphertext = Some("encrypted-provider-session".to_string());
+    session.received_count = 2;
+    assert!(
+        determine_completion_plan(&session, UploadSessionKind::ProviderRelayResumable, None,)
+            .is_err()
+    );
+
+    session.received_count = session.total_chunks;
+    let plan = determine_completion_plan(&session, UploadSessionKind::ProviderRelayResumable, None)
+        .expect("all provider ranges should finalize through provider resumable contract");
+    assert!(matches!(plan, CompletionPlan::CompleteProviderResumable));
+}
+
+#[test]
 fn should_log_upload_completion_skips_completed_retry() {
     assert!(!should_log_upload_completion(&mock_session(
         UploadSessionStatus::Completed

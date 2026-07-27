@@ -10,6 +10,7 @@ mod init;
 mod kind;
 mod lifecycle;
 mod progress;
+mod provider_relay;
 mod provider_session;
 mod responses;
 mod scope;

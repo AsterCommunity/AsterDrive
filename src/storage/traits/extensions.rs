@@ -95,29 +95,35 @@ pub struct ProviderResumableUploadStatus {
     pub next_expected_ranges: Vec<String>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProviderResumableUploadFragmentOutcome {
+    pub completed: bool,
+    pub next_expected_ranges: Vec<String>,
+}
+
 /// Provider-native resumable upload support.
 ///
-/// 这个 trait 只描述 provider 自己的 resumable/session 上传能力，不给 upload
-/// service 暴露“创建 session / 上传 range / complete session”的通用协议。
-///
-/// 它故意和 S3-compatible multipart 分开：S3 multipart 是 upload service 可直接
-/// 编排的对象存储契约；Microsoft Graph 这类 provider 的 upload session 由具体
-/// driver 封装，上层通常仍然只通过 `StreamUploadDriver::put_reader()` 写入。
+/// 它故意和 S3-compatible multipart 分开：provider resumable 使用顺序 byte range、
+/// provider-native progress 和隐式完成语义，不伪装成 numbered multipart parts。
 #[async_trait]
 pub trait ProviderResumableUploadDriver: Send + Sync {
     fn provider_resumable_upload_capabilities(&self) -> ProviderResumableUploadCapabilities;
 
-    async fn create_frontend_upload_session(
-        &self,
-        path: &str,
-    ) -> Result<ProviderResumableUploadSession>;
+    async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession>;
 
-    async fn query_frontend_upload_session(
+    async fn query_upload_session(&self, upload_url: &str)
+    -> Result<ProviderResumableUploadStatus>;
+
+    async fn abort_upload_session(&self, upload_url: &str) -> Result<()>;
+
+    async fn upload_session_fragment_reader(
         &self,
         upload_url: &str,
-    ) -> Result<ProviderResumableUploadStatus>;
-
-    async fn abort_frontend_upload_session(&self, upload_url: &str) -> Result<()>;
+        start: u64,
+        total_size: u64,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        fragment_size: i64,
+    ) -> Result<ProviderResumableUploadFragmentOutcome>;
 }
 
 impl StorageCapacityInfo {

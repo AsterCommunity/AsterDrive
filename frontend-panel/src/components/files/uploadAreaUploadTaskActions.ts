@@ -138,6 +138,7 @@ export async function runQueuedUploadTask(
 								upload_id: task.uploadId,
 								chunk_size: chunkSize,
 								total_chunks: progress.total_chunks,
+								upload_scheduling: progress.upload_scheduling,
 							},
 							progress.chunks_on_disk,
 						);
@@ -161,6 +162,7 @@ export async function runQueuedUploadTask(
 								chunk_size: chunkSize,
 								total_chunks: progress.total_chunks,
 								provider_resumable: progress.provider_resumable,
+								upload_scheduling: progress.upload_scheduling,
 							},
 							progress.chunks_on_disk,
 						);

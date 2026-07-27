@@ -4660,6 +4660,7 @@ export interface components {
                 /** Format: int32 */
                 total_chunks: number;
                 upload_id: string;
+                upload_scheduling?: null | components["schemas"]["UploadScheduling"];
             };
             error?: null | components["schemas"]["ApiErrorInfo"];
             msg: string;
@@ -5872,6 +5873,7 @@ export interface components {
             /** Format: int32 */
             total_chunks?: number | null;
             upload_id?: string | null;
+            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
         };
         /**
          * @description Interface display language.
@@ -8577,6 +8579,8 @@ export interface components {
              */
             password?: string | null;
         };
+        /** @enum {string} */
+        UploadChunkOrdering: "unordered" | "sequential";
         /**
          * @description 上传模式（不存 DB，仅 API 响应用）
          * @enum {string}
@@ -8594,6 +8598,12 @@ export interface components {
             /** Format: int32 */
             total_chunks: number;
             upload_id: string;
+            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
+        };
+        UploadScheduling: {
+            chunk_ordering: components["schemas"]["UploadChunkOrdering"];
+            /** Format: int32 */
+            max_chunk_concurrency: number;
         };
         UploadSession: {
             /** Format: int64 */
@@ -8639,7 +8649,7 @@ export interface components {
          * @description Persisted data plane for an upload session.
          * @enum {string}
          */
-        UploadSessionKind: "offset_staging" | "stream_staging" | "provider_relay_multipart" | "provider_presigned_single" | "provider_presigned_multipart" | "remote_relay_multipart" | "remote_presigned_single" | "remote_presigned_multipart" | "provider_direct_resumable";
+        UploadSessionKind: "offset_staging" | "stream_staging" | "provider_relay_multipart" | "provider_presigned_single" | "provider_presigned_multipart" | "remote_relay_multipart" | "remote_presigned_single" | "remote_presigned_multipart" | "provider_direct_resumable" | "provider_relay_resumable";
         /**
          * @description 上传 session 状态
          * @enum {string}
@@ -17186,6 +17196,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
+                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -17242,6 +17253,7 @@ export interface operations {
                             /** Format: date-time */
                             updated_at: string;
                             upload_id: string;
+                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -23000,6 +23012,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks?: number | null;
                             upload_id?: string | null;
+                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -23066,6 +23079,7 @@ export interface operations {
                             /** Format: date-time */
                             updated_at: string;
                             upload_id: string;
+                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
                         }[];
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;
@@ -23122,6 +23136,7 @@ export interface operations {
                             /** Format: int32 */
                             total_chunks: number;
                             upload_id: string;
+                            upload_scheduling?: null | components["schemas"]["UploadScheduling"];
                         };
                         error?: null | components["schemas"]["ApiErrorInfo"];
                         msg: string;

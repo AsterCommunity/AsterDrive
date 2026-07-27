@@ -179,6 +179,7 @@ struct UploadSessionSpec<'a> {
     policy_id: Option<i64>,
     object_temp_key: Option<&'a str>,
     object_multipart_id: Option<&'a str>,
+    provider_session_ciphertext: Option<&'a str>,
     file_id: Option<i64>,
 }
 
@@ -199,6 +200,7 @@ impl<'a> UploadSessionSpec<'a> {
             policy_id: None,
             object_temp_key: None,
             object_multipart_id: None,
+            provider_session_ciphertext: None,
             file_id: None,
         }
     }
@@ -226,6 +228,11 @@ impl<'a> UploadSessionSpec<'a> {
 
     fn file_id(mut self, file_id: i64) -> Self {
         self.file_id = Some(file_id);
+        self
+    }
+
+    fn provider_session(mut self, ciphertext: &'a str) -> Self {
+        self.provider_session_ciphertext = Some(ciphertext);
         self
     }
 }
@@ -262,7 +269,7 @@ async fn create_upload_session(
             session_kind: Set(spec.session_kind),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(spec.object_multipart_id.map(str::to_string)),
-            provider_session_ciphertext: Set(None),
+            provider_session_ciphertext: Set(spec.provider_session_ciphertext.map(str::to_string)),
             file_id: Set(spec.file_id),
             created_at: Set(now),
             expires_at: Set(spec.expires_at),
@@ -385,6 +392,119 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
         .await
         .expect_err("non-id unique conflict should not be treated as id retry");
     assert_eq!(err.code(), "E002");
+}
+
+#[actix_web::test]
+async fn provider_relay_progress_only_advances_from_the_expected_chunk() {
+    use aster_drive::db::repository::upload_session_repo;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "relayorder",
+        "providerrelayorder@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            aster_drive::types::UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayResumable,
+        )
+        .chunks(2, 0)
+        .object_upload(Some("files/provider-relay-order"), None)
+        .provider_session("encrypted-provider-session"),
+    )
+    .await;
+
+    assert!(
+        upload_session_repo::advance_provider_relay_received_count(
+            state.writer_db(),
+            &upload_id,
+            0,
+        )
+        .await
+        .unwrap()
+    );
+    assert!(
+        !upload_session_repo::advance_provider_relay_received_count(
+            state.writer_db(),
+            &upload_id,
+            0,
+        )
+        .await
+        .unwrap()
+    );
+    assert_eq!(
+        upload_session_repo::find_by_id(state.writer_db(), &upload_id)
+            .await
+            .unwrap()
+            .received_count,
+        1
+    );
+}
+
+#[actix_web::test]
+async fn provider_relay_claim_heartbeat_only_touches_active_claims() {
+    use aster_drive::db::repository::upload_session_part_repo;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "relayclaim",
+        "providerrelayclaim@test.com",
+        "password123",
+    )
+    .await
+    .unwrap();
+    let upload_id = new_test_upload_id();
+    create_upload_session(
+        &state,
+        user.id,
+        UploadSessionSpec::new(
+            &upload_id,
+            aster_drive::types::UploadSessionStatus::Uploading,
+            chrono::Utc::now() + chrono::Duration::hours(1),
+            UploadSessionKind::ProviderRelayResumable,
+        )
+        .chunks(1, 0)
+        .object_upload(Some("files/provider-relay-claim"), None)
+        .provider_session("encrypted-provider-session"),
+    )
+    .await;
+
+    assert!(
+        upload_session_part_repo::try_claim_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap()
+    );
+    assert!(
+        upload_session_part_repo::touch_claimed_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap()
+    );
+    assert!(
+        upload_session_part_repo::finalize_claimed_part(
+            state.writer_db(),
+            &upload_id,
+            1,
+            "provider-range-v1",
+            1,
+        )
+        .await
+        .unwrap()
+    );
+    assert!(
+        !upload_session_part_repo::touch_claimed_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap()
+    );
 }
 
 async fn create_dead_remote_policy(

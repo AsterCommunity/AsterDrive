@@ -140,6 +140,7 @@ async fn cleanup_remote_upload_state(
                 | UploadSessionKind::RemotePresignedSingle
                 | UploadSessionKind::RemotePresignedMultipart
                 | UploadSessionKind::ProviderDirectResumable
+                | UploadSessionKind::ProviderRelayResumable
         )
     {
         return UploadRemoteCleanupOutcome::Complete;
@@ -171,7 +172,12 @@ async fn cleanup_remote_upload_state(
         }
     };
 
-    if kind == Some(UploadSessionKind::ProviderDirectResumable) {
+    let provider_upload_url = if matches!(
+        kind,
+        Some(
+            UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+        )
+    ) {
         let secret = match decrypt_provider_session(state, session) {
             Ok(secret) => secret,
             Err(error) => {
@@ -182,19 +188,53 @@ async fn cleanup_remote_upload_state(
                 return UploadRemoteCleanupOutcome::DeferredIntervention;
             }
         };
+        Some(secret.upload_url)
+    } else {
+        None
+    };
+
+    cleanup_resolved_remote_upload_state(
+        &session.id,
+        kind,
+        driver.as_ref(),
+        provider_upload_url.as_deref(),
+        temp_key,
+        session.object_multipart_id.as_deref(),
+    )
+    .await
+}
+
+async fn cleanup_resolved_remote_upload_state(
+    session_id: &str,
+    kind: Option<UploadSessionKind>,
+    driver: &dyn StorageDriver,
+    provider_upload_url: Option<&str>,
+    temp_key: &str,
+    multipart_id: Option<&str>,
+) -> UploadRemoteCleanupOutcome {
+    if matches!(
+        kind,
+        Some(
+            UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+        )
+    ) {
+        let Some(upload_url) = provider_upload_url else {
+            tracing::warn!(
+                session_id,
+                "provider upload session URL is unavailable during upload cleanup"
+            );
+            return UploadRemoteCleanupOutcome::DeferredIntervention;
+        };
         let Some(provider) = driver.extensions().provider_resumable else {
             tracing::warn!(
-                session_id = %session.id,
+                session_id,
                 "provider resumable driver is unavailable during upload cleanup"
             );
             return UploadRemoteCleanupOutcome::DeferredIntervention;
         };
-        if let Err(error) = provider
-            .abort_frontend_upload_session(&secret.upload_url)
-            .await
-        {
+        if let Err(error) = provider.abort_upload_session(upload_url).await {
             let outcome = log_blocked_remote_cleanup(
-                &session.id,
+                session_id,
                 Some(temp_key),
                 "failed to abort provider upload session",
                 &error,
@@ -205,14 +245,14 @@ async fn cleanup_remote_upload_state(
         }
     }
 
-    if let Some(multipart_id) = session.object_multipart_id.as_deref() {
+    if let Some(multipart_id) = multipart_id {
         if let Some(multipart) = driver.extensions().multipart
             && let Err(error) = multipart
                 .abort_multipart_upload(temp_key, multipart_id)
                 .await
         {
             let outcome = log_blocked_remote_cleanup(
-                &session.id,
+                session_id,
                 Some(temp_key),
                 "failed to abort multipart upload",
                 &error,
@@ -223,15 +263,15 @@ async fn cleanup_remote_upload_state(
         }
 
         return delete_temp_object_for_cleanup(
-            driver.as_ref(),
-            &session.id,
+            driver,
+            session_id,
             temp_key,
             "multipart upload cleanup",
         )
         .await;
     }
 
-    delete_temp_object_for_cleanup(driver.as_ref(), &session.id, temp_key, "upload cleanup").await
+    delete_temp_object_for_cleanup(driver, session_id, temp_key, "upload cleanup").await
 }
 
 async fn defer_upload_session_cleanup(
@@ -416,3 +456,6 @@ pub async fn cleanup_expired(state: &PrimaryAppState) -> Result<u32> {
     }
     Ok(count)
 }
+
+#[cfg(test)]
+mod tests;

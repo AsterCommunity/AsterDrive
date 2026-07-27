@@ -219,6 +219,7 @@ async fn init_chunked_upload_session(
         upload_id,
         chunk_size,
         total_chunks,
+        session_kind,
     ))
 }
 

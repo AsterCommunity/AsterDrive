@@ -11,7 +11,9 @@ use crate::errors::{
     validation_error_with_code,
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::kind::{mode_for_kind, resolve_upload_session_kind};
+use crate::services::files::upload::kind::{
+    mode_for_kind, resolve_upload_session_kind, scheduling_for_kind,
+};
 use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::responses::{
     ProviderResumableUploadResponse, RecoverableUploadPartResponse,
@@ -77,6 +79,11 @@ async fn get_progress_impl(
             }
             (chunks, None)
         }
+        UploadSessionKind::ProviderRelayResumable => (
+            crate::services::files::upload::provider_relay::reconcile_progress(state, &session)
+                .await?,
+            None,
+        ),
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
             (list_offset_staging_chunks(state, &session).await?, None)
         }
@@ -95,10 +102,7 @@ async fn get_progress_impl(
                     "provider resumable driver is unavailable",
                 )
             })?;
-            match provider
-                .query_frontend_upload_session(&secret.upload_url)
-                .await
-            {
+            match provider.query_upload_session(&secret.upload_url).await {
                 Ok(status) => {
                     let chunks = provider_completed_chunks(
                         &status.next_expected_ranges,
@@ -145,6 +149,7 @@ async fn get_progress_impl(
         total_chunks: session.total_chunks,
         filename: session.filename,
         provider_resumable,
+        upload_scheduling: scheduling_for_kind(kind),
     };
     tracing::debug!(
         upload_id = %progress.upload_id,
@@ -239,6 +244,7 @@ async fn recoverable_session_response(
         chunks_on_disk: progress.chunks_on_disk,
         completed_parts,
         provider_resumable: progress.provider_resumable.clone(),
+        upload_scheduling: progress.upload_scheduling,
         expires_at: session.expires_at,
         updated_at: session.updated_at,
     })

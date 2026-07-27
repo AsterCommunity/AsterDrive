@@ -3,7 +3,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::entities::upload_session;
 use crate::errors::{Result, upload_assembly_error_with_code};
-use crate::types::{UploadMode, UploadSessionKind};
+use crate::types::{UploadChunkOrdering, UploadMode, UploadScheduling, UploadSessionKind};
 
 pub(crate) fn resolve_upload_session_kind(
     session: &upload_session::Model,
@@ -38,6 +38,7 @@ pub(crate) fn validate_persisted_kind(
             | UploadSessionKind::RemotePresignedSingle
             | UploadSessionKind::RemotePresignedMultipart
             | UploadSessionKind::ProviderDirectResumable
+            | UploadSessionKind::ProviderRelayResumable
     );
     if expects_temp_key != session.object_temp_key.is_some() {
         return Err(corrupted(format!(
@@ -45,7 +46,10 @@ pub(crate) fn validate_persisted_kind(
             kind.as_str()
         )));
     }
-    let expects_provider_session = kind == UploadSessionKind::ProviderDirectResumable;
+    let expects_provider_session = matches!(
+        kind,
+        UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable
+    );
     if expects_provider_session != session.provider_session_ciphertext.is_some() {
         return Err(corrupted(format!(
             "session kind {} does not match provider session metadata",
@@ -71,9 +75,32 @@ pub(crate) fn mode_for_kind(kind: UploadSessionKind) -> UploadMode {
     }
 }
 
+pub(crate) fn scheduling_for_kind(kind: UploadSessionKind) -> Option<UploadScheduling> {
+    match kind {
+        UploadSessionKind::ProviderDirectResumable | UploadSessionKind::ProviderRelayResumable => {
+            Some(UploadScheduling {
+                chunk_ordering: UploadChunkOrdering::Sequential,
+                max_chunk_concurrency: 1,
+            })
+        }
+        UploadSessionKind::OffsetStaging
+        | UploadSessionKind::StreamStaging
+        | UploadSessionKind::ProviderRelayMultipart
+        | UploadSessionKind::ProviderPresignedMultipart
+        | UploadSessionKind::RemoteRelayMultipart
+        | UploadSessionKind::RemotePresignedMultipart => Some(UploadScheduling {
+            chunk_ordering: UploadChunkOrdering::Unordered,
+            max_chunk_concurrency: 16,
+        }),
+        UploadSessionKind::ProviderPresignedSingle | UploadSessionKind::RemotePresignedSingle => {
+            None
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{mode_for_kind, validate_persisted_kind};
+    use super::{mode_for_kind, scheduling_for_kind, validate_persisted_kind};
     use crate::entities::upload_session;
     use crate::types::{UploadMode, UploadSessionKind, UploadSessionStatus};
 
@@ -129,6 +156,10 @@ mod tests {
             mode_for_kind(UploadSessionKind::OffsetStaging),
             UploadMode::Chunked
         );
+        assert_eq!(
+            mode_for_kind(UploadSessionKind::ProviderRelayResumable),
+            UploadMode::Chunked
+        );
     }
 
     #[test]
@@ -160,17 +191,21 @@ mod tests {
     }
 
     #[test]
-    fn provider_direct_kind_requires_temp_key_and_encrypted_session_metadata() {
-        let mut valid = session(
+    fn provider_resumable_kinds_require_temp_key_and_encrypted_session_metadata() {
+        for kind in [
             UploadSessionKind::ProviderDirectResumable,
-            Some("files/temp"),
-            None,
-        );
-        valid.provider_session_ciphertext = Some("encrypted-upload-url".to_string());
-        assert!(validate_persisted_kind(&valid).is_ok());
+            UploadSessionKind::ProviderRelayResumable,
+        ] {
+            let mut valid = session(kind, Some("files/temp"), None);
+            valid.provider_session_ciphertext = Some("encrypted-upload-url".to_string());
+            assert!(validate_persisted_kind(&valid).is_ok());
+            assert!(validate_persisted_kind(&session(kind, Some("files/temp"), None)).is_err());
+            let scheduling = scheduling_for_kind(kind).expect("provider upload is resumable");
+            assert_eq!(scheduling.max_chunk_concurrency, 1);
+        }
         assert!(
             validate_persisted_kind(&session(
-                UploadSessionKind::ProviderDirectResumable,
+                UploadSessionKind::ProviderRelayResumable,
                 Some("files/temp"),
                 None
             ))

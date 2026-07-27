@@ -27,6 +27,23 @@ pub enum UploadSessionKind {
     RemotePresignedMultipart,
     #[sea_orm(string_value = "provider_direct_resumable")]
     ProviderDirectResumable,
+    #[sea_orm(string_value = "provider_relay_resumable")]
+    ProviderRelayResumable,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+#[serde(rename_all = "snake_case")]
+pub enum UploadChunkOrdering {
+    Unordered,
+    Sequential,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct UploadScheduling {
+    pub chunk_ordering: UploadChunkOrdering,
+    pub max_chunk_concurrency: i32,
 }
 
 impl UploadSessionKind {
@@ -41,6 +58,7 @@ impl UploadSessionKind {
             Self::RemotePresignedSingle => "remote_presigned_single",
             Self::RemotePresignedMultipart => "remote_presigned_multipart",
             Self::ProviderDirectResumable => "provider_direct_resumable",
+            Self::ProviderRelayResumable => "provider_relay_resumable",
         }
     }
 }

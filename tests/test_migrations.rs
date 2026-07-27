@@ -31,6 +31,8 @@ const ADD_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260717_000001_add_upload_ses
 const ADD_UPLOAD_PROVIDER_SESSION_MIGRATION: &str = "m20260719_000001_add_upload_provider_session";
 const REQUIRE_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260723_000001_require_upload_session_kind";
 const REMOTE_TUNNEL_OWNERS_MIGRATION: &str = "m20260725_000001_remote_tunnel_owners";
+const PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION: &str =
+    "m20260728_000001_provider_relay_resumable_upload";
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -299,6 +301,30 @@ async fn remote_tunnel_owner_directory_migration_is_registered_and_reversible() 
         .await
         .expect("remote tunnel owner directory migration should reapply");
     assert!(sqlite_table_exists(&db, "remote_tunnel_owners").await);
+}
+
+#[tokio::test]
+async fn provider_relay_resumable_ordering_index_is_registered_and_reversible() {
+    assert!(
+        CurrentMigrator::migrations()
+            .iter()
+            .any(|migration| { migration.name() == PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION })
+    );
+
+    let db = setup_current_schema().await;
+    let index = "idx_upload_sessions_provider_relay_ordering";
+    assert!(sqlite_table_index_exists(&db, "upload_sessions", index).await);
+
+    let rollback_steps = steps_to_roll_back_migration(PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION);
+    CurrentMigrator::down(&db, Some(rollback_steps))
+        .await
+        .expect("provider relay resumable migration should roll back");
+    assert!(!sqlite_table_index_exists(&db, "upload_sessions", index).await);
+
+    CurrentMigrator::up(&db, Some(rollback_steps))
+        .await
+        .expect("provider relay resumable migration should reapply");
+    assert!(sqlite_table_index_exists(&db, "upload_sessions", index).await);
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {

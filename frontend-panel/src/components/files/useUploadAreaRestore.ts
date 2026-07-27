@@ -136,6 +136,7 @@ function serverSessionToProgress(
 		total_chunks: session.total_chunks,
 		filename: session.filename,
 		provider_resumable: session.provider_resumable,
+		upload_scheduling: session.upload_scheduling,
 	};
 }
 

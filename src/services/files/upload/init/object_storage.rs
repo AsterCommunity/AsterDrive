@@ -147,6 +147,7 @@ async fn init_presigned_object_storage_single_upload(
             presigned_headers,
             presigned_require_etag: Some(presigned_require_etag),
             provider_resumable: None,
+            upload_scheduling: None,
         }))
     })
     .await

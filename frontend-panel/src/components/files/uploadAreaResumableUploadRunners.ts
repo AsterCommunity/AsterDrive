@@ -13,6 +13,7 @@ import {
 	uploadService,
 } from "@/services/uploadService";
 import {
+	CHUNK_CONCURRENT,
 	completeWithRetry,
 	shouldRemovePersistedSession,
 	type UploadTask,
@@ -28,6 +29,22 @@ import {
 } from "./uploadAreaUploadRunnerShared";
 
 const PRESIGNED_MULTIPART_URL_BATCH_SIZE = 16;
+
+export function resolveChunkConcurrency(
+	init: InitUploadResponse,
+	fallback: number,
+) {
+	const normalizedFallback =
+		Number.isFinite(fallback) && fallback >= 1 ? Math.floor(fallback) : 1;
+	if (init.upload_scheduling?.chunk_ordering === "sequential") {
+		return 1;
+	}
+	const backendMax = init.upload_scheduling?.max_chunk_concurrency;
+	if (!backendMax || !Number.isFinite(backendMax) || backendMax < 1) {
+		return normalizedFallback;
+	}
+	return Math.max(1, Math.min(normalizedFallback, Math.floor(backendMax)));
+}
 
 export function createResumableUploadRunners({
 	abortFlagsRef,
@@ -162,6 +179,7 @@ export function createResumableUploadRunners({
 		};
 
 		await runResumableTransfer({
+			concurrency: resolveChunkConcurrency(init, CHUNK_CONCURRENT),
 			completeUpload: () => completeWithRetry(uploadId),
 			initialCompleted: alreadyReceived.length,
 			initialCompletedBytes: alreadyReceived.reduce(
@@ -392,7 +410,7 @@ export function createResumableUploadRunners({
 		};
 
 		await runResumableTransfer({
-			concurrency: 1,
+			concurrency: resolveChunkConcurrency(init, 1),
 			completeUpload: () => completeWithRetry(uploadId),
 			initialCompleted: completedSet.size,
 			initialCompletedBytes: [...completedSet].reduce(

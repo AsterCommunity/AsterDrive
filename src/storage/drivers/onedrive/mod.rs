@@ -13,8 +13,8 @@ use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
     PresignedStorageDriver, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
-    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
-    StreamUploadDriver,
+    ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
+    ProviderResumableUploadStatus, StorageCapacityInfo, StreamUploadDriver,
 };
 use aster_forge_utils::numbers;
 
@@ -450,10 +450,7 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         microsoft_graph_upload_capabilities()
     }
 
-    async fn create_frontend_upload_session(
-        &self,
-        path: &str,
-    ) -> Result<ProviderResumableUploadSession> {
+    async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession> {
         let parent_path = self.ensure_named_object_parent(path).await?;
         let session = match self
             .client
@@ -474,7 +471,7 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         })
     }
 
-    async fn query_frontend_upload_session(
+    async fn query_upload_session(
         &self,
         upload_url: &str,
     ) -> Result<ProviderResumableUploadStatus> {
@@ -485,8 +482,43 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         })
     }
 
-    async fn abort_frontend_upload_session(&self, upload_url: &str) -> Result<()> {
+    async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
         self.client.abort_upload_session(upload_url).await
+    }
+
+    async fn upload_session_fragment_reader(
+        &self,
+        upload_url: &str,
+        start: u64,
+        total_size: u64,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        fragment_size: i64,
+    ) -> Result<ProviderResumableUploadFragmentOutcome> {
+        let size = numbers::bytes_to_usize(fragment_size, "OneDrive upload fragment size")?;
+        if size > GRAPH_UPLOAD_FRAGMENT_MAX_BYTES {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OneDrive upload session fragment exceeds the provider request-size limit",
+            ));
+        }
+        let fragment_size_u64 = numbers::usize_to_u64(size, "OneDrive upload fragment size")?;
+        let is_final = start
+            .checked_add(fragment_size_u64)
+            .is_some_and(|end| end == total_size);
+        if !is_final && !size.is_multiple_of(GRAPH_UPLOAD_FRAGMENT_ALIGNMENT) {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OneDrive upload session non-final fragment size must be a multiple of 320 KiB",
+            ));
+        }
+        let outcome = self
+            .client
+            .upload_session_fragment_reader(upload_url, start, total_size, reader, fragment_size)
+            .await?;
+        Ok(ProviderResumableUploadFragmentOutcome {
+            completed: outcome.completed,
+            next_expected_ranges: outcome.next_expected_ranges,
+        })
     }
 }
 
@@ -769,6 +801,50 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_relay_fragments_enforce_alignment_and_request_limit() {
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            "https://graph.microsoft.com",
+            "token",
+        ))
+        .expect("Graph client should build");
+        let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
+        let provider = driver
+            .extensions()
+            .provider_resumable
+            .expect("OneDrive should expose provider-native resumable upload");
+
+        let misaligned = provider
+            .upload_session_fragment_reader(
+                "https://upload.example/session",
+                0,
+                2,
+                Box::new(std::io::Cursor::new(Vec::<u8>::new())),
+                1,
+            )
+            .await
+            .expect_err("non-final fragments must be aligned");
+        assert_eq!(
+            misaligned.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+
+        let oversized = provider
+            .upload_session_fragment_reader(
+                "https://upload.example/session",
+                0,
+                (GRAPH_UPLOAD_FRAGMENT_MAX_BYTES + 1) as u64,
+                Box::new(std::io::Cursor::new(Vec::<u8>::new())),
+                (GRAPH_UPLOAD_FRAGMENT_MAX_BYTES + 1) as i64,
+            )
+            .await
+            .expect_err("provider request-size limit must be enforced");
+        assert_eq!(
+            oversized.storage_error_kind(),
+            Some(StorageErrorKind::Misconfigured)
+        );
+    }
+
+    #[tokio::test]
     async fn strict_mode_relays_legacy_objects_but_provider_native_mode_uses_graph() {
         let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
             "https://graph.microsoft.com",
@@ -878,7 +954,7 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         driver
-            .create_frontend_upload_session(NAMED_PATH)
+            .create_upload_session(NAMED_PATH)
             .await
             .expect("named upload session should be created");
 
@@ -924,7 +1000,7 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         driver
-            .create_frontend_upload_session(NAMED_PATH)
+            .create_upload_session(NAMED_PATH)
             .await
             .expect("existing shared files folder should be reused");
 
@@ -947,7 +1023,7 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         let error = driver
-            .create_frontend_upload_session(NAMED_PATH)
+            .create_upload_session(NAMED_PATH)
             .await
             .expect_err("existing upload namespace must be treated as a collision");
 
@@ -974,7 +1050,7 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         driver
-            .create_frontend_upload_session(NAMED_PATH)
+            .create_upload_session(NAMED_PATH)
             .await
             .expect_err("failed provider session should cleanup its namespace");
 
@@ -1049,7 +1125,7 @@ mod tests {
         let driver = lifecycle_driver(&server);
 
         driver
-            .create_frontend_upload_session("files/550e8400-e29b-41d4-a716-446655440000")
+            .create_upload_session("files/550e8400-e29b-41d4-a716-446655440000")
             .await
             .expect("legacy flat upload path should remain supported");
 

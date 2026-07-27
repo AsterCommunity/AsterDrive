@@ -184,6 +184,7 @@ async fn init_remote_presigned_single_upload(
             presigned_headers: Default::default(),
             presigned_require_etag: Some(true),
             provider_resumable: None,
+            upload_scheduling: None,
         }))
     })
     .await

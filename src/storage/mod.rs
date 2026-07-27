@@ -40,9 +40,9 @@ pub use traits::{
     ListStorageDriver, LocalPathStorageDriver, MultipartStorageDriver, NativeMediaMetadataRequest,
     NativeMediaMetadataResult, NativeMediaMetadataStorageDriver, NativeThumbnailRequest,
     NativeThumbnailStorageDriver, PresignedStorageDriver, ProviderResumableUploadCapabilities,
-    ProviderResumableUploadDriver, ProviderResumableUploadSession, ProviderResumableUploadStatus,
-    StorageCapacityInfo, StorageCapacityStatus, StorageDriverExtensions, StreamUploadDriver,
-    UploadedMultipartPart,
+    ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome,
+    ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageCapacityInfo,
+    StorageCapacityStatus, StorageDriverExtensions, StreamUploadDriver, UploadedMultipartPart,
 };
 
 // 内部 re-export 供宏和错误处理使用

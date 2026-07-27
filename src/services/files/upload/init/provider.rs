@@ -10,7 +10,9 @@ use crate::services::files::upload::responses::{
 };
 use crate::services::files::upload::shared::{UniqueUuidAttempt, with_unique_upload_id};
 use crate::services::workspace::storage::PolicyUploadTransport;
-use crate::types::{ProviderResumableUploadStrategy, UploadMode, UploadSessionStatus};
+use crate::types::{
+    ProviderResumableUploadStrategy, UploadMode, UploadSessionKind, UploadSessionStatus,
+};
 use aster_forge_utils::numbers;
 
 use super::context::{
@@ -24,11 +26,19 @@ pub(super) async fn init_provider_resumable_upload(
 ) -> Result<Option<InitUploadResponse>> {
     let transport =
         crate::services::workspace::storage::resolve_policy_upload_transport(&ctx.policy)?;
-    if transport
-        != PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::FrontendDirect)
-    {
-        return Ok(None);
-    }
+    let strategy = match transport {
+        PolicyUploadTransport::ProviderResumable(strategy) => strategy,
+        _ => return Ok(None),
+    };
+    let mode = match strategy {
+        ProviderResumableUploadStrategy::FrontendDirect => UploadMode::ProviderResumable,
+        ProviderResumableUploadStrategy::ServerRelay => {
+            if transport.resolve_init_mode(&ctx.policy, ctx.total_size) != UploadMode::Chunked {
+                return Ok(None);
+            }
+            UploadMode::Chunked
+        }
+    };
 
     let driver = state.driver_registry().get_driver(&ctx.policy)?;
     let provider = driver.extensions().provider_resumable.ok_or_else(|| {
@@ -37,7 +47,9 @@ pub(super) async fn init_provider_resumable_upload(
         )
     })?;
     let capabilities = provider.provider_resumable_upload_capabilities();
-    if !capabilities.frontend_direct_upload {
+    if strategy == ProviderResumableUploadStrategy::FrontendDirect
+        && !capabilities.frontend_direct_upload
+    {
         return Err(AsterError::validation_error(
             "storage connector does not support frontend-direct provider uploads",
         ));
@@ -49,7 +61,8 @@ pub(super) async fn init_provider_resumable_upload(
     )?;
     let total_chunks =
         numbers::calc_total_chunks(ctx.total_size, chunk_size, "provider resumable upload")?;
-    let session_kind = session_kind_for_transport(transport, UploadMode::ProviderResumable)?;
+    let session_kind = session_kind_for_transport(transport, mode)?;
+    crate::services::ops::deployment::validate_upload_session_kind(state.config(), session_kind)?;
 
     let response = with_unique_upload_id(|upload_id| async {
         let temp_key = crate::services::workspace::storage::nondedup_storage_path_for_policy(
@@ -57,7 +70,7 @@ pub(super) async fn init_provider_resumable_upload(
             &upload_id,
             Some(&ctx.target.filename),
         )?;
-        let provider_session = provider.create_frontend_upload_session(&temp_key).await?;
+        let provider_session = provider.create_upload_session(&temp_key).await?;
         if provider_session.upload_url.trim().is_empty() {
             let error = AsterError::storage_driver_error(
                 "provider returned an empty resumable upload URL",
@@ -155,32 +168,55 @@ pub(super) async fn init_provider_resumable_upload(
             scope = ?ctx.scope,
             upload_id = %upload_id,
             policy_id = ctx.policy.id,
-            mode = ?UploadMode::ProviderResumable,
+            mode = ?mode,
             chunk_size,
             total_chunks,
             folder_id = ctx.target.folder_id,
             provider = capabilities.provider,
-            "initialized frontend-direct provider resumable upload session"
+            strategy = ?strategy,
+            "initialized provider resumable upload session"
         );
 
-        Ok(UniqueUuidAttempt::Accepted(InitUploadResponse {
-            mode: UploadMode::ProviderResumable,
-            upload_id: Some(upload_id),
-            chunk_size: Some(chunk_size),
-            total_chunks: Some(total_chunks),
-            presigned_url: None,
-            presigned_headers: Default::default(),
-            presigned_require_etag: None,
-            provider_resumable: Some(ProviderResumableUploadResponse {
-                upload_url: provider_session.upload_url,
-                expires_at: provider_session.expires_at,
-                next_expected_ranges: provider_session.next_expected_ranges,
-            }),
-        }))
+        Ok(UniqueUuidAttempt::Accepted(provider_upload_response(
+            strategy,
+            mode,
+            upload_id,
+            chunk_size,
+            total_chunks,
+            session_kind,
+            provider_session,
+        )))
     })
     .await?;
 
     Ok(Some(response))
+}
+
+fn provider_upload_response(
+    strategy: ProviderResumableUploadStrategy,
+    mode: UploadMode,
+    upload_id: String,
+    chunk_size: i64,
+    total_chunks: i32,
+    session_kind: UploadSessionKind,
+    provider_session: crate::storage::ProviderResumableUploadSession,
+) -> InitUploadResponse {
+    InitUploadResponse {
+        mode,
+        upload_id: Some(upload_id),
+        chunk_size: Some(chunk_size),
+        total_chunks: Some(total_chunks),
+        presigned_url: None,
+        presigned_headers: Default::default(),
+        presigned_require_etag: None,
+        provider_resumable: (strategy == ProviderResumableUploadStrategy::FrontendDirect)
+            .then_some(ProviderResumableUploadResponse {
+                upload_url: provider_session.upload_url,
+                expires_at: provider_session.expires_at,
+                next_expected_ranges: provider_session.next_expected_ranges,
+            }),
+        upload_scheduling: crate::services::files::upload::kind::scheduling_for_kind(session_kind),
+    }
 }
 
 async fn cleanup_provider_session_after_init_error(
@@ -190,10 +226,7 @@ async fn cleanup_provider_session_after_init_error(
     temp_key: &str,
     context: &str,
 ) -> Result<()> {
-    let abort_error = provider
-        .abort_frontend_upload_session(upload_url)
-        .await
-        .err();
+    let abort_error = provider.abort_upload_session(upload_url).await.err();
     let delete_error = driver.delete(temp_key).await.err();
     match (abort_error, delete_error) {
         (None, None) => Ok(()),
@@ -229,7 +262,8 @@ fn validate_provider_fragment_capabilities(
 #[cfg(test)]
 mod tests {
     use super::{
-        cleanup_provider_session_after_init_error, validate_provider_fragment_capabilities,
+        cleanup_provider_session_after_init_error, provider_upload_response,
+        validate_provider_fragment_capabilities,
     };
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -239,6 +273,28 @@ mod tests {
         BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
         ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageDriver,
     };
+    use crate::types::{ProviderResumableUploadStrategy, UploadMode, UploadSessionKind};
+
+    #[test]
+    fn server_relay_response_keeps_provider_url_private_and_sequential() {
+        let response = provider_upload_response(
+            ProviderResumableUploadStrategy::ServerRelay,
+            UploadMode::Chunked,
+            "upload-1".to_string(),
+            10 * 1024 * 1024,
+            2,
+            UploadSessionKind::ProviderRelayResumable,
+            ProviderResumableUploadSession {
+                upload_url: "https://provider.example/upload?secret=1".to_string(),
+                expires_at: None,
+                next_expected_ranges: vec!["0-".to_string()],
+            },
+        );
+
+        assert!(response.provider_resumable.is_none());
+        let scheduling = response.upload_scheduling.expect("relay scheduling");
+        assert_eq!(scheduling.max_chunk_concurrency, 1);
+    }
 
     struct CleanupDriver {
         delete_calls: AtomicUsize,
@@ -293,26 +349,37 @@ mod tests {
             capabilities()
         }
 
-        async fn create_frontend_upload_session(
+        async fn create_upload_session(
             &self,
             _path: &str,
         ) -> Result<ProviderResumableUploadSession> {
             unreachable!("cleanup test does not create sessions")
         }
 
-        async fn query_frontend_upload_session(
+        async fn query_upload_session(
             &self,
             _upload_url: &str,
         ) -> Result<ProviderResumableUploadStatus> {
             unreachable!("cleanup test does not query sessions")
         }
 
-        async fn abort_frontend_upload_session(&self, _upload_url: &str) -> Result<()> {
+        async fn abort_upload_session(&self, _upload_url: &str) -> Result<()> {
             self.abort_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_abort {
                 return Err(AsterError::storage_driver_error("abort failed"));
             }
             Ok(())
+        }
+
+        async fn upload_session_fragment_reader(
+            &self,
+            _upload_url: &str,
+            _start: u64,
+            _total_size: u64,
+            _reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
+            _fragment_size: i64,
+        ) -> Result<crate::storage::ProviderResumableUploadFragmentOutcome> {
+            panic!("not used")
         }
     }
 

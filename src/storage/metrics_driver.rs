@@ -563,21 +563,32 @@ mod tests {
             }
         }
 
-        async fn create_frontend_upload_session(
+        async fn create_upload_session(
             &self,
             _path: &str,
         ) -> Result<extensions::ProviderResumableUploadSession> {
             panic!("not used")
         }
 
-        async fn query_frontend_upload_session(
+        async fn query_upload_session(
             &self,
             _upload_url: &str,
         ) -> Result<extensions::ProviderResumableUploadStatus> {
             panic!("not used")
         }
 
-        async fn abort_frontend_upload_session(&self, _upload_url: &str) -> Result<()> {
+        async fn abort_upload_session(&self, _upload_url: &str) -> Result<()> {
+            panic!("not used")
+        }
+
+        async fn upload_session_fragment_reader(
+            &self,
+            _upload_url: &str,
+            _start: u64,
+            _total_size: u64,
+            _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+            _fragment_size: i64,
+        ) -> Result<extensions::ProviderResumableUploadFragmentOutcome> {
             panic!("not used")
         }
     }

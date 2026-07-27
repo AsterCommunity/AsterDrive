@@ -7,8 +7,8 @@ use secrecy::{ExposeSecret, SecretString};
 use serde::{Deserialize, Serialize};
 use std::fmt;
 use std::sync::Arc;
-use tokio::io::AsyncRead;
-use tokio_util::io::StreamReader;
+use tokio::io::{AsyncRead, AsyncReadExt};
+use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::errors::{AsterError, MapAsterErr, Result};
@@ -85,11 +85,18 @@ pub struct MicrosoftGraphDrive {
 
 #[derive(Debug, Deserialize)]
 pub struct MicrosoftGraphUploadSession {
+    #[serde(default)]
     #[serde(rename = "uploadUrl")]
     pub upload_url: String,
     #[serde(default, rename = "expirationDateTime")]
     pub expires_at: Option<DateTime<Utc>>,
     #[serde(default, rename = "nextExpectedRanges")]
+    pub next_expected_ranges: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MicrosoftGraphUploadFragmentOutcome {
+    pub completed: bool,
     pub next_expected_ranges: Vec<String>,
 }
 
@@ -423,24 +430,22 @@ impl MicrosoftGraphClient {
         Ok(())
     }
 
-    pub async fn upload_session_fragment(
+    pub async fn upload_session_fragment_reader(
         &self,
         upload_url: &str,
         start: u64,
         total_size: u64,
-        data: Vec<u8>,
-    ) -> Result<()> {
-        if data.is_empty() {
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        fragment_size: i64,
+    ) -> Result<MicrosoftGraphUploadFragmentOutcome> {
+        if fragment_size <= 0 {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "OneDrive upload session fragment cannot be empty",
             ));
         }
-        let len = u64::try_from(data.len()).map_err(|_| {
-            storage_driver_error(
-                StorageErrorKind::Misconfigured,
-                "OneDrive upload session fragment length overflow",
-            )
+        let len = u64::try_from(fragment_size).map_err(|_| {
+            storage_driver_error(StorageErrorKind::Misconfigured, "invalid fragment size")
         })?;
         let end = start
             .checked_add(len)
@@ -451,21 +456,70 @@ impl MicrosoftGraphClient {
                     "OneDrive upload session fragment range overflow",
                 )
             })?;
+        if total_size == 0 || start >= total_size || end >= total_size {
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OneDrive upload session fragment exceeds the declared object size",
+            ));
+        }
         let content_range = format!("bytes {start}-{end}/{total_size}");
         let url = reqwest::Url::parse(upload_url).map_err(invalid_graph_url)?;
+        let stream = ReaderStream::new(reader.take(len));
         let response = self
             .http
             .put(url)
             .header(CONTENT_LENGTH, len.to_string())
             .header(CONTENT_TYPE, "application/octet-stream")
             .header("Content-Range", content_range)
-            .body(data)
+            .body(reqwest::Body::wrap_stream(stream))
             .send()
             .await
-            .map_err(|err| map_reqwest_error("upload OneDrive session fragment", err))?;
-        self.ensure_success(response, "upload OneDrive session fragment")
+            .map_err(|err| {
+                map_reqwest_error("upload OneDrive session fragment", err.without_url())
+            })?;
+        let response = self
+            .ensure_success(response, "upload OneDrive session fragment")
             .await?;
-        Ok(())
+        if response.status() == StatusCode::ACCEPTED {
+            let session = response
+                .json::<MicrosoftGraphUploadSession>()
+                .await
+                .map_aster_err_ctx(
+                    "upload OneDrive session fragment: invalid Microsoft Graph JSON",
+                    AsterError::storage_driver_error,
+                )?;
+            return Ok(MicrosoftGraphUploadFragmentOutcome {
+                completed: false,
+                next_expected_ranges: session.next_expected_ranges,
+            });
+        }
+        Ok(MicrosoftGraphUploadFragmentOutcome {
+            completed: true,
+            next_expected_ranges: Vec::new(),
+        })
+    }
+
+    pub async fn upload_session_fragment(
+        &self,
+        upload_url: &str,
+        start: u64,
+        total_size: u64,
+        data: Vec<u8>,
+    ) -> Result<MicrosoftGraphUploadFragmentOutcome> {
+        let size = i64::try_from(data.len()).map_err(|_| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "OneDrive upload session fragment length overflow",
+            )
+        })?;
+        self.upload_session_fragment_reader(
+            upload_url,
+            start,
+            total_size,
+            Box::new(std::io::Cursor::new(data)),
+            size,
+        )
+        .await
     }
 
     pub async fn get_stream(
@@ -1052,6 +1106,7 @@ mod tests {
         ) -> HttpResponse {
             let method = req.method().to_string();
             let path = req.uri().path().to_string();
+            let completes_upload = path == "/upload-session-complete";
             let authorization = req
                 .headers()
                 .get("authorization")
@@ -1084,7 +1139,13 @@ mod tests {
                     "nextExpectedRanges": ["655360-"]
                 })),
                 "DELETE" => HttpResponse::NotFound().finish(),
-                "PUT" => HttpResponse::Accepted().finish(),
+                "PUT" if completes_upload => HttpResponse::Created().json(serde_json::json!({
+                    "id": "completed-item"
+                })),
+                "PUT" => HttpResponse::Accepted().json(serde_json::json!({
+                    "expirationDateTime": "2026-07-20T00:00:00Z",
+                    "nextExpectedRanges": ["327684-"]
+                })),
                 _ => HttpResponse::MethodNotAllowed().finish(),
             }
         }
@@ -1452,6 +1513,38 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn provider_upload_final_fragment_reports_implicit_completion() {
+        let server = spawn_upload_protocol_server().await;
+        let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
+            &server.base_url,
+            "server-oauth-token",
+        ))
+        .expect("client should build");
+
+        let outcome = client
+            .upload_session_fragment(
+                &format!("{}/upload-session-complete", server.base_url),
+                0,
+                4,
+                vec![1, 2, 3, 4],
+            )
+            .await
+            .expect("final provider fragment should complete");
+
+        assert!(outcome.completed);
+        assert!(outcome.next_expected_ranges.is_empty());
+        {
+            let state = server.state.lock().expect("upload protocol state lock");
+            assert_eq!(state.methods, vec!["PUT"]);
+            assert_eq!(state.auth_headers, vec![None]);
+            assert_eq!(state.content_ranges, vec![Some("bytes 0-3/4".to_string())]);
+            assert_eq!(state.content_lengths, vec![Some("4".to_string())]);
+            assert_eq!(state.bodies, vec![vec![1, 2, 3, 4]]);
+        }
+        server.stop().await;
+    }
+
+    #[tokio::test]
     async fn provider_upload_session_status_and_not_found_abort_are_supported() {
         let server = spawn_upload_protocol_server().await;
         let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
@@ -1496,6 +1589,10 @@ mod tests {
         for error in [
             client.query_upload_session(&upload_url).await.unwrap_err(),
             client.abort_upload_session(&upload_url).await.unwrap_err(),
+            client
+                .upload_session_fragment(&upload_url, 0, 1, vec![1])
+                .await
+                .unwrap_err(),
         ] {
             assert!(!error.raw_message().contains(&upload_url));
             assert!(!error.raw_message().contains("sensitive-token"));

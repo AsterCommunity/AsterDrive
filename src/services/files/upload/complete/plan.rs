@@ -61,6 +61,18 @@ pub(super) fn determine_completion_plan(
             Ok(CompletionPlan::CompleteRelayMultipart)
         }
         UploadSessionKind::ProviderDirectResumable => Ok(CompletionPlan::CompleteProviderResumable),
+        UploadSessionKind::ProviderRelayResumable => {
+            if session.received_count != session.total_chunks {
+                return Err(upload_assembly_error_with_code(
+                    ApiErrorCode::UploadIncompleteChunks,
+                    format!(
+                        "expected {} chunks, got {}",
+                        session.total_chunks, session.received_count
+                    ),
+                ));
+            }
+            Ok(CompletionPlan::CompleteProviderResumable)
+        }
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
             if session.received_count != session.total_chunks {
                 return Err(upload_assembly_error_with_code(

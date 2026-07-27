@@ -74,10 +74,10 @@ pub(super) fn session_kind_for_transport(
     let kind = match (transport, mode) {
         (PolicyUploadTransport::Local, UploadMode::Chunked) => UploadSessionKind::OffsetStaging,
         (
-            PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay)
-            | PolicyUploadTransport::Sftp,
+            PolicyUploadTransport::ProviderResumable(ProviderResumableUploadStrategy::ServerRelay),
             UploadMode::Chunked,
-        ) => UploadSessionKind::StreamStaging,
+        ) => UploadSessionKind::ProviderRelayResumable,
+        (PolicyUploadTransport::Sftp, UploadMode::Chunked) => UploadSessionKind::StreamStaging,
         (
             PolicyUploadTransport::ProviderResumable(
                 ProviderResumableUploadStrategy::FrontendDirect,
@@ -333,6 +333,7 @@ pub(super) async fn init_multipart_session_with_retry(
             upload_id,
             chunk_size,
             total_chunks,
+            session_kind,
         )))
     })
     .await
@@ -394,6 +395,7 @@ pub(super) fn direct_upload_response() -> InitUploadResponse {
         presigned_headers: Default::default(),
         presigned_require_etag: None,
         provider_resumable: None,
+        upload_scheduling: None,
     }
 }
 
@@ -402,6 +404,7 @@ pub(super) fn chunked_upload_response(
     upload_id: String,
     chunk_size: i64,
     total_chunks: i32,
+    session_kind: UploadSessionKind,
 ) -> InitUploadResponse {
     InitUploadResponse {
         mode,
@@ -412,6 +415,7 @@ pub(super) fn chunked_upload_response(
         presigned_headers: Default::default(),
         presigned_require_etag: None,
         provider_resumable: None,
+        upload_scheduling: crate::services::files::upload::kind::scheduling_for_kind(session_kind),
     }
 }
 
@@ -437,7 +441,7 @@ mod tests {
                     ProviderResumableUploadStrategy::ServerRelay,
                 ),
                 UploadMode::Chunked,
-                UploadSessionKind::StreamStaging,
+                UploadSessionKind::ProviderRelayResumable,
             ),
             (
                 PolicyUploadTransport::ProviderResumable(

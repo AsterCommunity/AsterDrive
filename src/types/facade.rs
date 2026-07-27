@@ -43,6 +43,6 @@ pub use super::task::{
     StoredTaskResult, StoredTaskRuntime, StoredTaskSteps,
 };
 pub use super::team::TeamMemberRole;
-pub use super::upload_session::UploadSessionKind;
+pub use super::upload_session::{UploadChunkOrdering, UploadScheduling, UploadSessionKind};
 pub use super::user::{AvatarSource, UserRole, UserStatus};
 pub use super::user_invitation::UserInvitationStatus;

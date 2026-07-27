@@ -2,10 +2,10 @@
 
 use crate::entities::upload_session::{self, Entity as UploadSession};
 use crate::errors::{AsterError, Result};
-use crate::types::UploadSessionStatus;
+use crate::types::{UploadSessionKind, UploadSessionStatus};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, ExprTrait, PaginatorTrait,
-    QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,
 };
 
 pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_session::Model> {
@@ -14,6 +14,18 @@ pub async fn find_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_s
         .await
         .map_err(AsterError::from)?
         .ok_or_else(|| AsterError::upload_session_not_found(format!("session {id}")))
+}
+
+pub async fn lock_by_id<C: ConnectionTrait>(db: &C, id: &str) -> Result<upload_session::Model> {
+    match db.get_database_backend() {
+        DbBackend::Postgres | DbBackend::MySql => UploadSession::find_by_id(id.to_string())
+            .lock_exclusive()
+            .one(db)
+            .await
+            .map_err(AsterError::from)?
+            .ok_or_else(|| AsterError::upload_session_not_found(format!("session {id}"))),
+        _ => find_by_id(db, id).await,
+    }
 }
 
 pub async fn create<C: ConnectionTrait>(
@@ -95,6 +107,30 @@ pub async fn increment_received_count_if_uploading<C: ConnectionTrait>(
         )
         .filter(upload_session::Column::Id.eq(id))
         .filter(upload_session::Column::Status.eq(UploadSessionStatus::Uploading))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected == 1)
+}
+
+pub async fn advance_provider_relay_received_count<C: ConnectionTrait>(
+    db: &C,
+    id: &str,
+    expected_received_count: i32,
+) -> Result<bool> {
+    let result = UploadSession::update_many()
+        .col_expr(
+            upload_session::Column::ReceivedCount,
+            Expr::col(upload_session::Column::ReceivedCount).add(1),
+        )
+        .col_expr(
+            upload_session::Column::UpdatedAt,
+            Expr::value(chrono::Utc::now()),
+        )
+        .filter(upload_session::Column::Id.eq(id))
+        .filter(upload_session::Column::SessionKind.eq(UploadSessionKind::ProviderRelayResumable))
+        .filter(upload_session::Column::Status.eq(UploadSessionStatus::Uploading))
+        .filter(upload_session::Column::ReceivedCount.eq(expected_received_count))
         .exec(db)
         .await
         .map_err(AsterError::from)?;

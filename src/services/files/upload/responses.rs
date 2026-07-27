@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use chrono::{DateTime, Utc};
 
-use crate::types::{UploadMode, UploadSessionStatus};
+use crate::types::{UploadMode, UploadScheduling, UploadSessionStatus};
 
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -36,6 +36,8 @@ pub struct InitUploadResponse {
     pub presigned_require_etag: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_resumable: Option<ProviderResumableUploadResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_scheduling: Option<UploadScheduling>,
 }
 
 #[derive(Serialize)]
@@ -57,6 +59,8 @@ pub struct UploadProgressResponse {
     pub filename: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_resumable: Option<ProviderResumableUploadResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_scheduling: Option<UploadScheduling>,
 }
 
 #[derive(Serialize)]
@@ -82,6 +86,8 @@ pub struct RecoverableUploadSessionResponse {
     pub completed_parts: Vec<RecoverableUploadPartResponse>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub provider_resumable: Option<ProviderResumableUploadResponse>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub upload_scheduling: Option<UploadScheduling>,
     pub expires_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }

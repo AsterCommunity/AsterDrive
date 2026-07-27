@@ -52,7 +52,7 @@ async fn complete_upload_impl(
 
 async fn complete_upload_impl_with_hints(
     state: &PrimaryAppState,
-    session: upload_session::Model,
+    mut session: upload_session::Model,
     parts: Option<Vec<(i32, String)>>,
     hints: CompleteUploadHints<'_>,
 ) -> Result<file::Model> {
@@ -75,6 +75,12 @@ async fn complete_upload_impl_with_hints(
             | UploadSessionStatus::Failed
     );
     let session_kind = resolve_upload_session_kind(&session)?;
+    if session_kind == crate::types::UploadSessionKind::ProviderRelayResumable && !is_terminal {
+        crate::services::files::upload::provider_relay::reconcile_progress(state, &session).await?;
+        session =
+            crate::db::repository::upload_session_repo::find_by_id(state.writer_db(), &session.id)
+                .await?;
+    }
     let plan = determine_completion_plan(&session, session_kind, parts)?;
     let plan_label = completion_plan_label(&plan);
     let mode = if is_terminal {

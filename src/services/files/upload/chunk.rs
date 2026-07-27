@@ -497,6 +497,16 @@ async fn upload_chunk_impl(
         ));
     }
 
+    if session_kind == crate::types::UploadSessionKind::ProviderRelayResumable {
+        return crate::services::files::upload::provider_relay::upload_bytes(
+            state,
+            session,
+            chunk_number,
+            data,
+        )
+        .await;
+    }
+
     if matches!(
         session_kind,
         crate::types::UploadSessionKind::ProviderRelayMultipart
@@ -702,6 +712,16 @@ async fn upload_chunk_payload_impl(
             ApiErrorCode::UploadSessionCorrupted,
             "presigned upload sessions do not accept server chunk PUT",
         ));
+    }
+
+    if session_kind == crate::types::UploadSessionKind::ProviderRelayResumable {
+        return crate::services::files::upload::provider_relay::upload_payload(
+            state,
+            session,
+            chunk_number,
+            payload,
+        )
+        .await;
     }
 
     if matches!(
