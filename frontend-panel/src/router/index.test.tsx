@@ -230,15 +230,18 @@ describe("router", () => {
 
 	it("keeps settings routes outside workspace routes so they preserve the active workspace", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
-		const protectedRoute = routes.find((route) =>
-			(route.children ?? []).some(
+		const protectedRoute = routes.find((route) => {
+			const descendants = flattenRoutes(route.children ?? []);
+			return descendants.some(
 				(child) =>
 					child.path === "/settings/webdav" || child.path === "/teams/:teamId",
-			),
-		);
-		const protectedChildren = protectedRoute?.children ?? [];
-		const personalWorkspaceRoute = protectedChildren.find(
-			(route) => route.path == null && route.children?.length,
+			);
+		});
+		const protectedDescendants = flattenRoutes(protectedRoute?.children ?? []);
+		const personalWorkspaceRoute = protectedDescendants.find(
+			(route) =>
+				route.path == null &&
+				route.children?.some((child) => child.path === "/folder/:folderId"),
 		);
 		const personalPaths = flattenRoutes(personalWorkspaceRoute?.children ?? [])
 			.map((route) => route.path)
@@ -248,13 +251,13 @@ describe("router", () => {
 		expect(personalPaths).not.toContain("/settings/:section");
 		expect(personalPaths).not.toContain("/settings/teams/:teamId/:section");
 		expect(
-			protectedChildren.some((route) => route.path === "/settings/webdav"),
+			protectedDescendants.some((route) => route.path === "/settings/webdav"),
 		).toBe(true);
 		expect(
-			protectedChildren.some((route) => route.path === "/settings/:section"),
+			protectedDescendants.some((route) => route.path === "/settings/:section"),
 		).toBe(true);
 		expect(
-			protectedChildren.some(
+			protectedDescendants.some(
 				(route) => route.path === "/settings/teams/:teamId/:section",
 			),
 		).toBe(true);
@@ -263,17 +266,33 @@ describe("router", () => {
 	it("reuses one workspace route element across personal and team branches", async () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const protectedRoute = routes.find((route) =>
-			(route.children ?? []).some((child) => child.path === "/teams/:teamId"),
+			flattenRoutes(route.children ?? []).some(
+				(child) => child.path === "/teams/:teamId",
+			),
 		);
-		const protectedChildren = protectedRoute?.children ?? [];
-		const personalWorkspaceRoute = protectedChildren.find(
-			(route) => route.path == null && route.children?.length,
+		const protectedDescendants = flattenRoutes(protectedRoute?.children ?? []);
+		const personalWorkspaceRoute = protectedDescendants.find(
+			(route) =>
+				route.path == null &&
+				route.children?.some((child) => child.path === "/folder/:folderId"),
 		);
-		const teamWorkspaceRoute = protectedChildren.find(
+		const teamWorkspaceRoute = protectedDescendants.find(
 			(route) => route.path === "/teams/:teamId",
 		);
 
 		expect(personalWorkspaceRoute?.element).toBe(teamWorkspaceRoute?.element);
+	});
+
+	it("registers dedicated storage setup routes outside normal app shells", async () => {
+		const routes = (await loadRoutes()) as TestRoute[];
+		const allRoutes = flattenRoutes(routes);
+
+		expect(allRoutes.some((route) => route.path === "/setup/storage")).toBe(
+			true,
+		);
+		expect(allRoutes.some((route) => route.path === "/setup/pending")).toBe(
+			true,
+		);
 	});
 
 	it("registers root and canonical subfolder routes for public folder shares", async () => {
@@ -294,6 +313,14 @@ describe("router", () => {
 		const routes = (await loadRoutes()) as TestRoute[];
 		const allRoutes = flattenRoutes(routes);
 		const localizedRoutes = [
+			{
+				path: "/setup/storage",
+				namespaces: ["admin", "auth", "core", "errors"],
+			},
+			{
+				path: "/setup/pending",
+				namespaces: ["auth", "core"],
+			},
 			{
 				path: "/force-password-change",
 				namespaces: ["auth", "core", "settings", "validation"],

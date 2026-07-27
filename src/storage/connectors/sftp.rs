@@ -5,13 +5,13 @@ use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldDisplayInput,
-    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
-    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_field_with_display, storage_connector_ui_descriptor,
+    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
+    StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::sftp::SftpDriver;
 use crate::types::DriverType;
@@ -41,6 +41,8 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                 base_path_placeholder: "/srv/asterdrive",
             }),
             credential_mode: StorageConnectorCredentialMode::StaticSecret,
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: true,
             requires_authorization: false,
             authorization_provider: None,
             capabilities: StorageConnectorCapabilities {

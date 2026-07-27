@@ -36,6 +36,7 @@ const mockState = vi.hoisted(() => ({
 	listStorageDriverDescriptors: vi.fn(),
 	listStorageCredentials: vi.fn(),
 	loading: false,
+	logout: vi.fn(),
 	navigate: vi.fn(),
 	promoteS3CompatibleDriver: vi.fn(),
 	reload: vi.fn(),
@@ -45,6 +46,7 @@ const mockState = vi.hoisted(() => ({
 		Array<Record<string, unknown>>
 	>,
 	searchParams: "",
+	setupRefresh: vi.fn(),
 	setSearchParams: vi.fn(),
 	testConnection: vi.fn(),
 	testParams: vi.fn(),
@@ -119,6 +121,18 @@ vi.mock("sonner", () => ({
 		error: (...args: unknown[]) => mockState.toastError(...args),
 		success: (...args: unknown[]) => mockState.toastSuccess(...args),
 	},
+}));
+
+vi.mock("@/stores/authStore", () => ({
+	useAuthStore: (
+		selector: (state: { logout: typeof mockState.logout }) => unknown,
+	) => selector({ logout: mockState.logout }),
+}));
+
+vi.mock("@/stores/systemSetupStore", () => ({
+	useSystemSetupStore: (
+		selector: (state: { refresh: typeof mockState.setupRefresh }) => unknown,
+	) => selector({ refresh: mockState.setupRefresh }),
 }));
 
 vi.mock("@/lib/publicSiteUrl", () => ({
@@ -926,6 +940,7 @@ function createStorageDriverDescriptor(
 			storage_native_thumbnail: false,
 		},
 		credential_mode: "none",
+		deployment_scope: "shared_across_primary_instances",
 		description: `${driverType} descriptor`,
 		driver_type: driverType,
 		enabled: true,
@@ -934,6 +949,7 @@ function createStorageDriverDescriptor(
 		driver_recommendations: [],
 		related_issues: [328],
 		requires_authorization: false,
+		supports_initial_setup: true,
 		ui: storageConnectorUi(driverType),
 		upload_workflows: {
 			frontend_direct_provider_resumable_upload: false,
@@ -950,6 +966,7 @@ function createStorageDriverDescriptor(
 function createStorageDriverDescriptors() {
 	return [
 		createStorageDriverDescriptor("local", {
+			deployment_scope: "instance_local",
 			fields: [
 				{
 					kind: "text",
@@ -1182,8 +1199,17 @@ function createStorageDriverDescriptors() {
 				fieldDescriptor("group_id", "policy_options", "text"),
 			],
 			requires_authorization: true,
+			supports_initial_setup: false,
 		}),
 	];
+}
+
+function primeStorageDriverDescriptorsForPage(
+	descriptors = createStorageDriverDescriptors(),
+) {
+	primeAdminStorageDriverDescriptors(descriptors as never, "manage");
+	primeAdminStorageDriverDescriptors(descriptors as never, "create");
+	primeAdminStorageDriverDescriptors(descriptors as never, "setup");
 }
 
 function openCreateWizard(
@@ -1267,12 +1293,16 @@ describe("AdminPoliciesPage", () => {
 		mockState.listStorageDriverDescriptors.mockReset();
 		mockState.listStorageCredentials.mockReset();
 		mockState.loading = false;
+		mockState.logout.mockReset();
+		mockState.logout.mockResolvedValue(undefined);
 		mockState.navigate.mockReset();
 		mockState.promoteS3CompatibleDriver.mockReset();
 		mockState.reload.mockReset();
 		mockState.remoteNodes = [];
 		mockState.remoteStorageTargetsByNode = {};
 		mockState.searchParams = "";
+		mockState.setupRefresh.mockReset();
+		mockState.setupRefresh.mockResolvedValue("ready");
 		mockState.setSearchParams.mockReset();
 		mockState.testConnection.mockReset();
 		mockState.testParams.mockReset();
@@ -1349,12 +1379,11 @@ describe("AdminPoliciesPage", () => {
 				return created;
 			},
 		);
-		mockState.listStorageDriverDescriptors.mockResolvedValue(
-			createStorageDriverDescriptors(),
+		mockState.listStorageDriverDescriptors.mockImplementation(
+			async (_query?: { context?: "manage" | "create" | "setup" }) =>
+				createStorageDriverDescriptors(),
 		);
-		primeAdminStorageDriverDescriptors(
-			createStorageDriverDescriptors() as never,
-		);
+		primeStorageDriverDescriptorsForPage();
 		mockState.listPolicies.mockImplementation(async () => ({
 			items: mockState.items,
 			total: mockState.total || mockState.items.length,
@@ -1450,6 +1479,192 @@ describe("AdminPoliciesPage", () => {
 		expect(localBadge).toHaveClass("bg-emerald-500/10", "text-emerald-600");
 		expect(s3Badge).toHaveAttribute("data-variant", "outline");
 		expect(s3Badge).toHaveClass("bg-blue-500/10", "text-blue-600");
+	});
+
+	it("runs storage setup as a dedicated page and always creates the first policy as default", async () => {
+		render(<AdminPoliciesPage variant="setup" />);
+
+		expect(
+			screen.getByText("auth:storage_setup_page_title"),
+		).toBeInTheDocument();
+		expect(screen.getByRole("img", { name: "AsterDrive" })).toBeInTheDocument();
+		expect(
+			screen.queryByText("storage_setup_card_title"),
+		).not.toBeInTheDocument();
+		expect(
+			screen.getByRole("button", { name: /Azure Blob/ }),
+		).toBeInTheDocument();
+		const oneDriveOption = screen.getByRole("button", { name: /OneDrive/ });
+		expect(oneDriveOption).toBeDisabled();
+		expect(
+			screen.getByText("auth:storage_setup_connector_post_setup_only"),
+		).toBeInTheDocument();
+		const storageDriverOptions = screen.getByTestId("storage-driver-options");
+		expect(within(storageDriverOptions).getAllByRole("button")).toHaveLength(7);
+		expect(
+			screen.queryByRole("button", { name: "core:close" }),
+		).not.toBeInTheDocument();
+		fireEvent.keyDown(document, { code: "Escape", key: "Escape" });
+		expect(
+			screen.getByText("auth:storage_setup_page_title"),
+		).toBeInTheDocument();
+
+		fireEvent.click(screen.getByRole("button", { name: /^Local\b/ }));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "System Storage" },
+		});
+		fireEvent.change(screen.getByLabelText("base_path"), {
+			target: { value: "/srv/asterdrive" },
+		});
+		advanceCreateWizardToRulesStep();
+
+		expect(
+			screen.queryByRole("button", { name: /switch:is_default/ }),
+		).not.toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					base_path: "/srv/asterdrive",
+					driver_type: "local",
+					is_default: true,
+					name: "System Storage",
+				}),
+			);
+		});
+		expect(mockState.setupRefresh).toHaveBeenCalledTimes(1);
+	});
+
+	it("renders only the backend setup catalog and does not reintroduce local storage", () => {
+		const clusterSetupDescriptors = createStorageDriverDescriptors().filter(
+			(descriptor) => descriptor.driver_type !== "local",
+		);
+		primeAdminStorageDriverDescriptors(
+			clusterSetupDescriptors as never,
+			"setup",
+		);
+
+		render(<AdminPoliciesPage variant="setup" />);
+
+		const storageDriverOptions = screen.getByTestId("storage-driver-options");
+		expect(within(storageDriverOptions).getAllByRole("button")).toHaveLength(6);
+		expect(
+			within(storageDriverOptions).queryByRole("button", { name: /^Local\b/ }),
+		).not.toBeInTheDocument();
+		const oneDriveOption = within(storageDriverOptions).getByRole("button", {
+			name: /OneDrive/,
+		});
+		expect(oneDriveOption).toBeDisabled();
+		expect(
+			within(storageDriverOptions).getByText(
+				"auth:storage_setup_connector_post_setup_only",
+			),
+		).toBeInTheDocument();
+	});
+
+	it("keeps an existing local policy editable while hiding it from cluster creation", async () => {
+		const descriptors = createStorageDriverDescriptors();
+		primeAdminStorageDriverDescriptors(descriptors as never, "manage");
+		primeAdminStorageDriverDescriptors(
+			descriptors.filter(
+				(descriptor) => descriptor.deployment_scope !== "instance_local",
+			) as never,
+			"create",
+		);
+		mockState.items = [
+			createPolicy({
+				id: 71,
+				name: "Existing Pod Local",
+				driver_type: "local",
+			}),
+		];
+
+		render(<AdminPoliciesPage />);
+		openEditPolicy("Existing Pod Local");
+
+		expect(await screen.findByLabelText("base_path")).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: /new_policy/i }));
+
+		const storageDriverOptions = screen.getByTestId("storage-driver-options");
+		expect(
+			within(storageDriverOptions).queryByRole("button", { name: /^Local\b/ }),
+		).not.toBeInTheDocument();
+		expect(
+			within(storageDriverOptions).getByRole("button", { name: /^S3\b/ }),
+		).toBeInTheDocument();
+	});
+
+	it("keeps storage setup open when policy creation fails", async () => {
+		const error = new Error("create failed");
+		mockState.create.mockRejectedValueOnce(error);
+		render(<AdminPoliciesPage variant="setup" />);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Local\b/ }));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Broken Storage" },
+		});
+		advanceCreateWizardToRulesStep();
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(error);
+		});
+		expect(mockState.setupRefresh).not.toHaveBeenCalled();
+		expect(
+			screen.getByText("auth:storage_setup_page_title"),
+		).toBeInTheDocument();
+	});
+
+	it("requires a successful supported connection test during initial storage setup", async () => {
+		const testError = new Error("connection failed");
+		mockState.testParams.mockRejectedValueOnce(testError);
+		render(<AdminPoliciesPage variant="setup" />);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Local\b/ }));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Unreachable Storage" },
+		});
+		advanceCreateWizardToRulesStep();
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.handleApiError).toHaveBeenCalledWith(testError);
+		});
+		expect(mockState.create).not.toHaveBeenCalled();
+		expect(screen.queryByText("save_anyway")).not.toBeInTheDocument();
+	});
+
+	it("keeps a successfully created default policy when the immediate setup-state refresh fails", async () => {
+		const refreshError = new Error("setup refresh failed");
+		mockState.setupRefresh.mockRejectedValueOnce(refreshError);
+		render(<AdminPoliciesPage variant="setup" />);
+
+		fireEvent.click(screen.getByRole("button", { name: /^Local\b/ }));
+		fireEvent.change(screen.getByLabelText("core:name"), {
+			target: { value: "Created Storage" },
+		});
+		advanceCreateWizardToRulesStep();
+		fireEvent.click(screen.getByRole("button", { name: /core:create/i }));
+
+		await waitFor(() => {
+			expect(mockState.create).toHaveBeenCalledWith(
+				expect.objectContaining({ is_default: true }),
+			);
+		});
+		expect(mockState.handleApiError).toHaveBeenCalledWith(refreshError);
+		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_created");
+		expect(
+			screen.getByText("auth:storage_setup_page_title"),
+		).toBeInTheDocument();
+	});
+
+	it("lets the administrator leave storage setup by logging out", () => {
+		render(<AdminPoliciesPage variant="setup" />);
+
+		fireEvent.click(screen.getByRole("button", { name: "core:logout" }));
+
+		expect(mockState.logout).toHaveBeenCalledTimes(1);
 	});
 
 	it("shows OneDrive authorization success returned from callback and refreshes policies", async () => {
@@ -2288,7 +2503,7 @@ describe("AdminPoliciesPage", () => {
 				: descriptor,
 		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
-		primeAdminStorageDriverDescriptors(descriptors as never);
+		primeStorageDriverDescriptorsForPage(descriptors);
 
 		render(<AdminPoliciesPage />);
 
@@ -2355,7 +2570,7 @@ describe("AdminPoliciesPage", () => {
 				: descriptor,
 		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
-		primeAdminStorageDriverDescriptors(descriptors as never);
+		primeStorageDriverDescriptorsForPage(descriptors);
 
 		render(<AdminPoliciesPage />);
 
@@ -2397,7 +2612,7 @@ describe("AdminPoliciesPage", () => {
 				: descriptor,
 		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
-		primeAdminStorageDriverDescriptors(descriptors as never);
+		primeStorageDriverDescriptorsForPage(descriptors);
 		mockState.items = [
 			createPolicy({
 				driver_type: "one_drive",
@@ -2442,7 +2657,7 @@ describe("AdminPoliciesPage", () => {
 				: descriptor,
 		);
 		mockState.listStorageDriverDescriptors.mockResolvedValue(descriptors);
-		primeAdminStorageDriverDescriptors(descriptors as never);
+		primeStorageDriverDescriptorsForPage(descriptors);
 		mockState.items = [
 			createPolicy({
 				driver_type: "one_drive",
@@ -2894,7 +3109,7 @@ describe("AdminPoliciesPage", () => {
 		mockState.listStorageDriverDescriptors.mockResolvedValue(
 			descriptorsWithoutCosAction,
 		);
-		primeAdminStorageDriverDescriptors(descriptorsWithoutCosAction as never);
+		primeStorageDriverDescriptorsForPage(descriptorsWithoutCosAction);
 
 		render(<AdminPoliciesPage />);
 
@@ -5193,9 +5408,12 @@ describe("AdminPoliciesPage", () => {
 			expect(mockState.deletePolicy).toHaveBeenCalledWith(18);
 		});
 		await waitFor(() => {
-			const lastCall = mockState.setSearchParams.mock.lastCall;
-			expect(lastCall?.[0].toString()).toBe("");
-			expect(lastCall?.[1]).toEqual({ replace: true });
+			expect(
+				mockState.setSearchParams.mock.calls.some(
+					([params, options]) =>
+						params.toString() === "" && options?.replace === true,
+				),
+			).toBe(true);
 		});
 		expect(mockState.reload).not.toHaveBeenCalled();
 		expect(mockState.toastSuccess).toHaveBeenCalledWith("policy_deleted");

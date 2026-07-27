@@ -14,6 +14,10 @@ vi.mock("@/i18n", () => ({
 }));
 vi.mock("@/pages/LoginPage", () => ({ default: "LoginPage" }));
 vi.mock("@/pages/ErrorPage", () => ({ default: "ErrorPage" }));
+vi.mock("@/pages/StorageSetupPendingPage", () => ({
+	default: "StorageSetupPendingPage",
+}));
+vi.mock("@/pages/StorageSetupPage", () => ({ default: "StorageSetupPage" }));
 vi.mock("@/pages/FileBrowserPage", () => ({ default: "FileBrowserPage" }));
 vi.mock("@/pages/CategoryBrowserPage", () => ({
 	default: "CategoryBrowserPage",
@@ -131,6 +135,7 @@ describe("pwaWarmupLoaders", () => {
 		expect(userRouteWarmupLoaders.map((loader) => loader.key)).toEqual([
 			"route:login",
 			"route:error",
+			"route:storage-setup-pending",
 			"route:file-browser",
 			"route:category-browser",
 			"route:search-browser",
@@ -146,6 +151,7 @@ describe("pwaWarmupLoaders", () => {
 			"route:share-view",
 		]);
 		expect(adminRouteWarmupLoaders.map((loader) => loader.key)).toEqual([
+			"route:storage-setup",
 			"route:admin-overview",
 			"route:admin-users",
 			"route:admin-user-invitations",

@@ -1359,6 +1359,92 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
     assert_eq!(needs_storage_a["data"]["status"], "needs_storage");
     assert_eq!(needs_storage_b["data"]["status"], "needs_storage");
 
+    let setup_catalog: Value = client
+        .get(format!(
+            "{}/api/v1/admin/policies/storage-drivers?context=setup",
+            primary_a.base_url()
+        ))
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .expect("list cluster setup storage connector catalog")
+        .error_for_status()
+        .expect("cluster setup storage connector catalog should succeed")
+        .json()
+        .await
+        .expect("decode cluster setup storage connector catalog");
+    let setup_connectors = setup_catalog["data"]
+        .as_array()
+        .expect("cluster setup connector list");
+    assert!(
+        setup_connectors
+            .iter()
+            .any(|connector| connector["driver_type"] == "s3")
+    );
+    assert!(
+        !setup_connectors
+            .iter()
+            .any(|connector| connector["driver_type"] == "local"),
+        "cluster setup catalog must not advertise instance-local storage"
+    );
+    let setup_onedrive = setup_connectors
+        .iter()
+        .find(|connector| connector["driver_type"] == "one_drive")
+        .expect("initial setup catalog should describe OneDrive as unavailable");
+    assert_eq!(setup_onedrive["supports_initial_setup"], false);
+
+    let manage_catalog: Value = client
+        .get(format!(
+            "{}/api/v1/admin/policies/storage-drivers?context=manage",
+            primary_b.base_url()
+        ))
+        .bearer_auth(&access_token)
+        .send()
+        .await
+        .expect("list cluster management storage connector catalog")
+        .error_for_status()
+        .expect("cluster management storage connector catalog should succeed")
+        .json()
+        .await
+        .expect("decode cluster management storage connector catalog");
+    assert!(
+        manage_catalog["data"]
+            .as_array()
+            .expect("cluster management connector list")
+            .iter()
+            .any(|connector| connector["driver_type"] == "local"),
+        "management catalog must retain Local metadata for existing-policy inspection"
+    );
+
+    let rejected_local_response = client
+        .post(format!("{}/api/v1/admin/policies", primary_b.base_url()))
+        .bearer_auth(&access_token)
+        .json(&json!({
+            "name": "Rejected Pod Local",
+            "driver_type": "local",
+            "base_path": "./data",
+            "max_file_size": 0,
+            "chunk_size": 5_242_880,
+            "is_default": true
+        }))
+        .send()
+        .await
+        .expect("reject first instance-local policy through primary B");
+    assert_eq!(
+        rejected_local_response.status(),
+        reqwest::StatusCode::BAD_REQUEST
+    );
+    let rejected_local_body: Value = rejected_local_response
+        .json()
+        .await
+        .expect("decode rejected instance-local policy response");
+    assert!(
+        rejected_local_body["msg"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("instance_local")
+    );
+
     let create_policy_response = client
         .post(format!("{}/api/v1/admin/policies", primary_b.base_url()))
         .bearer_auth(&access_token)

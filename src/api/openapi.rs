@@ -619,6 +619,7 @@ use utoipa::{Modify, OpenApi};
             crate::api::routes::admin::PatchPolicyReq,
             crate::api::routes::admin::PromoteS3CompatiblePolicyDriverReq,
             crate::api::routes::admin::DeletePolicyQuery,
+            crate::api::routes::admin::StorageConnectorCatalogContext,
             crate::api::routes::admin::PolicyGroupItemReq,
             crate::api::routes::admin::CreatePolicyGroupReq,
             crate::api::routes::admin::PatchPolicyGroupReq,

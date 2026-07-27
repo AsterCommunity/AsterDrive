@@ -168,6 +168,42 @@ pub struct DeletePolicyQuery {
     pub force: bool,
 }
 
+#[derive(Debug, Clone, Copy, Default, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorCatalogContext {
+    /// Return every descriptor so existing policies remain inspectable.
+    #[default]
+    Manage,
+    /// Return connectors that can create a policy in the current deployment.
+    Create,
+    /// Return connectors shown during first-storage setup. Callers must use
+    /// `supports_initial_setup` to disable entries that require post-setup work.
+    Setup,
+}
+
+#[derive(Debug, Deserialize)]
+#[cfg_attr(
+    all(debug_assertions, feature = "openapi"),
+    derive(IntoParams, ToSchema)
+)]
+pub struct StorageConnectorCatalogQuery {
+    #[serde(default)]
+    pub context: StorageConnectorCatalogContext,
+}
+
+impl From<StorageConnectorCatalogContext>
+    for crate::services::storage_policy::connector_catalog::StorageConnectorCatalogContext
+{
+    fn from(value: StorageConnectorCatalogContext) -> Self {
+        match value {
+            StorageConnectorCatalogContext::Manage => Self::Manage,
+            StorageConnectorCatalogContext::Create => Self::Create,
+            StorageConnectorCatalogContext::Setup => Self::InitialSetup,
+        }
+    }
+}
+
 /// Test a storage policy connection by parameters (without saving).
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

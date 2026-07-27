@@ -85,6 +85,7 @@ const mockState = vi.hoisted(() => ({
 	requestPasswordReset: vi.fn(),
 	resendRegisterActivation: vi.fn(),
 	sendMfaEmailCode: vi.fn(),
+	setSystemSetupState: vi.fn(),
 	setup: vi.fn(),
 	startExternalAuthEmailVerification: vi.fn(),
 	startExternalAuthLogin: vi.fn(),
@@ -380,6 +381,14 @@ vi.mock("@/stores/authStore", () => ({
 		}),
 }));
 
+vi.mock("@/stores/systemSetupStore", () => ({
+	useSystemSetupStore: (
+		selector: (state: {
+			setSetupState: typeof mockState.setSystemSetupState;
+		}) => unknown,
+	) => selector({ setSetupState: mockState.setSystemSetupState }),
+}));
+
 vi.mock("@/lib/webauthn", () => ({
 	getPasskeyCredential: (...args: unknown[]) =>
 		mockState.getPasskeyCredential(...args),
@@ -453,6 +462,7 @@ describe("LoginPage", () => {
 		mockState.requestPasswordReset.mockReset();
 		mockState.resendRegisterActivation.mockReset();
 		mockState.sendMfaEmailCode.mockReset();
+		mockState.setSystemSetupState.mockReset();
 		mockState.setup.mockReset();
 		mockState.startExternalAuthEmailVerification.mockReset();
 		mockState.startExternalAuthLogin.mockReset();
@@ -1947,7 +1957,7 @@ describe("LoginPage", () => {
 
 		await waitFor(() =>
 			expect(mockState.startExternalAuthLogin).toHaveBeenCalledWith(provider, {
-				return_path: "/admin/policies?external_auth=success",
+				return_path: "/setup/storage?external_auth=success",
 			}),
 		);
 		expect(mockState.locationAssign).toHaveBeenCalledWith(
@@ -2084,10 +2094,11 @@ describe("LoginPage", () => {
 			);
 		});
 		await waitFor(() => {
-			expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+			expect(mockState.navigate).toHaveBeenCalledWith("/setup/storage", {
 				replace: true,
 			});
 		});
+		expect(mockState.setSystemSetupState).toHaveBeenCalledWith("needs_storage");
 	});
 
 	it("routes an existing bootstrap administrator to storage setup after login", async () => {
@@ -2113,10 +2124,11 @@ describe("LoginPage", () => {
 		fireEvent.click(screen.getByRole("button", { name: "sign_in" }));
 
 		await waitFor(() => {
-			expect(mockState.navigate).toHaveBeenCalledWith("/admin/policies", {
+			expect(mockState.navigate).toHaveBeenCalledWith("/setup/storage", {
 				replace: true,
 			});
 		});
+		expect(mockState.setSystemSetupState).toHaveBeenCalledWith("needs_storage");
 	});
 
 	it("uses a username placeholder for the first setup identifier field", async () => {

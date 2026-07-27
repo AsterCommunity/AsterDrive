@@ -75,15 +75,65 @@ export async function authenticate(page: Page, request: APIRequestContext) {
 }
 
 export async function setupAdmin(page: Page) {
+	await createInitialAdmin(page);
+	await configureInitialStorage(page);
+	await ensureCurrentPublicSiteUrl(page);
+}
+
+export async function createInitialAdmin(page: Page) {
 	await page.goto("/login");
 	await expect(page.locator("#extra")).toBeVisible();
 	await page.locator("#identifier").fill(ADMIN.email);
 	await page.locator("#extra").fill(ADMIN.username);
 	await page.locator("#password").fill(ADMIN.password);
 	await page.locator("form button[type='submit']").click();
+	await expect(page).toHaveURL(/\/setup\/storage$/);
+	await expect(
+		page.getByRole("heading", {
+			name: "Configure AsterDrive's first reliable storage",
+		}),
+	).toBeVisible();
+	await expect(page.getByRole("img", { name: "AsterDrive" })).toBeVisible();
+	await expect(
+		page.getByRole("button", { name: "Start storage setup" }),
+	).toBeVisible();
+	await expect(
+		page.getByRole("dialog", {
+			name: "Configure AsterDrive's first reliable storage",
+		}),
+	).toHaveCount(0);
+}
+
+export async function configureInitialStorage(page: Page) {
+	await expect(page).toHaveURL(/\/setup\/storage$/);
+	await page.getByRole("button", { name: "Start storage setup" }).click();
+	await expect(
+		page.getByRole("dialog", {
+			name: "Configure AsterDrive's first reliable storage",
+		}),
+	).toBeVisible();
+	const storageDriverOptions = page.getByTestId("storage-driver-options");
+	await expect(storageDriverOptions.getByRole("button")).toHaveCount(7);
+	await expect(
+		storageDriverOptions.getByRole("button", { name: /OneDrive/ }),
+	).toBeDisabled();
+	await expect(
+		storageDriverOptions.getByText(
+			"This connector must be saved and authorized in the browser. Finish system setup, then add it from storage administration.",
+		),
+	).toBeVisible();
+	await page.getByRole("button", { name: /^Local\b/ }).click();
+	await page.getByLabel("Name").fill("System Storage");
+	await page.getByLabel("Base Path").fill("./data");
+	await page.getByRole("button", { name: "Test Connection" }).click();
+	await expect(page.getByText("Connection successful")).toBeVisible();
+	await page.getByRole("button", { name: "Review", exact: true }).click();
+	await expect(
+		page.getByText("Set as default policy", { exact: true }),
+	).toBeVisible();
+	await page.getByRole("button", { name: "Create", exact: true }).click();
 	await expect(page).toHaveURL(/\/$/);
 	await expect(fileDropZone(page)).toBeVisible();
-	await ensureCurrentPublicSiteUrl(page);
 }
 
 export async function loginAsAdmin(page: Page) {

@@ -20,6 +20,7 @@ import type {
 	RemoteNodeInfo,
 	RemoteStorageTargetDriverDescriptor,
 	RemoteStorageTargetInfo,
+	StorageConnectorCatalogContext,
 	StorageConnectorDescriptor,
 } from "@/types/api";
 
@@ -27,14 +28,22 @@ interface StoragePolicyDescriptorControllerInput {
 	dialogOpen: boolean;
 	form: PolicyFormData;
 	setForm: Dispatch<SetStateAction<PolicyFormData>>;
+	setupMode: boolean;
 }
 
 export function useStoragePolicyDescriptorController({
 	dialogOpen,
 	form,
 	setForm,
+	setupMode,
 }: StoragePolicyDescriptorControllerInput) {
 	const { t } = useTranslation("admin");
+	const primaryCatalogContext: StorageConnectorCatalogContext = setupMode
+		? "setup"
+		: "manage";
+	const creationCatalogContext: StorageConnectorCatalogContext = setupMode
+		? "setup"
+		: "create";
 	const [remoteNodes, setRemoteNodes] = useState<RemoteNodeInfo[]>(
 		() => readAdminRemoteNodeLookup() ?? [],
 	);
@@ -62,11 +71,29 @@ export function useStoragePolicyDescriptorController({
 	const remoteStorageTargetDriverDescriptorsRequestSerial = useRef(0);
 	const [storageDriverDescriptors, setStorageDriverDescriptors] = useState<
 		StorageConnectorDescriptor[]
-	>(() => readAdminStorageDriverDescriptors() ?? []);
+	>(() => readAdminStorageDriverDescriptors(primaryCatalogContext) ?? []);
+	const [
+		creatableStorageDriverDescriptors,
+		setCreatableStorageDriverDescriptors,
+	] = useState<StorageConnectorDescriptor[]>(
+		() => readAdminStorageDriverDescriptors(creationCatalogContext) ?? [],
+	);
 	const [storageDriverDescriptorsLoading, setStorageDriverDescriptorsLoading] =
-		useState(() => readAdminStorageDriverDescriptors() == null);
+		useState(
+			() => readAdminStorageDriverDescriptors(primaryCatalogContext) == null,
+		);
+	const [
+		creatableStorageDriverDescriptorsLoading,
+		setCreatableStorageDriverDescriptorsLoading,
+	] = useState(
+		() => readAdminStorageDriverDescriptors(creationCatalogContext) == null,
+	);
 	const [storageDriverDescriptorsError, setStorageDriverDescriptorsError] =
 		useState<string | null>(null);
+	const [
+		creatableStorageDriverDescriptorsError,
+		setCreatableStorageDriverDescriptorsError,
+	] = useState<string | null>(null);
 
 	const currentStorageDriverDescriptor = getStorageDriverDescriptor(
 		storageDriverDescriptors,
@@ -245,7 +272,7 @@ export function useStoragePolicyDescriptorController({
 
 		setStorageDriverDescriptorsLoading(true);
 		setStorageDriverDescriptorsError(null);
-		void loadAdminStorageDriverDescriptors()
+		void loadAdminStorageDriverDescriptors({ context: primaryCatalogContext })
 			.then((descriptors) => {
 				if (active) {
 					setStorageDriverDescriptors(descriptors);
@@ -269,7 +296,38 @@ export function useStoragePolicyDescriptorController({
 		return () => {
 			active = false;
 		};
-	}, [t]);
+	}, [primaryCatalogContext, t]);
+
+	useEffect(() => {
+		let active = true;
+
+		setCreatableStorageDriverDescriptorsLoading(true);
+		setCreatableStorageDriverDescriptorsError(null);
+		void loadAdminStorageDriverDescriptors({ context: creationCatalogContext })
+			.then((descriptors) => {
+				if (active) {
+					setCreatableStorageDriverDescriptors(descriptors);
+					setCreatableStorageDriverDescriptorsError(null);
+				}
+			})
+			.catch((error) => {
+				if (active) {
+					setCreatableStorageDriverDescriptorsError(
+						t("policy_driver_options_load_failed"),
+					);
+					handleApiError(error);
+				}
+			})
+			.finally(() => {
+				if (active) {
+					setCreatableStorageDriverDescriptorsLoading(false);
+				}
+			});
+
+		return () => {
+			active = false;
+		};
+	}, [creationCatalogContext, t]);
 
 	const refreshRemoteNodeLookup = useCallback(
 		async (options?: { force?: boolean }) => {
@@ -283,13 +341,27 @@ export function useStoragePolicyDescriptorController({
 	);
 
 	const refreshLookups = useCallback(async () => {
-		const [remoteNodeLookup, descriptors] = await Promise.all([
-			loadAdminRemoteNodeLookup({ force: true }),
-			loadAdminStorageDriverDescriptors({ force: true }),
-		]);
+		const descriptorPromise = loadAdminStorageDriverDescriptors({
+			context: primaryCatalogContext,
+			force: true,
+		});
+		const creatableDescriptorPromise =
+			creationCatalogContext === primaryCatalogContext
+				? descriptorPromise
+				: loadAdminStorageDriverDescriptors({
+						context: creationCatalogContext,
+						force: true,
+					});
+		const [remoteNodeLookup, descriptors, creatableDescriptors] =
+			await Promise.all([
+				loadAdminRemoteNodeLookup({ force: true }),
+				descriptorPromise,
+				creatableDescriptorPromise,
+			]);
 		setRemoteNodes(remoteNodeLookup);
 		setStorageDriverDescriptors(descriptors);
-	}, []);
+		setCreatableStorageDriverDescriptors(creatableDescriptors);
+	}, [creationCatalogContext, primaryCatalogContext]);
 
 	const createRemoteStorageTargetForPolicy = useCallback(
 		async (payload: RemoteCreateStorageTargetRequest) => {
@@ -319,6 +391,9 @@ export function useStoragePolicyDescriptorController({
 	);
 
 	return {
+		creatableStorageDriverDescriptors,
+		creatableStorageDriverDescriptorsError,
+		creatableStorageDriverDescriptorsLoading,
 		createRemoteStorageTargetForPolicy,
 		currentStorageDriverDescriptor,
 		refreshLookups,

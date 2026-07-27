@@ -2,7 +2,7 @@ use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::DatabaseConfig;
 use crate::storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction,
+    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDeploymentScope,
     StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
 use chrono::Utc;
@@ -200,6 +200,55 @@ fn descriptors_cover_every_storage_driver() {
                 .iter()
                 .any(|descriptor| descriptor.driver_type == driver_type),
             "missing descriptor for {driver_type:?}"
+        );
+    }
+}
+
+#[test]
+fn descriptors_explicitly_declare_multi_primary_reference_scope() {
+    assert_eq!(
+        descriptor(DriverType::Local).deployment_scope,
+        StorageConnectorDeploymentScope::InstanceLocal
+    );
+
+    for driver_type in [
+        DriverType::S3,
+        DriverType::Sftp,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+        DriverType::OneDrive,
+    ] {
+        let scope = descriptor(driver_type).deployment_scope;
+        assert_eq!(
+            scope,
+            StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            "{driver_type:?} must be safely referenceable by every primary"
+        );
+        assert!(scope.supports_multi_primary());
+    }
+    assert!(
+        !descriptor(DriverType::Local)
+            .deployment_scope
+            .supports_multi_primary()
+    );
+}
+
+#[test]
+fn initial_setup_support_is_a_connector_owned_capability() {
+    assert!(!descriptor(DriverType::OneDrive).supports_initial_setup);
+
+    for driver_type in [
+        DriverType::Local,
+        DriverType::S3,
+        DriverType::Sftp,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+    ] {
+        assert!(
+            descriptor(driver_type).supports_initial_setup,
+            "{driver_type:?} should support direct initial policy setup"
         );
     }
 }

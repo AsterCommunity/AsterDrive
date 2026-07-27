@@ -43,6 +43,7 @@ import {
 import { ApiError } from "@/services/http";
 import { useAuthStore } from "@/stores/authStore";
 import { useFrontendConfigStore } from "@/stores/frontendConfigStore";
+import { useSystemSetupStore } from "@/stores/systemSetupStore";
 import type { ExternalAuthPublicProvider, SystemSetupState } from "@/types/api";
 import { ApiErrorCode } from "@/types/api-helpers";
 import { LoginPageView } from "./login/LoginPageView";
@@ -120,6 +121,9 @@ function useLoginPageController() {
 	const navigate = useNavigate();
 	const refreshUser = useAuthStore((s) => s.refreshUser);
 	const syncSession = useAuthStore((s) => s.syncSession);
+	const setSystemSetupState = useSystemSetupStore(
+		(state) => state.setSetupState,
+	);
 	const publicPasskeyLoginEnabled = useFrontendConfigStore(
 		(s) => s.passkeyLoginEnabled,
 	);
@@ -401,6 +405,7 @@ function useLoginPageController() {
 			.check()
 			.then((result) => {
 				if (cancelled) return;
+				setSystemSetupState(result.setup_state);
 				setSetupState(result.setup_state);
 				if (result.setup_state === "needs_admin" || !result.has_users) {
 					setRegistrationClosed(false);
@@ -429,7 +434,7 @@ function useLoginPageController() {
 		return () => {
 			cancelled = true;
 		};
-	}, []);
+	}, [setSystemSetupState]);
 
 	useEffect(() => {
 		let cancelled = false;
@@ -546,7 +551,7 @@ function useLoginPageController() {
 			await refreshUser();
 			toast.success(successMessage);
 			exitAndNavigateTo(
-				setupState === "needs_storage" ? "/admin/policies" : returnPath || "/",
+				setupState === "needs_storage" ? "/setup/storage" : returnPath || "/",
 			);
 		},
 		[exitAndNavigateTo, refreshUser, setupState, syncSession],
@@ -827,7 +832,7 @@ function useLoginPageController() {
 			const start = await authService.startExternalAuthLogin(provider, {
 				return_path:
 					setupState === "needs_storage"
-						? "/admin/policies?external_auth=success"
+						? "/setup/storage?external_auth=success"
 						: "/?external_auth=success",
 			});
 			window.location.assign(start.authorization_url);
@@ -1038,6 +1043,7 @@ function useLoginPageController() {
 			if (mode === "setup") {
 				await authService.setup(un, em, password);
 				const currentSetup = await authService.check();
+				setSystemSetupState(currentSetup.setup_state);
 				setSetupState(currentSetup.setup_state);
 				toast.success(
 					currentSetup.setup_state === "needs_storage"
@@ -1046,9 +1052,7 @@ function useLoginPageController() {
 				);
 				await handleLoginResult(
 					await authService.login(em, password),
-					currentSetup.setup_state === "needs_storage"
-						? "/admin/policies"
-						: "/",
+					currentSetup.setup_state === "needs_storage" ? "/setup/storage" : "/",
 					loginSuccessMessage,
 				);
 				return;

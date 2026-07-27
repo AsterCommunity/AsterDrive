@@ -7676,7 +7676,18 @@ export interface components {
             storage_native_thumbnail: boolean;
         };
         /** @enum {string} */
+        StorageConnectorCatalogContext: "manage" | "create" | "setup";
+        /** @enum {string} */
         StorageConnectorCredentialMode: "none" | "static_secret" | "remote_node" | "oauth_delegated";
+        /**
+         * @description Connector-backed policy data is visible from which primary instances.
+         *
+         *     This is a static connector capability. Deployment-specific filtering and
+         *     write guards must consume this field instead of maintaining a separate
+         *     `DriverType` allow/deny list.
+         * @enum {string}
+         */
+        StorageConnectorDeploymentScope: "instance_local" | "shared_across_primary_instances";
         StorageConnectorDriverRecommendation: {
             /**
              * @description Host rules owned by the source connector.
@@ -10706,7 +10717,9 @@ export interface operations {
     };
     list_storage_driver_descriptors: {
         parameters: {
-            query?: never;
+            query?: {
+                context?: components["schemas"]["StorageConnectorCatalogContext"];
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10730,6 +10743,8 @@ export interface operations {
                             capabilities: components["schemas"]["StorageConnectorCapabilities"];
                             /** @description connector 的主要凭据模式。 */
                             credential_mode: components["schemas"]["StorageConnectorCredentialMode"];
+                            /** @description policy 数据相对于多个 Primary 的可见范围。 */
+                            deployment_scope: components["schemas"]["StorageConnectorDeploymentScope"];
                             /** @description 人类可读说明。 */
                             description: string;
                             /** @description Connector-owned recommendations for moving a policy to a more specific driver. */
@@ -10746,6 +10761,12 @@ export interface operations {
                             related_issues?: number[];
                             /** @description 是否需要额外授权才能成为可用 policy。 */
                             requires_authorization: boolean;
+                            /**
+                             * @description 是否能在首次系统初始化中直接创建一个可用的默认 policy。
+                             *
+                             *     需要先保存 policy、再跳转授权或完成其他后置配置的 connector 应设为 false。
+                             */
+                            supports_initial_setup: boolean;
                             /**
                              * @description 管理端展示元数据。
                              *

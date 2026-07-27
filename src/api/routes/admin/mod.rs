@@ -18,7 +18,8 @@ pub use crate::api::dto::admin::{
     ExecuteSavedStoragePolicyActionReq, MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq,
     PatchPolicyReq, PatchRemoteNodeReq, PatchUserReq, PolicyGroupItemReq,
     PromoteS3CompatiblePolicyDriverReq, ResetUserPasswordReq, SetConfigReq, SetFolderPolicyReq,
-    StartStorageAuthorizationReq, TestPolicyParamsReq, TestRemoteNodeParamsReq,
+    StartStorageAuthorizationReq, StorageConnectorCatalogContext, StorageConnectorCatalogQuery,
+    TestPolicyParamsReq, TestRemoteNodeParamsReq,
 };
 
 pub(crate) mod audit_logs;

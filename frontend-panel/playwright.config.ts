@@ -40,6 +40,6 @@ export default defineConfig({
 		stderr: "pipe",
 		stdout: "pipe",
 		timeout: 10 * 60 * 1000,
-		url: `${baseURL}/health/ready`,
+		url: `${baseURL}/health`,
 	},
 });

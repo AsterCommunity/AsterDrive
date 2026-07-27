@@ -408,6 +408,12 @@ export type StoragePolicy = components["schemas"]["StoragePolicy"];
 export type StoragePolicyCapacityInfo = OperationData<"get_policy_capacity">;
 export type StorageConnectorDescriptor =
 	OperationData<"list_storage_driver_descriptors">[number];
+export type StorageConnectorCatalogQuery =
+	OperationQuery<"list_storage_driver_descriptors">;
+export type StorageConnectorCatalogContext =
+	components["schemas"]["StorageConnectorCatalogContext"];
+export type StorageConnectorDeploymentScope =
+	components["schemas"]["StorageConnectorDeploymentScope"];
 export type StorageConnectorFieldDescriptor =
 	components["schemas"]["StorageConnectorFieldDescriptor"];
 export type StorageConnectorUiDescriptor =

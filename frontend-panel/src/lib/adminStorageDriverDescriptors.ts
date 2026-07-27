@@ -1,72 +1,109 @@
 import { adminPolicyService } from "@/services/adminService";
-import type { DriverType, StorageConnectorDescriptor } from "@/types/api";
+import type {
+	DriverType,
+	StorageConnectorCatalogContext,
+	StorageConnectorDescriptor,
+} from "@/types/api";
 
 export const ADMIN_STORAGE_DRIVER_DESCRIPTOR_CACHE_TTL_MS = 30_000;
 
-let cachedDescriptors: StorageConnectorDescriptor[] | null = null;
-let cachedDescriptorsLoadedAt = 0;
-let pendingDescriptorRequest: Promise<StorageConnectorDescriptor[]> | null =
-	null;
-let descriptorRequestSerial = 0;
+const DEFAULT_CATALOG_CONTEXT: StorageConnectorCatalogContext = "manage";
 
-function getFreshDescriptorCache() {
+interface DescriptorCacheEntry {
+	descriptors: StorageConnectorDescriptor[] | null;
+	loadedAt: number;
+	pendingRequest: Promise<StorageConnectorDescriptor[]> | null;
+	requestSerial: number;
+}
+
+const descriptorCaches = new Map<
+	StorageConnectorCatalogContext,
+	DescriptorCacheEntry
+>();
+
+function descriptorCache(context: StorageConnectorCatalogContext) {
+	let cache = descriptorCaches.get(context);
+	if (!cache) {
+		cache = {
+			descriptors: null,
+			loadedAt: 0,
+			pendingRequest: null,
+			requestSerial: 0,
+		};
+		descriptorCaches.set(context, cache);
+	}
+	return cache;
+}
+
+function getFreshDescriptorCache(context: StorageConnectorCatalogContext) {
+	const cache = descriptorCache(context);
 	if (
-		cachedDescriptors != null &&
-		Date.now() - cachedDescriptorsLoadedAt <
-			ADMIN_STORAGE_DRIVER_DESCRIPTOR_CACHE_TTL_MS
+		cache.descriptors != null &&
+		Date.now() - cache.loadedAt < ADMIN_STORAGE_DRIVER_DESCRIPTOR_CACHE_TTL_MS
 	) {
-		return cachedDescriptors;
+		return cache.descriptors;
 	}
 	return null;
 }
 
-export function readAdminStorageDriverDescriptors() {
-	return cachedDescriptors;
+export function readAdminStorageDriverDescriptors(
+	context: StorageConnectorCatalogContext = DEFAULT_CATALOG_CONTEXT,
+) {
+	return descriptorCache(context).descriptors;
 }
 
 export function primeAdminStorageDriverDescriptors(
 	descriptors: StorageConnectorDescriptor[],
+	context: StorageConnectorCatalogContext = DEFAULT_CATALOG_CONTEXT,
 ) {
-	cachedDescriptors = descriptors;
-	cachedDescriptorsLoadedAt = Date.now();
+	const cache = descriptorCache(context);
+	cache.descriptors = descriptors;
+	cache.loadedAt = Date.now();
 }
 
 export function invalidateAdminStorageDriverDescriptors() {
-	cachedDescriptors = null;
-	cachedDescriptorsLoadedAt = 0;
-	pendingDescriptorRequest = null;
-	descriptorRequestSerial += 1;
+	for (const cache of descriptorCaches.values()) {
+		cache.descriptors = null;
+		cache.loadedAt = 0;
+		cache.pendingRequest = null;
+		cache.requestSerial += 1;
+	}
 }
 
 export async function loadAdminStorageDriverDescriptors(options?: {
 	force?: boolean;
+	context?: StorageConnectorCatalogContext;
 }) {
 	const force = options?.force ?? false;
-	const freshDescriptors = getFreshDescriptorCache();
+	const context = options?.context ?? DEFAULT_CATALOG_CONTEXT;
+	const cache = descriptorCache(context);
+	const freshDescriptors = getFreshDescriptorCache(context);
 	if (!force && freshDescriptors != null) {
 		return freshDescriptors;
 	}
 
-	if (!force && pendingDescriptorRequest != null) {
-		return pendingDescriptorRequest;
+	if (!force && cache.pendingRequest != null) {
+		return cache.pendingRequest;
 	}
 
-	const requestSerial = ++descriptorRequestSerial;
+	const requestSerial = ++cache.requestSerial;
 	const request = adminPolicyService
-		.listStorageDriverDescriptors()
+		.listStorageDriverDescriptors(
+			context === DEFAULT_CATALOG_CONTEXT ? undefined : { context },
+		)
 		.then((descriptors) => {
-			if (requestSerial === descriptorRequestSerial) {
-				primeAdminStorageDriverDescriptors(descriptors);
+			if (requestSerial === cache.requestSerial) {
+				primeAdminStorageDriverDescriptors(descriptors, context);
 			}
 			return descriptors;
 		})
 		.finally(() => {
-			if (pendingDescriptorRequest === request) {
-				pendingDescriptorRequest = null;
+			if (cache.pendingRequest === request) {
+				cache.pendingRequest = null;
 			}
 		});
 
-	pendingDescriptorRequest = request;
+	cache.pendingRequest = request;
 	return request;
 }
 

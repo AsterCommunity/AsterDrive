@@ -19,9 +19,9 @@ pub mod traits;
 pub use connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
     StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorFieldDescriptor, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
     StoragePolicyExecutableAction,
 };
 pub use connectors::{

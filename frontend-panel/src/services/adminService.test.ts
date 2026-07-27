@@ -121,6 +121,20 @@ describe("adminService", () => {
 		expect(mockState.get).toHaveBeenNthCalledWith(10, "/admin/config");
 	});
 
+	it("passes the backend-owned storage connector catalog context", () => {
+		adminPolicyService.listStorageDriverDescriptors({ context: "create" });
+		adminPolicyService.listStorageDriverDescriptors({ context: "setup" });
+
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			1,
+			"/admin/policies/storage-drivers?context=create",
+		);
+		expect(mockState.get).toHaveBeenNthCalledWith(
+			2,
+			"/admin/policies/storage-drivers?context=setup",
+		);
+	});
+
 	it("uses admin user invitation endpoints", () => {
 		adminUserService.listInvitations({ limit: 10, offset: 20 });
 		adminUserService.createInvitation({ email: "invitee@example.com" });

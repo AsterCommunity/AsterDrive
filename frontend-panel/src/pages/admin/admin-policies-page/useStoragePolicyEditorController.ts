@@ -45,6 +45,7 @@ interface SubmitPolicyActionBridge {
 }
 
 interface StoragePolicyEditorControllerInput {
+	allowSaveWithoutConnectionTest?: boolean;
 	currentStorageDriverDescriptor: StorageConnectorDescriptor | null | undefined;
 	editingId: number | null;
 	editingPolicy: StoragePolicy | null;
@@ -53,6 +54,7 @@ interface StoragePolicyEditorControllerInput {
 	list: StoragePolicyEditorListBridge;
 	loadPolicyCapacity: (policyId: number) => void;
 	onCloseDialog: () => void;
+	onPolicyCreated?: (policy: StoragePolicy) => Promise<void> | void;
 	setCreateStep: Dispatch<SetStateAction<number>>;
 	setCreateStepTouched: Dispatch<SetStateAction<boolean>>;
 	setEditingId: Dispatch<SetStateAction<number | null>>;
@@ -67,6 +69,7 @@ interface StoragePolicyEditorControllerInput {
 }
 
 export function useStoragePolicyEditorController({
+	allowSaveWithoutConnectionTest = true,
 	currentStorageDriverDescriptor,
 	createStep,
 	editingId,
@@ -76,6 +79,7 @@ export function useStoragePolicyEditorController({
 	list,
 	loadPolicyCapacity,
 	onCloseDialog,
+	onPolicyCreated,
 	setCreateStep,
 	setCreateStepTouched,
 	setEditingId,
@@ -118,6 +122,7 @@ export function useStoragePolicyEditorController({
 					buildCreatePolicyPayload(currentForm, descriptor),
 				);
 				invalidateAdminPolicyLookup();
+				await onPolicyCreated?.(created);
 				if (supportsStorageCredentialLifecycle(descriptor)) {
 					setEditingId(created.id);
 					setEditingPolicy(created);
@@ -182,10 +187,10 @@ export function useStoragePolicyEditorController({
 			if (!forceSave && shouldRunConnectionSaveTest(validatedConnectionKey)) {
 				const testPassed = await runConnectionTest({
 					showSuccessToast: false,
-					showFailureError: false,
+					showFailureError: !allowSaveWithoutConnectionTest,
 				});
 				if (!testPassed) {
-					setSaveAnywayConfirmOpen(true);
+					setSaveAnywayConfirmOpen(allowSaveWithoutConnectionTest);
 					return;
 				}
 			}

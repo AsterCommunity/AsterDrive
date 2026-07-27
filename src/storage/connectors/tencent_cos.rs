@@ -8,9 +8,9 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorUiDescriptorInput, StoragePolicyExecutableAction,
-    object_storage_connector_descriptor, policy_action_descriptor,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
 };
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
@@ -45,6 +45,8 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                     base_path_empty_display: "core:root",
                     base_path_placeholder: "tenant/prefix",
                 },
+                deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+                supports_initial_setup: true,
                 fields: ObjectStorageFieldDescriptorInput {
                     endpoint_placeholder: "https://<bucket-appid>.cos.<region>.myqcloud.com",
                     endpoint_help_key: "cos_endpoint_hint",

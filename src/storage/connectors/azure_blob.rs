@@ -7,8 +7,9 @@ use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
 use crate::storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorUiDescriptorInput, object_storage_connector_descriptor,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    object_storage_connector_descriptor,
 };
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
 use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
@@ -36,6 +37,8 @@ impl StorageConnectorDescriptorProvider for AzureBlobConnector {
                 base_path_empty_display: "core:root",
                 base_path_placeholder: "tenant/prefix",
             },
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: true,
             fields: ObjectStorageFieldDescriptorInput {
                 endpoint_placeholder: "https://<account>.blob.core.windows.net",
                 endpoint_help_key: "azure_blob_endpoint_hint",

@@ -2,5 +2,17 @@
 	"welcome_setup": "欢迎使用 AsterDrive",
 	"setup_desc": "创建管理员账号以开始使用。",
 	"setup_complete": "设置完成！欢迎加入。",
-	"create_admin": "创建管理员账号"
+	"create_admin": "创建管理员账号",
+	"storage_setup_page_title": "为 AsterDrive 配置第一处可靠存储",
+	"storage_setup_page_desc": "文件空间开放前，需要先选择可立即验证的存储连接器并完成连接配置。系统会把它设为默认存储，并自动完成默认策略组和管理员绑定。需要浏览器授权的连接器会保留展示，但需完成初始化后再到存储管理中添加。",
+	"storage_setup_connector_post_setup_only": "需要先保存策略并完成浏览器授权，请完成系统初始化后再到存储管理中添加。",
+	"storage_setup_eyebrow": "系统初始化 · 第二步",
+	"storage_setup_start": "开始配置存储",
+	"storage_setup_pending_eyebrow": "系统初始化中",
+	"storage_setup_pending_title": "管理员正在配置系统存储",
+	"storage_setup_pending_desc": "默认存储准备完成后，页面会自动进入文件空间。你可以保持此页面打开。",
+	"storage_setup_pending_refreshing": "正在等待系统存储就绪…",
+	"storage_setup_state_load_failed_title": "初始化状态读取失败",
+	"storage_setup_state_load_failed_desc": "暂时没有取得系统初始化状态。检查网络连接后重新读取。",
+	"storage_setup_retry_state": "重新读取状态"
 }

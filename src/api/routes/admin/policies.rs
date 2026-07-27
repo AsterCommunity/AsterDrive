@@ -4,7 +4,8 @@ use crate::api::dto::admin::{
     AdminPolicyGroupListQuery, AdminPolicyListQuery, CreatePolicyGroupReq, CreatePolicyReq,
     DeletePolicyQuery, ExecuteDraftStoragePolicyActionReq, ExecuteSavedStoragePolicyActionReq,
     MigratePolicyGroupAssignmentsReq, PatchPolicyGroupReq, PatchPolicyReq, PolicyGroupItemReq,
-    PromoteS3CompatiblePolicyDriverReq, StartStorageAuthorizationReq, TestPolicyParamsReq,
+    PromoteS3CompatiblePolicyDriverReq, StartStorageAuthorizationReq, StorageConnectorCatalogQuery,
+    TestPolicyParamsReq,
 };
 use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
@@ -238,6 +239,7 @@ pub async fn list_policies(
     path = "/api/v1/admin/policies/storage-drivers",
     tag = "admin",
     operation_id = "list_storage_driver_descriptors",
+    params(StorageConnectorCatalogQuery),
     responses(
         (status = 200, description = "List storage driver capability descriptors", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
@@ -245,9 +247,15 @@ pub async fn list_policies(
     ),
     security(("bearer" = [])),
 )]
-pub async fn list_storage_driver_descriptors() -> Result<HttpResponse> {
+pub async fn list_storage_driver_descriptors(
+    state: web::Data<PrimaryAppState>,
+    query: web::Query<StorageConnectorCatalogQuery>,
+) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
-        crate::storage::connectors::list_storage_driver_descriptors(),
+        crate::services::storage_policy::connector_catalog::list_storage_connector_catalog(
+            state.config(),
+            query.context.into(),
+        ),
     )))
 }
 

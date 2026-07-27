@@ -10,12 +10,12 @@ use crate::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
     pub reverse_tunnel_nodes: Vec<(i64, String)>,
-    pub local_storage_policies: Vec<(i64, String)>,
+    pub instance_local_storage_policies: Vec<(i64, String)>,
 }
 
 impl DeploymentTopologyReport {
     pub fn has_issues(&self) -> bool {
-        !self.reverse_tunnel_nodes.is_empty() || !self.local_storage_policies.is_empty()
+        !self.reverse_tunnel_nodes.is_empty() || !self.instance_local_storage_policies.is_empty()
     }
 
     pub fn issue_messages(&self) -> Vec<String> {
@@ -31,9 +31,9 @@ impl DeploymentTopologyReport {
                 "this deployment profile has reverse tunnel remote nodes without internal primary proxying: {nodes}; configure internal proxying or use direct transport"
             ));
         }
-        if !self.local_storage_policies.is_empty() {
+        if !self.instance_local_storage_policies.is_empty() {
             let policies = self
-                .local_storage_policies
+                .instance_local_storage_policies
                 .iter()
                 .map(|(id, name)| format!("#{id} ({name})"))
                 .collect::<Vec<_>>()
@@ -47,10 +47,16 @@ impl DeploymentTopologyReport {
 }
 
 pub fn validate_storage_policy_driver(config: &Config, driver_type: DriverType) -> Result<()> {
-    if !config.deployment.allows_instance_local_state() && driver_type == DriverType::Local {
-        return Err(AsterError::validation_error(
-            "this deployment profile requires storage shared by every primary; local storage policies are instance-local",
-        ));
+    let descriptor = crate::storage::connectors::storage_driver_descriptor(driver_type)?;
+    if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
+        config,
+        &descriptor,
+    ) {
+        return Err(AsterError::validation_error(format!(
+            "this deployment profile requires storage shared by every primary; connector '{}' has deployment scope '{}'",
+            driver_type.as_str(),
+            descriptor.deployment_scope.as_str()
+        )));
     }
     Ok(())
 }
@@ -112,16 +118,20 @@ pub async fn inspect_primary_topology(
             .collect()
     };
 
-    let local_storage_policies = policy_repo::find_all(db)
-        .await?
-        .into_iter()
-        .filter(|policy| policy.driver_type == DriverType::Local)
-        .map(|policy| (policy.id, policy.name))
-        .collect();
+    let mut instance_local_storage_policies = Vec::new();
+    for policy in policy_repo::find_all(db).await? {
+        let descriptor = crate::storage::connectors::storage_driver_descriptor(policy.driver_type)?;
+        if !crate::services::storage_policy::connector_catalog::connector_compatible_with_deployment(
+            config,
+            &descriptor,
+        ) {
+            instance_local_storage_policies.push((policy.id, policy.name));
+        }
+    }
 
     Ok(DeploymentTopologyReport {
         reverse_tunnel_nodes,
-        local_storage_policies,
+        instance_local_storage_policies,
     })
 }
 
@@ -172,7 +182,7 @@ mod tests {
     fn topology_report_describes_reverse_tunnel_and_local_storage_issues() {
         let report = DeploymentTopologyReport {
             reverse_tunnel_nodes: vec![(7, "follower-a".to_string())],
-            local_storage_policies: vec![(3, "local-default".to_string())],
+            instance_local_storage_policies: vec![(3, "local-default".to_string())],
         };
 
         let messages = report.issue_messages();
@@ -186,7 +196,23 @@ mod tests {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
-        assert!(validate_storage_policy_driver(&config, crate::types::DriverType::Local).is_err());
+        let error = validate_storage_policy_driver(&config, crate::types::DriverType::Local)
+            .expect_err("cluster profile must reject instance-local connectors")
+            .to_string();
+        assert!(error.contains("local"));
+        assert!(error.contains("instance_local"));
+        for driver_type in [
+            crate::types::DriverType::S3,
+            crate::types::DriverType::Sftp,
+            crate::types::DriverType::AzureBlob,
+            crate::types::DriverType::TencentCos,
+            crate::types::DriverType::Remote,
+            crate::types::DriverType::OneDrive,
+        ] {
+            validate_storage_policy_driver(&config, driver_type).unwrap_or_else(|error| {
+                panic!("cluster profile rejected shared connector {driver_type:?}: {error}")
+            });
+        }
         assert!(
             validate_remote_node_transport(
                 &config,
