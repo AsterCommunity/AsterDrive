@@ -304,11 +304,22 @@ fn media_metadata_status_code(status: MediaMetadataStatus) -> Code {
     }
 }
 
-fn params<const N: usize>(entries: [(&str, Value); N]) -> BTreeMap<String, Value> {
-    entries
-        .into_iter()
-        .map(|(key, value)| (key.to_string(), value))
-        .collect()
+#[derive(Debug, Default)]
+struct Params(BTreeMap<String, Value>);
+
+impl Params {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn with(mut self, key: &str, value: Value) -> Self {
+        self.0.insert(key.to_string(), value);
+        self
+    }
+
+    fn finish(self) -> BTreeMap<String, Value> {
+        self.0
+    }
 }
 
 enum PresentationMessage {
@@ -443,19 +454,22 @@ impl From<PresentationMessage> for TaskPresentationMessage {
         let (code, params) = match message {
             PresentationMessage::ArchiveCompressTitle { name } => (
                 Code::TaskNameArchiveCompress,
-                params([("name", json!(name))]),
+                Params::new().with("name", json!(name)).finish(),
             ),
             PresentationMessage::ArchiveExtractTitle { name } => (
                 Code::TaskNameArchiveExtract,
-                params([("name", json!(name))]),
+                Params::new().with("name", json!(name)).finish(),
             ),
             PresentationMessage::ArchivePreviewGenerateTitle { name } => (
                 Code::TaskNameArchivePreviewGenerate,
-                params([("name", json!(name))]),
+                Params::new().with("name", json!(name)).finish(),
             ),
             PresentationMessage::ArchivePreviewGenerateFileIdTitle { file_id, blob_id } => (
                 Code::TaskNameArchivePreviewGenerateFileId,
-                params([("fileId", json!(file_id)), ("blobId", json!(blob_id))]),
+                Params::new()
+                    .with("fileId", json!(file_id))
+                    .with("blobId", json!(blob_id))
+                    .finish(),
             ),
             PresentationMessage::ThumbnailGenerateSourceTitle {
                 source,
@@ -463,18 +477,18 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 processor,
             } => (
                 Code::TaskNameThumbnailGenerate,
-                params([
-                    ("source", json!(source)),
-                    ("blobId", json!(blob_id)),
-                    ("processor", json!(processor.as_str())),
-                ]),
+                Params::new()
+                    .with("source", json!(source))
+                    .with("blobId", json!(blob_id))
+                    .with("processor", json!(processor.as_str()))
+                    .finish(),
             ),
             PresentationMessage::ThumbnailGenerateBlobTitle { blob_id, processor } => (
                 Code::TaskNameThumbnailGenerateBlobWithProcessor,
-                params([
-                    ("blobId", json!(blob_id)),
-                    ("processor", json!(processor.as_str())),
-                ]),
+                Params::new()
+                    .with("blobId", json!(blob_id))
+                    .with("processor", json!(processor.as_str()))
+                    .finish(),
             ),
             PresentationMessage::ImagePreviewGenerateSourceTitle {
                 source,
@@ -482,18 +496,18 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 processor,
             } => (
                 Code::TaskNameImagePreviewGenerate,
-                params([
-                    ("source", json!(source)),
-                    ("blobId", json!(blob_id)),
-                    ("processor", json!(processor.as_str())),
-                ]),
+                Params::new()
+                    .with("source", json!(source))
+                    .with("blobId", json!(blob_id))
+                    .with("processor", json!(processor.as_str()))
+                    .finish(),
             ),
             PresentationMessage::ImagePreviewGenerateBlobTitle { blob_id, processor } => (
                 Code::TaskNameImagePreviewGenerateBlobWithProcessor,
-                params([
-                    ("blobId", json!(blob_id)),
-                    ("processor", json!(processor.as_str())),
-                ]),
+                Params::new()
+                    .with("blobId", json!(blob_id))
+                    .with("processor", json!(processor.as_str()))
+                    .finish(),
             ),
             PresentationMessage::MediaMetadataExtractSourceTitle {
                 source,
@@ -501,36 +515,42 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 kind,
             } => (
                 Code::TaskNameMediaMetadataExtractSource,
-                params([
-                    ("source", json!(source)),
-                    ("blobId", json!(blob_id)),
-                    ("kind", json!(kind.as_str())),
-                ]),
+                Params::new()
+                    .with("source", json!(source))
+                    .with("blobId", json!(blob_id))
+                    .with("kind", json!(kind.as_str()))
+                    .finish(),
             ),
             PresentationMessage::MediaMetadataExtractBlobTitle { blob_id, kind } => (
                 Code::TaskNameMediaMetadataExtractBlob,
-                params([("blobId", json!(blob_id)), ("kind", json!(kind.as_str()))]),
+                Params::new()
+                    .with("blobId", json!(blob_id))
+                    .with("kind", json!(kind.as_str()))
+                    .finish(),
             ),
             PresentationMessage::TrashPurgeAllTitle => {
                 (Code::TaskNameTrashPurgeAll, BTreeMap::new())
             }
             PresentationMessage::StoragePolicyTempCleanupTitle { policy, policy_id } => (
                 Code::TaskNameStoragePolicyTempCleanup,
-                params([("policy", json!(policy)), ("policyId", json!(policy_id))]),
+                Params::new()
+                    .with("policy", json!(policy))
+                    .with("policyId", json!(policy_id))
+                    .finish(),
             ),
             PresentationMessage::StoragePolicyTempCleanupPolicyIdTitle { policy_id } => (
                 Code::TaskNameStoragePolicyTempCleanupPolicyId,
-                params([("policyId", json!(policy_id))]),
+                Params::new().with("policyId", json!(policy_id)).finish(),
             ),
             PresentationMessage::StoragePolicyMigrationTitle {
                 source_policy_id,
                 target_policy_id,
             } => (
                 Code::TaskNameStoragePolicyMigration,
-                params([
-                    ("sourcePolicyId", json!(source_policy_id)),
-                    ("targetPolicyId", json!(target_policy_id)),
-                ]),
+                Params::new()
+                    .with("sourcePolicyId", json!(source_policy_id))
+                    .with("targetPolicyId", json!(target_policy_id))
+                    .finish(),
             ),
             PresentationMessage::BlobMaintenanceTitle {
                 action,
@@ -546,7 +566,7 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                     BlobMaintenanceAction::OrphanCleanup => Code::BlobMaintenanceOrphanCleanupName,
                 },
                 match selected_blob_count {
-                    Some(count) => params([("count", json!(count))]),
+                    Some(count) => Params::new().with("count", json!(count)).finish(),
                     None => BTreeMap::new(),
                 },
             ),
@@ -560,15 +580,18 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             } => match engine {
                 Some(engine) => (
                     Code::TaskNameOfflineDownloadSourceWithEngine,
-                    params([
-                        ("filename", json!(filename)),
-                        ("source", json!(source)),
-                        ("engine", json!(engine.as_str())),
-                    ]),
+                    Params::new()
+                        .with("filename", json!(filename))
+                        .with("source", json!(source))
+                        .with("engine", json!(engine.as_str()))
+                        .finish(),
                 ),
                 None => (
                     Code::TaskNameOfflineDownloadSource,
-                    params([("filename", json!(filename)), ("source", json!(source))]),
+                    Params::new()
+                        .with("filename", json!(filename))
+                        .with("source", json!(source))
+                        .finish(),
                 ),
             },
             PresentationMessage::OfflineDownloadTargetFolderTitle {
@@ -578,31 +601,31 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             } => match engine {
                 Some(engine) => (
                     Code::TaskNameOfflineDownloadTargetFolderWithEngine,
-                    params([
-                        ("source", json!(source)),
-                        ("targetFolderId", json!(target_folder_id)),
-                        ("engine", json!(engine.as_str())),
-                    ]),
+                    Params::new()
+                        .with("source", json!(source))
+                        .with("targetFolderId", json!(target_folder_id))
+                        .with("engine", json!(engine.as_str()))
+                        .finish(),
                 ),
                 None => (
                     Code::TaskNameOfflineDownloadTargetFolder,
-                    params([
-                        ("source", json!(source)),
-                        ("targetFolderId", json!(target_folder_id)),
-                    ]),
+                    Params::new()
+                        .with("source", json!(source))
+                        .with("targetFolderId", json!(target_folder_id))
+                        .finish(),
                 ),
             },
             PresentationMessage::OfflineDownloadUrlTitle { source, engine } => match engine {
                 Some(engine) => (
                     Code::TaskNameOfflineDownloadUrlWithEngine,
-                    params([
-                        ("source", json!(source)),
-                        ("engine", json!(engine.as_str())),
-                    ]),
+                    Params::new()
+                        .with("source", json!(source))
+                        .with("engine", json!(engine.as_str()))
+                        .finish(),
                 ),
                 None => (
                     Code::TaskNameOfflineDownloadUrl,
-                    params([("source", json!(source))]),
+                    Params::new().with("source", json!(source)).finish(),
                 ),
             },
             PresentationMessage::ArchiveReadyStatus {
@@ -611,11 +634,11 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 target_path,
             } => (
                 Code::StatusTextArchiveReady,
-                params([
-                    ("name", json!(name)),
-                    ("targetFileId", json!(target_file_id)),
-                    ("targetPath", json!(target_path)),
-                ]),
+                Params::new()
+                    .with("name", json!(name))
+                    .with("targetFileId", json!(target_file_id))
+                    .with("targetPath", json!(target_path))
+                    .finish(),
             ),
             PresentationMessage::ArchiveExtractedStatus {
                 name,
@@ -625,13 +648,13 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 folder_count,
             } => (
                 Code::StatusTextArchiveExtracted,
-                params([
-                    ("name", json!(name)),
-                    ("targetFolderId", json!(target_folder_id)),
-                    ("targetPath", json!(target_path)),
-                    ("fileCount", json!(file_count)),
-                    ("folderCount", json!(folder_count)),
-                ]),
+                Params::new()
+                    .with("name", json!(name))
+                    .with("targetFolderId", json!(target_folder_id))
+                    .with("targetPath", json!(target_path))
+                    .with("fileCount", json!(file_count))
+                    .with("folderCount", json!(folder_count))
+                    .finish(),
             ),
             PresentationMessage::ArchivePreviewReadyStatus => {
                 (Code::StatusTextArchivePreviewReady, BTreeMap::new())
@@ -654,7 +677,7 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             }
             PresentationMessage::TrashPurgedStatus { purged } => (
                 Code::StatusTextTrashPurged,
-                params([("purged", json!(purged))]),
+                Params::new().with("purged", json!(purged)).finish(),
             ),
             PresentationMessage::TemporaryUploadCleanupFinishedStatus {
                 deleted_objects,
@@ -662,11 +685,11 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 failed_objects,
             } => (
                 Code::StatusTextTemporaryUploadCleanupFinished,
-                params([
-                    ("deletedObjects", json!(deleted_objects)),
-                    ("missingObjects", json!(missing_objects)),
-                    ("failedObjects", json!(failed_objects)),
-                ]),
+                Params::new()
+                    .with("deletedObjects", json!(deleted_objects))
+                    .with("missingObjects", json!(missing_objects))
+                    .with("failedObjects", json!(failed_objects))
+                    .finish(),
             ),
             PresentationMessage::StorageMigrationCompletedStatus {
                 source_policy_id,
@@ -680,17 +703,17 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 renamed_opaque_blobs,
             } => (
                 Code::StatusTextStorageMigrationCompleted,
-                params([
-                    ("sourcePolicyId", json!(source_policy_id)),
-                    ("targetPolicyId", json!(target_policy_id)),
-                    ("scannedBlobs", json!(scanned_blobs)),
-                    ("migratedBlobs", json!(migrated_blobs)),
-                    ("mergedBlobs", json!(merged_blobs)),
-                    ("skippedBlobs", json!(skipped_blobs)),
-                    ("failedBlobs", json!(failed_blobs)),
-                    ("migratedBytes", json!(migrated_bytes)),
-                    ("renamedOpaqueBlobs", json!(renamed_opaque_blobs)),
-                ]),
+                Params::new()
+                    .with("sourcePolicyId", json!(source_policy_id))
+                    .with("targetPolicyId", json!(target_policy_id))
+                    .with("scannedBlobs", json!(scanned_blobs))
+                    .with("migratedBlobs", json!(migrated_blobs))
+                    .with("mergedBlobs", json!(merged_blobs))
+                    .with("skippedBlobs", json!(skipped_blobs))
+                    .with("failedBlobs", json!(failed_blobs))
+                    .with("migratedBytes", json!(migrated_bytes))
+                    .with("renamedOpaqueBlobs", json!(renamed_opaque_blobs))
+                    .finish(),
             ),
             PresentationMessage::BlobMaintenanceFinishedStatus => {
                 (Code::StatusTextBlobMaintenanceFinished, BTreeMap::new())
@@ -701,11 +724,11 @@ impl From<PresentationMessage> for TaskPresentationMessage {
                 content_length,
             } => (
                 Code::StatusTextOfflineDownloadImported,
-                params([
-                    ("name", json!(name)),
-                    ("targetPath", json!(target_path)),
-                    ("contentLength", json!(content_length)),
-                ]),
+                Params::new()
+                    .with("name", json!(name))
+                    .with("targetPath", json!(target_path))
+                    .with("contentLength", json!(content_length))
+                    .finish(),
             ),
             PresentationMessage::WaitingPresignedUrlExpiryStatus => {
                 (Code::StatusTextWaitingPresignedUrlExpiry, BTreeMap::new())
@@ -715,9 +738,33 @@ impl From<PresentationMessage> for TaskPresentationMessage {
             }
             PresentationMessage::RuntimeSystemHealthIssueStatus { status, components } => (
                 Code::RuntimeSystemHealthIssueDetail,
-                params([("status", json!(status)), ("components", json!(components))]),
+                Params::new()
+                    .with("status", json!(status))
+                    .with("components", json!(components))
+                    .finish(),
             ),
         };
         TaskPresentationMessage { code, params }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Params;
+    use serde_json::json;
+
+    #[test]
+    fn params_builder_owns_values_and_keeps_btree_order() {
+        let params = Params::new()
+            .with("z", json!({"nested": [1, 2, 3]}))
+            .with("a", json!(42))
+            .finish();
+
+        assert_eq!(
+            params.keys().map(String::as_str).collect::<Vec<_>>(),
+            ["a", "z"]
+        );
+        assert_eq!(params["a"], json!(42));
+        assert_eq!(params["z"], json!({"nested": [1, 2, 3]}));
     }
 }
