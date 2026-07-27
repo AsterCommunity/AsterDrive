@@ -159,7 +159,19 @@ pub async fn touch_claimed_part<C: ConnectionTrait>(
     upload_id: &str,
     part_number: i32,
 ) -> Result<bool> {
-    let result = UploadSessionPart::update_many()
+    let claim_exists = UploadSessionPart::find()
+        .filter(upload_session_part::Column::UploadId.eq(upload_id))
+        .filter(upload_session_part::Column::PartNumber.eq(part_number))
+        .filter(upload_session_part::Column::Etag.eq(""))
+        .one(db)
+        .await
+        .map_err(AsterError::from)?
+        .is_some();
+    if !claim_exists {
+        return Ok(false);
+    }
+
+    UploadSessionPart::update_many()
         .col_expr(
             upload_session_part::Column::UpdatedAt,
             Expr::value(Utc::now()),
@@ -170,7 +182,7 @@ pub async fn touch_claimed_part<C: ConnectionTrait>(
         .exec(db)
         .await
         .map_err(AsterError::from)?;
-    Ok(result.rows_affected == 1)
+    Ok(true)
 }
 
 pub async fn delete_stale_claim<C: ConnectionTrait>(

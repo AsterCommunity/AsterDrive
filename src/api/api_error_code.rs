@@ -304,6 +304,7 @@ define_api_error_codes! {
     UploadEmptyFile => "upload.empty_file",
     UploadChunkPersistFailed => "upload.chunk_persist_failed",
     UploadChunkRelayFailed => "upload.chunk_relay_failed",
+    UploadChunkPending => "upload.chunk_pending",
     UploadChunkTransportMismatch => "upload.chunk_transport_mismatch",
     UploadChunkSessionInvalid => "upload.chunk_session_invalid",
     UploadChunkNumberOutOfRange => "upload.chunk_number_out_of_range",

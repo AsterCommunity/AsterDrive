@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 import type { InitUploadResponse } from "@/services/uploadService";
 import { resolveChunkConcurrency } from "./uploadAreaResumableUploadRunners";
 
-function initWithMax(max?: number): InitUploadResponse {
+function initWithMax(
+	max?: number,
+	chunkOrdering: "unordered" | "sequential" = "unordered",
+): InitUploadResponse {
 	return {
 		mode: "chunked",
 		upload_id: "upload-1",
@@ -12,7 +15,7 @@ function initWithMax(max?: number): InitUploadResponse {
 			max === undefined
 				? undefined
 				: {
-						chunk_ordering: max === 1 ? "sequential" : "unordered",
+						chunk_ordering: chunkOrdering,
 						max_chunk_concurrency: max,
 					},
 	};
@@ -26,11 +29,7 @@ describe("resolveChunkConcurrency", () => {
 	});
 
 	it("honors sequential ordering even if the maximum is larger", () => {
-		const init = initWithMax(4);
-		if (init.upload_scheduling) {
-			init.upload_scheduling.chunk_ordering = "sequential";
-		}
-		expect(resolveChunkConcurrency(init, 3)).toBe(1);
+		expect(resolveChunkConcurrency(initWithMax(4, "sequential"), 3)).toBe(1);
 	});
 
 	it("keeps the compatibility fallback when scheduling metadata is absent", () => {
@@ -54,10 +53,11 @@ describe("resolveChunkConcurrency", () => {
 	});
 
 	it("keeps sequential scheduling at one for invalid limits and fallbacks", () => {
-		const init = initWithMax(Number.NaN);
-		if (init.upload_scheduling) {
-			init.upload_scheduling.chunk_ordering = "sequential";
-		}
-		expect(resolveChunkConcurrency(init, Number.POSITIVE_INFINITY)).toBe(1);
+		expect(
+			resolveChunkConcurrency(
+				initWithMax(Number.NaN, "sequential"),
+				Number.POSITIVE_INFINITY,
+			),
+		).toBe(1);
 	});
 });

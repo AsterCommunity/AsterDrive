@@ -222,6 +222,29 @@ describe("uploadService", () => {
 		expect(xhr.sentBody).toBe(blob);
 	});
 
+	it("keeps a pending chunk response retryable", async () => {
+		const { uploadService } = await import("@/services/uploadService");
+		const promise = uploadService.uploadChunk(
+			"upload-1",
+			0,
+			new Blob(["hello"]),
+		);
+		const xhr = MockXMLHttpRequest.instances[0];
+		xhr.status = 202;
+		xhr.responseText = JSON.stringify({
+			code: ApiErrorCode.UploadChunkPending,
+			msg: "chunk already being uploaded",
+			error: { retryable: true },
+		});
+		xhr.onload?.();
+
+		await expect(promise).rejects.toMatchObject({
+			message: "chunk already being uploaded",
+			retryable: true,
+			status: 202,
+		});
+	});
+
 	it("rejects chunk uploads on API or transport failures", async () => {
 		const { UploadRequestError, uploadService } = await import(
 			"@/services/uploadService"

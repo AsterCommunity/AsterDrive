@@ -490,6 +490,12 @@ async fn provider_relay_claim_heartbeat_only_touches_active_claims() {
             .unwrap()
     );
     assert!(
+        upload_session_part_repo::touch_claimed_part(state.writer_db(), &upload_id, 1)
+            .await
+            .unwrap(),
+        "repeated touch within the database timestamp precision should remain active"
+    );
+    assert!(
         upload_session_part_repo::finalize_claimed_part(
             state.writer_db(),
             &upload_id,

@@ -62,30 +62,27 @@ pub(super) fn determine_completion_plan(
         }
         UploadSessionKind::ProviderDirectResumable => Ok(CompletionPlan::CompleteProviderResumable),
         UploadSessionKind::ProviderRelayResumable => {
-            if session.received_count != session.total_chunks {
-                return Err(upload_assembly_error_with_code(
-                    ApiErrorCode::UploadIncompleteChunks,
-                    format!(
-                        "expected {} chunks, got {}",
-                        session.total_chunks, session.received_count
-                    ),
-                ));
-            }
+            require_all_chunks_received(session)?;
             Ok(CompletionPlan::CompleteProviderResumable)
         }
         UploadSessionKind::OffsetStaging | UploadSessionKind::StreamStaging => {
-            if session.received_count != session.total_chunks {
-                return Err(upload_assembly_error_with_code(
-                    ApiErrorCode::UploadIncompleteChunks,
-                    format!(
-                        "expected {} chunks, got {}",
-                        session.total_chunks, session.received_count
-                    ),
-                ));
-            }
+            require_all_chunks_received(session)?;
             Ok(CompletionPlan::CompleteChunked)
         }
     }
+}
+
+fn require_all_chunks_received(session: &upload_session::Model) -> Result<()> {
+    if session.received_count != session.total_chunks {
+        return Err(upload_assembly_error_with_code(
+            ApiErrorCode::UploadIncompleteChunks,
+            format!(
+                "expected {} chunks, got {}",
+                session.total_chunks, session.received_count
+            ),
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn completion_plan_label(plan: &CompletionPlan) -> &'static str {

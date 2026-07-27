@@ -314,6 +314,10 @@ async fn provider_relay_resumable_ordering_index_is_registered_and_reversible() 
     let db = setup_current_schema().await;
     let index = "idx_upload_sessions_provider_relay_ordering";
     assert!(sqlite_table_index_exists(&db, "upload_sessions", index).await);
+    assert_eq!(
+        sqlite_index_columns(&db, index).await,
+        ["session_kind", "status", "received_count", "id"]
+    );
 
     let rollback_steps = steps_to_roll_back_migration(PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION);
     CurrentMigrator::down(&db, Some(rollback_steps))
@@ -325,6 +329,10 @@ async fn provider_relay_resumable_ordering_index_is_registered_and_reversible() 
         .await
         .expect("provider relay resumable migration should reapply");
     assert!(sqlite_table_index_exists(&db, "upload_sessions", index).await);
+    assert_eq!(
+        sqlite_index_columns(&db, index).await,
+        ["session_kind", "status", "received_count", "id"]
+    );
 }
 
 fn steps_to_roll_back_migration(migration_name: &str) -> u32 {
@@ -419,6 +427,29 @@ async fn sqlite_table_index_exists(
     .expect("sqlite index list should load")
     .into_iter()
     .any(|row| row.try_get_by_index::<String>(1).as_deref() == Ok(index_name))
+}
+
+async fn sqlite_index_columns(db: &DatabaseConnection, index_name: &str) -> Vec<String> {
+    let mut columns = db
+        .query_all_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            format!("PRAGMA index_info('{index_name}')"),
+        ))
+        .await
+        .expect("sqlite index column metadata should load")
+        .into_iter()
+        .map(|row| {
+            let sequence = row
+                .try_get_by_index::<i32>(0)
+                .expect("sqlite PRAGMA index_info row should include sequence number");
+            let name = row
+                .try_get_by_index::<String>(2)
+                .expect("sqlite PRAGMA index_info row should include column name");
+            (sequence, name)
+        })
+        .collect::<Vec<_>>();
+    columns.sort_by_key(|(sequence, _)| *sequence);
+    columns.into_iter().map(|(_, name)| name).collect()
 }
 
 async fn mysql_table_index_exists(

@@ -1,5 +1,6 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use actix_web::FromRequest;
 use async_trait::async_trait;
@@ -145,9 +146,11 @@ impl MockProviderDriver {
         }
         Ok(ProviderResumableUploadFragmentOutcome {
             completed,
-            next_expected_ranges: (!completed)
-                .then(|| vec![format!("{}-", state.next_offset)])
-                .unwrap_or_default(),
+            next_expected_ranges: if !completed {
+                vec![format!("{}-", state.next_offset)]
+            } else {
+                Default::default()
+            },
         })
     }
 }
@@ -748,21 +751,36 @@ async fn active_claim_blocks_second_primary_until_first_put_finishes() {
     });
     started.notified().await;
 
-    let second = expect_upload_error(
-        upload_bytes_with_context(
+    let short_payload = expect_upload_error(
+        upload_payload_with_context(
             fixture.state.as_ref(),
             fixture.current_session().await,
             0,
-            Bytes::from_static(b"abcde"),
+            payload_from_chunks(&[b"abc"]).await,
             &fixture.context,
         )
         .await,
-        "active shared claim should reject concurrent upload",
+        "pending claims should still validate the full request body",
     );
     assert_eq!(
-        second.api_error_code(),
-        ApiErrorCode::UploadChunkRelayFailed
+        short_payload.api_error_code(),
+        ApiErrorCode::UploadChunkSizeMismatch
     );
+
+    let second = expect_upload_error(
+        upload_payload_with_context(
+            fixture.state.as_ref(),
+            fixture.current_session().await,
+            0,
+            payload_from_chunks(&[b"abcde"]).await,
+            &fixture.context,
+        )
+        .await,
+        "active shared claim should reject concurrent upload after draining the payload",
+    );
+    assert_eq!(second.api_error_code(), ApiErrorCode::UploadChunkPending);
+    assert!(second.api_error_info().retryable);
+    assert_eq!(second.http_status(), actix_web::http::StatusCode::ACCEPTED);
     assert_eq!(fixture.driver.snapshot().fragment_calls.len(), 1);
 
     release.notify_one();
@@ -774,6 +792,42 @@ async fn active_claim_blocks_second_primary_until_first_put_finishes() {
             .received_count,
         1
     );
+}
+
+#[tokio::test]
+async fn fragment_timeout_precedes_claim_staleness_and_drops_pending_upload() {
+    struct DropMarker(Arc<AtomicBool>);
+
+    impl Drop for DropMarker {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    assert!(FRAGMENT_UPLOAD_TIMEOUT < CLAIM_STALE_AFTER);
+    let fixture = Fixture::new([]).await;
+    let dropped = Arc::new(AtomicBool::new(false));
+    let marker = DropMarker(dropped.clone());
+    let upload = async move {
+        let _marker = marker;
+        std::future::pending::<Result<ProviderResumableUploadFragmentOutcome>>().await
+    };
+
+    let error = upload_with_claim_heartbeat_timeout(
+        fixture.state.as_ref(),
+        &fixture.session.id,
+        0,
+        std::time::Duration::from_millis(10),
+        upload,
+    )
+    .await
+    .expect_err("a pending fragment upload should hit its independent deadline");
+
+    assert_eq!(
+        error.storage_error_kind(),
+        Some(StorageErrorKind::Transient)
+    );
+    assert!(dropped.load(Ordering::SeqCst));
 }
 
 #[tokio::test]

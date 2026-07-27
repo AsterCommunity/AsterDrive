@@ -83,11 +83,13 @@ function parseApiMessage(responseText: string): string | null {
 function parseApiErrorResponse(responseText: string): {
 	code?: ApiErrorCode;
 	msg?: string;
+	retryable?: boolean;
 } | null {
 	if (!responseText) return null;
 	try {
 		const parsed = JSON.parse(responseText) as {
 			code?: unknown;
+			error?: { retryable?: unknown };
 			msg?: unknown;
 		};
 		return {
@@ -96,6 +98,7 @@ function parseApiErrorResponse(responseText: string): {
 					? parsed.code
 					: undefined,
 			msg: typeof parsed.msg === "string" ? parsed.msg : undefined,
+			retryable: parsed.error?.retryable === true,
 		};
 	} catch {
 		return null;
@@ -175,6 +178,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 						try {
 							const resp = JSON.parse(xhr.responseText) as {
 								code?: ApiErrorCode;
+								error?: { retryable?: boolean };
 								msg?: string;
 								data?: ChunkUploadResponse;
 							};
@@ -186,7 +190,7 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 										resp.msg ?? `chunk upload failed: ${xhr.status}`,
 										{
 											status: xhr.status,
-											retryable: false,
+											retryable: resp.error?.retryable === true,
 										},
 									),
 								);
@@ -213,7 +217,10 @@ export function createUploadService(workspace: Workspace = PERSONAL_WORKSPACE) {
 								{
 									status: xhr.status,
 									authFailure,
-									retryable: authFailure || isRetryableHttpStatus(xhr.status),
+									retryable:
+										authFailure ||
+										apiError?.retryable === true ||
+										isRetryableHttpStatus(xhr.status),
 								},
 							),
 						);

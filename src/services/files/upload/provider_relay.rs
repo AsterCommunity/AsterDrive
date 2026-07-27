@@ -30,6 +30,7 @@ use aster_forge_utils::numbers;
 const RELAY_STREAM_PIPE_BUFFER_SIZE: usize = 64 * 1024;
 const CLAIM_STALE_AFTER: Duration = Duration::from_secs(120);
 const CLAIM_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
+const FRAGMENT_UPLOAD_TIMEOUT: Duration = Duration::from_secs(90);
 const PROVIDER_RANGE_RECEIPT: &str = "provider-range-v1";
 
 enum ClaimOutcome {
@@ -73,7 +74,7 @@ async fn upload_bytes_with_context(
         ));
     }
 
-    match claim_or_reconcile(state, &session, chunk_number, expected_size, &context).await? {
+    match claim_or_reconcile(state, &session, chunk_number, expected_size, context).await? {
         ClaimOutcome::Completed => return response(state, &session.id).await,
         ClaimOutcome::Pending => return Err(chunk_pending_error(chunk_number)),
         ClaimOutcome::Claimed => {}
@@ -85,7 +86,7 @@ async fn upload_bytes_with_context(
         state,
         &session.id,
         chunk_number,
-        provider(&context)?.upload_session_fragment_reader(
+        provider(context)?.upload_session_fragment_reader(
             &context.upload_url,
             start,
             total_size,
@@ -99,7 +100,7 @@ async fn upload_bytes_with_context(
         &session,
         chunk_number,
         expected_size,
-        &context,
+        context,
         result,
     )
     .await
@@ -124,12 +125,15 @@ async fn upload_payload_with_context(
 ) -> Result<ChunkUploadResponse> {
     validate_chunk_request(&session, chunk_number)?;
     let expected_size = expected_chunk_size_for_upload(&session, chunk_number)?;
-    match claim_or_reconcile(state, &session, chunk_number, expected_size, &context).await? {
+    match claim_or_reconcile(state, &session, chunk_number, expected_size, context).await? {
         ClaimOutcome::Completed => {
             drain_payload_exact_size(payload, expected_size, chunk_number).await?;
             return response(state, &session.id).await;
         }
-        ClaimOutcome::Pending => return Err(chunk_pending_error(chunk_number)),
+        ClaimOutcome::Pending => {
+            drain_payload_exact_size(payload, expected_size, chunk_number).await?;
+            return Err(chunk_pending_error(chunk_number));
+        }
         ClaimOutcome::Claimed => {}
     }
 
@@ -141,7 +145,7 @@ async fn upload_payload_with_context(
         state,
         &session.id,
         chunk_number,
-        provider(&context)?.upload_session_fragment_reader(
+        provider(context)?.upload_session_fragment_reader(
             &context.upload_url,
             start,
             total_size,
@@ -162,7 +166,7 @@ async fn upload_payload_with_context(
                         &session,
                         chunk_number,
                         expected_size,
-                        &context,
+                        context,
                         upload_result,
                     )
                     .await;
@@ -178,7 +182,7 @@ async fn upload_payload_with_context(
                     &session,
                     chunk_number,
                     expected_size,
-                    &context,
+                    context,
                     upload_result,
                 )
                 .await;
@@ -193,7 +197,7 @@ async fn upload_payload_with_context(
         &session,
         chunk_number,
         expected_size,
-        &context,
+        context,
         result,
     )
     .await
@@ -208,14 +212,42 @@ async fn upload_with_claim_heartbeat<F>(
 where
     F: Future<Output = Result<ProviderResumableUploadFragmentOutcome>>,
 {
+    upload_with_claim_heartbeat_timeout(
+        state,
+        upload_id,
+        chunk_number,
+        FRAGMENT_UPLOAD_TIMEOUT,
+        upload_future,
+    )
+    .await
+}
+
+async fn upload_with_claim_heartbeat_timeout<F>(
+    state: &PrimaryAppState,
+    upload_id: &str,
+    chunk_number: i32,
+    upload_timeout: Duration,
+    upload_future: F,
+) -> Result<ProviderResumableUploadFragmentOutcome>
+where
+    F: Future<Output = Result<ProviderResumableUploadFragmentOutcome>>,
+{
     let mut heartbeat = tokio::time::interval(CLAIM_HEARTBEAT_INTERVAL);
     heartbeat.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
     heartbeat.tick().await;
+    let deadline = tokio::time::sleep(upload_timeout);
+    tokio::pin!(deadline);
     tokio::pin!(upload_future);
 
     loop {
         tokio::select! {
             result = &mut upload_future => return result,
+            _ = &mut deadline => {
+                return Err(crate::storage::error::storage_driver_error(
+                    StorageErrorKind::Transient,
+                    "provider relay fragment upload timed out",
+                ));
+            }
             _ = heartbeat.tick() => {
                 if !upload_session_part_repo::touch_claimed_part(
                     state.writer_db(),
@@ -272,7 +304,7 @@ async fn reconcile_progress_with_context(
     session: &upload_session::Model,
     context: &ProviderRelayContext,
 ) -> Result<Vec<i32>> {
-    let next_offset = provider_next_offset(&context, session.total_size).await?;
+    let next_offset = provider_next_offset(context, session.total_size).await?;
     loop {
         let current = upload_session_repo::find_by_id(state.writer_db(), &session.id).await?;
         if current.received_count >= current.total_chunks {
@@ -657,10 +689,10 @@ fn out_of_order_error(chunk_number: i32, expected: i32) -> AsterError {
 }
 
 fn chunk_pending_error(chunk_number: i32) -> AsterError {
-    chunk_upload_error_with_code(
-        ApiErrorCode::UploadChunkRelayFailed,
-        format!("provider relay chunk {chunk_number} is already being uploaded"),
-    )
+    AsterError::upload_assembling(format!(
+        "provider relay chunk {chunk_number} is already being uploaded"
+    ))
+    .with_api_error_code(ApiErrorCode::UploadChunkPending)
 }
 
 fn corrupted(message: impl Into<String>) -> AsterError {
