@@ -95,10 +95,23 @@ function SetupStateUnavailable() {
 	);
 }
 
-function SetupStateBoundary({ children }: { children: ReactNode }) {
+function SetupStateBoundary({
+	allowStaleAuthenticatedShell = false,
+	children,
+}: {
+	allowStaleAuthenticatedShell?: boolean;
+	children: ReactNode;
+}) {
+	const isAuthStale = useAuthStore((state) => state.isAuthStale);
 	const setupState = useSystemSetupStore((state) => state.setupState);
 	const error = useSystemSetupStore((state) => state.error);
 
+	// A cached session is enough to mount the normal PWA shell while the backend
+	// is unreachable. Setup-specific routes stay fail-closed until their
+	// authoritative state can be loaded.
+	if (allowStaleAuthenticatedShell && isAuthStale && setupState === null) {
+		return children;
+	}
 	if (setupState === null && error) return <SetupStateUnavailable />;
 	if (setupState === null) return <Loading />;
 	return children;
@@ -111,7 +124,7 @@ export function ReadySystemSetupRoute() {
 	const location = useLocation();
 
 	return (
-		<SetupStateBoundary>
+		<SetupStateBoundary allowStaleAuthenticatedShell>
 			{setupState === "needs_admin" ? (
 				<Navigate to="/login" replace />
 			) : setupState === "needs_storage" ? (

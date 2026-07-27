@@ -14,6 +14,7 @@ import {
 
 const mockState = vi.hoisted(() => ({
 	error: null as unknown,
+	isAuthStale: false,
 	isAuthenticated: true,
 	isChecking: false,
 	mustChangePassword: false,
@@ -50,6 +51,7 @@ vi.mock("react-router-dom", () => ({
 vi.mock("@/stores/authStore", () => ({
 	useAuthStore: (
 		selector: (state: {
+			isAuthStale: boolean;
 			isAuthenticated: boolean;
 			isChecking: boolean;
 			user: {
@@ -59,6 +61,7 @@ vi.mock("@/stores/authStore", () => ({
 		}) => unknown,
 	) =>
 		selector({
+			isAuthStale: mockState.isAuthStale,
 			isAuthenticated: mockState.isAuthenticated,
 			isChecking: mockState.isChecking,
 			user: {
@@ -88,6 +91,7 @@ vi.mock("@/stores/systemSetupStore", () => ({
 describe("system setup route guards", () => {
 	beforeEach(() => {
 		mockState.error = null;
+		mockState.isAuthStale = false;
 		mockState.isAuthenticated = true;
 		mockState.isChecking = false;
 		mockState.mustChangePassword = false;
@@ -275,5 +279,35 @@ describe("system setup route guards", () => {
 		).toBeInTheDocument();
 		fireEvent.click(screen.getByRole("button"));
 		expect(mockState.refresh).toHaveBeenCalled();
+	});
+
+	it("mounts the normal PWA shell while an offline cached session checks setup state", () => {
+		mockState.isAuthStale = true;
+		mockState.setupState = null;
+
+		const { rerender } = render(<ReadySystemSetupRoute />);
+
+		expect(screen.getByTestId("outlet")).toBeInTheDocument();
+
+		mockState.error = new Error("network down");
+		rerender(<ReadySystemSetupRoute />);
+
+		expect(screen.getByTestId("outlet")).toBeInTheDocument();
+		expect(
+			screen.queryByText("storage_setup_state_load_failed_title"),
+		).not.toBeInTheDocument();
+	});
+
+	it("keeps setup-specific routes guarded when a cached session is offline", () => {
+		mockState.isAuthStale = true;
+		mockState.setupState = null;
+		mockState.error = new Error("network down");
+
+		render(<StorageSystemSetupRoute />);
+
+		expect(
+			screen.getByText("storage_setup_state_load_failed_title"),
+		).toBeInTheDocument();
+		expect(screen.queryByTestId("outlet")).not.toBeInTheDocument();
 	});
 });

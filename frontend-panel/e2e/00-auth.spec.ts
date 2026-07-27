@@ -58,6 +58,35 @@ test.describe
 			await loginAsAdmin(page);
 		});
 
+		test("keeps the PWA workspace shell when cached authentication starts offline", async ({
+			page,
+			request,
+		}) => {
+			await disablePasskeyBrowserSupport(page);
+			if (await hasUsers(request)) {
+				await loginAsAdmin(page);
+			} else {
+				await setupAdmin(page);
+			}
+
+			await page.route("**/api/v1/auth/me**", (route) =>
+				route.abort("internetdisconnected"),
+			);
+			await page.route("**/api/v1/auth/check", (route) =>
+				route.abort("internetdisconnected"),
+			);
+
+			await page.reload();
+
+			await expect(fileDropZone(page)).toBeVisible();
+			await expect(page.getByText("Offline", { exact: true })).toBeVisible();
+			await expect(
+				page.getByRole("heading", {
+					name: "Setup status could not be loaded",
+				}),
+			).toHaveCount(0);
+		});
+
 		test("preserves caret position when editing login inputs in the middle", async ({
 			page,
 			request,
