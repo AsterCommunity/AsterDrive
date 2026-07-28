@@ -63,6 +63,11 @@ strip = true
 [workspace]
 members = [".", "migration"]
 
+[workspace.lints.clippy]
+# Suppressions must remain observable: `expect` reports when its justification goes stale.
+allow_attributes = "deny"
+allow_attributes_without_reason = "deny"
+
 [features]
 default = ["server", "cli"]
 server = []

@@ -9,6 +9,9 @@ publish = false
 default = []
 cli = ["sea-orm-migration/cli"]
 
+[lints]
+workspace = true
+
 [lib]
 name = "migration"
 path = "src/lib.rs"

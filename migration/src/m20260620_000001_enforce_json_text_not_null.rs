@@ -101,7 +101,10 @@ async fn modify_json_text_nullability(
 }
 
 #[derive(DeriveIden, Clone, Copy)]
-#[allow(clippy::enum_variant_names)]
+#[expect(
+    clippy::enum_variant_names,
+    reason = "migration table identifiers intentionally share the Storage prefix for schema clarity"
+)]
 enum JsonTextTable {
     StoragePolicyCredentials,
     StoragePolicyAuthorizationFlows,
