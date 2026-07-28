@@ -27,6 +27,7 @@ src/services/                Auth、file、folder、upload、share、team、poli
 src/storage/                 存储驱动、连接器、registry、策略快照和远端协议运行时
 src/utils/                   crypto、ID、path、number、email、RAII 等工具
 src/webdav/                  WebDAV/DeltaV 协议接入、文件系统、锁、属性和传输
+crates/aster_drive_http/     有严格大小限制、错误类型无关的 HTTP 响应体读取工具
 crates/aster_drive_model/    共享类型和 SeaORM Entity
 crates/aster_drive_migration/ SeaORM migration crate
 crates/aster_drive_storage/  存储 trait、能力扩展、connector descriptor、对象 key 和结构化错误

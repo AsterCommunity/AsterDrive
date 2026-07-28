@@ -190,6 +190,7 @@ The practical rule of thumb in this repository remains:
 | `src/api/routes/internal_storage.rs` | Follower internal object storage protocol |
 | `src/api/routes/remote_tunnel.rs` | Primary-side remote-node reverse tunnel internal entry |
 | `src/services/` | Central business rule layer |
+| `crates/aster_drive_http/` | Bounded reqwest response-body reading independent of product error types; callers own error-code mapping |
 | `crates/aster_drive_storage/` | Storage traits, capability extensions, connector descriptors, object keys, and structured errors; the root package does not expose legacy compatibility paths |
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
 | `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |

@@ -192,6 +192,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/api/routes/internal_storage.rs` | follower 内部对象存储协议 |
 | `src/api/routes/remote_tunnel.rs` | primary 侧远端节点 reverse tunnel 内部入口 |
 | `src/services/` | 业务规则集中层 |
+| `crates/aster_drive_http/` | 与产品错误类型解耦、严格限制大小的 reqwest 响应体读取；错误码映射由调用方负责 |
 | `crates/aster_drive_storage/` | 存储 trait、能力扩展、connector descriptor、对象 key 与结构化错误；根包不提供旧路径兼容导出 |
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
 | `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |

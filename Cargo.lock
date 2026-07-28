@@ -760,6 +760,7 @@ dependencies = [
  "actix-web",
  "actix-ws",
  "aes-gcm 0.11.0",
+ "aster_drive_http",
  "aster_drive_migration",
  "aster_drive_model",
  "aster_drive_storage",
@@ -861,6 +862,15 @@ dependencies = [
  "webauthn-rs",
  "webauthn-rs-proto",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "aster_drive_http"
+version = "0.4.0"
+dependencies = [
+ "futures",
+ "reqwest 0.13.4",
+ "tokio",
 ]
 
 [[package]]

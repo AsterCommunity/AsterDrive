@@ -5,7 +5,7 @@ use async_trait::async_trait;
 use chrono::Utc;
 
 use crate::errors::{AsterError, MapAsterErr};
-use crate::http::read_reqwest_body_limited;
+use aster_drive_http::read_reqwest_body_limited;
 use aster_drive_model::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
 };
