@@ -4,7 +4,6 @@ use aster_forge_db::transaction;
 use futures::{StreamExt, stream};
 
 use crate::db::repository::{file_repo, share_repo};
-use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -12,6 +11,7 @@ use crate::services::{
     share,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::{i64_to_i32, usize_to_u32};
 
 use super::blob_cleanup::ensure_blob_cleanup_if_unreferenced;
@@ -110,7 +110,7 @@ async fn batch_purge_in_resource_scope_internal(
 
     crate::db::repository::property_repo::delete_all_for_entities(
         &txn,
-        crate::types::EntityType::File,
+        aster_drive_model::types::EntityType::File,
         &file_ids,
     )
     .await?;

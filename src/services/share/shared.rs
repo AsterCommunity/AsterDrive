@@ -12,14 +12,14 @@ use sea_orm::DatabaseConnection;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, share_repo, team_repo};
-use crate::entities::share;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::{file, folder},
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::types::EntityType;
+use aster_drive_model::entities::share;
+use aster_drive_model::types::EntityType;
 
 use super::{
     cache::load_share_record_by_token,
@@ -130,7 +130,7 @@ pub(super) async fn load_share_record(
 
 pub(super) fn ensure_share_matches_file(
     share: &share::Model,
-    file: &crate::entities::file::Model,
+    file: &aster_drive_model::entities::file::Model,
 ) -> Result<()> {
     if let Some(team_id) = share.team_id {
         if file.team_id != Some(team_id) {
@@ -148,7 +148,7 @@ pub(super) fn ensure_share_matches_file(
 
 pub(super) fn ensure_share_matches_folder(
     share: &share::Model,
-    folder: &crate::entities::folder::Model,
+    folder: &aster_drive_model::entities::folder::Model,
 ) -> Result<()> {
     if let Some(team_id) = share.team_id {
         if folder.team_id != Some(team_id) {
@@ -167,7 +167,7 @@ pub(super) fn ensure_share_matches_folder(
 pub(super) async fn load_share_file_resource(
     state: &impl SharedRuntimeState,
     share: &share::Model,
-) -> Result<crate::entities::file::Model> {
+) -> Result<aster_drive_model::entities::file::Model> {
     let file_id = match share_target_for_share(share)? {
         ShareTarget {
             r#type: EntityType::File,
@@ -195,7 +195,7 @@ pub(super) async fn load_share_file_resource(
 pub(super) async fn load_share_folder_resource(
     state: &impl SharedRuntimeState,
     share: &share::Model,
-) -> Result<crate::entities::folder::Model> {
+) -> Result<aster_drive_model::entities::folder::Model> {
     let folder_id = match share_target_for_share(share)? {
         ShareTarget {
             r#type: EntityType::Folder,
@@ -242,7 +242,7 @@ pub(super) async fn load_shared_folder_file_target(
     state: &impl SharedRuntimeState,
     token: &str,
     file_id: i64,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
     let file = file_repo::find_by_id(state.reader_db(), file_id).await?;
     ensure_share_matches_file(&share, &file)?;
@@ -267,7 +267,7 @@ pub(crate) async fn load_shared_folder_file_target_ignoring_download_limit(
     state: &impl SharedRuntimeState,
     token: &str,
     file_id: i64,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     let (share, root_folder_id) =
         load_usable_folder_share_root_ignoring_download_limit(state, token).await?;
     let file = file_repo::find_by_id(state.reader_db(), file_id).await?;
@@ -291,7 +291,7 @@ pub(super) async fn load_shared_subfolder_target(
     state: &impl SharedRuntimeState,
     token: &str,
     folder_id: i64,
-) -> Result<(share::Model, crate::entities::folder::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::folder::Model)> {
     let (share, root_folder_id) = load_valid_folder_share_root(state, token).await?;
     let target = folder_repo::find_by_id(state.reader_db(), folder_id).await?;
     ensure_share_matches_folder(&share, &target)?;
@@ -333,8 +333,8 @@ fn validate_share_download_limit(share: &share::Model) -> Result<()> {
 
 pub(super) fn resolve_share_resource(
     share: &share::Model,
-    file_map: &HashMap<i64, crate::entities::file::Model>,
-    folder_map: &HashMap<i64, crate::entities::folder::Model>,
+    file_map: &HashMap<i64, aster_drive_model::entities::file::Model>,
+    folder_map: &HashMap<i64, aster_drive_model::entities::folder::Model>,
 ) -> Result<(i64, String, EntityType, bool)> {
     match share_target_for_share(share)? {
         ShareTarget {
@@ -435,8 +435,8 @@ pub(super) async fn resolve_share_name(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::share;
-    use crate::types::EntityType;
+    use aster_drive_model::entities::share;
+    use aster_drive_model::types::EntityType;
     use std::collections::HashMap;
 
     fn mock_share_file(file_id: i64) -> share::Model {
@@ -475,8 +475,8 @@ mod tests {
         }
     }
 
-    fn mock_file(id: i64, name: &str) -> crate::entities::file::Model {
-        crate::entities::file::Model {
+    fn mock_file(id: i64, name: &str) -> aster_drive_model::entities::file::Model {
+        aster_drive_model::entities::file::Model {
             id,
             name: name.to_string(),
             folder_id: None,
@@ -497,8 +497,8 @@ mod tests {
         }
     }
 
-    fn mock_folder(id: i64, name: &str) -> crate::entities::folder::Model {
-        crate::entities::folder::Model {
+    fn mock_folder(id: i64, name: &str) -> aster_drive_model::entities::folder::Model {
+        aster_drive_model::entities::folder::Model {
             id,
             name: name.to_string(),
             parent_id: None,

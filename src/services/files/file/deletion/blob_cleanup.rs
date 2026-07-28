@@ -1,9 +1,9 @@
 use crate::db::repository::file_repo;
-use crate::entities::{file_blob, storage_policy};
 use crate::errors::AsterError;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::media::processing;
 use crate::storage::StorageDriver;
+use aster_drive_model::entities::{file_blob, storage_policy};
 use std::sync::Arc;
 
 pub(crate) async fn ensure_blob_cleanup_if_unreferenced(

@@ -7,13 +7,13 @@ use sha2::{Digest, Sha256};
 use utoipa::ToSchema;
 
 use crate::db::repository::{file_repo, team_repo};
-use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::file::{self as file_ops, ResolvedDownloadRange},
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::{u64_to_usize, usize_to_u64};
 
 const BASE62: &[u8] = b"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
@@ -335,7 +335,7 @@ mod tests {
     use super::*;
 
     fn test_file() -> file::Model {
-        crate::entities::file::Model {
+        aster_drive_model::entities::file::Model {
             id: 1,
             name: "test.txt".to_string(),
             folder_id: None,

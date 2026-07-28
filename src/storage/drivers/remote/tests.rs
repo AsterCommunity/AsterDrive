@@ -34,7 +34,7 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
     storage_policy::Model {
         id: 1,
         name: "remote".to_string(),
-        driver_type: crate::types::DriverType::Remote,
+        driver_type: aster_drive_model::types::DriverType::Remote,
         endpoint: String::new(),
         bucket: String::new(),
         access_key: String::new(),
@@ -43,8 +43,8 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
         remote_node_id: Some(7),
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: crate::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 5_242_880,
         created_at: now,
@@ -72,7 +72,7 @@ fn build_follower_with_capabilities(
         access_key: "access-key".to_string(),
         secret_key: "secret-key".to_string(),
         is_enabled: true,
-        transport_mode: crate::types::RemoteNodeTransportMode::Direct,
+        transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
         last_capabilities: last_capabilities.to_string(),
         last_error: String::new(),
         last_checked_at: None,
@@ -85,7 +85,7 @@ fn build_follower_with_capabilities(
 
 fn build_reverse_follower_with_capabilities(last_capabilities: &str) -> managed_follower::Model {
     let mut follower = build_follower_with_capabilities("", last_capabilities);
-    follower.transport_mode = crate::types::RemoteNodeTransportMode::ReverseTunnel;
+    follower.transport_mode = aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel;
     follower
 }
 

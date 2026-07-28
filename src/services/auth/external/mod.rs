@@ -14,7 +14,7 @@ mod verification;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::user;
+use aster_drive_model::entities::user;
 use aster_forge_api::NullablePatch;
 use aster_forge_external_auth::{
     ExternalAuthProtocol, ExternalAuthProviderKind, ExternalAuthProviderOptions,

@@ -1,14 +1,9 @@
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{mail::sender, storage_policy::policy};
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
-use crate::types::{
-    DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
-    UserRole, UserStatus, serialize_storage_policy_options,
-};
 use crate::webdav::backend::AsterDavFs;
 use crate::webdav::handlers::properties::handle_propfind;
 use crate::webdav::handlers::transfer::{handle_get_head, handle_put};
@@ -16,6 +11,11 @@ use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, HttpRequest, web};
 use aster_drive_migration::Migrator;
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
+    DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+    UserRole, UserStatus, serialize_storage_policy_options,
+};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_webdav::{DavLock, DavLockError, DavLockSystem, LsFuture};
@@ -43,7 +43,7 @@ fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead 
 
 async fn build_webdav_test_state(
     driver_type: DriverType,
-    options: crate::types::StoredStoragePolicyOptions,
+    options: aster_drive_model::types::StoredStoragePolicyOptions,
     driver: Arc<dyn StorageDriver>,
 ) -> (PrimaryAppState, user::Model, storage_policy::Model, PathBuf) {
     let temp_root = std::env::temp_dir().join(format!(
@@ -484,7 +484,7 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let get_stream_calls = driver.get_stream_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;
@@ -525,7 +525,7 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
     let get_range_calls = driver.get_range_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;
@@ -570,7 +570,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -622,7 +622,7 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -686,7 +686,7 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -755,7 +755,7 @@ async fn handle_head_does_not_open_the_storage_stream() {
     let get_stream_calls = driver.get_stream_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;

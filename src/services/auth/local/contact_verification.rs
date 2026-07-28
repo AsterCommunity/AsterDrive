@@ -10,7 +10,7 @@ use crate::db::repository::{contact_verification_token_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
-use crate::types::VerificationPurpose;
+use aster_drive_model::types::VerificationPurpose;
 use aster_forge_crypto as hash;
 
 use super::session::invalidate_auth_snapshot_cache;

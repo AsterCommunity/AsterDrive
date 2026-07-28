@@ -9,11 +9,11 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
-use crate::entities::{file, file_blob, resource_lock, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
-use crate::types::{
+use aster_drive_model::entities::{file, file_blob, resource_lock, storage_policy, user};
+use aster_drive_model::types::{
     DriverType, EntityType, StoredLockOwnerInfo, StoredStoragePolicyAllowedTypes,
     StoredStoragePolicyOptions, UserRole, UserStatus,
 };

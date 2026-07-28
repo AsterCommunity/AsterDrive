@@ -2,9 +2,9 @@ use chrono::Utc;
 use sea_orm::Set;
 
 use crate::db::repository::remote_storage_target_repo;
-use crate::entities::remote_storage_target;
 use crate::errors::Result;
 use crate::runtime::FollowerRuntimeState;
+use aster_drive_model::entities::remote_storage_target;
 
 use super::driver::validate_driver_from_target;
 

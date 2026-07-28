@@ -10,12 +10,12 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
-use crate::entities::resource_lock;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::types::EntityType;
 use crate::webdav::backend::path_resolver::{self, ResolvedNode};
+use aster_drive_model::entities::resource_lock;
+use aster_drive_model::types::EntityType;
 use aster_forge_webdav::{
     DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
 };

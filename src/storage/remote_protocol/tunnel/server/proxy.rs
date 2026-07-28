@@ -16,7 +16,6 @@ use super::{
     RemoteTunnelOwnerDirectory, RemoteTunnelRegistry, RemoteTunnelStreamHttpResponse,
 };
 use crate::db::repository::managed_follower_repo;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -27,6 +26,7 @@ use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
     REMOTE_CONTROL_PLANE_BODY_LIMIT, internal_request_mac, sign_internal_request,
 };
+use aster_drive_model::entities::managed_follower;
 
 pub const REMOTE_TUNNEL_PROXY_PATH_PREFIX: &str = "/api/v1/internal/remote-tunnel/proxy";
 const REMOTE_TUNNEL_PROXY_BODY_BRIDGE_CAPACITY: usize = 128 * 1024;
@@ -631,10 +631,10 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::config::{Config, DeploymentProfile};
-    use crate::entities::managed_follower;
     use crate::runtime::test_support::CacheOnlyState;
     use crate::storage::remote_protocol::tunnel::server::RemoteTunnelOwnerLease;
     use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::managed_follower;
     use sea_orm::{ActiveModelTrait, Set};
 
     #[test]
@@ -730,7 +730,7 @@ mod tests {
             access_key: Set("access".to_string()),
             secret_key: Set("secret".to_string()),
             is_enabled: Set(true),
-            transport_mode: Set(crate::types::RemoteNodeTransportMode::ReverseTunnel),
+            transport_mode: Set(aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel),
             last_capabilities: Set("{}".to_string()),
             last_error: Set(String::new()),
             last_checked_at: Set(None),
@@ -764,7 +764,7 @@ mod tests {
             access_key: "access".to_string(),
             secret_key: "secret".to_string(),
             is_enabled: true,
-            transport_mode: crate::types::RemoteNodeTransportMode::ReverseTunnel,
+            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel,
             last_capabilities: "{}".to_string(),
             last_error: String::new(),
             last_checked_at: None,

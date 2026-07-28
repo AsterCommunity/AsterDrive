@@ -13,15 +13,15 @@ use sea_orm::{
 use serde::Serialize;
 
 use crate::db::repository::{team_repo, upload_session_repo, user_repo};
-use crate::entities::{
+use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::services::{files::thumbnail, media::processing};
+use crate::storage::{DriverRegistry, StoragePathVisitor};
+use aster_drive_model::entities::{
     file::{self, Entity as File},
     file_blob::{self, Entity as FileBlob},
     file_version::{self, Entity as FileVersion},
     folder::{self, Entity as Folder},
 };
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::services::{files::thumbnail, media::processing};
-use crate::storage::{DriverRegistry, StoragePathVisitor};
 
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
 const INTEGRITY_BATCH_SIZE: u64 = 1_000;

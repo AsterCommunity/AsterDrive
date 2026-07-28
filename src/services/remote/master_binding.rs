@@ -2,7 +2,6 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::master_binding_repo;
-use crate::entities::master_binding;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::services::remote::storage_target;
@@ -14,6 +13,7 @@ use crate::storage::remote_protocol::{
     REMOTE_POLICY_MAX_FILE_SIZE_QUERY, REMOTE_STORAGE_TARGET_KEY_QUERY, normalize_remote_base_url,
     sign_presigned_request,
 };
+use aster_drive_model::entities::master_binding;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
 use sea_orm::{ConnectionTrait, Set};

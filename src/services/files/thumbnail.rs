@@ -9,12 +9,12 @@ use image::{ImageReader, Limits};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
-use crate::entities::file_blob;
 use crate::errors::{
     AsterError, MapAsterErr, Result, thumbnail_generation_error_with_code,
     validation_error_with_code,
 };
 use crate::storage::StorageDriver;
+use aster_drive_model::entities::file_blob;
 use aster_forge_utils::raii::TempFileGuard;
 use tokio::io::AsyncWriteExt;
 
@@ -323,9 +323,9 @@ mod tests {
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES;
-    use crate::entities::file_blob;
     use crate::errors::Result;
     use crate::storage::{BlobMetadata, LocalPathStorageDriver, StorageDriver};
+    use aster_drive_model::entities::file_blob;
     use async_trait::async_trait;
     use chrono::Utc;
     use image::{GenericImageView, ImageFormat, Rgb, RgbImage};

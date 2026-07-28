@@ -1,9 +1,9 @@
 use crate::api::pagination::load_offset_page;
 use crate::db::repository::user_repo;
-use crate::entities::user;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{auth::local, user::profile};
+use aster_drive_model::entities::user;
 use aster_forge_api::OffsetPage;
 use std::collections::{HashMap, HashSet};
 

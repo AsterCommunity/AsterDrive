@@ -54,7 +54,6 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::AdminTaskSortBy;
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
-use crate::entities::background_task;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
@@ -63,7 +62,10 @@ use crate::services::{
     user::profile,
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps};
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, StoredTaskResult, StoredTaskSteps,
+};
 use aster_forge_api::{OffsetPage, SortOrder};
 use aster_forge_tasks::{TaskLeaseGuard, TaskStepInfo};
 use aster_forge_utils::numbers::i64_to_i32;
@@ -381,7 +383,7 @@ pub(crate) fn build_task_presentation_for_model(
 
 fn task_presentation_context(
     kind: BackgroundTaskKind,
-    runtime_json: Option<&crate::types::StoredTaskRuntime>,
+    runtime_json: Option<&aster_drive_model::types::StoredTaskRuntime>,
 ) -> presentation::TaskPresentationContext {
     match kind {
         BackgroundTaskKind::OfflineDownload => presentation::TaskPresentationContext {
@@ -925,14 +927,14 @@ mod tests {
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::OfflineDownloadEngine;
-    use crate::entities::background_task;
     use crate::services::task::spec::{self, SystemRuntimeTask};
     use crate::services::task::types::{
         RuntimeSystemHealthComponent, RuntimeSystemHealthResult, RuntimeSystemHealthStatus,
         RuntimeTaskResult, TaskPresentationCode, TaskResult,
     };
     use crate::services::workspace::storage::WorkspaceStorageScope;
-    use crate::types::{
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::{
         BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
         StoredTaskRuntime,
     };
@@ -1713,7 +1715,7 @@ mod tests {
             blob_hash: "hash-42".to_string(),
             source_file_name: "image.png".to_string(),
             source_mime_type: "image/png".to_string(),
-            processor: crate::types::MediaProcessorKind::Images,
+            processor: aster_drive_model::types::MediaProcessorKind::Images,
         };
         let create = TypedTaskCreate::<crate::services::task::spec::ThumbnailGenerateTask>::new(
             "thumbnail",

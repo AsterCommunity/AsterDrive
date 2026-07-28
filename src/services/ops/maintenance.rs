@@ -6,9 +6,9 @@ use std::collections::{HashMap, HashSet};
 use chrono::Utc;
 
 use crate::db::repository::{file_repo, upload_session_repo, version_repo};
-use crate::entities::{file_blob, upload_session};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive_model::entities::{file_blob, upload_session};
 
 const COMPLETED_SESSION_BATCH_SIZE: u64 = 1_000;
 const BLOB_RECONCILE_BATCH_SIZE: u64 = 1_000;

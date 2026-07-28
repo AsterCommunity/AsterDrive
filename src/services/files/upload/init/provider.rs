@@ -10,7 +10,7 @@ use crate::services::files::upload::responses::{
 };
 use crate::services::files::upload::shared::{UniqueUuidAttempt, with_unique_upload_id};
 use crate::services::workspace::storage::PolicyUploadTransport;
-use crate::types::{
+use aster_drive_model::types::{
     ProviderResumableUploadStrategy, UploadMode, UploadSessionKind, UploadSessionStatus,
 };
 use aster_forge_utils::numbers;
@@ -273,7 +273,9 @@ mod tests {
         BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
         ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageDriver,
     };
-    use crate::types::{ProviderResumableUploadStrategy, UploadMode, UploadSessionKind};
+    use aster_drive_model::types::{
+        ProviderResumableUploadStrategy, UploadMode, UploadSessionKind,
+    };
 
     #[test]
     fn server_relay_response_keeps_provider_url_private_and_sequential() {

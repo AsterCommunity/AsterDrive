@@ -2,7 +2,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use crate::storage::StorageCapacityInfo;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::DriverType;
+use aster_drive_model::types::DriverType;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]

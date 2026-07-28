@@ -2,7 +2,9 @@ use chrono::Utc;
 
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::{AuditAction, AuditEntityType, MicrosoftGraphCloud, StorageCredentialProvider};
+use aster_drive_model::types::{
+    AuditAction, AuditEntityType, MicrosoftGraphCloud, StorageCredentialProvider,
+};
 
 pub(super) const OAUTH_AUDIT_ACTION_NAME: &str = "storage_credential_oauth";
 pub(super) const OAUTH_AUDIT_DRIVER_TYPE: &str = "onedrive";

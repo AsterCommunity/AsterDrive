@@ -8,7 +8,6 @@ use utoipa::ToSchema;
 
 use crate::api::pagination::load_offset_page;
 use crate::db::repository::{file_repo, folder_repo, property_repo, tag_repo};
-use crate::entities::tag;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -18,7 +17,8 @@ use crate::services::{
         require_team_management_access, verify_file_access_for_read, verify_folder_access_for_read,
     },
 };
-use crate::types::{EntityType, TagScopeType};
+use aster_drive_model::entities::tag;
+use aster_drive_model::types::{EntityType, TagScopeType};
 use aster_forge_api::{MAX_PAGE_SIZE, OffsetPage};
 use aster_forge_validation::filename::char_count;
 

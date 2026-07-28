@@ -4,8 +4,8 @@
 mod common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::folder_repo;
-use aster_drive::entities::{file, folder};
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_model::entities::{file, folder};
 
 use actix_web::test;
 use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set, sea_query::Expr};
@@ -1435,7 +1435,7 @@ async fn test_batch_copy_preserves_partial_failures_for_quota() {
         .unwrap();
     let current_used = user.storage_used;
 
-    let mut updated_user: aster_drive::entities::user::ActiveModel = user.into();
+    let mut updated_user: aster_drive_model::entities::user::ActiveModel = user.into();
     updated_user.storage_quota = Set(current_used + file_a_model.size);
     updated_user.update(&db).await.unwrap();
 
@@ -1939,7 +1939,7 @@ async fn test_workspace_transfer_move_partial_copy_keeps_all_sources() {
     let team = aster_drive::db::repository::team_repo::find_active_by_id(&db, team_id)
         .await
         .unwrap();
-    let mut active: aster_drive::entities::team::ActiveModel = team.into();
+    let mut active: aster_drive_model::entities::team::ActiveModel = team.into();
     active.storage_quota = Set(first.size);
     active.update(&db).await.unwrap();
 
@@ -2414,7 +2414,7 @@ async fn test_workspace_transfer_copy_respects_destination_quota() {
     let team = aster_drive::db::repository::team_repo::find_active_by_id(&db, team_id)
         .await
         .unwrap();
-    let mut active: aster_drive::entities::team::ActiveModel = team.into();
+    let mut active: aster_drive_model::entities::team::ActiveModel = team.into();
     active.storage_quota = Set(first_file.size);
     active.update(&db).await.unwrap();
 

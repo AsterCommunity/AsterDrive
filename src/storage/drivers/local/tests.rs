@@ -7,11 +7,11 @@ use crate::storage::traits::extensions::{
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncReadExt;
 
-fn build_policy(base: &Path) -> crate::entities::storage_policy::Model {
-    crate::entities::storage_policy::Model {
+fn build_policy(base: &Path) -> aster_drive_model::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 1,
         name: "local".into(),
-        driver_type: crate::types::DriverType::Local,
+        driver_type: aster_drive_model::types::DriverType::Local,
         endpoint: String::new(),
         bucket: String::new(),
         access_key: String::new(),
@@ -20,8 +20,8 @@ fn build_policy(base: &Path) -> crate::entities::storage_policy::Model {
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: crate::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 0,
         created_at: chrono::Utc::now(),

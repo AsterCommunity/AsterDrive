@@ -99,7 +99,7 @@ pub(super) async fn revalidate_overwrite_target<C: ConnectionTrait>(
 
         let lock = crate::db::repository::lock_repo::find_by_entity(
             txn,
-            crate::types::EntityType::File,
+            aster_drive_model::types::EntityType::File,
             current_file.id,
         )
         .await?;

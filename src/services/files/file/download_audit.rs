@@ -1,9 +1,9 @@
-use crate::entities::file;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     ops::audit::{self, AuditContext, AuditEntityType},
     workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::file;
 use aster_forge_crypto as hash;
 
 const DOWNLOAD_AUDIT_CACHE_PREFIX: &str = "webdav_download_audit:";

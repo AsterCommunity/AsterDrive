@@ -8,7 +8,7 @@ use oem_cp::{
 use zip::HasZipMetadata;
 
 use crate::errors::{AsterError, Result};
-use crate::types::ArchiveFilenameEncoding;
+use aster_drive_model::types::ArchiveFilenameEncoding;
 
 pub(super) fn decode_zip_entry_name<R: Read>(
     entry: &zip::read::ZipFile<'_, R>,

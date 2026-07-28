@@ -16,13 +16,13 @@ use sea_orm::{
     sea_query::{Expr, Order, extension::postgres::PgExpr},
 };
 
-use crate::entities::{
+use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::{
     team,
     team_member::{self, Entity as TeamMember},
     user,
 };
-use crate::errors::{AsterError, Result};
-use crate::types::{TeamMemberRole, UserStatus};
+use aster_drive_model::types::{TeamMemberRole, UserStatus};
 use aster_forge_utils::numbers::i64_to_u64;
 
 const SQLITE_USERS_FTS_TABLE: &str = "users_search_fts";

@@ -1,9 +1,9 @@
 #[cfg(unix)]
 mod tests {
-    use aster_drive::entities::storage_policy;
     use aster_drive::storage::StorageDriver;
     use aster_drive::storage::drivers::local::{LocalDriver, upload_staging_path};
-    use aster_drive::types::{
+    use aster_drive_model::entities::storage_policy;
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
     };
     use std::path::{Path, PathBuf};

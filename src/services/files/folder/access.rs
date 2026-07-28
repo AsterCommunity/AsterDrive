@@ -1,10 +1,10 @@
 //! 文件夹服务子模块：`access`。
 
 use crate::db::repository::folder_repo;
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::folder;
 
 pub(crate) fn ensure_folder_model_in_scope(
     folder: &folder::Model,

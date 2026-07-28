@@ -6,7 +6,6 @@ use chrono::Utc;
 use sea_orm::Set;
 
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -14,6 +13,7 @@ use crate::services::{
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
+use aster_drive_model::entities::folder;
 
 use super::ensure_folder_model_in_scope;
 

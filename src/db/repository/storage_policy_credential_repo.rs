@@ -6,9 +6,13 @@ use sea_orm::{
     sea_query::{Expr, OnConflict},
 };
 
-use crate::entities::storage_policy_credential::{self, Entity as StoragePolicyCredential};
 use crate::errors::{AsterError, Result};
-use crate::types::{StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus};
+use aster_drive_model::entities::storage_policy_credential::{
+    self, Entity as StoragePolicyCredential,
+};
+use aster_drive_model::types::{
+    StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
+};
 
 pub async fn find_all<C: ConnectionTrait>(db: &C) -> Result<Vec<storage_policy_credential::Model>> {
     StoragePolicyCredential::find()

@@ -11,13 +11,13 @@ use std::collections::BTreeMap;
 
 use aster_drive::config::{RuntimeConfig, site_url::PUBLIC_SITE_URL_KEY};
 use aster_drive::db::repository::{lock_repo, user_repo, wopi_session_repo};
-use aster_drive::entities::{resource_lock, wopi_session};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::preview::apps::{
     PREVIEW_APPS_CONFIG_KEY, PreviewAppProvider, PreviewOpenMode, PublicPreviewAppConfig,
     PublicPreviewAppDefinition, default_public_preview_apps,
 };
-use aster_drive::types::{EntityType, StoredLockOwnerInfo};
+use aster_drive_model::entities::{resource_lock, wopi_session};
+use aster_drive_model::types::{EntityType, StoredLockOwnerInfo};
 use aster_forge_actix_middleware::security_headers::{
     REFERRER_POLICY_VALUE, X_CONTENT_TYPE_OPTIONS_VALUE, X_FRAME_OPTIONS_VALUE,
 };

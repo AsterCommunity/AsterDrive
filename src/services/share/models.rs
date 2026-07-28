@@ -6,10 +6,10 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use validator::Validate;
 
-use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::services::{user::account, user::profile};
-use crate::types::EntityType;
+use aster_drive_model::entities::share;
+use aster_drive_model::types::EntityType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

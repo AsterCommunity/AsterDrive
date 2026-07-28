@@ -1,13 +1,13 @@
 use super::S3Driver;
 use super::S3DriverOptions;
 use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
-use crate::entities::storage_policy;
 use crate::errors::AsterError;
 use crate::storage::error::StorageErrorKind;
 use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use crate::storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
 use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
-use crate::types::{StoragePolicyOptions, serialize_storage_policy_options};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{StoragePolicyOptions, serialize_storage_policy_options};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
 use aws_smithy_types::body::SdkBody;
@@ -139,7 +139,7 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
     storage_policy::Model {
         id: 1,
         name: "S3".to_string(),
-        driver_type: crate::types::DriverType::S3,
+        driver_type: aster_drive_model::types::DriverType::S3,
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
         access_key: "key".to_string(),
@@ -148,8 +148,8 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: crate::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 0,
         created_at: chrono::Utc::now(),

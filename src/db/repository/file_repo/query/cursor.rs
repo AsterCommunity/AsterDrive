@@ -4,8 +4,8 @@ use sea_orm::{
 };
 
 use crate::api::pagination::SortBy;
-use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, MapAsterErr, Result};
+use aster_drive_model::entities::file::{self, Entity as File};
 use aster_forge_api::SortOrder;
 
 use crate::db::repository::file_repo::common::{

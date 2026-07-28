@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
+use aster_drive_model::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
 
 use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSemantics};
 

@@ -4,11 +4,11 @@ use sea_orm::Set;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, lock_repo};
-use crate::entities::resource_lock;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::EntityType;
+use aster_drive_model::entities::resource_lock;
+use aster_drive_model::types::EntityType;
 
 use super::models::ResourceLockOwnerInfo;
 use super::owner_info::serialize_resource_lock_owner_info;

@@ -21,7 +21,6 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use aster_drive::db::repository::{
     background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo,
 };
-use aster_drive::entities::{file, file_blob, file_version, storage_policy};
 use aster_drive::errors::{AsterError, MapAsterErr, Result};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::task;
@@ -29,7 +28,8 @@ use aster_drive::storage::{
     BlobMetadata, MultipartStorageDriver, StorageDriver, StorageDriverExtensions, StorageErrorKind,
     StreamUploadDriver,
 };
-use aster_drive::types::{
+use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
+use aster_drive_model::types::{
     BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
 };
 use aster_forge_file_classification::FileCategory;
@@ -957,7 +957,7 @@ async fn set_background_task_status(
     task_id: i64,
     status: BackgroundTaskStatus,
 ) {
-    let mut task_update: aster_drive::entities::background_task::ActiveModel =
+    let mut task_update: aster_drive_model::entities::background_task::ActiveModel =
         background_task_repo::find_by_id(state.writer_db(), task_id)
             .await
             .expect("task should exist")

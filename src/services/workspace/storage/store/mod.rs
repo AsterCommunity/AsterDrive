@@ -8,10 +8,10 @@ use sea_orm::{ActiveModelTrait, DbBackend, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
-use crate::entities::file;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::events::storage_change;
+use aster_drive_model::entities::file;
 
 use super::{
     NewFileMode, PreparedNonDedupBlobUpload, WorkspaceStorageScope, check_quota,
@@ -67,7 +67,7 @@ impl<'a> StoreFromTempParams<'a> {
 
 #[derive(Clone, Default)]
 pub(crate) struct StoreFromTempHints<'a> {
-    pub resolved_policy: Option<crate::entities::storage_policy::Model>,
+    pub resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
     pub precomputed_hash: Option<&'a str>,
     pub actor_username: Option<&'a str>,
     pub operation_context: crate::services::workspace::storage::StorageOperationContext,
@@ -80,7 +80,7 @@ pub(crate) struct StorePreuploadedNondedupParams<'a> {
     pub size: i64,
     pub existing_file_id: Option<i64>,
     pub skip_lock_check: bool,
-    pub policy: &'a crate::entities::storage_policy::Model,
+    pub policy: &'a aster_drive_model::entities::storage_policy::Model,
     pub preuploaded_blob: PreparedNonDedupBlobUpload,
     pub actor_username: Option<&'a str>,
 }
@@ -385,7 +385,7 @@ pub(crate) async fn store_preuploaded_nondedup(
                         crate::db::repository::version_repo::next_version(txn, existing_id).await?;
                     crate::db::repository::version_repo::create(
                         txn,
-                        crate::entities::file_version::ActiveModel {
+                        aster_drive_model::entities::file_version::ActiveModel {
                             file_id: Set(existing_id),
                             blob_id: Set(old_blob.id),
                             version: Set(next_ver),
@@ -501,7 +501,7 @@ async fn revalidate_preuploaded_overwrite_target<C: sea_orm::ConnectionTrait>(
 
         let lock = crate::db::repository::lock_repo::find_by_entity(
             txn,
-            crate::types::EntityType::File,
+            aster_drive_model::types::EntityType::File,
             current_file.id,
         )
         .await?;

@@ -61,7 +61,7 @@ pub(crate) async fn get_image_preview_data_in_scope(
 
 pub(crate) async fn image_preview_for_file(
     state: &PrimaryAppState,
-    f: &crate::entities::file::Model,
+    f: &aster_drive_model::entities::file::Model,
 ) -> Result<Option<ImagePreviewResult>> {
     let blob = file_repo::find_blob_by_id(state.reader_db(), f.blob_id).await?;
     let preview = processing::load_image_preview_if_exists(state, &blob, &f.name, &f.mime_type)

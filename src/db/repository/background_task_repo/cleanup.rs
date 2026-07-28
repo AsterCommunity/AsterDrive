@@ -2,9 +2,9 @@ use chrono::{DateTime, Utc};
 use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use super::common::{TerminalTaskCleanupFilters, terminal_cleanup_condition};
-use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
-use crate::types::BackgroundTaskStatus;
+use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
+use aster_drive_model::types::BackgroundTaskStatus;
 
 pub async fn list_expired_terminal(
     db: &DatabaseConnection,

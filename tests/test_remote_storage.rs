@@ -17,7 +17,6 @@ use aster_drive::db::repository::{
     file_repo, follower_enrollment_session_repo, managed_follower_repo, master_binding_repo,
     policy_repo, upload_session_part_repo, upload_session_repo, user_repo,
 };
-use aster_drive::entities::{follower_enrollment_session, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{
     auth::local, files::file, files::folder, files::upload, remote::master_binding,
@@ -36,7 +35,8 @@ use aster_drive::storage::remote_protocol::{
     RemoteStorageCapabilities, RemoteStorageClient, RemoteStorageComposeRequest,
     RemoteUpdateStorageTargetRequest, sign_internal_request, sign_presigned_request,
 };
-use aster_drive::types::{
+use aster_drive_model::entities::{follower_enrollment_session, storage_policy};
+use aster_drive_model::types::{
     DriverType, RemoteDownloadStrategy, RemoteNodeTransportMode, RemoteUploadStrategy,
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, serialize_storage_policy_options,
 };
@@ -280,7 +280,7 @@ async fn spawn_counting_internal_storage_server(
 
 async fn start_test_reverse_tunnel_worker(
     primary_state: aster_drive::runtime::PrimaryAppState,
-    remote_node: aster_drive::entities::managed_follower::Model,
+    remote_node: aster_drive_model::entities::managed_follower::Model,
     follower_base_url: String,
 ) -> (CancellationToken, tokio::task::JoinHandle<()>) {
     let shutdown = CancellationToken::new();
@@ -385,7 +385,7 @@ async fn stop_test_reverse_tunnel_http_worker(worker: TestReverseTunnelHttpWorke
 
 async fn send_signed_tunnel_json_raw(
     client: &reqwest::Client,
-    remote_node: &aster_drive::entities::managed_follower::Model,
+    remote_node: &aster_drive_model::entities::managed_follower::Model,
     master_url: &str,
     path: &str,
     value: serde_json::Value,
@@ -416,7 +416,7 @@ async fn send_signed_tunnel_json_raw(
 }
 
 fn signed_tunnel_http_headers(
-    remote_node: &aster_drive::entities::managed_follower::Model,
+    remote_node: &aster_drive_model::entities::managed_follower::Model,
     method: &str,
     path: &str,
     content_length: Option<u64>,
@@ -567,7 +567,7 @@ async fn seed_remote_capabilities(
     remote_node_id: i64,
     capabilities: RemoteStorageCapabilities,
 ) {
-    let mut remote_node: aster_drive::entities::managed_follower::ActiveModel =
+    let mut remote_node: aster_drive_model::entities::managed_follower::ActiveModel =
         managed_follower_repo::find_by_id(state.writer_db(), remote_node_id)
             .await
             .expect("remote node should exist before seeding capabilities")
@@ -656,7 +656,7 @@ async fn wait_for_tunnel_error_persisted(
 
 async fn wait_for_stream_lane(
     state: &aster_drive::runtime::PrimaryAppState,
-    node: &aster_drive::entities::managed_follower::Model,
+    node: &aster_drive_model::entities::managed_follower::Model,
 ) {
     let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
     loop {
@@ -742,7 +742,7 @@ async fn setup_reverse_tunnel_ingress_profile_target(
     aster_drive::runtime::PrimaryAppState,
     TestHttpServer,
     aster_drive::runtime::PrimaryAppState,
-    aster_drive::entities::managed_follower::Model,
+    aster_drive_model::entities::managed_follower::Model,
     String,
     CancellationToken,
     tokio::task::JoinHandle<()>,
@@ -1440,18 +1440,18 @@ fn managed_ingress_object_path(
 
 async fn latest_audit_log(
     db: &sea_orm::DatabaseConnection,
-    action: aster_drive::types::AuditAction,
-) -> aster_drive::entities::audit_log::Model {
-    aster_drive::entities::audit_log::Entity::find()
-        .filter(aster_drive::entities::audit_log::Column::Action.eq(action))
-        .order_by_desc(aster_drive::entities::audit_log::Column::Id)
+    action: aster_drive_model::types::AuditAction,
+) -> aster_drive_model::entities::audit_log::Model {
+    aster_drive_model::entities::audit_log::Entity::find()
+        .filter(aster_drive_model::entities::audit_log::Column::Action.eq(action))
+        .order_by_desc(aster_drive_model::entities::audit_log::Column::Id)
         .one(db)
         .await
         .expect("audit log query should succeed")
         .expect("audit log entry should exist")
 }
 
-fn audit_details(entry: &aster_drive::entities::audit_log::Model) -> serde_json::Value {
+fn audit_details(entry: &aster_drive_model::entities::audit_log::Model) -> serde_json::Value {
     serde_json::from_str(
         entry
             .details
@@ -1868,7 +1868,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .expect("object write should succeed");
     let write_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerObjectWrite,
+        aster_drive_model::types::AuditAction::FollowerObjectWrite,
     )
     .await;
     assert_eq!(write_entry.user_id, 0);
@@ -1891,7 +1891,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
     assert_eq!(downloaded, b"audit payload");
     let read_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerObjectRead,
+        aster_drive_model::types::AuditAction::FollowerObjectRead,
     )
     .await;
     assert_eq!(read_entry.entity_name.as_deref(), Some("audit-object.bin"));
@@ -1907,7 +1907,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
         .expect("object delete should succeed");
     let delete_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerObjectDelete,
+        aster_drive_model::types::AuditAction::FollowerObjectDelete,
     )
     .await;
     assert_eq!(
@@ -1940,7 +1940,7 @@ async fn test_follower_internal_storage_records_object_audit_logs() {
     assert_eq!(composed.bytes_written, 6);
     let compose_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerObjectCompose,
+        aster_drive_model::types::AuditAction::FollowerObjectCompose,
     )
     .await;
     assert_eq!(
@@ -2003,7 +2003,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("binding sync should succeed");
     let sync_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerBindingSync,
+        aster_drive_model::types::AuditAction::FollowerBindingSync,
     )
     .await;
     assert_eq!(sync_entry.entity_id, Some(binding.id));
@@ -2037,7 +2037,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target create should succeed");
     let create_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerIngressProfileCreate,
+        aster_drive_model::types::AuditAction::FollowerIngressProfileCreate,
     )
     .await;
     assert_eq!(
@@ -2063,7 +2063,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target update should succeed");
     let update_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerIngressProfileUpdate,
+        aster_drive_model::types::AuditAction::FollowerIngressProfileUpdate,
     )
     .await;
     assert_eq!(
@@ -2082,7 +2082,7 @@ async fn test_follower_internal_storage_records_binding_and_profile_audit_logs()
         .expect("remote storage target delete should succeed");
     let delete_entry = latest_audit_log(
         provider_state.writer_db(),
-        aster_drive::types::AuditAction::FollowerIngressProfileDelete,
+        aster_drive_model::types::AuditAction::FollowerIngressProfileDelete,
     )
     .await;
     assert_eq!(
@@ -5578,7 +5578,7 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
     )
     .await
     .expect("remote presigned upload should initialize");
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
 
     let upload_id = init
         .upload_id
@@ -5678,9 +5678,9 @@ async fn test_remote_presigned_upload_writes_directly_to_provider() {
 #[actix_web::test]
 async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     use aster_drive::db::repository::background_task_repo;
-    use aster_drive::entities::background_task;
     use aster_drive::services::task;
-    use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
     let provider_state = common::setup().await;
@@ -5763,7 +5763,7 @@ async fn test_force_delete_policy_cleans_late_remote_presigned_put_e2e() {
     )
     .await
     .expect("remote presigned upload should initialize");
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
     let upload_id = init
         .upload_id
         .expect("presigned mode should return upload id");
@@ -5940,7 +5940,7 @@ async fn test_remote_relay_stream_direct_upload_e2e() {
     )
     .await
     .expect("remote relay direct upload should initialize");
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
 
     let temp_roots = vec![
         consumer_state.config.server.temp_dir.clone(),
@@ -6609,7 +6609,7 @@ async fn test_remote_relay_stream_chunked_upload_e2e() {
     )
     .await
     .expect("remote relay chunked upload should initialize");
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     assert_eq!(init.chunk_size, Some(4));
 
     let app = create_test_app!(consumer_state.clone());
@@ -7459,7 +7459,7 @@ async fn test_remote_presigned_multipart_upload_composes_on_provider_without_ass
     .expect("remote presigned multipart upload should initialize");
     assert_eq!(
         init.mode,
-        aster_drive::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadMode::PresignedMultipart
     );
 
     let upload_id = init

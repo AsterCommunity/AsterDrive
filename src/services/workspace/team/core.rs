@@ -7,10 +7,10 @@ use std::collections::HashSet;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{team_member_repo, team_repo};
-use crate::entities::{team, team_member};
 use crate::errors::{Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::{team, team_member};
+use aster_drive_model::types::TeamMemberRole;
 
 use super::shared::{
     archive_team_record, build_team_info, build_team_info_with_metadata, create_team_record,

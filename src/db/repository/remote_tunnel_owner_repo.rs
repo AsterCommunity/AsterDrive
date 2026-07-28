@@ -1,7 +1,7 @@
 //! Database access for the reverse-tunnel owner directory.
 
-use crate::entities::remote_tunnel_owner;
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::remote_tunnel_owner;
 use sea_orm::{ConnectionTrait, EntityTrait, Set, sea_query::OnConflict};
 
 pub async fn find_by_remote_node_id<C: ConnectionTrait>(

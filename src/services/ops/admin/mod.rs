@@ -20,7 +20,7 @@ use crate::services::{
     user::account,
     user::profile,
 };
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, UserStatus};
 use aster_forge_utils::numbers::u32_to_usize;
 
 type DateTimeUtc = DateTime<Utc>;
@@ -315,7 +315,7 @@ async fn load_recent_overview_events(
 
 async fn build_background_task_events(
     state: &impl SharedRuntimeState,
-    tasks: Vec<crate::entities::background_task::Model>,
+    tasks: Vec<aster_drive_model::entities::background_task::Model>,
 ) -> Result<Vec<AdminBackgroundTaskEvent>> {
     let creator_ids: Vec<i64> = tasks
         .iter()
@@ -332,7 +332,7 @@ async fn build_background_task_events(
 }
 
 fn build_background_task_event(
-    task: crate::entities::background_task::Model,
+    task: aster_drive_model::entities::background_task::Model,
     creators: &HashMap<i64, account::UserSummary>,
 ) -> Result<AdminBackgroundTaskEvent> {
     let duration_ms = match (task.started_at, task.finished_at) {
@@ -375,7 +375,7 @@ fn build_background_task_event(
 }
 
 fn build_system_health_summary(
-    task: Option<crate::entities::background_task::Model>,
+    task: Option<aster_drive_model::entities::background_task::Model>,
 ) -> AdminSystemHealthSummary {
     let Some(task) = task else {
         return AdminSystemHealthSummary {
@@ -428,7 +428,7 @@ fn build_system_health_summary(
 }
 
 fn parse_runtime_task_result(
-    task: &crate::entities::background_task::Model,
+    task: &aster_drive_model::entities::background_task::Model,
 ) -> Option<crate::services::task::types::RuntimeTaskResult> {
     let raw = task.result_json.as_ref()?;
     match serde_json::from_str(raw.as_ref()) {

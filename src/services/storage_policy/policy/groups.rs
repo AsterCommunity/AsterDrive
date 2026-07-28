@@ -6,9 +6,9 @@ use sea_orm::{Set, TransactionTrait};
 
 use crate::api::pagination::{AdminPolicyGroupSortBy, load_offset_page};
 use crate::db::repository::{policy_group_repo, policy_repo, team_repo, user_repo};
-use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{

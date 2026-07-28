@@ -3,13 +3,13 @@
 use super::AsterDavFile;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
-use crate::types::{DriverType, UserRole, UserStatus};
 use aster_drive_migration::Migrator;
+use aster_drive_model::entities::{storage_policy, user};
+use aster_drive_model::types::{DriverType, UserRole, UserStatus};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_webdav::DavFile;
@@ -195,8 +195,8 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
         secret_key: Set("mock-secret".to_string()),
         base_path: Set(String::new()),
         max_file_size: Set(0),
-        allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
         is_default: Set(true),
         chunk_size: Set(5_242_880),
         created_at: Set(now),

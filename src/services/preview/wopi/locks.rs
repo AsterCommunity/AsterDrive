@@ -5,7 +5,6 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::wopi;
 use crate::db::repository::lock_repo;
-use crate::entities::{file, resource_lock};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
@@ -13,7 +12,8 @@ use crate::services::{
     files::lock,
     ops::audit::{self, AuditRequestInfo},
 };
-use crate::types::EntityType;
+use aster_drive_model::entities::{file, resource_lock};
+use aster_drive_model::types::EntityType;
 
 use super::session::{WopiAccessTokenPayload, resolve_access_token};
 use super::types::{

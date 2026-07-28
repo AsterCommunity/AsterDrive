@@ -10,7 +10,7 @@ use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::traits::extensions::{
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
 };
-use crate::types::{
+use aster_drive_model::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
 };
 
@@ -294,7 +294,7 @@ fn child_duration_ms(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Opt
 #[cfg(test)]
 mod tests {
     use super::{COS_MEDIA_INFO_XML_MAX_BYTES, child_duration_ms, parse_cos_media_info_xml};
-    use crate::types::{MediaMetadataKind, MediaMetadataPayload};
+    use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
     use aster_forge_xml::{OwnedDocument, ParseOptions};
 
     #[test]

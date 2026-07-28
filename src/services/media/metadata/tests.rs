@@ -407,7 +407,7 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        crate::types::StoragePolicyOptions {
+        aster_drive_model::types::StoragePolicyOptions {
             storage_native_processing_enabled: Some(true),
             storage_native_media_metadata_enabled: Some(true),
             media_metadata_extensions: vec!["mp4".to_string()],
@@ -449,7 +449,7 @@ async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_imag
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        crate::types::StoragePolicyOptions {
+        aster_drive_model::types::StoragePolicyOptions {
             storage_native_processing_enabled: Some(true),
             storage_native_media_metadata_enabled: Some(true),
             media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
@@ -499,12 +499,16 @@ fn audio_metadata_does_not_read_embedded_cover_art() {
 }
 
 async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppState {
-    test_state_with_driver_and_options(driver, crate::types::StoragePolicyOptions::default()).await
+    test_state_with_driver_and_options(
+        driver,
+        aster_drive_model::types::StoragePolicyOptions::default(),
+    )
+    .await
 }
 
 async fn test_state_with_driver_and_options(
     driver: Arc<dyn StorageDriver>,
-    options: crate::types::StoragePolicyOptions,
+    options: aster_drive_model::types::StoragePolicyOptions,
 ) -> PrimaryAppState {
     let db = crate::db::connect_with_metrics(
         &crate::config::DatabaseConfig {
@@ -521,10 +525,10 @@ async fn test_state_with_driver_and_options(
         .expect("test migrations should run");
 
     let now = Utc::now();
-    let policy = crate::entities::storage_policy::ActiveModel {
+    let policy = aster_drive_model::entities::storage_policy::ActiveModel {
         id: Set(1),
         name: Set("Range metadata policy".to_string()),
-        driver_type: Set(crate::types::DriverType::Local),
+        driver_type: Set(aster_drive_model::types::DriverType::Local),
         endpoint: Set(String::new()),
         bucket: Set(String::new()),
         access_key: Set(String::new()),
@@ -533,9 +537,11 @@ async fn test_state_with_driver_and_options(
         remote_node_id: Set(None),
         remote_storage_target_key: Set(None),
         max_file_size: Set(0),
-        allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(crate::types::serialize_storage_policy_options(&options)
-            .expect("test storage policy options should serialize")),
+        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+        options: Set(
+            aster_drive_model::types::serialize_storage_policy_options(&options)
+                .expect("test storage policy options should serialize"),
+        ),
         is_default: Set(true),
         chunk_size: Set(5_242_880),
         created_at: Set(now),

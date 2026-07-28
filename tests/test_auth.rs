@@ -10,10 +10,10 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::api::pagination::AdminAuditLogSortBy;
 use aster_drive::config::branding::DEFAULT_BRANDING_TITLE;
 use aster_drive::db::repository::{audit_log_repo, auth_session_repo, passkey_repo, user_repo};
-use aster_drive::entities::passkey;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
-use aster_drive::types::{AuditAction, UserStatus};
+use aster_drive_model::entities::passkey;
+use aster_drive_model::types::{AuditAction, UserStatus};
 use aster_forge_api::SortOrder;
 use base64::Engine as _;
 use serde_json::Value;
@@ -2878,7 +2878,7 @@ async fn test_password_reset_request_is_generic_for_unknown_email() {
 
 #[actix_web::test]
 async fn test_password_reset_rotates_session_and_sends_notice_and_records_audit_logs() {
-    use aster_drive::entities::audit_log;
+    use aster_drive_model::entities::audit_log;
     use sea_orm::EntityTrait;
 
     let state = common::setup().await;
@@ -3041,7 +3041,7 @@ async fn test_password_reset_confirm_rejects_reused_token() {
 
 #[actix_web::test]
 async fn test_password_reset_confirm_rejects_expired_token() {
-    use aster_drive::entities::contact_verification_token;
+    use aster_drive_model::entities::contact_verification_token;
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, Set};
 
     let state = common::setup().await;
@@ -3173,8 +3173,8 @@ async fn test_password_reset_request_cooldown_returns_generic_success() {
 #[actix_web::test]
 async fn test_contact_verification_tokens_allow_only_one_unconsumed_token_per_purpose() {
     use aster_drive::db::repository::{contact_verification_token_repo, user_repo};
-    use aster_drive::entities::contact_verification_token;
-    use aster_drive::types::{VerificationChannel, VerificationPurpose};
+    use aster_drive_model::entities::contact_verification_token;
+    use aster_drive_model::types::{VerificationChannel, VerificationPurpose};
     use sea_orm::Set;
 
     let state = common::setup().await;
@@ -4729,7 +4729,7 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         audit_log_repo::AuditLogQuery {
             user_id: None,
             action: Some(AuditAction::AdminUpdateUser.as_str()),
-            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_type: Some(aster_drive_model::types::AuditEntityType::User.as_str()),
             entity_id: Some(user_id),
             after: None,
             before: None,
@@ -4982,7 +4982,7 @@ async fn test_forced_password_change_restricts_session_and_clears_after_update()
         audit_log_repo::AuditLogQuery {
             user_id: Some(user_id),
             action: Some(AuditAction::UserChangePassword.as_str()),
-            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_type: Some(aster_drive_model::types::AuditEntityType::User.as_str()),
             entity_id: None,
             after: None,
             before: None,
@@ -5067,7 +5067,7 @@ async fn test_admin_can_clear_forced_password_change_before_next_login() {
         audit_log_repo::AuditLogQuery {
             user_id: None,
             action: Some(AuditAction::AdminUpdateUser.as_str()),
-            entity_type: Some(aster_drive::types::AuditEntityType::User.as_str()),
+            entity_type: Some(aster_drive_model::types::AuditEntityType::User.as_str()),
             entity_id: Some(user_id),
             after: None,
             before: None,
@@ -5298,7 +5298,7 @@ async fn test_avatar_upload_and_source_switch() {
 
 #[actix_web::test]
 async fn test_avatar_read_rejects_tampered_stored_key() {
-    use aster_drive::entities::user_profile;
+    use aster_drive_model::entities::user_profile;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;

@@ -75,10 +75,10 @@ mod tests {
 
         record_server_start(&state).await;
 
-        let count = crate::entities::audit_log::Entity::find()
+        let count = aster_drive_model::entities::audit_log::Entity::find()
             .filter(
-                crate::entities::audit_log::Column::Action
-                    .eq(crate::types::AuditAction::ServerStart),
+                aster_drive_model::entities::audit_log::Column::Action
+                    .eq(aster_drive_model::types::AuditAction::ServerStart),
             )
             .count(&db)
             .await

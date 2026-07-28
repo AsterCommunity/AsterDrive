@@ -1,8 +1,8 @@
 //! API 分页参数与响应封装。
 
-use crate::entities::file;
 use crate::errors::Result;
-pub use crate::types::SortBy;
+use aster_drive_model::entities::file;
+pub use aster_drive_model::types::SortBy;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 #[cfg(all(debug_assertions, feature = "openapi"))]

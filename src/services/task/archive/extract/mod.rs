@@ -12,7 +12,6 @@ use chrono::Utc;
 use super::common::{build_folder_display_path, create_unique_folder_in_scope};
 use crate::config::operations;
 use crate::db::repository::background_task_repo;
-use crate::entities::{background_task, file};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::archive::core::format::{
@@ -37,7 +36,8 @@ use crate::services::{
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
-use crate::types::BackgroundTaskStatus;
+use aster_drive_model::entities::{background_task, file};
+use aster_drive_model::types::BackgroundTaskStatus;
 use import::materialize_archive_extract_stage;
 use staging::{
     ArchiveExtractLimits, ArchiveExtractPolicyResolver, ArchiveExtractStageOptions,
@@ -357,7 +357,7 @@ async fn cleanup_created_extract_root(
             }
             if let Err(error) = crate::db::repository::property_repo::delete_all_for_entities(
                 state.writer_db(),
-                crate::types::EntityType::Folder,
+                aster_drive_model::types::EntityType::Folder,
                 &folder_ids,
             )
             .await
@@ -475,8 +475,8 @@ mod tests {
     use chrono::Utc;
 
     use super::should_cleanup_created_extract_root_for_lease_error;
-    use crate::entities::background_task;
-    use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
     use aster_forge_tasks::TaskLease;
 
     fn task_model(status: BackgroundTaskStatus, processing_token: i64) -> background_task::Model {

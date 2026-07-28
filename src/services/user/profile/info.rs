@@ -7,9 +7,9 @@ use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::entities::{user, user_profile};
 use crate::runtime::SharedRuntimeState;
-use crate::types::AvatarSource;
+use aster_drive_model::entities::{user, user_profile};
+use aster_drive_model::types::AvatarSource;
 
 use super::shared::{AVATAR_SIZE_LG, AVATAR_SIZE_SM, stored_avatar_prefix};
 

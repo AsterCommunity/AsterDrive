@@ -4,12 +4,12 @@ use sea_orm::Set;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::remote_storage_target_repo;
-use crate::entities::{master_binding, remote_storage_target};
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
+use aster_drive_model::entities::{master_binding, remote_storage_target};
 
 use super::normalization::{new_target_key, normalize_create_input, normalize_update_input};
 use super::reconciliation::reconcile_target;

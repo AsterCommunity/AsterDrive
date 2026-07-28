@@ -7,7 +7,7 @@ use super::context::{
     AuditContext, AuditRequestInfo, MAX_AUDIT_IP_ADDRESS_LEN, MAX_AUDIT_USER_AGENT_LEN,
     bounded_audit_value,
 };
-use crate::entities::audit_log;
+use aster_drive_model::entities::audit_log;
 
 async fn in_memory_db() -> sea_orm::DatabaseConnection {
     let db = sea_orm::Database::connect("sqlite::memory:")

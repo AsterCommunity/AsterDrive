@@ -3,7 +3,6 @@ use futures::StreamExt;
 use tokio::io::AsyncWriteExt;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{
@@ -11,6 +10,7 @@ use crate::services::workspace::storage::{
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
 };
 use crate::storage::BlobMetadata;
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
@@ -187,7 +187,7 @@ fn resolve_streaming_direct_filename(
 fn validate_streaming_direct_uploaded_size(
     metadata: BlobMetadata,
     declared_size: i64,
-    policy: &crate::entities::storage_policy::Model,
+    policy: &aster_drive_model::entities::storage_policy::Model,
 ) -> Result<i64> {
     let actual_size = u64_to_i64(metadata.size, "streaming direct uploaded size")?;
     if actual_size != declared_size {
@@ -207,12 +207,14 @@ mod tests {
     use super::{resolve_streaming_direct_filename, validate_streaming_direct_uploaded_size};
     use crate::storage::BlobMetadata;
 
-    fn policy_with_max_file_size(max_file_size: i64) -> crate::entities::storage_policy::Model {
+    fn policy_with_max_file_size(
+        max_file_size: i64,
+    ) -> aster_drive_model::entities::storage_policy::Model {
         let now = chrono::Utc::now();
-        crate::entities::storage_policy::Model {
+        aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "test".to_string(),
-            driver_type: crate::types::DriverType::S3,
+            driver_type: aster_drive_model::types::DriverType::S3,
             endpoint: String::new(),
             bucket: String::new(),
             access_key: String::new(),
@@ -221,8 +223,8 @@ mod tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             max_file_size,
-            allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: crate::types::StoredStoragePolicyOptions::empty(),
+            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
             is_default: true,
             chunk_size: 5_242_880,
             created_at: now,

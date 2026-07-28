@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use sea_orm::{ColumnTrait, Condition, QueryFilter, Select};
 
-use crate::entities::background_task::{self, Entity as BackgroundTask};
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct AdminTaskFilters {

@@ -4,11 +4,11 @@ use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_repo};
-use crate::entities::{file, file_blob, upload_session};
 use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::events::storage_change;
 use crate::services::workspace::scope::WorkspaceStorageScope;
+use aster_drive_model::entities::{file, file_blob, upload_session};
 
 use super::file_record::{
     create_new_file_from_blob, create_new_file_from_blob_with_actor_username,
@@ -152,7 +152,7 @@ async fn mark_upload_session_completed<C: ConnectionTrait>(
     }
 
     let session_fresh = upload_session_repo::find_by_id(db, session_id).await?;
-    if session_fresh.status == crate::types::UploadSessionStatus::Failed {
+    if session_fresh.status == aster_drive_model::types::UploadSessionStatus::Failed {
         return Err(upload_assembly_error_with_code(
             ApiErrorCode::UploadPreviousFailure,
             "upload was canceled during assembly",

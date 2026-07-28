@@ -13,7 +13,6 @@ use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::files::file::DownloadDisposition;
 use crate::services::{mail::sender, storage_policy::policy};
@@ -21,7 +20,8 @@ use crate::storage::BlobMetadata;
 use crate::storage::traits::driver::PresignedDownloadOptions;
 use crate::storage::traits::extensions::PresignedStorageDriver;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-use crate::types::{
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
 use aster_forge_cache as cache;

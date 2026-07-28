@@ -24,7 +24,7 @@ use crate::services::files::upload::shared::{
 use crate::services::files::upload::staging;
 use crate::services::ops::deployment;
 use crate::services::workspace::storage::{WorkspaceStorageScope, resolve_policy_upload_transport};
-use crate::types::{UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 use aster_forge_utils::paths;
 

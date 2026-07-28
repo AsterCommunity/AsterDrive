@@ -1,7 +1,7 @@
 //! 仓储模块：`master_binding_repo`。
 
-use crate::entities::master_binding::{self, Entity as MasterBinding};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::master_binding::{self, Entity as MasterBinding};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QueryOrder, SqlErr,
     TryInsertResult,

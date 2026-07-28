@@ -12,13 +12,13 @@ use tokio::time::{Duration, sleep};
 use crate::config::DatabaseConfig;
 use crate::db::repository::background_task_repo;
 use crate::db::{self, repository::config_repo};
-use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
 use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use aster_drive_migration::Migrator;
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 use tokio_util::sync::CancellationToken;
 
 use super::claim::claim_candidates_for_lane;

@@ -3,9 +3,9 @@ use chrono::{Duration, Utc};
 use sea_orm::ActiveValue::Set;
 
 use crate::db::repository::{external_auth_login_flow_repo, external_auth_provider_repo};
-use crate::entities::external_auth_login_flow;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::external_auth_login_flow;
 use aster_forge_crypto as hash;
 use aster_forge_external_auth::{
     ExternalAuthCallback, ExternalAuthProviderKind, default_registry,

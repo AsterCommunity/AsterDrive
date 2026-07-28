@@ -24,8 +24,8 @@ use aster_forge_api::SortOrder;
 )]
 pub struct AdminUserListQuery {
     pub keyword: Option<String>,
-    pub role: Option<crate::types::UserRole>,
-    pub status: Option<crate::types::UserStatus>,
+    pub role: Option<aster_drive_model::types::UserRole>,
+    pub status: Option<aster_drive_model::types::UserStatus>,
     pub sort_by: Option<AdminUserSortBy>,
     pub sort_order: Option<SortOrder>,
 }
@@ -65,8 +65,8 @@ pub struct CreateUserInvitationReq {
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchUserReq {
     pub email_verified: Option<bool>,
-    pub role: Option<crate::types::UserRole>,
-    pub status: Option<crate::types::UserStatus>,
+    pub role: Option<aster_drive_model::types::UserRole>,
+    pub status: Option<aster_drive_model::types::UserStatus>,
     pub must_change_password: Option<bool>,
     #[validate(range(min = 0, message = "storage_quota must be non-negative"))]
     pub storage_quota: Option<i64>,
@@ -109,7 +109,7 @@ pub struct ResetUserPasswordReq {
 pub struct CreatePolicyReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub name: String,
-    pub driver_type: crate::types::DriverType,
+    pub driver_type: aster_drive_model::types::DriverType,
     pub endpoint: Option<String>,
     pub bucket: Option<String>,
     pub access_key: Option<String>,
@@ -126,7 +126,7 @@ pub struct CreatePolicyReq {
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
     #[validate(nested)]
-    pub options: Option<crate::types::StoragePolicyOptions>,
+    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
     pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
@@ -153,7 +153,7 @@ pub struct PatchPolicyReq {
     pub is_default: Option<bool>,
     pub allowed_types: Option<Vec<String>>,
     #[validate(nested)]
-    pub options: Option<crate::types::StoragePolicyOptions>,
+    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
     pub application_config: Option<crate::storage::StorageConnectorApplicationConfigInput>,
 }
 
@@ -210,7 +210,7 @@ impl From<StorageConnectorCatalogContext>
 pub struct TestPolicyParamsReq {
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
-    pub driver_type: crate::types::DriverType,
+    pub driver_type: aster_drive_model::types::DriverType,
     pub endpoint: Option<String>,
     pub bucket: Option<String>,
     pub access_key: Option<String>,
@@ -221,7 +221,7 @@ pub struct TestPolicyParamsReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub remote_storage_target_key: Option<String>,
     #[validate(nested)]
-    pub options: Option<crate::types::StoragePolicyOptions>,
+    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
 }
 
 /// Execute a storage policy action by draft policy parameters.
@@ -231,7 +231,7 @@ pub struct ExecuteDraftStoragePolicyActionReq {
     pub action: crate::storage::StoragePolicyExecutableAction,
     #[validate(range(min = 1, message = "policy_id must be greater than 0"))]
     pub policy_id: Option<i64>,
-    pub driver_type: crate::types::DriverType,
+    pub driver_type: aster_drive_model::types::DriverType,
     pub endpoint: Option<String>,
     pub bucket: Option<String>,
     pub access_key: Option<String>,
@@ -242,7 +242,7 @@ pub struct ExecuteDraftStoragePolicyActionReq {
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub remote_storage_target_key: Option<String>,
     #[validate(nested)]
-    pub options: Option<crate::types::StoragePolicyOptions>,
+    pub options: Option<aster_drive_model::types::StoragePolicyOptions>,
 }
 
 /// Execute a storage policy action for a saved policy.
@@ -257,7 +257,7 @@ pub struct ExecuteSavedStoragePolicyActionReq {
 #[validate(schema(function = "validate_start_storage_authorization"))]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StartStorageAuthorizationReq {
-    pub provider: crate::types::StorageCredentialProvider,
+    pub provider: aster_drive_model::types::StorageCredentialProvider,
     pub microsoft_graph:
         Option<crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput>,
 }
@@ -266,7 +266,7 @@ pub struct StartStorageAuthorizationReq {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PromoteS3CompatiblePolicyDriverReq {
-    pub target_driver_type: crate::types::DriverType,
+    pub target_driver_type: aster_drive_model::types::DriverType,
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
     pub endpoint: String,
     #[validate(custom(function = "crate::api::dto::validation::validate_non_blank"))]
@@ -281,7 +281,7 @@ pub struct CreateRemoteNodeReq {
     pub name: String,
     pub base_url: Option<String>,
     #[serde(default)]
-    pub transport_mode: crate::types::RemoteNodeTransportMode,
+    pub transport_mode: aster_drive_model::types::RemoteNodeTransportMode,
     #[serde(default = "default_true")]
     pub is_enabled: bool,
 }
@@ -292,7 +292,7 @@ pub struct CreateRemoteNodeReq {
 pub struct PatchRemoteNodeReq {
     pub name: Option<String>,
     pub base_url: Option<String>,
-    pub transport_mode: Option<crate::types::RemoteNodeTransportMode>,
+    pub transport_mode: Option<aster_drive_model::types::RemoteNodeTransportMode>,
     pub is_enabled: Option<bool>,
 }
 
@@ -410,8 +410,8 @@ pub struct ExecuteConfigActionResp {
     derive(IntoParams, ToSchema)
 )]
 pub struct AdminTaskListQuery {
-    pub kind: Option<crate::types::BackgroundTaskKind>,
-    pub status: Option<crate::types::BackgroundTaskStatus>,
+    pub kind: Option<aster_drive_model::types::BackgroundTaskKind>,
+    pub status: Option<aster_drive_model::types::BackgroundTaskStatus>,
     pub sort_by: Option<AdminTaskSortBy>,
     pub sort_order: Option<SortOrder>,
 }
@@ -432,8 +432,8 @@ impl AdminTaskListQuery {
 pub struct AdminTaskCleanupReq {
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub finished_before: DateTime<Utc>,
-    pub kind: Option<crate::types::BackgroundTaskKind>,
-    pub status: Option<crate::types::BackgroundTaskStatus>,
+    pub kind: Option<aster_drive_model::types::BackgroundTaskKind>,
+    pub status: Option<aster_drive_model::types::BackgroundTaskStatus>,
 }
 
 /// Create a background task that migrates blobs from one storage policy to another.
@@ -862,7 +862,7 @@ fn validate_start_storage_authorization(
     value: &StartStorageAuthorizationReq,
 ) -> std::result::Result<(), ValidationError> {
     match value.provider {
-        crate::types::StorageCredentialProvider::MicrosoftGraph => Ok(()),
+        aster_drive_model::types::StorageCredentialProvider::MicrosoftGraph => Ok(()),
         _ if value.microsoft_graph.is_some() => {
             Err(crate::api::dto::validation::message_validation_error(
                 "microsoft_graph authorization parameters are only valid for Microsoft Graph",
@@ -970,7 +970,7 @@ fn validate_admin_patch_team(
 mod tests {
     use super::*;
     use crate::services::storage_policy::credential::MicrosoftGraphAuthorizationInput;
-    use crate::types::{DriverType, StorageCredentialProvider};
+    use aster_drive_model::types::{DriverType, StorageCredentialProvider};
 
     #[test]
     fn create_policy_uses_generic_application_config_container() {

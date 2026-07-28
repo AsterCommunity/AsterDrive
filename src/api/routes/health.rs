@@ -172,17 +172,19 @@ fn status_response(status: &str) -> HealthResponse {
 mod tests {
     use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, follower_ready, ready};
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-    use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item, user};
     use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
     use crate::storage::BlobMetadata;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{
+    use actix_web::{body, http::StatusCode, web};
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{
+        storage_policy, storage_policy_group, storage_policy_group_item, user,
+    };
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };
-    use actix_web::{body, http::StatusCode, web};
-    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;

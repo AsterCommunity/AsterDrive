@@ -1,6 +1,6 @@
 use std::sync::LazyLock;
 
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;

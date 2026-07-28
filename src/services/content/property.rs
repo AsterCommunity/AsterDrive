@@ -1,11 +1,11 @@
 //! 服务模块：`content::property`。
 
 use crate::db::repository::{file_repo, folder_repo, property_repo};
-use crate::entities::entity_property;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::files::{file, folder};
-use crate::types::EntityType;
+use aster_drive_model::entities::entity_property;
+use aster_drive_model::types::EntityType;
 use serde::Serialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;

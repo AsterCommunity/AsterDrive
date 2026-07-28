@@ -3,7 +3,7 @@ use std::{
     io::{self, Read, Seek, SeekFrom},
 };
 
-use crate::types::ImageMediaMetadata;
+use aster_drive_model::types::ImageMediaMetadata;
 
 use super::{clean_metadata_string, dimensions_area};
 
@@ -1000,7 +1000,7 @@ fn format_tiff_datetime(value: &str, offset: Option<&str>) -> Option<String> {
 mod tests {
     use std::io::{self, Cursor, Read, Seek, SeekFrom};
 
-    use crate::types::ImageMediaMetadata;
+    use aster_drive_model::types::ImageMediaMetadata;
 
     use super::enrich_image_metadata_from_reader;
 

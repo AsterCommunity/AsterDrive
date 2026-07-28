@@ -11,7 +11,7 @@ use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::user::profile::shared::{
     AVATAR_SIZE_LG, AVATAR_SIZE_SM, MAX_AVATAR_DECODE_ALLOC,
 };
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
 use image::imageops::FilterType;
 use image::{DynamicImage, GenericImageView, ImageFormat, ImageReader, Limits};
 

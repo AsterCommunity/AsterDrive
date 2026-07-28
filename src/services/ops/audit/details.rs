@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::types::{
+use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, EntityType, MfaMethod, MfaPersistentFactorMethod,
     TeamMemberRole, UserRole, UserStatus,
 };
@@ -366,7 +366,7 @@ pub struct UserPreferencesAuditDetails<'a> {
 
 #[derive(Serialize)]
 pub struct UserAvatarUploadAuditDetails {
-    pub source: crate::types::AvatarSource,
+    pub source: aster_drive_model::types::AvatarSource,
     pub version: i32,
 }
 
@@ -491,7 +491,7 @@ pub struct RemoteEnrollmentAuditDetails<'a> {
 #[derive(Serialize)]
 pub struct InvitationAuditDetails<'a> {
     pub email: &'a str,
-    pub status: crate::types::UserInvitationStatus,
+    pub status: aster_drive_model::types::UserInvitationStatus,
     pub invited_by: i64,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accepted_user_id: Option<i64>,

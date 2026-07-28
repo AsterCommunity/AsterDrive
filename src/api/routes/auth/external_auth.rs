@@ -424,7 +424,7 @@ async fn complete_external_primary_login(
     mfa::complete_primary_login_or_start_mfa(
         state,
         &result.primary_login.user,
-        crate::types::MfaFirstFactor::ExternalAuth,
+        aster_drive_model::types::MfaFirstFactor::ExternalAuth,
         Some(&result.primary_login.return_path),
         audit_info.ip_address.as_deref(),
         audit_info.user_agent.as_deref(),

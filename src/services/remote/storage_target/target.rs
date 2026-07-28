@@ -1,8 +1,8 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::remote_storage_target_repo;
-use crate::entities::master_binding;
 use crate::errors::{Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
+use aster_drive_model::entities::master_binding;
 
 use super::driver::build_driver_from_target;
 use super::models::ResolvedRemoteStorageTarget;
@@ -63,7 +63,7 @@ pub async fn resolve_target_by_key<S: FollowerRuntimeState>(
 
 fn build_resolved_target<S: FollowerRuntimeState>(
     state: &S,
-    target: crate::entities::remote_storage_target::Model,
+    target: aster_drive_model::entities::remote_storage_target::Model,
 ) -> Result<ResolvedRemoteStorageTarget> {
     if !target.last_error.trim().is_empty() {
         return Err(precondition_failed_with_code(

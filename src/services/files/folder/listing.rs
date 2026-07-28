@@ -43,9 +43,9 @@ impl From<&crate::api::pagination::FolderListQuery> for FolderListParams {
 }
 
 struct FolderListingResult {
-    folders: Vec<crate::entities::folder::Model>,
+    folders: Vec<aster_drive_model::entities::folder::Model>,
     folders_total: u64,
-    files: Vec<crate::entities::file::Model>,
+    files: Vec<aster_drive_model::entities::file::Model>,
     files_total: u64,
 }
 

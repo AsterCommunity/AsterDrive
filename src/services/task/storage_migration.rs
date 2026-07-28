@@ -10,11 +10,11 @@ use tokio::io::{AsyncRead, AsyncReadExt, ReadBuf};
 use crate::db::repository::{
     background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo, version_repo,
 };
-use crate::entities::{background_task, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
-use crate::types::BackgroundTaskKind;
+use aster_drive_model::entities::{background_task, file_blob, storage_policy};
+use aster_drive_model::types::BackgroundTaskKind;
 use aster_forge_crypto::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use aster_forge_db::transaction;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};

@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use crate::config::{RuntimeConfig, operations};
 use crate::errors::{AsterError, Result};
-use crate::types::{MediaMetadataKind, MediaProcessorKind};
+use aster_drive_model::types::{MediaMetadataKind, MediaProcessorKind};
 
 use super::types::{
     BUILTIN_AUDIO_METADATA_EXTENSIONS, BUILTIN_AUDIO_THUMBNAIL_EXTENSIONS,

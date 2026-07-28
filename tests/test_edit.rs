@@ -371,9 +371,9 @@ async fn test_update_content_locked_by_other() {
     {
         use sea_orm::{ActiveModelTrait, Set};
         let now = chrono::Utc::now();
-        let lock = aster_drive::entities::resource_lock::ActiveModel {
+        let lock = aster_drive_model::entities::resource_lock::ActiveModel {
             token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
-            entity_type: Set(aster_drive::types::EntityType::File),
+            entity_type: Set(aster_drive_model::types::EntityType::File),
             entity_id: Set(file_id),
             path: Set("/test.txt".to_string()),
             owner_id: Set(Some(99999)),
@@ -387,7 +387,7 @@ async fn test_update_content_locked_by_other() {
         lock.insert(&db).await.unwrap();
         aster_drive::services::files::lock::set_entity_locked(
             &db,
-            aster_drive::types::EntityType::File,
+            aster_drive_model::types::EntityType::File,
             file_id,
             true,
         )

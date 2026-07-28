@@ -14,11 +14,11 @@ use sea_orm::{ConnectionTrait, DbErr, IntoActiveModel, Set, SqlErr};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
 use crate::db::repository::{policy_group_repo, team_member_repo, team_repo, user_repo};
-use crate::entities::{team, team_member, user};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::{team, team_member, user};
+use aster_drive_model::types::TeamMemberRole;
 use aster_forge_validation::filename::char_count;
 
 use super::{

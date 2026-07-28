@@ -64,7 +64,7 @@ impl RemoteStorageClient {
     }
 
     pub(crate) fn new_reverse_tunnel(
-        remote_node: &crate::entities::managed_follower::Model,
+        remote_node: &aster_drive_model::entities::managed_follower::Model,
         broker: std::sync::Arc<dyn RemoteTunnelBroker>,
     ) -> Result<Self> {
         Ok(Self {

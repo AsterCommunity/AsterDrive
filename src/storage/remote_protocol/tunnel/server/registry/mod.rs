@@ -5,8 +5,8 @@ use dashmap::DashMap;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Notify;
 
-use crate::entities::managed_follower;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::managed_follower;
 
 mod broker;
 mod headers;

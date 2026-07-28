@@ -8,10 +8,10 @@ mod cache;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, team_member_repo, team_repo, user_repo};
-use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::{file, folder};
+use aster_drive_model::types::TeamMemberRole;
 use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
 
@@ -506,18 +506,18 @@ mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
     use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
-    use crate::entities::{
-        storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
-    };
     use crate::runtime::PrimaryAppState;
     use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{
+        storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
+    };
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
         UserRole, UserStatus,
     };
-    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
@@ -753,7 +753,7 @@ mod tests {
         let now = Utc::now();
         let parent = crate::db::repository::folder_repo::create(
             state.writer_db(),
-            crate::entities::folder::ActiveModel {
+            aster_drive_model::entities::folder::ActiveModel {
                 name: Set("Parent".to_string()),
                 parent_id: Set(None),
                 team_id: Set(None),
@@ -772,7 +772,7 @@ mod tests {
         .expect("parent folder should insert");
         let child = crate::db::repository::folder_repo::create(
             state.writer_db(),
-            crate::entities::folder::ActiveModel {
+            aster_drive_model::entities::folder::ActiveModel {
                 name: Set("Child".to_string()),
                 parent_id: Set(Some(parent.id)),
                 team_id: Set(None),

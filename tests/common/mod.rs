@@ -1250,17 +1250,17 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     let now = Utc::now();
     let _ = aster_drive::db::repository::policy_repo::create(
         &db,
-        aster_drive::entities::storage_policy::ActiveModel {
+        aster_drive_model::entities::storage_policy::ActiveModel {
             name: Set("Test Local".to_string()),
-            driver_type: Set(aster_drive::types::DriverType::Local),
+            driver_type: Set(aster_drive_model::types::DriverType::Local),
             endpoint: Set(String::new()),
             bucket: Set(String::new()),
             access_key: Set(String::new()),
             secret_key: Set(String::new()),
             base_path: Set(test_dir),
             max_file_size: Set(0),
-            allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
             is_default: Set(true),
             chunk_size: Set(5_242_880),
             created_at: Set(now),

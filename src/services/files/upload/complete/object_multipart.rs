@@ -2,7 +2,6 @@ use chrono::Utc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_part_repo;
-use crate::entities::{file, storage_policy, upload_session};
 use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::shared::{
@@ -12,7 +11,8 @@ use crate::services::workspace::scope::WorkspaceStorageScope;
 use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
 use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
-use crate::types::UploadSessionStatus;
+use aster_drive_model::entities::{file, storage_policy, upload_session};
+use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::contract::{VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure};
@@ -603,10 +603,10 @@ mod tests {
         validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
     };
     use crate::api::api_error_code::ApiErrorCode;
-    use crate::entities::upload_session;
     use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
     use crate::storage::traits::UploadedMultipartPart;
     use crate::storage::{BlobMetadata, MultipartStorageDriver, StorageDriver};
+    use aster_drive_model::entities::upload_session;
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -809,8 +809,8 @@ mod tests {
             received_count: 0,
             folder_id: None,
             policy_id: 1,
-            status: crate::types::UploadSessionStatus::Assembling,
-            session_kind: crate::types::UploadSessionKind::ProviderRelayMultipart,
+            status: aster_drive_model::types::UploadSessionStatus::Assembling,
+            session_kind: aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart,
             object_temp_key: Some("temp".to_string()),
             object_multipart_id: Some("multipart".to_string()),
             provider_session_ciphertext: None,

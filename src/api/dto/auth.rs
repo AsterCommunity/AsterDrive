@@ -88,7 +88,7 @@ pub enum LoginResponse {
     MfaRequired {
         flow_token: String,
         expires_in: u64,
-        methods: Vec<crate::types::MfaMethod>,
+        methods: Vec<aster_drive_model::types::MfaMethod>,
     },
 }
 
@@ -103,7 +103,7 @@ pub struct ActionMessageResp {
 #[derive(Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct UpdateAvatarSourceReq {
-    pub source: crate::types::AvatarSource,
+    pub source: aster_drive_model::types::AvatarSource,
 }
 
 /// Update display name in user profile.

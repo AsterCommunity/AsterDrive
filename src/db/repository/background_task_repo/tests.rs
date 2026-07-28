@@ -5,9 +5,11 @@ use super::{
 };
 use crate::api::pagination::AdminTaskSortBy;
 use crate::config::DatabaseConfig;
-use crate::entities::background_task;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskSteps};
 use aster_drive_migration::Migrator;
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{
+    BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskSteps,
+};
 use aster_forge_api::SortOrder;
 use chrono::{Duration, Utc};
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};

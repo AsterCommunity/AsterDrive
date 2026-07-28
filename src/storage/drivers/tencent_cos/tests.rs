@@ -1,10 +1,12 @@
 use super::native_thumbnail::is_cos_image_thumbnail_candidate;
 use super::signing::cos_virtual_hosted_s3_endpoint;
 use super::*;
-use crate::entities::storage_policy;
 use crate::storage::traits::driver::StorageDriver;
 use crate::storage::traits::extensions::{NativeThumbnailRequest, NativeThumbnailStorageDriver};
-use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
+    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+};
 use url::Url;
 
 fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {

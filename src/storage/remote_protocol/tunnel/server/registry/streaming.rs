@@ -15,13 +15,13 @@ use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT,
     REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, reverse_tunnel_offline_error,
 };
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::tunnel::server::response::header_pairs_to_map;
 use crate::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_STREAM_CHUNK_SIZE, RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind,
 };
+use aster_drive_model::entities::managed_follower;
 
 struct PinnedAsyncRead {
     inner: Pin<Box<dyn AsyncRead + Send>>,

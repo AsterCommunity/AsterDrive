@@ -6,8 +6,10 @@ use sea_orm::{
     ExprTrait, QueryFilter, RelationTrait, Set, sea_query::Expr,
 };
 
-use crate::entities::storage_migration_checkpoint::{self, Entity as StorageMigrationCheckpoint};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::storage_migration_checkpoint::{
+    self, Entity as StorageMigrationCheckpoint,
+};
 
 #[derive(Debug, Clone)]
 pub struct CreateCheckpointInput<'a> {
@@ -187,8 +189,8 @@ pub async fn has_active_conflict<C: ConnectionTrait>(
     source_policy_id: i64,
     target_policy_id: i64,
 ) -> Result<bool> {
-    use crate::entities::background_task;
-    use crate::types::BackgroundTaskStatus;
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::BackgroundTaskStatus;
     use sea_orm::QuerySelect;
 
     let existing = StorageMigrationCheckpoint::find()

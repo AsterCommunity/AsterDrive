@@ -6,8 +6,8 @@ use sea_orm::{
     QueryOrder, sea_query::Expr,
 };
 
-use crate::entities::auth_session::{self, Entity as AuthSession};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::auth_session::{self, Entity as AuthSession};
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

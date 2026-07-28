@@ -7,11 +7,11 @@ use crate::api::dto::files::{
     FileResourceRequestInfo,
 };
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob};
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
 use crate::storage::PresignedDownloadOptions;
+use aster_drive_model::entities::{file, file_blob};
 
 use super::{DownloadDisposition, get_info_in_scope, requires_inline_sandbox};
 
@@ -381,13 +381,13 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db::repository::file_repo;
-    use crate::entities::{file, file_blob, storage_policy, user};
     use crate::runtime::PrimaryAppState;
     use crate::services::{mail::sender, media::processing, storage_policy::policy};
     use crate::storage::traits::driver::PresignedDownloadOptions;
     use crate::storage::traits::extensions::PresignedStorageDriver;
     use crate::storage::{BlobMetadata, DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{
+    use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };

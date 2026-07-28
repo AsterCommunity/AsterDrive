@@ -2,7 +2,6 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, share_repo};
-use crate::entities::{file, share};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
@@ -13,6 +12,7 @@ use crate::services::{
     media::processing,
     task,
 };
+use aster_drive_model::entities::{file, share};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
 use std::sync::{
@@ -526,7 +526,7 @@ pub async fn get_shared_folder_file_media_metadata(
 pub(crate) async fn load_preview_shared_file(
     state: &impl SharedRuntimeState,
     token: &str,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     let share = load_valid_share(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
     Ok((share, file))
@@ -536,14 +536,14 @@ pub(crate) async fn load_preview_shared_folder_file(
     state: &impl SharedRuntimeState,
     token: &str,
     file_id: i64,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     load_shared_folder_file_target(state, token, file_id).await
 }
 
 pub(crate) async fn load_shared_file_ignoring_download_limit(
     state: &impl SharedRuntimeState,
     token: &str,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     let share = load_usable_share_ignoring_download_limit(state, token).await?;
     let file = load_share_file_resource(state, &share).await?;
     Ok((share, file))
@@ -553,7 +553,7 @@ pub(crate) async fn load_shared_folder_file_ignoring_download_limit(
     state: &impl SharedRuntimeState,
     token: &str,
     file_id: i64,
-) -> Result<(share::Model, crate::entities::file::Model)> {
+) -> Result<(share::Model, aster_drive_model::entities::file::Model)> {
     load_shared_folder_file_target_ignoring_download_limit(state, token, file_id).await
 }
 
@@ -630,7 +630,7 @@ pub async fn get_shared_subfolder_ancestors(
 async fn download_share_resource_with_disposition(
     state: &PrimaryAppState,
     share: &share::Model,
-    file: &crate::entities::file::Model,
+    file: &aster_drive_model::entities::file::Model,
     disposition: file_ops::DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<ResolvedDownloadRange>,

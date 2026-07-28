@@ -30,7 +30,6 @@ use aster_drive::config::operations::{
     OFFLINE_DOWNLOAD_TEMP_DIR_KEY,
 };
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
-use aster_drive::entities::{background_task, file_blob, storage_policy};
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::task::{
     self, RuntimeTaskRunOutcome, SystemRuntimeTaskKind,
@@ -40,7 +39,8 @@ use aster_drive::services::task::{
     },
 };
 use aster_drive::storage::{BlobMetadata, StorageDriver};
-use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+use aster_drive_model::entities::{background_task, file_blob, storage_policy};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
@@ -1741,7 +1741,7 @@ async fn test_blob_maintenance_keeps_cached_policy_drivers_stable() {
     let now = Utc::now();
     let untouched_policy = storage_policy::ActiveModel {
         name: Set("Untouched maintenance policy".to_string()),
-        driver_type: Set(aster_drive::types::DriverType::Local),
+        driver_type: Set(aster_drive_model::types::DriverType::Local),
         endpoint: Set(String::new()),
         bucket: Set(String::new()),
         access_key: Set(String::new()),
@@ -1749,8 +1749,8 @@ async fn test_blob_maintenance_keeps_cached_policy_drivers_stable() {
         base_path: Set(untouched_policy_root.to_string_lossy().into_owned()),
         remote_node_id: Set(None),
         max_file_size: Set(0),
-        allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
         is_default: Set(false),
         chunk_size: Set(0),
         created_at: Set(now),

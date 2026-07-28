@@ -5,15 +5,15 @@ use sea_orm::{
 };
 use std::collections::HashMap;
 
-use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 
 /// 统计单个 blob 当前被文件记录引用的次数。
 pub async fn count_blob_refs_from_files_for_blob<C: ConnectionTrait>(
     db: &C,
     blob_id: i64,
 ) -> Result<i64> {
-    use crate::entities::file::{self, Entity as File};
+    use aster_drive_model::entities::file::{self, Entity as File};
     Ok(File::find()
         .select_only()
         .column_as(Expr::col(file::Column::Id).count(), "ref_count")
@@ -29,7 +29,7 @@ pub async fn count_blob_refs_from_files_for_blob<C: ConnectionTrait>(
 pub async fn count_blob_refs_from_files<C: ConnectionTrait>(
     db: &C,
 ) -> Result<std::collections::HashMap<i64, i64>> {
-    use crate::entities::file::{self, Entity as File};
+    use aster_drive_model::entities::file::{self, Entity as File};
     let rows = File::find()
         .select_only()
         .column(file::Column::BlobId)
@@ -47,7 +47,7 @@ pub async fn count_blob_refs_from_files_for_blobs<C: ConnectionTrait>(
     db: &C,
     blob_ids: &[i64],
 ) -> Result<HashMap<i64, i64>> {
-    use crate::entities::file::{self, Entity as File};
+    use aster_drive_model::entities::file::{self, Entity as File};
     if blob_ids.is_empty() {
         return Ok(HashMap::new());
     }

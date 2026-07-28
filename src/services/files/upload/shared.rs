@@ -7,7 +7,6 @@ use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_repo};
-use crate::entities::{file, upload_session};
 use crate::errors::{
     AsterError, Result, chunk_upload_error_with_code, upload_assembly_error_with_code,
     validation_error_with_code,
@@ -15,7 +14,8 @@ use crate::errors::{
 use crate::runtime::SharedRuntimeState;
 use crate::storage::MultipartStorageDriver;
 use crate::storage::StorageErrorKind;
-use crate::types::UploadSessionStatus;
+use aster_drive_model::entities::{file, upload_session};
+use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::id;
 use aster_forge_utils::paths;
 
@@ -419,7 +419,7 @@ pub(super) async fn mark_session_failed_with_expiration<C: ConnectionTrait>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     struct NotFoundAbortMultipart {
@@ -491,7 +491,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Uploading,
-            session_kind: crate::types::UploadSessionKind::OffsetStaging,
+            session_kind: aster_drive_model::types::UploadSessionKind::OffsetStaging,
             object_temp_key: None,
             object_multipart_id: None,
             provider_session_ciphertext: None,

@@ -8,7 +8,6 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob};
 use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_code, validation_error_with_code,
 };
@@ -19,7 +18,8 @@ use crate::services::files::archive::core::format::{
 use crate::services::files::archive::core::scan::ArchiveScanLimits;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::services::{share, task, workspace::storage};
-use crate::types::ArchiveFilenameEncoding;
+use aster_drive_model::entities::{file, file_blob};
+use aster_drive_model::types::ArchiveFilenameEncoding;
 
 mod cache;
 mod model;

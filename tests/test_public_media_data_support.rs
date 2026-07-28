@@ -24,13 +24,13 @@ fn available_test_command() -> String {
 
 async fn create_storage_native_media_metadata_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-    driver_type: aster_drive::types::DriverType,
+    driver_type: aster_drive_model::types::DriverType,
     name: &str,
     extensions: Vec<String>,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     let now = chrono::Utc::now();
-    let options = aster_drive::types::serialize_storage_policy_options(
-        &aster_drive::types::StoragePolicyOptions {
+    let options = aster_drive_model::types::serialize_storage_policy_options(
+        &aster_drive_model::types::StoragePolicyOptions {
             storage_native_processing_enabled: Some(true),
             storage_native_media_metadata_enabled: Some(true),
             media_metadata_extensions: extensions,
@@ -40,7 +40,7 @@ async fn create_storage_native_media_metadata_policy(
     .expect("storage policy options should serialize");
     let policy = aster_drive::db::repository::policy_repo::create(
         state.writer_db(),
-        aster_drive::entities::storage_policy::ActiveModel {
+        aster_drive_model::entities::storage_policy::ActiveModel {
             name: Set(name.to_string()),
             driver_type: Set(driver_type),
             endpoint: Set("https://bucket-1250000000.cos.ap-guangzhou.myqcloud.com".to_string()),
@@ -49,7 +49,7 @@ async fn create_storage_native_media_metadata_policy(
             secret_key: Set("SECRET".to_string()),
             base_path: Set(String::new()),
             max_file_size: Set(0),
-            allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
             options: Set(options),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
@@ -208,7 +208,7 @@ async fn test_public_media_data_support_includes_storage_native_policy_extension
     let app = create_test_app!(state.clone());
     let policy = create_storage_native_media_metadata_policy(
         &state,
-        aster_drive::types::DriverType::TencentCos,
+        aster_drive_model::types::DriverType::TencentCos,
         "Native Metadata",
         vec![" .MP4 ".to_string(), "mp4".to_string(), ".m4a".to_string()],
     )
@@ -246,7 +246,7 @@ async fn test_public_media_data_support_ignores_storage_native_options_for_unsup
     let app = create_test_app!(state.clone());
     let policy = create_storage_native_media_metadata_policy(
         &state,
-        aster_drive::types::DriverType::S3,
+        aster_drive_model::types::DriverType::S3,
         "Unsupported Native Metadata",
         vec!["zzrawmedia".to_string()],
     )

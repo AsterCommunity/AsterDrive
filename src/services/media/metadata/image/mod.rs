@@ -13,7 +13,7 @@ use tiff::decoder::Decoder as TiffDecoder;
 use tiff::tags::Tag as TiffTag;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::ImageMediaMetadata;
+use aster_drive_model::types::ImageMediaMetadata;
 
 mod tiff_fallback;
 

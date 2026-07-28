@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
 
-use crate::entities::{managed_follower, storage_policy};
 use crate::errors::Result;
 use crate::storage::drivers::remote::RemoteDriver;
-use crate::types::RemoteNodeTransportMode;
+use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::types::RemoteNodeTransportMode;
 
 use super::RemoteStorageClient;
 use super::tunnel::server::{

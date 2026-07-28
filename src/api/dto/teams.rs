@@ -66,14 +66,14 @@ pub struct AddTeamMemberReq {
     #[validate(range(min = 1, message = "user_id must be greater than 0"))]
     pub user_id: Option<i64>,
     pub identifier: Option<String>,
-    pub role: Option<crate::types::TeamMemberRole>,
+    pub role: Option<aster_drive_model::types::TeamMemberRole>,
 }
 
 /// Patch a team member's role.
 #[derive(Debug, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct PatchTeamMemberReq {
-    pub role: crate::types::TeamMemberRole,
+    pub role: aster_drive_model::types::TeamMemberRole,
 }
 
 /// Query parameters for listing team members.
@@ -84,8 +84,8 @@ pub struct PatchTeamMemberReq {
 )]
 pub struct ListTeamMembersQuery {
     pub keyword: Option<String>,
-    pub role: Option<crate::types::TeamMemberRole>,
-    pub status: Option<crate::types::UserStatus>,
+    pub role: Option<aster_drive_model::types::TeamMemberRole>,
+    pub status: Option<aster_drive_model::types::UserStatus>,
     pub sort_by: Option<AdminTeamMemberSortBy>,
     pub sort_order: Option<SortOrder>,
 }

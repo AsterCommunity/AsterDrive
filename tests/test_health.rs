@@ -5,8 +5,8 @@ mod common;
 
 use actix_web::test;
 use aster_drive::db::repository::policy_repo;
-use aster_drive::entities::storage_policy;
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_model::entities::storage_policy;
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use serde_json::Value;
@@ -192,12 +192,12 @@ async fn test_health_ready_does_not_probe_s3_network() {
         .expect("default policy should exist");
 
     let mut active: storage_policy::ActiveModel = default_policy.clone().into();
-    active.driver_type = Set(aster_drive::types::DriverType::S3);
+    active.driver_type = Set(aster_drive_model::types::DriverType::S3);
     active.endpoint = Set("http://127.0.0.1:9".to_string());
     active.bucket = Set("ready-probe".to_string());
     active.access_key = Set("test-access-key".to_string());
     active.secret_key = Set("test-secret-key".to_string());
-    active.options = Set(aster_drive::types::StoredStoragePolicyOptions(
+    active.options = Set(aster_drive_model::types::StoredStoragePolicyOptions(
         r#"{"s3_connect_timeout_secs":1,"s3_read_timeout_secs":1,"s3_operation_timeout_secs":1}"#
             .to_string(),
     ));

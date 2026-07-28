@@ -7,13 +7,13 @@ use chrono::Utc;
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     events::storage_change,
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::folder;
 
 use super::shared::{load_folder_ancestor_ids_in_scope, load_target_folder_in_scope};
 use super::{BatchResult, NormalizedSelection, load_normalized_selection_in_scope};

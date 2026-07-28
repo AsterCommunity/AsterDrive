@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use serde_json::{Value, json};
 
 use crate::config::operations;
-use crate::types::{
+use aster_drive_model::types::{
     BackgroundTaskStatus, MediaMetadataKind, MediaMetadataStatus, MediaProcessorKind,
 };
 

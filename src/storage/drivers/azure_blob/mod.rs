@@ -13,11 +13,11 @@ use azure_storage_blob::{
     BlockBlobClient, BlockBlobClientOptions,
 };
 
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::object_key;
-use crate::types::effective_object_multipart_chunk_size;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::effective_object_multipart_chunk_size;
 use aster_forge_utils::net::is_loopback_host;
 
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
@@ -402,8 +402,8 @@ mod tests {
     use std::time::Duration;
 
     use super::AzureBlobDriver;
-    use crate::entities::storage_policy;
-    use crate::types::{
+    use aster_drive_model::entities::storage_policy;
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
         effective_object_multipart_chunk_size,
     };

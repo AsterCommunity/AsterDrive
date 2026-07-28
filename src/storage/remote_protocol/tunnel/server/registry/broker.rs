@@ -5,8 +5,8 @@ use bytes::Bytes;
 use http::{HeaderMap, Method, StatusCode};
 use tokio::io::AsyncRead;
 
-use crate::entities::managed_follower;
 use crate::errors::Result;
+use aster_drive_model::entities::managed_follower;
 
 use super::RemoteTunnelRegistry;
 

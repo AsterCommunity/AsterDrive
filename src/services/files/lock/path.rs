@@ -3,7 +3,7 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::services::files::folder;
-use crate::types::EntityType;
+use aster_drive_model::types::EntityType;
 
 /// 从 entity 反查 WebDAV 路径
 pub async fn resolve_entity_path<C: ConnectionTrait>(

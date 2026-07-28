@@ -11,7 +11,6 @@ use sea_orm::{DatabaseConnection, Set};
 
 use crate::api::pagination::{AdminShareSortBy, load_offset_page};
 use crate::db::repository::{file_repo, folder_repo, share_repo};
-use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
@@ -20,6 +19,7 @@ use crate::services::{
     user::profile,
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::share;
 use aster_forge_api::{OffsetPage, SortOrder};
 use aster_forge_utils::id;
 
@@ -508,11 +508,11 @@ async fn build_my_share_infos(
     for share in &shares {
         match share_target_for_share(share)? {
             ShareTarget {
-                r#type: crate::types::EntityType::File,
+                r#type: aster_drive_model::types::EntityType::File,
                 id,
             } => file_ids.push(id),
             ShareTarget {
-                r#type: crate::types::EntityType::Folder,
+                r#type: aster_drive_model::types::EntityType::Folder,
                 id,
             } => folder_ids.push(id),
         }
@@ -521,9 +521,9 @@ async fn build_my_share_infos(
     let files = file_repo::find_by_ids(db, &file_ids).await?;
     let folders = folder_repo::find_by_ids(db, &folder_ids).await?;
 
-    let file_map: HashMap<i64, crate::entities::file::Model> =
+    let file_map: HashMap<i64, aster_drive_model::entities::file::Model> =
         files.into_iter().map(|file| (file.id, file)).collect();
-    let folder_map: HashMap<i64, crate::entities::folder::Model> = folders
+    let folder_map: HashMap<i64, aster_drive_model::entities::folder::Model> = folders
         .into_iter()
         .map(|folder| (folder.id, folder))
         .collect();

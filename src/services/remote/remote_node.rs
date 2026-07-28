@@ -3,7 +3,6 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminRemoteNodeSortBy, load_offset_page};
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo, policy_repo};
-use crate::entities::{follower_enrollment_session, managed_follower};
 use crate::errors::{
     AsterError, Result, precondition_failed_with_code, validation_error_with_code,
 };
@@ -14,7 +13,8 @@ use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
     normalize_remote_base_url,
 };
-use crate::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
+use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
 use aster_forge_api::{OffsetPage, SortOrder};
 use chrono::Utc;
 use futures::{StreamExt, stream};
@@ -483,7 +483,7 @@ pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
 async fn policy_requirements_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
-) -> Result<Vec<(i64, crate::types::StoragePolicyOptions)>> {
+) -> Result<Vec<(i64, aster_drive_model::types::StoragePolicyOptions)>> {
     let policies = policy_repo::find_by_remote_node_id(state.writer_db(), remote_node_id).await?;
     Ok(policies
         .into_iter()
@@ -747,8 +747,8 @@ mod tests {
     use crate::db;
     use crate::runtime::SharedRuntimeState;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::RemoteNodeTransportMode;
     use aster_drive_migration::Migrator;
+    use aster_drive_model::types::RemoteNodeTransportMode;
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
     use std::sync::Arc;

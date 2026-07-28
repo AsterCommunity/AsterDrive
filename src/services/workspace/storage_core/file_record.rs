@@ -2,9 +2,9 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::services::workspace::scope::{WorkspaceStorageScope, load_scope_actor_username};
+use aster_drive_model::entities::{file, file_blob};
 
 const MAX_AUTO_NAME_RETRIES: usize = 32;
 

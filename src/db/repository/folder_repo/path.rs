@@ -6,8 +6,8 @@ use sea_orm::{
     sea_query::{Asterisk, CommonTableExpression, Expr, Order, Query, UnionType, WithClause},
 };
 
-use crate::entities::folder::{self, Entity as Folder};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::folder::{self, Entity as Folder};
 use aster_forge_utils::numbers::usize_to_i64;
 
 use super::query::{find_by_id, find_by_name_in_parent};

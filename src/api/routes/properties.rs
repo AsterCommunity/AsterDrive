@@ -38,7 +38,7 @@ pub fn routes(
     tag = "properties",
     operation_id = "list_properties",
     params(
-        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = aster_drive_model::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     responses(
@@ -71,7 +71,7 @@ pub async fn list_props(
     tag = "properties",
     operation_id = "set_property",
     params(
-        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = aster_drive_model::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
     ),
     request_body = SetPropReq,
@@ -131,7 +131,7 @@ pub async fn set_prop(
     tag = "properties",
     operation_id = "delete_property",
     params(
-        ("entity_type" = crate::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
+        ("entity_type" = aster_drive_model::types::EntityType, Path, description = "Entity type: 'file' or 'folder'"),
         ("entity_id" = i64, Path, description = "Entity ID"),
         ("namespace" = String, Path, description = "Property namespace"),
         ("name" = String, Path, description = "Property name"),

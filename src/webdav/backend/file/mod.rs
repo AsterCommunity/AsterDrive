@@ -63,7 +63,7 @@ enum FileMode {
         existing_file_id: Option<i64>,
         audit_ctx: AuditContext,
         declared_size: Option<i64>,
-        resolved_policy: Option<crate::entities::storage_policy::Model>,
+        resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
         file: tokio::fs::File,
         temp_path: String,
         hasher: Option<Sha256>,
@@ -78,7 +78,7 @@ enum FileMode {
         existing_file_id: Option<i64>,
         audit_ctx: AuditContext,
         declared_size: i64,
-        policy: crate::entities::storage_policy::Model,
+        policy: aster_drive_model::entities::storage_policy::Model,
         driver: Arc<dyn StorageDriver>,
         prepared_upload: Option<storage::PreparedNonDedupBlobUpload>,
         writer: Option<tokio::io::DuplexStream>,
@@ -129,7 +129,7 @@ impl AsterDavFile {
                 .await
                 .map_err(|_| FsError::GeneralFailure)?;
 
-            if policy.driver_type == crate::types::DriverType::Local {
+            if policy.driver_type == aster_drive_model::types::DriverType::Local {
                 let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
                 let staging_path =
                     crate::storage::drivers::local::upload_staging_path(&policy, &staging_token)

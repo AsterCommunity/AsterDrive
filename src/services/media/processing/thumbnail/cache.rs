@@ -6,10 +6,10 @@ use tokio::io::AsyncReadExt;
 
 use crate::config::operations;
 use crate::db::repository::file_repo;
-use crate::entities::file_blob;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::storage::{StorageDriver, StorageErrorKind};
+use aster_drive_model::entities::file_blob;
 use aster_forge_utils::numbers::u64_to_usize;
 
 use crate::services::media::processing::shared::{

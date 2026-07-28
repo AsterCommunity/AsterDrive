@@ -7,14 +7,14 @@ use super::{
     TASK_HEARTBEAT_INTERVAL_SECS, TASK_PROCESSING_STALE_SECS, task_expiration_from, truncate_error,
 };
 use crate::db::repository::background_task_repo;
-use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::task::{
     registry,
     steps::{parse_task_steps_json, serialize_task_steps},
 };
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 use aster_forge_tasks::{DispatchStats, TaskLease, mark_active_step_failed};
 
 pub(super) async fn run_claimed_tasks(

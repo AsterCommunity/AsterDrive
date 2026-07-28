@@ -4,9 +4,9 @@ use rand::RngExt;
 use sea_orm::ActiveValue::Set;
 
 use crate::db::repository::mfa_recovery_code_repo;
-use crate::entities::mfa_recovery_code;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::mfa_recovery_code;
 
 use super::{RECOVERY_CODE_CHARS, RECOVERY_CODE_COUNT, now_utc};
 

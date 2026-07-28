@@ -4,9 +4,9 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 
 use crate::config::avatar;
-use crate::entities::user_profile;
 use crate::runtime::SharedRuntimeState;
-use crate::types::AvatarSource;
+use aster_drive_model::entities::user_profile;
+use aster_drive_model::types::AvatarSource;
 
 use super::shared::{AVATAR_SIZE_LG, AVATAR_SIZE_SM, stored_avatar_prefix};
 

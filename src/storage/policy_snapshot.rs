@@ -6,8 +6,10 @@ use parking_lot::RwLock;
 use sea_orm::DatabaseConnection;
 
 use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
-use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::{
+    storage_policy, storage_policy_group, storage_policy_group_item,
+};
 
 #[derive(Clone, Debug)]
 pub struct ResolvedPolicyGroupItem {
@@ -125,7 +127,7 @@ impl PolicySnapshot {
         &self,
         policy: &storage_policy::Model,
     ) -> Option<String> {
-        if policy.driver_type != crate::types::DriverType::Remote {
+        if policy.driver_type != aster_drive_model::types::DriverType::Remote {
             return None;
         }
 
@@ -224,7 +226,7 @@ impl PolicySnapshot {
                 return Ok(resolved.policy.clone());
             }
             if matches_size_rule(&resolved.item, file_size)
-                && resolved.policy.driver_type == crate::types::DriverType::Remote
+                && resolved.policy.driver_type == aster_drive_model::types::DriverType::Remote
             {
                 skipped_disabled_remote = true;
             }
@@ -304,7 +306,7 @@ impl PolicySnapshot {
     }
 
     fn policy_available_for_outbound(&self, policy: &storage_policy::Model) -> bool {
-        if policy.driver_type != crate::types::DriverType::Remote {
+        if policy.driver_type != aster_drive_model::types::DriverType::Remote {
             return true;
         }
 
@@ -338,8 +340,8 @@ mod tests {
     use crate::config::DatabaseConfig;
     use crate::db;
     use crate::db::repository::{managed_follower_repo, policy_group_repo, policy_repo, user_repo};
-    use crate::types::{DriverType, UserRole, UserStatus};
     use aster_drive_migration::Migrator;
+    use aster_drive_model::types::{DriverType, UserRole, UserStatus};
     use chrono::Utc;
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -363,11 +365,11 @@ mod tests {
         name: &str,
         base_path: &str,
         is_default: bool,
-    ) -> crate::entities::storage_policy::Model {
+    ) -> aster_drive_model::entities::storage_policy::Model {
         let now = Utc::now();
         policy_repo::create(
             db,
-            crate::entities::storage_policy::ActiveModel {
+            aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set(name.to_string()),
                 driver_type: Set(DriverType::Local),
                 endpoint: Set(String::new()),
@@ -376,8 +378,10 @@ mod tests {
                 secret_key: Set(String::new()),
                 base_path: Set(base_path.to_string()),
                 max_file_size: Set(0),
-                allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+                allowed_types: Set(
+                    aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+                ),
+                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(is_default),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -393,11 +397,11 @@ mod tests {
         db: &sea_orm::DatabaseConnection,
         name: &str,
         is_enabled: bool,
-    ) -> crate::entities::managed_follower::Model {
+    ) -> aster_drive_model::entities::managed_follower::Model {
         let now = Utc::now();
         managed_follower_repo::create(
             db,
-            crate::entities::managed_follower::ActiveModel {
+            aster_drive_model::entities::managed_follower::ActiveModel {
                 name: Set(name.to_string()),
                 base_url: Set("https://remote.example.com".to_string()),
                 access_key: Set(format!("ak_{name}")),
@@ -419,11 +423,11 @@ mod tests {
         db: &sea_orm::DatabaseConnection,
         name: &str,
         remote_node_id: i64,
-    ) -> crate::entities::storage_policy::Model {
+    ) -> aster_drive_model::entities::storage_policy::Model {
         let now = Utc::now();
         policy_repo::create(
             db,
-            crate::entities::storage_policy::ActiveModel {
+            aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set(name.to_string()),
                 driver_type: Set(DriverType::Remote),
                 endpoint: Set(String::new()),
@@ -433,8 +437,10 @@ mod tests {
                 base_path: Set(String::new()),
                 remote_node_id: Set(Some(remote_node_id)),
                 max_file_size: Set(0),
-                allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+                allowed_types: Set(
+                    aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+                ),
+                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(false),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -453,11 +459,11 @@ mod tests {
         is_default: bool,
         min_file_size: i64,
         max_file_size: i64,
-    ) -> crate::entities::storage_policy_group::Model {
+    ) -> aster_drive_model::entities::storage_policy_group::Model {
         let now = Utc::now();
         let group = policy_group_repo::create_group(
             db,
-            crate::entities::storage_policy_group::ActiveModel {
+            aster_drive_model::entities::storage_policy_group::ActiveModel {
                 name: Set(name.to_string()),
                 description: Set(String::new()),
                 is_enabled: Set(true),
@@ -471,7 +477,7 @@ mod tests {
         .unwrap();
         policy_group_repo::create_group_item(
             db,
-            crate::entities::storage_policy_group_item::ActiveModel {
+            aster_drive_model::entities::storage_policy_group_item::ActiveModel {
                 group_id: Set(group.id),
                 policy_id: Set(policy_id),
                 priority: Set(1),
@@ -490,11 +496,11 @@ mod tests {
         db: &sea_orm::DatabaseConnection,
         username: &str,
         email: &str,
-    ) -> crate::entities::user::Model {
+    ) -> aster_drive_model::entities::user::Model {
         let now = Utc::now();
         user_repo::create(
             db,
-            crate::entities::user::ActiveModel {
+            aster_drive_model::entities::user::ActiveModel {
                 username: Set(username.to_string()),
                 email: Set(email.to_string()),
                 password_hash: Set("hashed-password".to_string()),
@@ -547,7 +553,7 @@ mod tests {
             "policy_snapshot_user@example.com",
         )
         .await;
-        let mut user_active: crate::entities::user::ActiveModel = user.clone().into();
+        let mut user_active: aster_drive_model::entities::user::ActiveModel = user.clone().into();
         user_active.policy_group_id = Set(Some(user_default_group.id));
         user_active.update(&db).await.unwrap();
 
@@ -576,7 +582,7 @@ mod tests {
         let now = Utc::now();
         let group = policy_group_repo::create_group(
             &db,
-            crate::entities::storage_policy_group::ActiveModel {
+            aster_drive_model::entities::storage_policy_group::ActiveModel {
                 name: Set("Tiered".to_string()),
                 description: Set(String::new()),
                 is_enabled: Set(true),
@@ -593,7 +599,7 @@ mod tests {
         {
             policy_group_repo::create_group_item(
                 &db,
-                crate::entities::storage_policy_group_item::ActiveModel {
+                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
                     group_id: Set(group.id),
                     policy_id: Set(policy_id),
                     priority: Set(priority),
@@ -628,7 +634,7 @@ mod tests {
         let now = Utc::now();
         let group = policy_group_repo::create_group(
             &db,
-            crate::entities::storage_policy_group::ActiveModel {
+            aster_drive_model::entities::storage_policy_group::ActiveModel {
                 name: Set("Gap".to_string()),
                 description: Set(String::new()),
                 is_enabled: Set(true),
@@ -645,7 +651,7 @@ mod tests {
         {
             policy_group_repo::create_group_item(
                 &db,
-                crate::entities::storage_policy_group_item::ActiveModel {
+                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
                     group_id: Set(group.id),
                     policy_id: Set(policy_id),
                     priority: Set(priority),
@@ -678,7 +684,7 @@ mod tests {
         let now = Utc::now();
         let group = policy_group_repo::create_group(
             &db,
-            crate::entities::storage_policy_group::ActiveModel {
+            aster_drive_model::entities::storage_policy_group::ActiveModel {
                 name: Set("Remote Fallback".to_string()),
                 description: Set(String::new()),
                 is_enabled: Set(true),
@@ -693,7 +699,7 @@ mod tests {
         for (priority, policy_id) in [(1, remote_policy.id), (2, fallback_policy.id)] {
             policy_group_repo::create_group_item(
                 &db,
-                crate::entities::storage_policy_group_item::ActiveModel {
+                aster_drive_model::entities::storage_policy_group_item::ActiveModel {
                     group_id: Set(group.id),
                     policy_id: Set(policy_id),
                     priority: Set(priority),

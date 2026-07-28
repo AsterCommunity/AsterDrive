@@ -2,10 +2,10 @@ mod common;
 
 use actix_web::{body::MessageBody, http::StatusCode, test};
 use aster_drive::config::{auth_runtime, mail};
-use aster_drive::entities::audit_log;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::mfa::totp;
-use aster_drive::types::AuditAction;
+use aster_drive_model::entities::audit_log;
+use aster_drive_model::types::AuditAction;
 use chrono::{Duration, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, PaginatorTrait, QueryFilter,
@@ -238,10 +238,10 @@ fn different_email_code(code: &str) -> String {
 async fn find_mfa_flow_by_token(
     db: &sea_orm::DatabaseConnection,
     flow_token: &str,
-) -> aster_drive::entities::mfa_login_flow::Model {
+) -> aster_drive_model::entities::mfa_login_flow::Model {
     let flow_hash = aster_forge_crypto::sha256_hex(flow_token.as_bytes());
-    aster_drive::entities::mfa_login_flow::Entity::find()
-        .filter(aster_drive::entities::mfa_login_flow::Column::FlowTokenHash.eq(flow_hash))
+    aster_drive_model::entities::mfa_login_flow::Entity::find()
+        .filter(aster_drive_model::entities::mfa_login_flow::Column::FlowTokenHash.eq(flow_hash))
         .one(db)
         .await
         .unwrap()
@@ -578,9 +578,9 @@ async fn test_email_code_rotation_rejects_old_code_and_keeps_new_code_available(
     let old_code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
 
     let flow = find_mfa_flow_by_token(&db, &flow_token).await;
-    let current = aster_drive::entities::mfa_email_code::Entity::find()
-        .filter(aster_drive::entities::mfa_email_code::Column::FlowId.eq(flow.id))
-        .filter(aster_drive::entities::mfa_email_code::Column::ConsumedAt.is_null())
+    let current = aster_drive_model::entities::mfa_email_code::Entity::find()
+        .filter(aster_drive_model::entities::mfa_email_code::Column::FlowId.eq(flow.id))
+        .filter(aster_drive_model::entities::mfa_email_code::Column::ConsumedAt.is_null())
         .one(&db)
         .await
         .unwrap()
@@ -739,8 +739,8 @@ async fn test_expired_email_code_returns_email_code_expired_code() {
         .expect("memory mail sender should be available in tests");
     let code = extract_email_code_from_message(&memory_sender.last_message().unwrap());
     let flow = find_mfa_flow_by_token(&db, &flow_token).await;
-    let code_row = aster_drive::entities::mfa_email_code::Entity::find()
-        .filter(aster_drive::entities::mfa_email_code::Column::FlowId.eq(flow.id))
+    let code_row = aster_drive_model::entities::mfa_email_code::Entity::find()
+        .filter(aster_drive_model::entities::mfa_email_code::Column::FlowId.eq(flow.id))
         .one(&db)
         .await
         .unwrap()
@@ -756,7 +756,7 @@ async fn test_expired_email_code_returns_email_code_expired_code() {
     assert_eq!(status, StatusCode::UNAUTHORIZED, "{body:#?}");
     assert_eq!(body["code"], "auth.mfa_email_code_expired");
 
-    let consumed_row = aster_drive::entities::mfa_email_code::Entity::find_by_id(code_row_id)
+    let consumed_row = aster_drive_model::entities::mfa_email_code::Entity::find_by_id(code_row_id)
         .one(&db)
         .await
         .unwrap()
@@ -790,8 +790,8 @@ async fn test_email_code_delivery_failure_consumes_created_code() {
     assert_eq!(body["code"], "mail.delivery_failed");
 
     let flow = find_mfa_flow_by_token(&db, &flow_token).await;
-    let code_row = aster_drive::entities::mfa_email_code::Entity::find()
-        .filter(aster_drive::entities::mfa_email_code::Column::FlowId.eq(flow.id))
+    let code_row = aster_drive_model::entities::mfa_email_code::Entity::find()
+        .filter(aster_drive_model::entities::mfa_email_code::Column::FlowId.eq(flow.id))
         .one(&db)
         .await
         .unwrap()
@@ -911,8 +911,8 @@ async fn test_expired_mfa_flow_cannot_login() {
     let body: Value = test::read_body_json(resp).await;
     let flow_token = body["data"]["flow_token"].as_str().unwrap().to_string();
     let flow_hash = aster_forge_crypto::sha256_hex(flow_token.as_bytes());
-    let flow = aster_drive::entities::mfa_login_flow::Entity::find()
-        .filter(aster_drive::entities::mfa_login_flow::Column::FlowTokenHash.eq(flow_hash))
+    let flow = aster_drive_model::entities::mfa_login_flow::Entity::find()
+        .filter(aster_drive_model::entities::mfa_login_flow::Column::FlowTokenHash.eq(flow_hash))
         .one(&db)
         .await
         .unwrap()
@@ -1001,8 +1001,8 @@ async fn test_concurrent_recovery_code_verification_has_one_winner_across_flows(
         1
     );
 
-    let used = aster_drive::entities::mfa_recovery_code::Entity::find()
-        .filter(aster_drive::entities::mfa_recovery_code::Column::UsedAt.is_not_null())
+    let used = aster_drive_model::entities::mfa_recovery_code::Entity::find()
+        .filter(aster_drive_model::entities::mfa_recovery_code::Column::UsedAt.is_not_null())
         .count(&db)
         .await
         .unwrap();
@@ -1024,8 +1024,8 @@ async fn test_recovery_code_consume_cas_checks_user_hash_and_unused_state() {
     let (access, _) = login_user!(app, "recoverycas", "password123");
     let _ = enable_totp(&app, &access).await;
 
-    let row = aster_drive::entities::mfa_recovery_code::Entity::find()
-        .order_by_asc(aster_drive::entities::mfa_recovery_code::Column::Id)
+    let row = aster_drive_model::entities::mfa_recovery_code::Entity::find()
+        .order_by_asc(aster_drive_model::entities::mfa_recovery_code::Column::Id)
         .one(&db)
         .await
         .unwrap()
@@ -1167,8 +1167,8 @@ async fn test_delete_mfa_factor_accepts_totp_without_password() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(status, StatusCode::OK, "{body:#?}");
 
-    let factors = aster_drive::entities::mfa_factor::Entity::find()
-        .filter(aster_drive::entities::mfa_factor::Column::Id.eq(factor_id))
+    let factors = aster_drive_model::entities::mfa_factor::Entity::find()
+        .filter(aster_drive_model::entities::mfa_factor::Column::Id.eq(factor_id))
         .all(&db)
         .await
         .unwrap();
@@ -1210,8 +1210,8 @@ async fn test_old_mfa_flow_cannot_login_after_password_reset() {
     let body: Value = test::read_body_json(resp).await;
     assert_eq!(body["code"], "auth.mfa_flow_invalid");
 
-    let active_sessions = aster_drive::entities::auth_session::Entity::find()
-        .filter(aster_drive::entities::auth_session::Column::UserId.eq(stale_user_id))
+    let active_sessions = aster_drive_model::entities::auth_session::Entity::find()
+        .filter(aster_drive_model::entities::auth_session::Column::UserId.eq(stale_user_id))
         .all(&db)
         .await
         .unwrap();
@@ -1277,8 +1277,8 @@ async fn test_admin_reset_mfa_clears_factors_and_revokes_sessions() {
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), StatusCode::OK);
 
-    let factors = aster_drive::entities::mfa_factor::Entity::find()
-        .filter(aster_drive::entities::mfa_factor::Column::UserId.eq(user_id))
+    let factors = aster_drive_model::entities::mfa_factor::Entity::find()
+        .filter(aster_drive_model::entities::mfa_factor::Column::UserId.eq(user_id))
         .all(&db)
         .await
         .unwrap();

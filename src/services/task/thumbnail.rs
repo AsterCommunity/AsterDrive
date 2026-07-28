@@ -1,12 +1,12 @@
 //! 后台任务服务子模块：`thumbnail`。
 
 use crate::db::repository::background_task_repo;
-use crate::entities::{background_task, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::media::processing;
 use crate::storage::StorageErrorKind;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::{background_task, file_blob};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{
     BackgroundTaskSpec, TaskRetryClass, set_task_step_active, set_task_step_succeeded,
@@ -460,7 +460,7 @@ pub(super) async fn process_image_preview_generate_task(
 
 fn thumbnail_task_display_name(
     blob_id: i64,
-    processor: crate::types::MediaProcessorKind,
+    processor: aster_drive_model::types::MediaProcessorKind,
 ) -> String {
     format!(
         "Generate thumbnail for blob #{blob_id} via {}",
@@ -470,7 +470,7 @@ fn thumbnail_task_display_name(
 
 fn image_preview_task_display_name(
     blob_id: i64,
-    processor: crate::types::MediaProcessorKind,
+    processor: aster_drive_model::types::MediaProcessorKind,
 ) -> String {
     format!(
         "Generate image preview for blob #{blob_id} via {}",
@@ -478,10 +478,12 @@ fn image_preview_task_display_name(
     )
 }
 
-fn thumbnail_processor_display_name(processor: crate::types::MediaProcessorKind) -> &'static str {
+fn thumbnail_processor_display_name(
+    processor: aster_drive_model::types::MediaProcessorKind,
+) -> &'static str {
     match processor {
-        crate::types::MediaProcessorKind::Images => "AsterDrive built-in",
-        crate::types::MediaProcessorKind::Lofty => "AsterDrive built-in audio",
+        aster_drive_model::types::MediaProcessorKind::Images => "AsterDrive built-in",
+        aster_drive_model::types::MediaProcessorKind::Lofty => "AsterDrive built-in audio",
         _ => processor.as_str(),
     }
 }

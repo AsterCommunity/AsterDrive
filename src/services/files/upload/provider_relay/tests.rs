@@ -13,7 +13,6 @@ use tokio::sync::Notify;
 
 use super::*;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
-use crate::entities::{storage_policy, upload_session, upload_session_part, user};
 use crate::services::files::upload::provider_session::{
     ProviderSessionSecret, encrypt_provider_session,
 };
@@ -22,7 +21,8 @@ use crate::storage::{
     BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageDriverExtensions,
 };
-use crate::types::{
+use aster_drive_model::entities::{storage_policy, upload_session, upload_session_part, user};
+use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadSessionKind,
     UserRole, UserStatus,
 };

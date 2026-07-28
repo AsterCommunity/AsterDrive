@@ -14,8 +14,8 @@ use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
-use crate::types::DriverType;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
+use aster_drive_model::types::DriverType;
 use aster_forge_api::LimitOffsetQuery;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
@@ -31,7 +31,7 @@ struct PolicyConnectionInputParts {
     base_path: Option<String>,
     remote_node_id: Option<i64>,
     remote_storage_target_key: Option<String>,
-    options: crate::types::StoragePolicyOptions,
+    options: aster_drive_model::types::StoragePolicyOptions,
 }
 
 impl From<PolicyConnectionInputParts> for policy::StoragePolicyConnectionInput {
@@ -63,7 +63,7 @@ impl From<CreatePolicyReq> for policy::CreateStoragePolicyInput {
                 base_path: value.base_path,
                 remote_node_id: value.remote_node_id,
                 remote_storage_target_key: value.remote_storage_target_key.clone(),
-                options: crate::types::StoragePolicyOptions::default(),
+                options: aster_drive_model::types::StoragePolicyOptions::default(),
             }
             .into(),
             max_file_size: value.max_file_size.unwrap_or(0),

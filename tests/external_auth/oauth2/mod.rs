@@ -3,8 +3,8 @@ pub mod mock;
 pub use mock::{GitHubEmailEntry, TokenAuthObservation, start_mock_oauth2_provider};
 
 use actix_web::{body::MessageBody, dev::ServiceResponse, test};
-use aster_drive::entities::{external_auth_provider, user};
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_model::entities::{external_auth_provider, user};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
 use serde_json::Value;
@@ -341,7 +341,7 @@ pub fn external_auth_provider_model(
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::GenericOAuth2),
         protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         issuer_url: Set(None),
         authorization_url: Set(Some(format!("{base_url}/authorize"))),
@@ -381,7 +381,7 @@ pub fn github_external_auth_provider_model(
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::GitHub),
         protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         issuer_url: Set(None),
         authorization_url: Set(Some(format!("{base_url}/authorize"))),
@@ -422,7 +422,7 @@ pub fn qq_external_auth_provider_model(
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Qq),
         protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::OAuth2),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         issuer_url: Set(None),
         authorization_url: Set(Some(format!("{base_url}/authorize"))),
@@ -456,7 +456,7 @@ pub async fn disable_user(state: &aster_drive::runtime::PrimaryAppState, user_id
         .expect("user should query")
         .expect("user should exist");
     let mut active = user.into_active_model();
-    active.status = Set(aster_drive::types::UserStatus::Disabled);
+    active.status = Set(aster_drive_model::types::UserStatus::Disabled);
     active
         .update(state.writer_db())
         .await

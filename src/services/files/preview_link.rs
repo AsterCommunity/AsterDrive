@@ -8,7 +8,6 @@ use utoipa::ToSchema;
 
 use crate::config::site_url;
 use crate::db::repository::file_repo;
-use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -21,6 +20,7 @@ use crate::services::{
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::{file, share};
 
 const PREVIEW_LINK_TTL_SECS: i64 = 5 * 60;
 
@@ -168,7 +168,7 @@ pub(crate) async fn resolve_file_for_download(
     state: &impl SharedRuntimeState,
     token: &str,
     requested_name: &str,
-) -> Result<crate::entities::file::Model> {
+) -> Result<aster_drive_model::entities::file::Model> {
     let resolved = resolve_token(state, token).await?;
     let file = match &resolved {
         ResolvedPreviewTarget::File { file, .. } => file,

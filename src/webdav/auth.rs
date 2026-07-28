@@ -254,14 +254,14 @@ mod tests {
         invalidate_webdav_auth_for_username,
     };
     use crate::config::{Config, DatabaseConfig, RateLimitTier, RuntimeConfig};
-    use crate::entities::{user, webdav_account};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{UserRole, UserStatus};
     use actix_web::http::header::{self, HeaderValue};
     use actix_web::{HttpRequest, test, web};
     use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{user, webdav_account};
+    use aster_drive_model::types::{UserRole, UserStatus};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use aster_forge_crypto::{

@@ -753,7 +753,7 @@ pub(crate) async fn archive_preview_response(
     req: &HttpRequest,
     scope: WorkspaceStorageScope,
     file_id: i64,
-    filename_encoding: crate::types::ArchiveFilenameEncoding,
+    filename_encoding: aster_drive_model::types::ArchiveFilenameEncoding,
 ) -> Result<HttpResponse> {
     let if_none_match = req
         .headers()
@@ -1062,21 +1062,21 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
-    use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail::sender, media::processing};
     use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
-    };
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, test, web};
     use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{file, file_blob, storage_policy, team, team_member, user};
+    use aster_drive_model::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
+    };
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;

@@ -19,10 +19,10 @@ use crate::services::{
     ops::audit,
     workspace::storage::WorkspaceStorageScope,
 };
-use crate::types::EntityType;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_drive_model::types::EntityType;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use aster_forge_api::OffsetPage;
 use aster_forge_api::{LimitOffsetQuery, MAX_PAGE_SIZE};
@@ -477,7 +477,7 @@ pub async fn team_attach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    path: web::Path<(i64, i64, crate::types::EntityType, i64)>,
+    path: web::Path<(i64, i64, aster_drive_model::types::EntityType, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, tag_id, entity_type, entity_id) = path.into_inner();
     attach_tag_response(
@@ -497,7 +497,7 @@ pub async fn team_detach_tag(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    path: web::Path<(i64, i64, crate::types::EntityType, i64)>,
+    path: web::Path<(i64, i64, aster_drive_model::types::EntityType, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, tag_id, entity_type, entity_id) = path.into_inner();
     detach_tag_response(
@@ -517,7 +517,7 @@ pub async fn team_replace_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
     req: HttpRequest,
-    path: web::Path<(i64, crate::types::EntityType, i64)>,
+    path: web::Path<(i64, aster_drive_model::types::EntityType, i64)>,
     body: web::Json<ReplaceEntityTagsReq>,
 ) -> Result<HttpResponse> {
     let (team_id, entity_type, entity_id) = path.into_inner();
@@ -539,7 +539,7 @@ pub async fn team_replace_entity_tags(
 pub async fn team_list_entity_tags(
     state: web::Data<PrimaryAppState>,
     claims: web::ReqData<Claims>,
-    path: web::Path<(i64, crate::types::EntityType, i64)>,
+    path: web::Path<(i64, aster_drive_model::types::EntityType, i64)>,
 ) -> Result<HttpResponse> {
     let (team_id, entity_type, entity_id) = path.into_inner();
     list_entity_tags_response(

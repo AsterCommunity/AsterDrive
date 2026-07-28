@@ -64,10 +64,10 @@ mod tests {
 
     async fn audit_action_count(
         db: &sea_orm::DatabaseConnection,
-        action: crate::types::AuditAction,
+        action: aster_drive_model::types::AuditAction,
     ) -> u64 {
-        crate::entities::audit_log::Entity::find()
-            .filter(crate::entities::audit_log::Column::Action.eq(action))
+        aster_drive_model::entities::audit_log::Entity::find()
+            .filter(aster_drive_model::entities::audit_log::Column::Action.eq(action))
             .count(db)
             .await
             .expect("audit log query should succeed")
@@ -80,7 +80,7 @@ mod tests {
         record_server_shutdown(&state).await;
 
         assert_eq!(
-            audit_action_count(&db, crate::types::AuditAction::ServerShutdown).await,
+            audit_action_count(&db, aster_drive_model::types::AuditAction::ServerShutdown).await,
             1
         );
     }

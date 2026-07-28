@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
@@ -12,7 +11,10 @@ use crate::storage::connector_descriptor::{
     object_storage_connector_descriptor,
 };
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
-use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
+    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
+};
 
 use super::common::validate_static_secret_credentials;
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};

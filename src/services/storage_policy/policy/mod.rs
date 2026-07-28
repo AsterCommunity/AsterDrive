@@ -8,7 +8,7 @@ mod shared;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::DriverType;
+use aster_drive_model::types::DriverType;
 
 pub use crate::storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,

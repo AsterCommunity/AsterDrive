@@ -7,10 +7,10 @@ use crate::config::{auth_runtime::RuntimeAuthPolicy, branding};
 use crate::db::repository::{
     external_auth_email_verification_flow_repo, external_auth_provider_repo, user_repo,
 };
-use crate::entities::{external_auth_email_verification_flow, external_auth_provider};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{mail::outbox, mail::sender, mail::template::MailTemplatePayload};
+use aster_drive_model::entities::{external_auth_email_verification_flow, external_auth_provider};
 use aster_forge_external_auth::normalize as external_auth_normalize;
 use aster_forge_utils::numbers::u64_to_i64;
 

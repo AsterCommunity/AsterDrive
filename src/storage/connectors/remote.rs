@@ -5,7 +5,6 @@ use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::managed_follower_repo;
-use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::services::storage_policy::credential::crypto;
@@ -20,7 +19,8 @@ use crate::storage::connector_descriptor::{
     server_relay_simple_upload_capabilities, storage_connector_field,
     storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
-use crate::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
 
 use super::common::{ensure_onedrive_options_absent, ensure_storage_native_processing_supported};
 use super::{
@@ -170,7 +170,7 @@ impl StorageConnector for RemoteConnector {
     async fn validate_policy_options<C: ConnectionTrait + Sync>(
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         ensure_storage_native_processing_supported(Self::storage_connector_descriptor(), options)?;
         ensure_onedrive_options_absent(options)?;
@@ -182,9 +182,9 @@ impl StorageConnector for RemoteConnector {
             .transport_mode
             .resolves_to_reverse_tunnel(&remote_node.base_url)
             && (options.effective_remote_download_strategy()
-                == crate::types::RemoteDownloadStrategy::Presigned
+                == aster_drive_model::types::RemoteDownloadStrategy::Presigned
                 || options.effective_remote_upload_strategy()
-                    == crate::types::RemoteUploadStrategy::Presigned)
+                    == aster_drive_model::types::RemoteUploadStrategy::Presigned)
         {
             return Err(validation_error_with_code(
                 ApiErrorCode::PolicyRemoteNodeTransferStrategyUnsupported,
@@ -221,7 +221,7 @@ impl StorageConnector for RemoteConnector {
     fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_remote_download_strategy()
-            == crate::types::RemoteDownloadStrategy::Presigned
+            == aster_drive_model::types::RemoteDownloadStrategy::Presigned
     }
 }
 

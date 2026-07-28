@@ -5,13 +5,13 @@ use chrono::Utc;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::db::repository::{external_auth_identity_repo, user_repo};
-use crate::entities::{
-    external_auth_email_verification_flow, external_auth_identity, external_auth_provider, user,
-};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local;
-use crate::types::{UserRole, UserStatus};
+use aster_drive_model::entities::{
+    external_auth_email_verification_flow, external_auth_identity, external_auth_provider, user,
+};
+use aster_drive_model::types::{UserRole, UserStatus};
 use aster_forge_crypto as hash;
 use aster_forge_external_auth::{ExternalAuthProfile, normalize as external_auth_normalize};
 

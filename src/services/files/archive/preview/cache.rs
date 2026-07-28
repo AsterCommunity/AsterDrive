@@ -1,9 +1,9 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::property_repo;
-use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::EntityType;
+use aster_drive_model::entities::{file, file_blob};
+use aster_drive_model::types::EntityType;
 
 use super::model::{ArchiveRawManifest, CachedArchiveRawManifest, CachedArchiveRawManifestRef};
 use super::{

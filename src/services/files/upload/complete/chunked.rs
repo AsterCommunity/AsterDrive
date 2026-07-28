@@ -8,7 +8,6 @@ use std::time::Instant;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, upload_session_part_repo};
-use crate::entities::{file, storage_policy, upload_session};
 use crate::errors::{AsterError, MapAsterErr, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::shared::{
@@ -17,7 +16,8 @@ use crate::services::files::upload::shared::{
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use crate::storage::StorageDriver;
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::{file, storage_policy, upload_session};
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64};
 use tokio::io::AsyncReadExt;
 

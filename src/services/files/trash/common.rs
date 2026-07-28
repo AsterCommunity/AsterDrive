@@ -5,7 +5,6 @@ use std::collections::{BTreeSet, HashMap};
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, share_repo};
-use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -13,7 +12,8 @@ use crate::services::{
     files::{file as file_ops, folder as folder_ops},
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
-use crate::types::EntityType;
+use aster_drive_model::entities::{file, folder};
+use aster_drive_model::types::EntityType;
 
 use super::DEFAULT_RETENTION_DAYS;
 use super::models::{TrashFileItem, TrashFolderItem};

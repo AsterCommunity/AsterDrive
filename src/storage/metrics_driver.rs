@@ -5,7 +5,7 @@ use super::traits::extensions;
 use super::traits::multipart::MultipartStorageDriver;
 use crate::errors::Result;
 use crate::metrics::SharedMetricsRecorder;
-use crate::types::DriverType;
+use aster_drive_model::types::DriverType;
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::pin::Pin;

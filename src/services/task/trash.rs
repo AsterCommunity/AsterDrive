@@ -1,9 +1,9 @@
 //! 回收站后台任务。
 
-use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::background_task;
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 

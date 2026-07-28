@@ -8,11 +8,11 @@ mod stream_upload;
 #[cfg(test)]
 mod tests;
 
-use crate::entities::{managed_follower, storage_policy};
 use crate::errors::{AsterError, Result};
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::object_key;
 use crate::storage::remote_protocol::RemoteStorageClient;
+use aster_drive_model::entities::{managed_follower, storage_policy};
 
 pub struct RemoteDriver {
     client: RemoteStorageClient,

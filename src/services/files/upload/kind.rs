@@ -1,9 +1,11 @@
 //! Upload session data-plane validation.
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::upload_session;
 use crate::errors::{Result, upload_assembly_error_with_code};
-use crate::types::{UploadChunkOrdering, UploadMode, UploadScheduling, UploadSessionKind};
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::{
+    UploadChunkOrdering, UploadMode, UploadScheduling, UploadSessionKind,
+};
 
 pub(crate) fn resolve_upload_session_kind(
     session: &upload_session::Model,
@@ -101,8 +103,8 @@ pub(crate) fn scheduling_for_kind(kind: UploadSessionKind) -> Option<UploadSched
 #[cfg(test)]
 mod tests {
     use super::{mode_for_kind, scheduling_for_kind, validate_persisted_kind};
-    use crate::entities::upload_session;
-    use crate::types::{UploadMode, UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::entities::upload_session;
+    use aster_drive_model::types::{UploadMode, UploadSessionKind, UploadSessionStatus};
 
     fn session(
         kind: UploadSessionKind,

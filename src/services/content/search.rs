@@ -91,7 +91,7 @@ fn build_search_file_list_items(
     files: Vec<search_repo::FileSearchItem>,
     shared_file_ids: &HashSet<i64>,
     tags_by_entity: &std::collections::HashMap<
-        (crate::types::EntityType, i64),
+        (aster_drive_model::types::EntityType, i64),
         Vec<tag::TagSummary>,
     >,
 ) -> Vec<FileListItem> {
@@ -109,7 +109,7 @@ fn build_search_file_list_items(
             is_locked: file.is_locked,
             is_shared: shared_file_ids.contains(&file.id),
             tags: tags_by_entity
-                .get(&(crate::types::EntityType::File, file.id))
+                .get(&(aster_drive_model::types::EntityType::File, file.id))
                 .cloned()
                 .unwrap_or_default(),
         })

@@ -2,7 +2,7 @@
 
 use std::time::SystemTime;
 
-use crate::entities::{file, file_blob, folder};
+use aster_drive_model::entities::{file, file_blob, folder};
 use aster_forge_webdav::{DavMetaData, FsResult};
 
 /// 将 chrono DateTimeUtc 转换为 SystemTime

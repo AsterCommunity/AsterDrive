@@ -18,25 +18,25 @@ fn sftp_policy(
     endpoint: &str,
     base_path: &str,
     host_key_fingerprint: Option<&str>,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
 
     let options = host_key_fingerprint
         .map(|fingerprint| {
-            aster_drive::types::serialize_storage_policy_options(
-                &aster_drive::types::StoragePolicyOptions {
+            aster_drive_model::types::serialize_storage_policy_options(
+                &aster_drive_model::types::StoragePolicyOptions {
                     sftp_host_key_fingerprint: Some(fingerprint.to_string()),
                     ..Default::default()
                 },
             )
             .expect("serialize SFTP host key options")
         })
-        .unwrap_or_else(aster_drive::types::StoredStoragePolicyOptions::empty);
+        .unwrap_or_else(aster_drive_model::types::StoredStoragePolicyOptions::empty);
 
-    aster_drive::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 997,
         name: "Test SFTP".to_string(),
-        driver_type: aster_drive::types::DriverType::Sftp,
+        driver_type: aster_drive_model::types::DriverType::Sftp,
         endpoint: endpoint.to_string(),
         bucket: String::new(),
         access_key: SFTP_USERNAME.to_string(),
@@ -45,7 +45,7 @@ fn sftp_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options,
         is_default: false,
         chunk_size: 1024 * 1024,

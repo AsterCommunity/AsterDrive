@@ -10,7 +10,6 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 use crate::config::operations;
 use crate::db::repository::file_repo;
-use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -28,7 +27,8 @@ use crate::services::{
     workspace::storage::{self, WorkspaceStorageScope},
 };
 use crate::storage::PolicySnapshot;
-use crate::types::ArchiveFilenameEncoding;
+use aster_drive_model::entities::file;
+use aster_drive_model::types::ArchiveFilenameEncoding;
 
 #[derive(Debug)]
 pub(super) struct StagedArchiveStats {

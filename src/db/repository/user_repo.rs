@@ -1,9 +1,9 @@
 //! 仓储模块：`user_repo`。
 
 use crate::api::pagination::AdminUserSortBy;
-use crate::entities::user::{self, Entity as User};
 use crate::errors::{AsterError, Result};
-use crate::types::{UserRole, UserStatus};
+use aster_drive_model::entities::user::{self, Entity as User};
+use aster_drive_model::types::{UserRole, UserStatus};
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::search_query::{

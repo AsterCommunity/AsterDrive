@@ -5,7 +5,7 @@ use crate::db::repository::config_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::preview::apps;
-use crate::types::parse_storage_policy_options;
+use aster_drive_model::types::parse_storage_policy_options;
 use moka::future::Cache;
 use serde::Serialize;
 use std::collections::BTreeMap;

@@ -7,10 +7,10 @@ mod oauth;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::entities::storage_policy_credential;
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphDriveItem};
-use crate::types::{
+use aster_drive_model::entities::storage_policy_credential;
+use aster_drive_model::types::{
     MicrosoftGraphCloud, OneDriveAccountMode, StorageCredentialKind, StorageCredentialProvider,
     StorageCredentialStatus, StoragePolicyOptions,
 };

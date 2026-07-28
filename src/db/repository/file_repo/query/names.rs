@@ -3,8 +3,8 @@ use std::{borrow::Cow, collections::HashSet};
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, QuerySelect};
 use unicode_normalization::{UnicodeNormalization, is_nfc, is_nfd};
 
-use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file::{self, Entity as File};
 
 use crate::db::repository::file_repo::common::FileScope;
 use crate::db::repository::file_repo::query::basic::find_by_folder_in_scope;

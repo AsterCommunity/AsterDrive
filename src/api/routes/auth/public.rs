@@ -12,8 +12,8 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::{auth::local, ops::config, user::account, user::invitation};
-use crate::types::VerificationPurpose;
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
+use aster_drive_model::types::VerificationPurpose;
 
 fn setup_request_public_origin(req: &HttpRequest) -> Option<String> {
     if let Some(origin) = req

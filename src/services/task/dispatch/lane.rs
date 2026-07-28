@@ -1,6 +1,6 @@
 use crate::config::operations;
 use crate::runtime::SharedRuntimeState;
-use crate::types::BackgroundTaskKind;
+use aster_drive_model::types::BackgroundTaskKind;
 
 use super::super::registry;
 

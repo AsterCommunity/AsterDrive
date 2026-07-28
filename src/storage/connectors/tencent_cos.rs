@@ -2,7 +2,6 @@ use async_trait::async_trait;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
-use crate::entities::storage_policy;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
@@ -13,7 +12,10 @@ use crate::storage::connector_descriptor::{
     StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
 };
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
-use crate::types::{DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
+    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
+};
 
 use super::common::{
     build_connection_test_policy, ensure_policy_action_supported, normalize_s3_connection_fields,

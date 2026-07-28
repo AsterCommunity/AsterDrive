@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use crate::entities::remote_storage_target;
 use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::RemoteStorageTargetInfo;
+use aster_drive_model::entities::remote_storage_target;
 
 #[derive(Clone)]
 pub struct ResolvedRemoteStorageTarget {

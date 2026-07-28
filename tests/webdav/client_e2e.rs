@@ -9,9 +9,9 @@ use crate::common;
 
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::WebDavConfig;
-use aster_drive::entities::{user, webdav_account};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::types::{UserRole, UserStatus};
+use aster_drive_model::entities::{user, webdav_account};
+use aster_drive_model::types::{UserRole, UserStatus};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 use std::io::Write;

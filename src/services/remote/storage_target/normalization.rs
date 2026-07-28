@@ -1,4 +1,3 @@
-use crate::entities::remote_storage_target;
 use crate::errors::Result;
 use crate::storage::field_contract::{
     normalize_required_storage_field, preserve_secret_when_omitted,
@@ -7,7 +6,8 @@ use crate::storage::remote_protocol::{
     RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
-use crate::types::DriverType;
+use aster_drive_model::entities::remote_storage_target;
+use aster_drive_model::types::DriverType;
 
 use super::driver::{RemoteStorageTargetDriverFields, normalize_driver_fields};
 

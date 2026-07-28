@@ -1,7 +1,7 @@
 //! WebDAV 子模块：`dir_entry`。
 
-use crate::entities::{file, folder};
 use crate::webdav::backend::metadata::AsterDavMeta;
+use aster_drive_model::entities::{file, folder};
 use aster_forge_webdav::{DavDirEntry, DavMetaData, FsFuture};
 
 #[derive(Debug)]

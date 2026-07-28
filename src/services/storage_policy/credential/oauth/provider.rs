@@ -5,13 +5,13 @@ use std::{fmt, sync::Arc};
 use tokio::sync::Mutex;
 
 use crate::db::repository::storage_policy_credential_repo;
-use crate::entities::{
-    storage_connector_application_config, storage_policy, storage_policy_credential,
-};
 use crate::errors::{AsterError, Result};
 use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::{
+use aster_drive_model::entities::{
+    storage_connector_application_config, storage_policy, storage_policy_credential,
+};
+use aster_drive_model::types::{
     MicrosoftGraphCloud, StorageCredentialKind, StorageCredentialProvider, StorageCredentialStatus,
 };
 

@@ -239,7 +239,7 @@ mod tests {
                     .unwrap();
             assert_eq!(auth_cookie_secure.value, "false");
 
-            let groups = crate::entities::storage_policy_group::Entity::find()
+            let groups = aster_drive_model::entities::storage_policy_group::Entity::find()
                 .all(&db)
                 .await
                 .unwrap();

@@ -7,11 +7,11 @@ use std::sync::Arc;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect};
 
 use crate::db::repository::{file_repo, version_repo};
-use crate::entities::{background_task, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::StorageDriver;
+use aster_drive_model::entities::{background_task, file_blob};
 use aster_forge_db::transaction;
 use aster_forge_tasks::{
     TaskStepInfo, set_task_step_active, set_task_step_skipped, set_task_step_succeeded,
@@ -500,7 +500,7 @@ impl MaintenanceDriverCache {
     fn driver_for_policy(
         &mut self,
         state: &PrimaryAppState,
-        policy: &crate::entities::storage_policy::Model,
+        policy: &aster_drive_model::entities::storage_policy::Model,
     ) -> Result<Arc<dyn StorageDriver>> {
         if let Some(driver) = state.driver_registry().get_cached_driver(policy.id) {
             return Ok(driver);

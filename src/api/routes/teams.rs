@@ -10,10 +10,10 @@ use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local::Claims, ops::audit, workspace::team};
-use crate::types::TeamMemberRole;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_drive_model::types::TeamMemberRole;
 use aster_forge_api::LimitOffsetQuery;
 
 pub fn routes(

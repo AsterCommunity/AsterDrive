@@ -7,7 +7,6 @@ use std::time::Duration as StdDuration;
 use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succeeded};
 
 use crate::config::operations;
-use crate::entities::{background_task, file};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -28,6 +27,7 @@ use crate::services::{
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::{background_task, file};
 
 const OFFLINE_DOWNLOAD_TEMP_FILE_NAME: &str = "source";
 const PROGRESS_UPDATE_INTERVAL: StdDuration = StdDuration::from_millis(800);

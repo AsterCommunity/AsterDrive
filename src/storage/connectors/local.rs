@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
@@ -14,7 +13,8 @@ use crate::storage::connector_descriptor::{
     storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::local::LocalDriver;
-use crate::types::DriverType;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::DriverType;
 
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
 

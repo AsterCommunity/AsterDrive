@@ -1,11 +1,11 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::media_processing as media_processing_config;
-use crate::entities::{file_blob, storage_policy};
 use crate::errors::{
     AsterError, Result, precondition_failed_with_code, validation_error_with_code,
 };
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::types::{MediaProcessorKind, parse_storage_policy_options};
+use aster_drive_model::entities::{file_blob, storage_policy};
+use aster_drive_model::types::{MediaProcessorKind, parse_storage_policy_options};
 
 use super::shared::{MediaOperation, ResolvedMediaProcessor, ThumbnailContext};
 

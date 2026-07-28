@@ -4,7 +4,7 @@ use crate::api::pagination::{AdminTeamSortBy, load_offset_page};
 use crate::db::repository::team_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::TeamMemberRole;
+use aster_drive_model::types::TeamMemberRole;
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::shared::{

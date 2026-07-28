@@ -839,7 +839,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
 
     let expired_at = Utc::now() - Duration::days(8);
 
-    let mut deleted_root: aster_drive::entities::file::ActiveModel =
+    let mut deleted_root: aster_drive_model::entities::file::ActiveModel =
         file_repo::find_by_id(state.writer_db(), root_file.id)
             .await
             .unwrap()
@@ -847,7 +847,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     deleted_root.deleted_at = Set(Some(expired_at));
     deleted_root.update(state.writer_db()).await.unwrap();
 
-    let mut deleted_nested: aster_drive::entities::file::ActiveModel =
+    let mut deleted_nested: aster_drive_model::entities::file::ActiveModel =
         file_repo::find_by_id(state.writer_db(), nested_file.id)
             .await
             .unwrap()
@@ -855,7 +855,7 @@ async fn test_cleanup_expired_falls_back_to_default_retention_for_invalid_config
     deleted_nested.deleted_at = Set(Some(expired_at));
     deleted_nested.update(state.writer_db()).await.unwrap();
 
-    let mut deleted_folder: aster_drive::entities::folder::ActiveModel =
+    let mut deleted_folder: aster_drive_model::entities::folder::ActiveModel =
         folder_repo::find_by_id(state.writer_db(), folder.id)
             .await
             .unwrap()
@@ -906,7 +906,7 @@ async fn test_cleanup_expired_only_counts_top_level_deleted_folders() {
 
     let expired_at = Utc::now() - Duration::days(8);
     for folder_id in [parent.id, child.id] {
-        let mut folder: aster_drive::entities::folder::ActiveModel =
+        let mut folder: aster_drive_model::entities::folder::ActiveModel =
             folder_repo::find_by_id(state.writer_db(), folder_id)
                 .await
                 .unwrap()

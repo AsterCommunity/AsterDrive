@@ -6,8 +6,8 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::mfa_totp_setup_flow::{self, Entity as MfaTotpSetupFlow};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::mfa_totp_setup_flow::{self, Entity as MfaTotpSetupFlow};
 
 pub async fn create(
     db: &DatabaseConnection,

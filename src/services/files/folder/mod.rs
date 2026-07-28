@@ -16,7 +16,6 @@ mod models;
 mod mutation;
 mod tree;
 
-use crate::entities::folder;
 use crate::errors::AsterError;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
@@ -24,6 +23,7 @@ use crate::runtime::{PrimaryAppState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FolderInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
+use aster_drive_model::entities::folder;
 use aster_forge_api::NullablePatch;
 use serde_json::json;
 

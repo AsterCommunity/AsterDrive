@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::constants::HOUR_SECS;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
-use crate::entities::upload_session;
 use crate::errors::{
     Result, chunk_upload_error_with_code, upload_assembly_error_with_code,
     validation_error_with_code,
@@ -26,7 +25,8 @@ use crate::services::files::upload::shared::expected_chunk_size_for_upload;
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
 use crate::storage::StorageErrorKind;
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use futures::{StreamExt, stream};
 
 const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
@@ -481,8 +481,8 @@ pub async fn presign_parts_for_team(
 #[cfg(test)]
 mod tests {
     use super::presigned_multipart_fields;
-    use crate::entities::upload_session;
-    use crate::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::entities::upload_session;
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     fn session(
         object_temp_key: Option<&str>,

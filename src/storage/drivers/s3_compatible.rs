@@ -12,13 +12,13 @@ use bytes::Bytes;
 use tokio::io::AsyncRead;
 
 use super::s3::{S3Driver, S3DriverOptions};
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
 use crate::storage::traits::extensions::{
     NativeMediaMetadataStorageDriver, NativeThumbnailStorageDriver, StorageCapacityInfo,
 };
 use crate::storage::traits::multipart::MultipartStorageDriver;
+use aster_drive_model::entities::storage_policy;
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
@@ -253,8 +253,10 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::entities::storage_policy;
-    use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+    use aster_drive_model::entities::storage_policy;
+    use aster_drive_model::types::{
+        DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+    };
 
     fn sample_policy() -> storage_policy::Model {
         storage_policy::Model {

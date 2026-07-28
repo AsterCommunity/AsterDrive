@@ -5,8 +5,10 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, sea_query::Expr,
 };
 
-use crate::entities::external_auth_login_flow::{self, Entity as ExternalAuthLoginFlow};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::external_auth_login_flow::{
+    self, Entity as ExternalAuthLoginFlow,
+};
 
 pub async fn create(
     db: &DatabaseConnection,

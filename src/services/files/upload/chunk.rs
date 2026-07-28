@@ -19,7 +19,6 @@ use std::sync::{LazyLock, Mutex as StdMutex};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
-use crate::entities::upload_session;
 use crate::errors::{
     AsterError, MapAsterErr, Result, chunk_upload_error_with_code, payload_too_large_with_code,
     validation_error_with_code,
@@ -32,7 +31,8 @@ use crate::services::files::upload::shared::{
     expected_chunk_size_for_upload, upload_session_chunk_unavailable_error,
 };
 use crate::services::files::upload::staging;
-use crate::types::UploadSessionStatus;
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::numbers::usize_to_i64;
 use aster_forge_utils::paths;
 
@@ -479,10 +479,10 @@ async fn upload_chunk_impl(
     let session_kind = resolve_upload_session_kind(&session)?;
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::ProviderPresignedSingle
-            | crate::types::UploadSessionKind::ProviderPresignedMultipart
-            | crate::types::UploadSessionKind::RemotePresignedSingle
-            | crate::types::UploadSessionKind::RemotePresignedMultipart
+        aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle
+            | aster_drive_model::types::UploadSessionKind::ProviderPresignedMultipart
+            | aster_drive_model::types::UploadSessionKind::RemotePresignedSingle
+            | aster_drive_model::types::UploadSessionKind::RemotePresignedMultipart
     ) {
         return Err(crate::errors::upload_assembly_error_with_code(
             ApiErrorCode::UploadSessionCorrupted,
@@ -497,7 +497,7 @@ async fn upload_chunk_impl(
         ));
     }
 
-    if session_kind == crate::types::UploadSessionKind::ProviderRelayResumable {
+    if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
         return crate::services::files::upload::provider_relay::upload_bytes(
             state,
             session,
@@ -509,8 +509,8 @@ async fn upload_chunk_impl(
 
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::ProviderRelayMultipart
-            | crate::types::UploadSessionKind::RemoteRelayMultipart
+        aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+            | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart
     ) {
         let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
         let object_part_number = chunk_number + 1;
@@ -614,8 +614,8 @@ async fn upload_chunk_impl(
 
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::OffsetStaging
-            | crate::types::UploadSessionKind::StreamStaging
+        aster_drive_model::types::UploadSessionKind::OffsetStaging
+            | aster_drive_model::types::UploadSessionKind::StreamStaging
     ) {
         #[cfg(debug_assertions)]
         test_support::rendezvous_before_staging_write_lock(upload_id).await;
@@ -703,10 +703,10 @@ async fn upload_chunk_payload_impl(
     let session_kind = resolve_upload_session_kind(&session)?;
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::ProviderPresignedSingle
-            | crate::types::UploadSessionKind::ProviderPresignedMultipart
-            | crate::types::UploadSessionKind::RemotePresignedSingle
-            | crate::types::UploadSessionKind::RemotePresignedMultipart
+        aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle
+            | aster_drive_model::types::UploadSessionKind::ProviderPresignedMultipart
+            | aster_drive_model::types::UploadSessionKind::RemotePresignedSingle
+            | aster_drive_model::types::UploadSessionKind::RemotePresignedMultipart
     ) {
         return Err(crate::errors::upload_assembly_error_with_code(
             ApiErrorCode::UploadSessionCorrupted,
@@ -714,7 +714,7 @@ async fn upload_chunk_payload_impl(
         ));
     }
 
-    if session_kind == crate::types::UploadSessionKind::ProviderRelayResumable {
+    if session_kind == aster_drive_model::types::UploadSessionKind::ProviderRelayResumable {
         return crate::services::files::upload::provider_relay::upload_payload(
             state,
             session,
@@ -726,8 +726,8 @@ async fn upload_chunk_payload_impl(
 
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::ProviderRelayMultipart
-            | crate::types::UploadSessionKind::RemoteRelayMultipart
+        aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+            | aster_drive_model::types::UploadSessionKind::RemoteRelayMultipart
     ) {
         let (temp_key, multipart_id) = relay_multipart_fields(&session)?;
         let object_part_number = chunk_number + 1;
@@ -835,8 +835,8 @@ async fn upload_chunk_payload_impl(
 
     if matches!(
         session_kind,
-        crate::types::UploadSessionKind::OffsetStaging
-            | crate::types::UploadSessionKind::StreamStaging
+        aster_drive_model::types::UploadSessionKind::OffsetStaging
+            | aster_drive_model::types::UploadSessionKind::StreamStaging
     ) {
         #[cfg(debug_assertions)]
         test_support::rendezvous_before_staging_write_lock(upload_id).await;
@@ -1166,7 +1166,7 @@ mod tests {
             folder_id: None,
             policy_id: 1,
             status: UploadSessionStatus::Uploading,
-            session_kind: crate::types::UploadSessionKind::ProviderRelayMultipart,
+            session_kind: aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart,
             object_temp_key: object_temp_key.map(str::to_string),
             object_multipart_id: object_multipart_id.map(str::to_string),
             provider_session_ciphertext: None,

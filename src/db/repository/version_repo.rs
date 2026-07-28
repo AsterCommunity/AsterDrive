@@ -6,8 +6,8 @@ use sea_orm::{
 };
 use std::collections::HashMap;
 
-use crate::entities::file_version::{self, Entity as FileVersion};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file_version::{self, Entity as FileVersion};
 
 fn sum_version_size_as_i64_expr(backend: DbBackend) -> sea_orm::sea_query::SimpleExpr {
     let type_name = match backend {

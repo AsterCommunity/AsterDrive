@@ -6,7 +6,6 @@ use base64::Engine as _;
 use chrono::Utc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::files::archive::core::format::ArchiveFormat;
 use crate::services::files::archive::core::range_reader::StorageRangeReader;
@@ -17,6 +16,7 @@ use crate::services::files::archive::core::zip_scan::{
     build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
 };
 use crate::storage::StorageDriver;
+use aster_drive_model::entities::{file, file_blob};
 
 use super::cache::fit_raw_manifest_to_cache_limit;
 use super::model::{

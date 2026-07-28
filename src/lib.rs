@@ -26,5 +26,3 @@ pub mod runtime;
 pub mod services;
 pub mod storage;
 pub mod webdav;
-
-pub use aster_drive_model::{entities, types};

@@ -88,9 +88,9 @@ impl SharedServices {
             let now = Utc::now();
             aster_drive::db::repository::policy_repo::create(
                 &database,
-                aster_drive::entities::storage_policy::ActiveModel {
+                aster_drive_model::entities::storage_policy::ActiveModel {
                     name: Set("E2E Shared Object Storage".to_string()),
-                    driver_type: Set(aster_drive::types::DriverType::S3),
+                    driver_type: Set(aster_drive_model::types::DriverType::S3),
                     endpoint: Set("http://127.0.0.1:9000".to_string()),
                     bucket: Set("asterdrive-e2e".to_string()),
                     access_key: Set("e2e-access".to_string()),
@@ -98,9 +98,9 @@ impl SharedServices {
                     base_path: Set(String::new()),
                     max_file_size: Set(0),
                     allowed_types: Set(
-                        aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
+                        aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
                     ),
-                    options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+                    options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                     is_default: Set(true),
                     chunk_size: Set(5_242_880),
                     created_at: Set(now),
@@ -288,8 +288,8 @@ async fn configure_default_sftp_policy(database: &DatabaseConnection) -> i64 {
         .expect("load default E2E storage policy")
         .expect("default E2E storage policy should exist");
     let policy_id = policy.id;
-    let mut active: aster_drive::entities::storage_policy::ActiveModel = policy.into();
-    active.driver_type = Set(aster_drive::types::DriverType::Sftp);
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.driver_type = Set(aster_drive_model::types::DriverType::Sftp);
     active.endpoint = Set("sftp://127.0.0.1:22".to_string());
     active.access_key = Set("asterdrive-e2e".to_string());
     active.secret_key = Set("unused-before-staging-validation".to_string());
@@ -739,12 +739,12 @@ async fn wait_for_background_task(
     server_a: &mut ServerProcess,
     server_b: &mut ServerProcess,
     timeout: Duration,
-) -> aster_drive::entities::background_task::Model {
+) -> aster_drive_model::entities::background_task::Model {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         server_a.assert_running();
         server_b.assert_running();
-        let task = aster_drive::entities::background_task::Entity::find_by_id(task_id)
+        let task = aster_drive_model::entities::background_task::Entity::find_by_id(task_id)
             .one(database)
             .await
             .expect("query background task")
@@ -827,11 +827,11 @@ async fn wait_for_mail_outbox_sent(
 async fn scheduled_runtime_records(
     database: &DatabaseConnection,
     task_name: &str,
-) -> Vec<aster_drive::entities::background_task::Model> {
-    aster_drive::entities::background_task::Entity::find()
+) -> Vec<aster_drive_model::entities::background_task::Model> {
+    aster_drive_model::entities::background_task::Entity::find()
         .filter(
-            aster_drive::entities::background_task::Column::Kind
-                .eq(aster_drive::types::BackgroundTaskKind::SystemRuntime),
+            aster_drive_model::entities::background_task::Column::Kind
+                .eq(aster_drive_model::types::BackgroundTaskKind::SystemRuntime),
         )
         .all(database)
         .await
@@ -865,15 +865,15 @@ impl SyntheticTunnelFollower {
 
 async fn seed_reverse_tunnel_node(
     database: &DatabaseConnection,
-) -> aster_drive::entities::managed_follower::Model {
+) -> aster_drive_model::entities::managed_follower::Model {
     let now = Utc::now();
-    let node = aster_drive::entities::managed_follower::ActiveModel {
+    let node = aster_drive_model::entities::managed_follower::ActiveModel {
         name: Set("multi-primary reverse tunnel follower".to_string()),
         base_url: Set(String::new()),
         access_key: Set(format!("e2e-access-{}", uuid::Uuid::new_v4().simple())),
         secret_key: Set(format!("e2e-secret-{}", uuid::Uuid::new_v4().simple())),
         is_enabled: Set(true),
-        transport_mode: Set(aster_drive::types::RemoteNodeTransportMode::ReverseTunnel),
+        transport_mode: Set(aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel),
         last_capabilities: Set("{}".to_string()),
         last_error: Set(String::new()),
         last_checked_at: Set(None),
@@ -887,7 +887,7 @@ async fn seed_reverse_tunnel_node(
     .await
     .expect("insert reverse tunnel E2E remote node");
 
-    aster_drive::entities::follower_enrollment_session::ActiveModel {
+    aster_drive_model::entities::follower_enrollment_session::ActiveModel {
         managed_follower_id: Set(node.id),
         token_hash: Set(format!("e2e-token-{}", uuid::Uuid::new_v4().simple())),
         ack_token_hash: Set(format!("e2e-ack-{}", uuid::Uuid::new_v4().simple())),
@@ -917,7 +917,7 @@ async fn defer_remote_node_health_tests(database: &DatabaseConnection) {
 
 fn spawn_synthetic_tunnel_follower(
     primary_url: String,
-    remote_node: aster_drive::entities::managed_follower::Model,
+    remote_node: aster_drive_model::entities::managed_follower::Model,
 ) -> SyntheticTunnelFollower {
     let shutdown = CancellationToken::new();
     let worker_shutdown = shutdown.clone();
@@ -943,7 +943,7 @@ fn spawn_synthetic_tunnel_follower(
 
 async fn run_synthetic_tunnel_connection(
     primary_url: &str,
-    remote_node: &aster_drive::entities::managed_follower::Model,
+    remote_node: &aster_drive_model::entities::managed_follower::Model,
     shutdown: CancellationToken,
 ) -> Result<(), String> {
     let ws_url = format!(
@@ -1142,12 +1142,12 @@ async fn wait_for_tunnel_owner(
     expected_endpoint: &str,
     server: &mut ServerProcess,
     timeout: Duration,
-) -> aster_drive::entities::remote_tunnel_owner::Model {
+) -> aster_drive_model::entities::remote_tunnel_owner::Model {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
         server.assert_running();
         if let Some(owner) =
-            aster_drive::entities::remote_tunnel_owner::Entity::find_by_id(remote_node_id)
+            aster_drive_model::entities::remote_tunnel_owner::Entity::find_by_id(remote_node_id)
                 .one(database)
                 .await
                 .expect("query reverse tunnel owner directory")
@@ -1574,11 +1574,11 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
     let _guard = e2e_lock().lock().await;
     let services = SharedServices::start().await;
     let database = services.connect_database().await;
-    aster_drive::entities::storage_policy_group_item::Entity::delete_many()
+    aster_drive_model::entities::storage_policy_group_item::Entity::delete_many()
         .exec(&database)
         .await
         .expect("remove seeded policy group items");
-    aster_drive::entities::storage_policy_group::Entity::delete_many()
+    aster_drive_model::entities::storage_policy_group::Entity::delete_many()
         .exec(&database)
         .await
         .expect("remove seeded policy groups");
@@ -1599,13 +1599,13 @@ async fn concurrent_primary_startup_reconciles_one_default_policy_group() {
     );
 
     let database = services.connect_database().await;
-    let groups = aster_drive::entities::storage_policy_group::Entity::find()
+    let groups = aster_drive_model::entities::storage_policy_group::Entity::find()
         .all(&database)
         .await
         .expect("list reconciled policy groups");
     assert_eq!(groups.len(), 1);
     assert!(groups[0].is_default);
-    let items = aster_drive::entities::storage_policy_group_item::Entity::find()
+    let items = aster_drive_model::entities::storage_policy_group_item::Entity::find()
         .all(&database)
         .await
         .expect("list reconciled policy group items");
@@ -1777,17 +1777,17 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     let now = Utc::now();
     let constrained_policy = aster_drive::db::repository::policy_repo::create(
         &database,
-        aster_drive::entities::storage_policy::ActiveModel {
+        aster_drive_model::entities::storage_policy::ActiveModel {
             name: Set("E2E User Policy Group Limit".to_string()),
-            driver_type: Set(aster_drive::types::DriverType::S3),
+            driver_type: Set(aster_drive_model::types::DriverType::S3),
             endpoint: Set("http://127.0.0.1:9000".to_string()),
             bucket: Set("asterdrive-e2e".to_string()),
             access_key: Set("e2e-access".to_string()),
             secret_key: Set("e2e-secret".to_string()),
             base_path: Set(String::new()),
             max_file_size: Set(1),
-            allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive::types::StoredStoragePolicyOptions::empty()),
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -1799,7 +1799,7 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     .expect("create constrained E2E policy group policy");
     let constrained_group = aster_drive::db::repository::policy_group_repo::create_group(
         &database,
-        aster_drive::entities::storage_policy_group::ActiveModel {
+        aster_drive_model::entities::storage_policy_group::ActiveModel {
             name: Set("E2E User Policy Group".to_string()),
             description: Set("Targeted config-sync E2E fixture".to_string()),
             is_enabled: Set(true),
@@ -1813,7 +1813,7 @@ async fn user_policy_group_assignment_propagates_to_second_primary_without_resta
     .expect("create constrained E2E policy group");
     aster_drive::db::repository::policy_group_repo::create_group_item(
         &database,
-        aster_drive::entities::storage_policy_group_item::ActiveModel {
+        aster_drive_model::entities::storage_policy_group_item::ActiveModel {
             group_id: Set(constrained_group.id),
             policy_id: Set(constrained_policy.id),
             priority: Set(1),
@@ -2219,7 +2219,7 @@ async fn background_task_claim_is_fenced_across_primaries() {
     .await;
     assert_eq!(
         task.status,
-        aster_drive::types::BackgroundTaskStatus::Succeeded
+        aster_drive_model::types::BackgroundTaskStatus::Succeeded
     );
     assert_eq!(task.processing_token, 1);
     assert_eq!(task.attempt_count, 0);

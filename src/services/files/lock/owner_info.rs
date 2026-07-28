@@ -1,6 +1,6 @@
-use crate::entities::resource_lock;
 use crate::errors::{AsterError, Result};
-use crate::types::StoredLockOwnerInfo;
+use aster_drive_model::entities::resource_lock;
+use aster_drive_model::types::StoredLockOwnerInfo;
 
 use super::models::ResourceLockOwnerInfo;
 

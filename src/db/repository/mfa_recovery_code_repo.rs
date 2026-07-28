@@ -6,8 +6,8 @@ use sea_orm::{
     QueryOrder, sea_query::Expr,
 };
 
-use crate::entities::mfa_recovery_code::{self, Entity as MfaRecoveryCode};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::mfa_recovery_code::{self, Entity as MfaRecoveryCode};
 
 pub async fn create_many<C: ConnectionTrait>(
     db: &C,

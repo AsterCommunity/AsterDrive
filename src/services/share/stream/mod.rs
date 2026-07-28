@@ -11,13 +11,13 @@ use utoipa::ToSchema;
 
 use crate::config::{operations, site_url};
 use crate::db::repository::{file_repo, share_repo};
-use crate::entities::{file, share};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::{
     direct_link,
     file::{self as file_ops, ResolvedDownloadRange},
 };
+use aster_drive_model::entities::{file, share};
 use aster_forge_utils::numbers::u64_to_i64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

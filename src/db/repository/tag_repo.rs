@@ -6,9 +6,9 @@ use sea_orm::{
     IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, Set, sea_query::Expr,
 };
 
-use crate::entities::tag::{self, Entity as Tag};
 use crate::errors::{AsterError, Result};
-use crate::types::TagScopeType;
+use aster_drive_model::entities::tag::{self, Entity as Tag};
+use aster_drive_model::types::TagScopeType;
 use aster_forge_db::{pagination::fetch_offset_page, search_query::lower_like_condition};
 
 pub async fn create(

@@ -420,17 +420,19 @@ mod tests {
         let now = chrono::Utc::now();
         let policy = crate::db::repository::policy_repo::create(
             &db,
-            crate::entities::storage_policy::ActiveModel {
+            aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set("config reload policy".to_string()),
-                driver_type: Set(crate::types::DriverType::S3),
+                driver_type: Set(aster_drive_model::types::DriverType::S3),
                 endpoint: Set("https://old.example.com".to_string()),
                 bucket: Set("test".to_string()),
                 access_key: Set("access".to_string()),
                 secret_key: Set("secret".to_string()),
                 base_path: Set(String::new()),
                 max_file_size: Set(0),
-                allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+                allowed_types: Set(
+                    aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+                ),
+                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(true),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -521,7 +523,7 @@ mod tests {
         .expect("remote notification should reload runtime config");
 
         let policy_id = policy.id;
-        let mut active: crate::entities::storage_policy::ActiveModel = policy.into();
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
         active.max_file_size = Set(1);
         active
             .update(&db)

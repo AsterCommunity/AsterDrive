@@ -8,7 +8,7 @@
 
 use crate::errors::Result;
 use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
-use crate::types::{MediaMetadataKind, MediaMetadataPayload};
+use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

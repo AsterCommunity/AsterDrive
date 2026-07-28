@@ -98,7 +98,10 @@ impl PrimaryAppState {
         self.db_handles.sqlite_read_write_split()
     }
 
-    pub fn should_record_audit_action(&self, action: crate::types::AuditAction) -> bool {
+    pub fn should_record_audit_action(
+        &self,
+        action: aster_drive_model::types::AuditAction,
+    ) -> bool {
         self.runtime_config.should_record_audit_action(action)
     }
 

@@ -402,7 +402,7 @@ async fn test_path_resolver_hides_deleted_intermediate_folders() {
         aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), docs.id)
             .await
             .unwrap();
-    let mut deleted_docs: aster_drive::entities::folder::ActiveModel = docs_model.into();
+    let mut deleted_docs: aster_drive_model::entities::folder::ActiveModel = docs_model.into();
     deleted_docs.deleted_at = Set(Some(chrono::Utc::now()));
     deleted_docs.updated_at = Set(chrono::Utc::now());
     deleted_docs.update(state.writer_db()).await.unwrap();

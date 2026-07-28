@@ -8,8 +8,8 @@ pub use dex::{
 pub use mock::start_mock_external_auth_provider;
 
 use actix_web::{body::MessageBody, dev::ServiceResponse, test};
-use aster_drive::entities::{external_auth_provider, user};
 use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_model::entities::{external_auth_provider, user};
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ActiveValue::Set, EntityTrait, IntoActiveModel};
 use serde_json::Value;
@@ -194,7 +194,7 @@ fn oidc_external_auth_provider_model(
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Oidc),
         protocol: Set(aster_forge_external_auth::ExternalAuthProtocol::Oidc),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         issuer_url: Set(Some(issuer_url.to_string())),
         authorization_url: Set(None),
@@ -229,7 +229,7 @@ pub fn google_external_auth_provider_model(
     external_auth_provider::ActiveModel {
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Google),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         scopes: Set("openid profile email".to_string()),
         subject_claim: Set(Some("sub".to_string())),
@@ -249,7 +249,7 @@ pub fn microsoft_external_auth_provider_model(
     external_auth_provider::ActiveModel {
         provider_kind: Set(aster_forge_external_auth::ExternalAuthProviderKind::Microsoft),
         options: Set(
-            aster_drive::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
+            aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions::empty(),
         ),
         scopes: Set("openid profile email".to_string()),
         require_email_verified: Set(false),
@@ -597,7 +597,7 @@ pub async fn disable_user(state: &aster_drive::runtime::PrimaryAppState, user_id
         .expect("user should query")
         .expect("user should exist");
     let mut active = user.into_active_model();
-    active.status = Set(aster_drive::types::UserStatus::Disabled);
+    active.status = Set(aster_drive_model::types::UserStatus::Disabled);
     active
         .update(state.writer_db())
         .await

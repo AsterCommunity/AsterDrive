@@ -3,7 +3,7 @@ use chrono::Utc;
 use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::types::BackgroundTaskStatus;
+use aster_drive_model::types::BackgroundTaskStatus;
 
 use crate::config::operations;
 

@@ -14,8 +14,8 @@ use sea_orm::{
     sea_query::{Expr, extension::postgres::PgExpr},
 };
 
-use crate::entities::team::{self, Entity as Team};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::team::{self, Entity as Team};
 
 const SQLITE_TEAMS_FTS_TABLE: &str = "teams_search_fts";
 

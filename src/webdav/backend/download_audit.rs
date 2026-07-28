@@ -1,10 +1,10 @@
 //! WebDAV 下载审计上下文适配。
 
-use crate::entities::file;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     files::file as file_ops, ops::audit::AuditContext, workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::file;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum WebdavDownloadRequestKind {

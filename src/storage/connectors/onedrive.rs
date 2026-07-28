@@ -6,7 +6,6 @@ use std::sync::Arc;
 use crate::db::repository::{
     storage_connector_application_config_repo, storage_policy_credential_repo,
 };
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
@@ -24,7 +23,8 @@ use crate::storage::drivers::onedrive::{
     MicrosoftGraphClient, MicrosoftGraphClientConfig, OneDriveDriver,
     microsoft_graph_upload_capabilities,
 };
-use crate::types::{
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
     DriverType, ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
     StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
@@ -253,7 +253,7 @@ impl StorageConnector for OneDriveConnector {
     async fn validate_policy_options<C: ConnectionTrait + Sync>(
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
         ensure_storage_native_processing_supported(Self::storage_connector_descriptor(), options)?;
@@ -264,7 +264,7 @@ impl StorageConnector for OneDriveConnector {
         db: &C,
         encryption_key: &str,
         policy_id: i64,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
         application_config: StorageConnectorApplicationConfigInput,
     ) -> Result<()> {
         let Some(microsoft_graph) = application_config.microsoft_graph else {
@@ -321,7 +321,7 @@ impl StorageConnector for OneDriveConnector {
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<Option<StorageConnectorRuntimeCredential>> {
         let metadata = parse_onedrive_credential_metadata(&credential.metadata);
         let (drive_id, root_item_id) = metadata
@@ -446,7 +446,7 @@ impl StorageConnector for OneDriveConnector {
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<StorageCredentialValidationOutcome> {
         let options = parse_storage_policy_options(policy.options.as_ref());
         let application_config =
@@ -500,7 +500,7 @@ impl StorageConnector for OneDriveConnector {
 
 fn microsoft_graph_config_with_policy_options(
     mut input: crate::storage::MicrosoftGraphApplicationConfigInput,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> crate::storage::MicrosoftGraphApplicationConfigInput {
     // OneDrive keeps cloud/tenant in policy options for driver behavior; the
     // app-config row mirrors them so OAuth start can be driven by saved provider
@@ -616,7 +616,7 @@ async fn onedrive_credential_snapshot_for_policy(
     let metadata = serde_json::from_str::<serde_json::Value>(&credential.metadata)
         .ok()
         .unwrap_or_default();
-    let options = crate::types::parse_storage_policy_options(policy.options.as_ref());
+    let options = aster_drive_model::types::parse_storage_policy_options(policy.options.as_ref());
     let cloud = metadata
         .get("cloud")
         .cloned()

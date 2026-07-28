@@ -13,7 +13,7 @@ use crate::db::repository::system_initialization_repo;
 use crate::errors::{Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{mail::outbox, mail::template::MailTemplatePayload};
-use crate::types::{UserRole, UserStatus, VerificationPurpose};
+use aster_drive_model::types::{UserRole, UserStatus, VerificationPurpose};
 
 use super::shared::{
     CreateUserWithRoleInput, create_first_admin, create_user_with_role, find_user_by_identifier,

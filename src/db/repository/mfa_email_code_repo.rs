@@ -6,8 +6,8 @@ use sea_orm::{
     QueryOrder, sea_query::Expr,
 };
 
-use crate::entities::mfa_email_code::{self, Entity as MfaEmailCode};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::mfa_email_code::{self, Entity as MfaEmailCode};
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

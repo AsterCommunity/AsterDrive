@@ -2,7 +2,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, precondition_failed_with_code};
 use crate::storage::{NativeThumbnailRequest, StorageDriver};
 
-use crate::entities::file_blob;
+use aster_drive_model::entities::file_blob;
 
 pub(super) async fn render_thumbnail_with_storage_native(
     blob: &file_blob::Model,
@@ -77,11 +77,11 @@ pub(super) async fn render_image_preview_with_storage_native(
 #[cfg(test)]
 mod tests {
     use super::{render_image_preview_with_storage_native, render_thumbnail_with_storage_native};
-    use crate::entities::file_blob;
     use crate::errors::Result;
     use crate::storage::{
         BlobMetadata, NativeThumbnailRequest, NativeThumbnailStorageDriver, StorageDriver,
     };
+    use aster_drive_model::entities::file_blob;
     use async_trait::async_trait;
     use chrono::Utc;
     use std::sync::Mutex;

@@ -13,13 +13,13 @@ use tokio::io::{AsyncRead, empty};
 use super::*;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::BlobMetadata;
 use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-use crate::types::{
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
 use aster_forge_cache as cache;

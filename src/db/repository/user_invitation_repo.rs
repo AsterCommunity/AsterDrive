@@ -6,9 +6,9 @@ use sea_orm::{
     IntoActiveModel, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
-use crate::entities::user_invitation::{self, Entity as UserInvitation};
 use crate::errors::{AsterError, Result};
-use crate::types::UserInvitationStatus;
+use aster_drive_model::entities::user_invitation::{self, Entity as UserInvitation};
+use aster_drive_model::types::UserInvitationStatus;
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

@@ -3,12 +3,12 @@ use chrono::Utc;
 use sea_orm::Set;
 
 use crate::db::repository::folder_repo;
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::scope::{
     WorkspaceStorageScope, load_scope_actor_username_cached, verify_folder_access,
 };
+use aster_drive_model::entities::folder;
 
 use super::policy::{VerifiedFolderPolicyHint, resolve_verified_folder_policy_hint};
 

@@ -60,7 +60,7 @@ pub struct TagPath {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
 pub struct EntityTagsPath {
-    pub entity_type: crate::types::EntityType,
+    pub entity_type: aster_drive_model::types::EntityType,
     #[validate(range(min = 1, message = "entity_id must be greater than 0"))]
     pub entity_id: i64,
 }
@@ -70,7 +70,7 @@ pub struct EntityTagsPath {
 pub struct TagEntityPath {
     #[validate(range(min = 1, message = "tag_id must be greater than 0"))]
     pub tag_id: i64,
-    pub entity_type: crate::types::EntityType,
+    pub entity_type: aster_drive_model::types::EntityType,
     #[validate(range(min = 1, message = "entity_id must be greater than 0"))]
     pub entity_id: i64,
 }

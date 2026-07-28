@@ -13,7 +13,6 @@ use super::{
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
-use crate::entities::master_binding;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{FollowerAppState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
@@ -22,6 +21,7 @@ use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT, sign_internal_request,
 };
+use aster_drive_model::entities::master_binding;
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use reqwest::Method;
@@ -1044,7 +1044,6 @@ mod tests {
         execute_stream_tunnel_request, is_allowed_tunnel_target, signed_master_ws_request,
         stream_connect_url,
     };
-    use crate::entities::master_binding;
     use crate::storage::remote_protocol::tunnel::server::{
         RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind, decode_stream_frame,
         encode_stream_frame,
@@ -1055,6 +1054,7 @@ mod tests {
         sign_internal_request,
     };
     use actix_web::{App, HttpResponse, HttpServer, web};
+    use aster_drive_model::entities::master_binding;
     use bytes::Bytes;
     use futures::Sink;
     use std::pin::Pin;

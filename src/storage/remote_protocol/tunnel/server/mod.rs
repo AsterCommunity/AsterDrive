@@ -1,10 +1,10 @@
 //! Reverse tunnel transport for remote followers.
 
 use crate::db::repository::managed_follower_repo;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::managed_follower;
 use chrono::Utc;
 use futures::StreamExt as _;
 use serde::Serialize;

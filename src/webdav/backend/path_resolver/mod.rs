@@ -6,10 +6,10 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 use serde::{Deserialize, Serialize};
 
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::{file, folder};
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::WorkspaceStorageScope;
+use aster_drive_model::entities::{file, folder};
 use aster_forge_crypto as hash;
 use aster_forge_webdav::{DavPath, FsError};
 

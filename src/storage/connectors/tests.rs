@@ -9,9 +9,9 @@ use aster_drive_migration::Migrator;
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
 
-use crate::entities::storage_policy;
 use crate::storage::StorageConnectorObjectNamingMode;
-use crate::types::{
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
     MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
     ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
     StoredStoragePolicyAllowedTypes, UploadMode, parse_storage_policy_options,
@@ -63,7 +63,7 @@ async fn create_saved_connector_policy(
             remote_node_id: Set(None),
             max_file_size: Set(0),
             allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -959,7 +959,7 @@ fn provider_transfer_strategies_are_rejected_for_non_onedrive_connectors() {
         },
         StoragePolicyOptions {
             provider_download_strategy: Some(
-                crate::types::ProviderDownloadStrategy::FrontendDirect,
+                aster_drive_model::types::ProviderDownloadStrategy::FrontendDirect,
             ),
             ..Default::default()
         },
@@ -1759,7 +1759,7 @@ fn assert_upload_workflow_alignment(
     if let Some(capabilities) = workflows.object_multipart_upload_capabilities.as_ref() {
         assert_eq!(
             capabilities.min_part_size,
-            crate::types::OBJECT_MULTIPART_MIN_PART_SIZE
+            aster_drive_model::types::OBJECT_MULTIPART_MIN_PART_SIZE
         );
         assert!(capabilities.policy_limited_part_size);
         assert!(capabilities.relay_part_upload);

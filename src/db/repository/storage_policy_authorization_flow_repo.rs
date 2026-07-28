@@ -5,11 +5,11 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr,
 };
 
-use crate::entities::storage_policy_authorization_flow::{
+use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::storage_policy_authorization_flow::{
     self, Entity as StoragePolicyAuthorizationFlow,
 };
-use crate::errors::{AsterError, Result};
-use crate::types::StorageAuthorizationFlowStatus;
+use aster_drive_model::types::StorageAuthorizationFlowStatus;
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

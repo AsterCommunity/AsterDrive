@@ -1175,19 +1175,19 @@ mod tests {
     use super::{direct_routes, routes};
     use crate::config::{Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
-    use crate::entities::{file, file_blob, folder, storage_policy, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::{mail::sender, media::processing, share};
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, UserRole, UserStatus,
-    };
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, HttpResponse, test, web};
     use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{file, file_blob, folder, storage_policy, user};
+    use aster_drive_model::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, UserRole, UserStatus,
+    };
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;

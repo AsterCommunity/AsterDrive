@@ -8,7 +8,6 @@ use crate::db::repository::{
     auth_session_repo, file_repo, folder_repo, lock_repo, share_repo, upload_session_repo,
     user_repo, webdav_account_repo,
 };
-use crate::entities::user;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -16,7 +15,8 @@ use crate::services::{
     ops::audit::{self, AuditContext},
     user::profile,
 };
-use crate::types::{UserRole, UserStatus};
+use aster_drive_model::entities::user;
+use aster_drive_model::types::{UserRole, UserStatus};
 
 use super::queries::{get, to_user_info};
 
@@ -447,7 +447,7 @@ pub async fn force_delete(
     let folder_ids: Vec<i64> = all_folders.iter().map(|folder| folder.id).collect();
     crate::db::repository::property_repo::delete_all_for_entities(
         db,
-        crate::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         &folder_ids,
     )
     .await?;

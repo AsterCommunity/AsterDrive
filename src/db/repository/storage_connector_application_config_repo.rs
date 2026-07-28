@@ -3,11 +3,11 @@
 use chrono::Utc;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::OnConflict};
 
-use crate::entities::storage_connector_application_config::{
+use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::storage_connector_application_config::{
     self, Entity as StorageConnectorApplicationConfig,
 };
-use crate::errors::{AsterError, Result};
-use crate::types::StorageCredentialProvider;
+use aster_drive_model::types::StorageCredentialProvider;
 
 pub async fn find_by_policy_provider<C: ConnectionTrait>(
     db: &C,

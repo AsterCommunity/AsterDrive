@@ -1,8 +1,8 @@
 //! 仓储模块：`remote_storage_target_repo`。
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::remote_storage_target::{self, Entity as RemoteStorageTarget};
 use crate::errors::{AsterError, Result, validation_error_with_code};
+use aster_drive_model::entities::remote_storage_target::{self, Entity as RemoteStorageTarget};
 use sea_orm::sea_query::Expr;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait,

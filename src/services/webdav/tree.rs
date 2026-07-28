@@ -4,7 +4,6 @@ use aster_forge_db::transaction;
 use chrono::Utc;
 
 use crate::db::repository::{file_repo, folder_repo, share_repo};
-use crate::entities::folder;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -13,6 +12,7 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::folder;
 
 /// 递归收集文件夹树内的所有文件和子文件夹 ID
 ///
@@ -23,7 +23,7 @@ async fn collect_folder_tree_models(
     user_id: i64,
     folder_id: i64,
     include_deleted: bool,
-) -> Result<(Vec<crate::entities::file::Model>, Vec<i64>)> {
+) -> Result<(Vec<aster_drive_model::entities::file::Model>, Vec<i64>)> {
     folder_ops::collect_folder_tree_in_scope(
         db,
         WorkspaceStorageScope::Personal { user_id },
@@ -38,7 +38,7 @@ async fn collect_folder_tree_models_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: i64,
     include_deleted: bool,
-) -> Result<(Vec<crate::entities::file::Model>, Vec<i64>)> {
+) -> Result<(Vec<aster_drive_model::entities::file::Model>, Vec<i64>)> {
     folder_ops::collect_folder_tree_in_scope(db, scope, folder_id, include_deleted).await
 }
 
@@ -133,7 +133,7 @@ pub async fn purge_folder_tree(
 
     crate::db::repository::property_repo::delete_all_for_entities(
         state.writer_db(),
-        crate::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         &all_folder_ids,
     )
     .await?;

@@ -9,7 +9,6 @@ use tokio::io::AsyncWriteExt;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{upload_session_part_repo, upload_session_repo};
-use crate::entities::upload_session;
 use crate::errors::{
     AsterError, MapAsterErr, Result, chunk_upload_error_with_code, upload_assembly_error_with_code,
     validation_error_with_code,
@@ -24,7 +23,8 @@ use crate::storage::{
     ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome, StorageDriver,
     StorageErrorKind,
 };
-use crate::types::UploadSessionStatus;
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::numbers;
 
 const RELAY_STREAM_PIPE_BUFFER_SIZE: usize = 64 * 1024;

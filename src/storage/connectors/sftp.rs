@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::StorageDriver;
@@ -14,7 +13,8 @@ use crate::storage::connector_descriptor::{
     storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 use crate::storage::drivers::sftp::SftpDriver;
-use crate::types::DriverType;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::DriverType;
 
 use super::common::{ensure_onedrive_options_absent, validate_static_secret_credentials};
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
@@ -178,7 +178,7 @@ impl StorageConnector for SftpConnector {
     async fn validate_policy_options<C: sea_orm::ConnectionTrait + Sync>(
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
         ensure_onedrive_options_absent(options)?;

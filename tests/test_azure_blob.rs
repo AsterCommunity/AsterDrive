@@ -25,13 +25,13 @@ fn azure_policy(
     endpoint: &str,
     container: &str,
     base_path: &str,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
 
-    aster_drive::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 998,
         name: "Test Azure Blob".to_string(),
-        driver_type: aster_drive::types::DriverType::AzureBlob,
+        driver_type: aster_drive_model::types::DriverType::AzureBlob,
         endpoint: endpoint.to_string(),
         bucket: container.to_string(),
         access_key: AZURITE_ACCOUNT.to_string(),
@@ -40,8 +40,8 @@ fn azure_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 5_242_880,
         created_at: Utc::now(),

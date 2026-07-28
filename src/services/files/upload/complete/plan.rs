@@ -1,11 +1,11 @@
 use chrono::Utc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::upload_session;
 use crate::errors::{
     AsterError, Result, upload_assembly_error_with_code, validation_error_with_code,
 };
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
 #[derive(Debug)]
 pub(super) enum CompletionPlan {

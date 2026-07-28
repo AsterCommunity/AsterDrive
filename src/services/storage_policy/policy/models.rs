@@ -6,8 +6,8 @@ use utoipa::ToSchema;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::ApiErrorDiagnostic;
-use crate::entities::storage_policy;
-use crate::types::{
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
     DriverType, StoragePolicyOptions, parse_storage_policy_allowed_types,
     parse_storage_policy_options,
 };

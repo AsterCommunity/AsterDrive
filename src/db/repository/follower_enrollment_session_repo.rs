@@ -1,7 +1,9 @@
 //! 仓储模块：`follower_enrollment_session_repo`。
 
-use crate::entities::follower_enrollment_session::{self, Entity as FollowerEnrollmentSession};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::follower_enrollment_session::{
+    self, Entity as FollowerEnrollmentSession,
+};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, EntityTrait,

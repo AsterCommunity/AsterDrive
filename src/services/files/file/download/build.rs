@@ -1,7 +1,6 @@
 use std::time::Duration;
 
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::file::{
@@ -10,6 +9,7 @@ use crate::services::files::file::{
 };
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::storage::PresignedDownloadOptions;
+use aster_drive_model::entities::{file, file_blob};
 use aster_forge_utils::numbers;
 
 use super::range::ResolvedDownloadRange;
@@ -169,7 +169,7 @@ pub(crate) async fn build_download_outcome_with_disposition_and_range(
 
 async fn build_presigned_redirect_outcome(
     state: &PrimaryAppState,
-    policy: &crate::entities::storage_policy::Model,
+    policy: &aster_drive_model::entities::storage_policy::Model,
     file: &file::Model,
     blob: &file_blob::Model,
     disposition: DownloadDisposition,

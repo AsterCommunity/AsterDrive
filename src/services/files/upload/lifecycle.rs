@@ -3,7 +3,6 @@
 use chrono::{Duration, Utc};
 
 use crate::db::repository::upload_session_repo;
-use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::kind::resolve_upload_session_kind;
@@ -14,7 +13,8 @@ use crate::services::files::upload::shared::{
     mark_session_failed_with_expiration, upload_storage_error_class_label,
 };
 use crate::storage::StorageDriver;
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use aster_forge_utils::numbers::usize_to_u32;
 
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;

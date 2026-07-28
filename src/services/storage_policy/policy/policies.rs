@@ -9,11 +9,11 @@ use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
 use crate::db::repository::{
     file_repo, policy_group_repo, policy_repo, system_initialization_repo, upload_session_repo,
 };
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::remote::storage_target;
-use crate::types::{DriverType, parse_storage_policy_options};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{DriverType, parse_storage_policy_options};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
@@ -816,12 +816,12 @@ mod tests {
     use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
     use crate::storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::types::{
         MicrosoftGraphCloud, OneDriveAccountMode, RemoteDownloadStrategy, RemoteUploadStrategy,
         StorageCredentialKind, StorageCredentialProvider, StoragePolicyOptions,
         StoredStoragePolicyAllowedTypes,
     };
-    use aster_drive_migration::Migrator;
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
     use sea_orm::ActiveValue::Set;
@@ -953,7 +953,7 @@ mod tests {
         let now = Utc::now();
         crate::db::repository::managed_follower_repo::create(
             state.writer_db(),
-            crate::entities::managed_follower::ActiveModel {
+            aster_drive_model::entities::managed_follower::ActiveModel {
                 name: Set("Remote Node".to_string()),
                 base_url: Set("http://127.0.0.1:9".to_string()),
                 access_key: Set("remote-ak".to_string()),
@@ -1334,10 +1334,10 @@ mod tests {
                 remote_node_id: Set(None),
                 max_file_size: Set(0),
                 allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(
-                    crate::types::serialize_storage_policy_options(&onedrive_options())
-                        .expect("options should serialize"),
-                ),
+                options: Set(aster_drive_model::types::serialize_storage_policy_options(
+                    &onedrive_options(),
+                )
+                .expect("options should serialize")),
                 is_default: Set(false),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -1422,7 +1422,7 @@ mod tests {
                 remote_storage_target_key: Set(Some("rst_existing".to_string())),
                 max_file_size: Set(0),
                 allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::serialize_storage_policy_options(
+                options: Set(aster_drive_model::types::serialize_storage_policy_options(
                     &StoragePolicyOptions {
                         remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
                         remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),

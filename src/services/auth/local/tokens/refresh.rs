@@ -44,7 +44,6 @@ use tokio::sync::{Mutex, OwnedMutexGuard};
 use super::{ensure_token_type, issue_tokens_for_session_id, verify_token};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{auth_session_repo, user_repo};
-use crate::entities::auth_session;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local::Claims;
@@ -52,7 +51,8 @@ use crate::services::auth::local::session::{
     invalidate_auth_snapshot_cache, purge_all_auth_sessions_in_connection,
 };
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::TokenType;
+use aster_drive_model::entities::auth_session;
+use aster_drive_model::types::TokenType;
 
 // This window is only for classifying an already-rotated previous JTI. It does
 // not allow a second successful refresh; stale callers still receive E019.
@@ -705,7 +705,7 @@ pub mod test_support {
     use tokio::sync::Notify;
 
     use crate::errors::{AsterError, Result};
-    use crate::types::TokenType;
+    use aster_drive_model::types::TokenType;
 
     use super::{REFRESH_ROTATION_TEST_HOOK, ensure_token_type, verify_token};
 

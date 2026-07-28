@@ -5,8 +5,8 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, QueryFilter, Set, sea_query::Expr,
 };
 
-use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file::{self, Entity as File};
 
 use super::common::{map_bulk_name_db_err, map_name_db_err};
 

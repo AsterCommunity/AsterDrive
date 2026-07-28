@@ -1,10 +1,10 @@
 //! 上传服务子模块：`scope`。
 
 use crate::db::repository::upload_session_repo;
-use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::upload_session;
 use sea_orm::ConnectionTrait;
 
 pub(super) fn personal_scope(user_id: i64) -> WorkspaceStorageScope {

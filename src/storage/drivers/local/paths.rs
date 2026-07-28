@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result};
+use aster_drive_model::entities::storage_policy;
 
 pub fn effective_base_path(policy: &storage_policy::Model) -> PathBuf {
     if policy.base_path.is_empty() {

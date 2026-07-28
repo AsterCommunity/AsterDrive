@@ -15,12 +15,12 @@ use std::future::Future;
 
 use serde_json::json;
 
-use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::file;
 use aster_forge_api::NullablePatch;
 
 pub(crate) use crate::services::files::download_headers::DownloadDisposition;
@@ -223,7 +223,7 @@ pub(crate) async fn copy_file_in_scope_with_audit(
 pub(crate) async fn download_in_scope_with_file_and_audit(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    file: crate::entities::file::Model,
+    file: aster_drive_model::entities::file::Model,
     disposition: DownloadDisposition,
     if_none_match: Option<&str>,
     range: Option<download::range::ResolvedDownloadRange>,

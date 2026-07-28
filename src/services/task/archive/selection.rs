@@ -14,7 +14,6 @@ use super::common::{
 };
 use crate::config::operations;
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::{file, folder, share};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -25,6 +24,7 @@ use crate::services::{
     task::types::CreateArchiveTaskParams,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::{file, folder, share};
 
 pub(crate) struct PreparedArchiveDownload {
     pub file_ids: Vec<i64>,

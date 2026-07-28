@@ -2,7 +2,6 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::storage::{BlobMetadata, StoragePathVisitor};
@@ -10,8 +9,9 @@ use crate::storage::{
     DriverRegistry, ListStorageDriver, LocalPathStorageDriver, PolicySnapshot, StorageDriver,
     StreamUploadDriver,
 };
-use crate::types::{DriverType, UserRole, UserStatus};
 use aster_drive_migration::Migrator;
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{DriverType, UserRole, UserStatus};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
@@ -195,8 +195,9 @@ impl StreamUploadDriver for CountingUploadDriver {
 
 fn enable_content_dedup(policy: &storage_policy::Model) -> storage_policy::Model {
     let mut policy = policy.clone();
-    policy.options =
-        crate::types::StoredStoragePolicyOptions(r#"{"content_dedup":true}"#.to_string());
+    policy.options = aster_drive_model::types::StoredStoragePolicyOptions(
+        r#"{"content_dedup":true}"#.to_string(),
+    );
     policy
 }
 
@@ -787,8 +788,8 @@ async fn build_test_state() -> (PrimaryAppState, PathBuf, storage_policy::Model,
         secret_key: Set(String::new()),
         base_path: Set(uploads_root.to_string_lossy().into_owned()),
         max_file_size: Set(0),
-        allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+        options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
         is_default: Set(true),
         chunk_size: Set(5_242_880),
         created_at: Set(now),

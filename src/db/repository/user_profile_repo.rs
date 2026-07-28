@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::entities::user_profile::{self, Entity as UserProfile};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::user_profile::{self, Entity as UserProfile};
 use sea_orm::{ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
 
 pub async fn find_by_user_id(

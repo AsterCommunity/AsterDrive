@@ -1,4 +1,3 @@
-use crate::entities::managed_follower;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::remote::capability::RemoteCapabilityResolver;
@@ -6,7 +5,8 @@ use crate::services::remote::remote_node;
 use crate::storage::remote_protocol::{
     RemoteCreateStorageTargetRequest, RemoteStorageTargetInfo, RemoteUpdateStorageTargetRequest,
 };
-use crate::types::DriverType;
+use aster_drive_model::entities::managed_follower;
+use aster_drive_model::types::DriverType;
 
 use super::driver::RemoteStorageTargetDriverDescriptor;
 

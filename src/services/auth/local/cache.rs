@@ -44,7 +44,7 @@ pub(super) async fn invalidate_auth_snapshot(state: &impl SharedRuntimeState, us
 mod tests {
     use super::*;
     use crate::runtime::test_support::CacheOnlyState;
-    use crate::types::{UserRole, UserStatus};
+    use aster_drive_model::types::{UserRole, UserStatus};
 
     fn snapshot(session_version: i64) -> AuthSnapshot {
         AuthSnapshot {

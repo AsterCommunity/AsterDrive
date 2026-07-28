@@ -9,11 +9,11 @@ use sea_orm::{
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::auth_runtime::RuntimeContactVerificationPolicy;
 use crate::db::repository::{contact_verification_token_repo, user_repo};
-use crate::entities::{contact_verification_token, user};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::mail::sender;
-use crate::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
+use aster_drive_model::entities::{contact_verification_token, user};
+use aster_drive_model::types::{UserRole, UserStatus, VerificationChannel, VerificationPurpose};
 use aster_forge_crypto as hash;
 use aster_forge_utils::numbers::u64_to_i64;
 

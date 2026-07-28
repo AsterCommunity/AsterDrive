@@ -14,13 +14,13 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{
     StorageErrorContext, StorageErrorKind, storage_driver_error, storage_driver_error_with_context,
 };
 use crate::storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
-use crate::types::parse_storage_policy_options;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::parse_storage_policy_options;
 
 const DEFAULT_SFTP_PORT: u16 = 22;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -1011,7 +1011,7 @@ mod tests {
     };
     use crate::storage::error::StorageErrorKind;
     use crate::storage::{StorageDriver, StreamUploadDriver};
-    use crate::types::{DriverType, StoredStoragePolicyAllowedTypes};
+    use aster_drive_model::types::{DriverType, StoredStoragePolicyAllowedTypes};
     use chrono::Utc;
     use russh_sftp::client::error::Error as SftpError;
     use russh_sftp::protocol::{Status, StatusCode};
@@ -1194,13 +1194,13 @@ mod tests {
         ));
     }
 
-    fn env_policy() -> Option<crate::entities::storage_policy::Model> {
+    fn env_policy() -> Option<aster_drive_model::entities::storage_policy::Model> {
         let endpoint = std::env::var("ASTER_SFTP_TEST_ENDPOINT").ok()?;
         let username = std::env::var("ASTER_SFTP_TEST_USERNAME").ok()?;
         let password = std::env::var("ASTER_SFTP_TEST_PASSWORD").ok()?;
         let base_path = std::env::var("ASTER_SFTP_TEST_BASE_PATH").ok()?;
         let host_key_fingerprint = std::env::var("ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT").ok()?;
-        Some(crate::entities::storage_policy::Model {
+        Some(aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "sftp acceptance".to_string(),
             driver_type: DriverType::Sftp,
@@ -1213,8 +1213,8 @@ mod tests {
             remote_storage_target_key: None,
             max_file_size: 0,
             allowed_types: StoredStoragePolicyAllowedTypes::empty(),
-            options: crate::types::serialize_storage_policy_options(
-                &crate::types::StoragePolicyOptions {
+            options: aster_drive_model::types::serialize_storage_policy_options(
+                &aster_drive_model::types::StoragePolicyOptions {
                     sftp_host_key_fingerprint: Some(host_key_fingerprint),
                     ..Default::default()
                 },

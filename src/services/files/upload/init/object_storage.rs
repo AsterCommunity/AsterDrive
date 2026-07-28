@@ -8,7 +8,7 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
-use crate::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 
 use super::context::{

@@ -27,7 +27,6 @@ use async_trait::async_trait;
 use sea_orm::ConnectionTrait;
 use std::sync::Arc;
 
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::StorageDriver;
@@ -40,7 +39,8 @@ use crate::storage::drivers::{
     azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
     tencent_cos::TencentCosDriver,
 };
-use crate::types::{DriverType, StorageCredentialKind, StorageCredentialProvider};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{DriverType, StorageCredentialKind, StorageCredentialProvider};
 
 use azure_blob::AzureBlobConnector;
 pub use common::unsupported_multipart_error;
@@ -123,7 +123,7 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
     async fn validate_policy_options<C: ConnectionTrait + Sync>(
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
         common::ensure_storage_native_processing_supported(
@@ -142,7 +142,7 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         db: &C,
         encryption_key: &str,
         policy_id: i64,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
         application_config: StorageConnectorApplicationConfigInput,
     ) -> Result<()> {
         let _ = (db, encryption_key, policy_id, options);
@@ -185,7 +185,7 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<Option<StorageConnectorRuntimeCredential>> {
         let _ = (db, config, policy, credential);
         Ok(None)
@@ -217,7 +217,7 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<StorageCredentialValidationOutcome> {
         let _ = (db, config, policy, credential);
         Err(crate::errors::AsterError::unsupported_driver(format!(
@@ -406,7 +406,7 @@ impl BuiltinStorageConnector {
         self,
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         match self {
             Self::Local => {
@@ -434,7 +434,7 @@ impl BuiltinStorageConnector {
         db: &C,
         encryption_key: &str,
         policy_id: i64,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
         application_config: StorageConnectorApplicationConfigInput,
     ) -> Result<()> {
         match self {
@@ -637,7 +637,7 @@ impl BuiltinStorageConnector {
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<Option<StorageConnectorRuntimeCredential>> {
         match self {
             Self::Local => {
@@ -683,7 +683,7 @@ impl BuiltinStorageConnector {
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
-        credential: &crate::entities::storage_policy_credential::Model,
+        credential: &aster_drive_model::entities::storage_policy_credential::Model,
     ) -> Result<StorageCredentialValidationOutcome> {
         match self {
             Self::Local => {
@@ -905,7 +905,7 @@ pub async fn validate_policy_options<C: ConnectionTrait + Sync>(
     db: &C,
     driver_type: DriverType,
     remote_node_id: Option<i64>,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<()> {
     connector_for(driver_type)?
         .connector
@@ -918,7 +918,7 @@ pub async fn persist_application_config<C: ConnectionTrait + Sync>(
     driver_type: DriverType,
     encryption_key: &str,
     policy_id: i64,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
     application_config: StorageConnectorApplicationConfigInput,
 ) -> Result<()> {
     connector_for(driver_type)?
@@ -1045,7 +1045,7 @@ pub(crate) async fn load_runtime_credential(
     db: &sea_orm::DatabaseConnection,
     config: &crate::config::Config,
     policy: &storage_policy::Model,
-    credential: &crate::entities::storage_policy_credential::Model,
+    credential: &aster_drive_model::entities::storage_policy_credential::Model,
 ) -> Result<Option<StorageConnectorRuntimeCredential>> {
     connector_for(policy.driver_type)?
         .connector
@@ -1066,7 +1066,7 @@ pub(crate) async fn validate_credential(
     db: &sea_orm::DatabaseConnection,
     config: &crate::config::Config,
     policy: &storage_policy::Model,
-    credential: &crate::entities::storage_policy_credential::Model,
+    credential: &aster_drive_model::entities::storage_policy_credential::Model,
 ) -> Result<StorageCredentialValidationOutcome> {
     connector_for(policy.driver_type)?
         .connector

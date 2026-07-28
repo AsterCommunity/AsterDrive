@@ -38,8 +38,8 @@ pub struct FileInfo {
     pub tags: Vec<TagSummary>,
 }
 
-impl From<crate::entities::file::Model> for FileInfo {
-    fn from(model: crate::entities::file::Model) -> Self {
+impl From<aster_drive_model::entities::file::Model> for FileInfo {
+    fn from(model: aster_drive_model::entities::file::Model) -> Self {
         Self {
             id: model.id,
             name: model.name,
@@ -73,7 +73,7 @@ impl FileInfo {
     /// Builds a detail `FileInfo` from a file model and attaches explicit
     /// quota bytes (`storage_used`) for the current file plus its versions.
     pub fn from_model_with_storage_used(
-        model: crate::entities::file::Model,
+        model: aster_drive_model::entities::file::Model,
         storage_used: i64,
     ) -> Self {
         let mut info = Self::from(model);
@@ -108,8 +108,8 @@ pub struct FolderInfo {
     pub tags: Vec<TagSummary>,
 }
 
-impl From<crate::entities::folder::Model> for FolderInfo {
-    fn from(model: crate::entities::folder::Model) -> Self {
+impl From<aster_drive_model::entities::folder::Model> for FolderInfo {
+    fn from(model: aster_drive_model::entities::folder::Model) -> Self {
         Self {
             id: model.id,
             name: model.name,
@@ -138,7 +138,7 @@ impl FolderInfo {
     /// Builds a detail `FolderInfo` via `FolderInfo::from` and sets recursive
     /// quota bytes (`storage_used`) for the details endpoint.
     pub fn from_model_with_storage_used(
-        model: crate::entities::folder::Model,
+        model: aster_drive_model::entities::folder::Model,
         storage_used: i64,
     ) -> Self {
         let mut info = Self::from(model);
@@ -159,8 +159,8 @@ pub struct FileVersion {
     pub created_at: DateTime<Utc>,
 }
 
-impl From<crate::entities::file_version::Model> for FileVersion {
-    fn from(model: crate::entities::file_version::Model) -> Self {
+impl From<aster_drive_model::entities::file_version::Model> for FileVersion {
+    fn from(model: aster_drive_model::entities::file_version::Model) -> Self {
         Self {
             id: model.id,
             file_id: model.file_id,

@@ -80,7 +80,10 @@ impl RuntimeConfig {
         self.snapshot.get_bool_or(key, default)
     }
 
-    pub fn should_record_audit_action(&self, action: crate::types::AuditAction) -> bool {
+    pub fn should_record_audit_action(
+        &self,
+        action: aster_drive_model::types::AuditAction,
+    ) -> bool {
         self.audit_log_settings.read().should_record(action)
     }
 
@@ -213,20 +216,30 @@ mod tests {
         let runtime_config = RuntimeConfig::new();
         runtime_config.reload(&db).await.unwrap();
 
-        assert!(runtime_config.should_record_audit_action(crate::types::AuditAction::FileDownload));
+        assert!(
+            runtime_config
+                .should_record_audit_action(aster_drive_model::types::AuditAction::FileDownload)
+        );
 
         runtime_config.apply(model(
             "audit_log_recorded_actions",
             r#"["user_login"]"#,
             false,
         ));
-        assert!(runtime_config.should_record_audit_action(crate::types::AuditAction::UserLogin));
         assert!(
-            !runtime_config.should_record_audit_action(crate::types::AuditAction::FileDownload)
+            runtime_config
+                .should_record_audit_action(aster_drive_model::types::AuditAction::UserLogin)
+        );
+        assert!(
+            !runtime_config
+                .should_record_audit_action(aster_drive_model::types::AuditAction::FileDownload)
         );
 
         runtime_config.apply(model("audit_log_enabled", "false", false));
-        assert!(!runtime_config.should_record_audit_action(crate::types::AuditAction::UserLogin));
+        assert!(
+            !runtime_config
+                .should_record_audit_action(aster_drive_model::types::AuditAction::UserLogin)
+        );
     }
 
     #[tokio::test]

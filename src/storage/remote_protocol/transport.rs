@@ -10,9 +10,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::managed_follower;
 
 use super::auth::{normalize_remote_base_url, sign_internal_request};
 use super::errors::{build_remote_status_error_from_parts, map_reqwest_error};
@@ -654,7 +654,7 @@ mod tests {
     use crate::storage::remote_protocol::tunnel::server::{
         REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelHttpResponse, RemoteTunnelStreamHttpResponse,
     };
-    use crate::types::RemoteNodeTransportMode;
+    use aster_drive_model::types::RemoteNodeTransportMode;
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};

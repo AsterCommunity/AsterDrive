@@ -2,8 +2,8 @@ use chrono::Utc;
 use sea_orm::{ConnectionTrait, Set};
 
 use crate::db::repository::file_repo;
-use crate::entities::file_blob;
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file_blob;
 
 pub(crate) async fn create_nondedup_blob_with_key<C: ConnectionTrait>(
     db: &C,

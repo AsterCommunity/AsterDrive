@@ -1,4 +1,4 @@
-use crate::entities::file;
+use aster_drive_model::entities::file;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum ArchiveFormat {
