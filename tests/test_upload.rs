@@ -4663,8 +4663,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .object_multipart_id
         .clone()
         .expect("multipart session should store multipart id");
-    let object_key =
-        aster_drive::storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
+    let object_key = aster_drive_storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
 
     let urls = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await

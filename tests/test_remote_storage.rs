@@ -1088,7 +1088,7 @@ async fn test_remote_ingress_profile_update_without_driver_change_keeps_remote_a
     );
     assert_eq!(
         error.storage_error_kind(),
-        Some(aster_drive::storage::StorageErrorKind::Transient),
+        Some(aster_drive_storage::StorageErrorKind::Transient),
         "rename-only update should reach the remote transport: {}",
         error.message(),
     );
@@ -2598,7 +2598,7 @@ async fn test_remote_node_probe_rejects_incompatible_protocol_version() {
     assert_eq!(error.code(), "E031");
     assert_eq!(
         error.storage_error_kind(),
-        Some(aster_drive::storage::StorageErrorKind::Misconfigured)
+        Some(aster_drive_storage::StorageErrorKind::Misconfigured)
     );
     assert!(error.message().contains("protocol incompatible"));
     let expected_protocol_range = format!(
@@ -2658,7 +2658,7 @@ async fn test_remote_node_probe_rejects_presigned_download_when_range_cors_missi
     assert_eq!(error.code(), "E031");
     assert_eq!(
         error.storage_error_kind(),
-        Some(aster_drive::storage::StorageErrorKind::Misconfigured)
+        Some(aster_drive_storage::StorageErrorKind::Misconfigured)
     );
     assert!(
         error

@@ -762,6 +762,7 @@ dependencies = [
  "aes-gcm 0.11.0",
  "aster_drive_migration",
  "aster_drive_model",
+ "aster_drive_storage",
  "aster_forge_actix_middleware",
  "aster_forge_actix_observability",
  "aster_forge_alloc",
@@ -864,7 +865,7 @@ dependencies = [
 
 [[package]]
 name = "aster_drive_migration"
-version = "0.1.0"
+version = "0.4.0"
 dependencies = [
  "aster_forge_db",
  "aster_forge_db_migration",
@@ -890,6 +891,21 @@ dependencies = [
  "tracing",
  "utoipa",
  "validator",
+]
+
+[[package]]
+name = "aster_drive_storage"
+version = "0.4.0"
+dependencies = [
+ "aster_drive_model",
+ "aster_forge_utils",
+ "async-trait",
+ "bytes",
+ "chrono",
+ "rand 0.10.2",
+ "serde",
+ "tokio",
+ "utoipa",
 ]
 
 [[package]]

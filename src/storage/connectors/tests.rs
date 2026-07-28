@@ -1,21 +1,21 @@
 use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::DatabaseConfig;
-use crate::storage::connector_descriptor::{
+use aster_drive_migration::Migrator;
+use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDeploymentScope,
     StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
-use aster_drive_migration::Migrator;
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
 
-use crate::storage::StorageConnectorObjectNamingMode;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     MicrosoftGraphCloud, ObjectStorageUploadStrategy, OneDriveAccountMode,
     ProviderResumableUploadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
     StoredStoragePolicyAllowedTypes, UploadMode, parse_storage_policy_options,
 };
+use aster_drive_storage::StorageConnectorObjectNamingMode;
 
 const OBJECT_STORAGE_LARGE_UPLOAD_SIZE: i64 = 5_242_881;
 const ONEDRIVE_MAX_SIMPLE_UPLOAD_SIZE: u64 = 250_000_000;
@@ -403,7 +403,7 @@ fn local_descriptor_declares_content_dedup_policy_option() {
         field.name == "content_dedup"
             && field.scope == StorageConnectorFieldScope::PolicyOptions
             && field.kind
-                == crate::storage::connector_descriptor::StorageConnectorFieldKind::Boolean
+                == aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Boolean
     }));
 }
 
@@ -1188,7 +1188,10 @@ fn mock_policy(driver_type: DriverType, chunk_size: i64, options: &str) -> stora
     }
 }
 
-fn has_policy_option(descriptor: &crate::storage::StorageConnectorDescriptor, name: &str) -> bool {
+fn has_policy_option(
+    descriptor: &aster_drive_storage::StorageConnectorDescriptor,
+    name: &str,
+) -> bool {
     descriptor
         .fields
         .iter()
@@ -1196,9 +1199,9 @@ fn has_policy_option(descriptor: &crate::storage::StorageConnectorDescriptor, na
 }
 
 fn field<'a>(
-    descriptor: &'a crate::storage::StorageConnectorDescriptor,
+    descriptor: &'a aster_drive_storage::StorageConnectorDescriptor,
     name: &str,
-) -> &'a crate::storage::StorageConnectorFieldDescriptor {
+) -> &'a aster_drive_storage::StorageConnectorFieldDescriptor {
     descriptor
         .fields
         .iter()

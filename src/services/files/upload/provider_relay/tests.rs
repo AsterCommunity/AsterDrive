@@ -16,15 +16,15 @@ use crate::db::repository::{upload_session_part_repo, upload_session_repo};
 use crate::services::files::upload::provider_session::{
     ProviderSessionSecret, encrypt_provider_session,
 };
-use crate::storage::error::storage_driver_error;
-use crate::storage::{
-    BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadSession,
-    ProviderResumableUploadStatus, StorageDriverExtensions,
-};
 use aster_drive_model::entities::{storage_policy, upload_session, upload_session_part, user};
 use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UploadSessionKind,
     UserRole, UserStatus,
+};
+use aster_drive_storage::error::storage_driver_error;
+use aster_drive_storage::{
+    BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadSession,
+    ProviderResumableUploadStatus, StorageDriverExtensions,
 };
 
 #[derive(Clone)]
@@ -119,7 +119,7 @@ impl MockProviderDriver {
         state: &mut MockProviderState,
         start: u64,
         fragment_size: i64,
-    ) -> Result<ProviderResumableUploadFragmentOutcome> {
+    ) -> aster_drive_storage::Result<ProviderResumableUploadFragmentOutcome> {
         if start != state.next_offset {
             return Err(storage_driver_error(
                 StorageErrorKind::Precondition,
@@ -129,14 +129,18 @@ impl MockProviderDriver {
                 ),
             ));
         }
-        let size = u64::try_from(fragment_size)
-            .map_err(|_| AsterError::storage_driver_error("invalid mock fragment size"))?;
-        state.next_offset = state
-            .next_offset
-            .checked_add(size)
-            .ok_or_else(|| AsterError::storage_driver_error("mock offset overflow"))?;
+        let size = u64::try_from(fragment_size).map_err(|_| {
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "invalid mock fragment size",
+            )
+        })?;
+        state.next_offset = state.next_offset.checked_add(size).ok_or_else(|| {
+            storage_driver_error(StorageErrorKind::Misconfigured, "mock offset overflow")
+        })?;
         if state.next_offset > state.total_size {
-            return Err(AsterError::storage_driver_error(
+            return Err(storage_driver_error(
+                StorageErrorKind::Precondition,
                 "mock fragment exceeds total size",
             ));
         }
@@ -167,30 +171,33 @@ struct MockProviderSnapshot {
 
 #[async_trait]
 impl StorageDriver for MockProviderDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 
-    async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(tokio::io::empty()))
     }
 
-    async fn delete(&self, _path: &str) -> Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         let mut state = self.state.lock();
         state.delete_calls += 1;
         state.object_exists = false;
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(self.state.lock().object_exists)
     }
 
-    async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let state = self.state.lock();
         if !state.object_exists {
             return Err(storage_driver_error(
@@ -230,7 +237,10 @@ impl ProviderResumableUploadDriver for MockProviderDriver {
         }
     }
 
-    async fn create_upload_session(&self, _path: &str) -> Result<ProviderResumableUploadSession> {
+    async fn create_upload_session(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadSession> {
         Ok(ProviderResumableUploadSession {
             upload_url: "https://mock.invalid/upload?secret=redacted".to_string(),
             expires_at: None,
@@ -241,7 +251,7 @@ impl ProviderResumableUploadDriver for MockProviderDriver {
     async fn query_upload_session(
         &self,
         _upload_url: &str,
-    ) -> Result<ProviderResumableUploadStatus> {
+    ) -> aster_drive_storage::Result<ProviderResumableUploadStatus> {
         let behavior = {
             let mut state = self.state.lock();
             state.query_calls += 1;
@@ -279,7 +289,7 @@ impl ProviderResumableUploadDriver for MockProviderDriver {
         }
     }
 
-    async fn abort_upload_session(&self, _upload_url: &str) -> Result<()> {
+    async fn abort_upload_session(&self, _upload_url: &str) -> aster_drive_storage::Result<()> {
         self.state.lock().abort_calls += 1;
         Ok(())
     }
@@ -291,7 +301,7 @@ impl ProviderResumableUploadDriver for MockProviderDriver {
         total_size: u64,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         fragment_size: i64,
-    ) -> Result<ProviderResumableUploadFragmentOutcome> {
+    ) -> aster_drive_storage::Result<ProviderResumableUploadFragmentOutcome> {
         let behavior = self
             .state
             .lock()

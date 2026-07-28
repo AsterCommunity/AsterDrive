@@ -12,10 +12,10 @@ use crate::errors::{
     validation_error_with_code,
 };
 use crate::runtime::SharedRuntimeState;
-use crate::storage::MultipartStorageDriver;
-use crate::storage::StorageErrorKind;
 use aster_drive_model::entities::{file, upload_session};
 use aster_drive_model::types::UploadSessionStatus;
+use aster_drive_storage::MultipartStorageDriver;
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_utils::id;
 use aster_forge_utils::paths;
 
@@ -62,7 +62,7 @@ pub(super) async fn abort_created_multipart_upload_after_init_error(
             .await
         {
             Ok(()) => return Ok(()),
-            Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+            Err(error) if error.kind() == StorageErrorKind::NotFound => {
                 return Ok(());
             }
             Err(error) => {
@@ -86,7 +86,10 @@ pub(super) async fn abort_created_multipart_upload_after_init_error(
     }
 
     let error = last_error.unwrap_or_else(|| {
-        AsterError::storage_driver_error("multipart abort failed without an error")
+        aster_drive_storage::storage_driver_error(
+            StorageErrorKind::Unknown,
+            "multipart abort failed without an error",
+        )
     });
     tracing::warn!(
         upload_id,
@@ -95,7 +98,7 @@ pub(super) async fn abort_created_multipart_upload_after_init_error(
         max_attempts = INIT_MULTIPART_ABORT_MAX_ATTEMPTS,
         "failed to abort multipart upload after {context}: {error}"
     );
-    Err(error)
+    Err(error.into())
 }
 
 pub(super) fn upload_session_chunk_unavailable_error(
@@ -295,24 +298,31 @@ pub(super) enum UploadStorageErrorClass {
     Terminal,
 }
 
+pub(super) fn classify_storage_error_kind(kind: StorageErrorKind) -> UploadStorageErrorClass {
+    match kind {
+        StorageErrorKind::Transient | StorageErrorKind::RateLimited => {
+            UploadStorageErrorClass::Retryable
+        }
+        StorageErrorKind::Auth
+        | StorageErrorKind::Permission
+        | StorageErrorKind::Misconfigured
+        | StorageErrorKind::Unsupported
+        | StorageErrorKind::Precondition => UploadStorageErrorClass::RequiresIntervention,
+        StorageErrorKind::NotFound => UploadStorageErrorClass::NotFound,
+        StorageErrorKind::Unknown => UploadStorageErrorClass::Terminal,
+    }
+}
+
 pub(super) fn classify_upload_storage_error(error: &AsterError) -> UploadStorageErrorClass {
     match error {
         AsterError::RecordNotFound(_) => UploadStorageErrorClass::NotFound,
         AsterError::PreconditionFailed(_)
         | AsterError::ValidationError(_)
         | AsterError::UnsupportedDriver(_) => UploadStorageErrorClass::RequiresIntervention,
-        AsterError::StorageDriverError(_) => match error.storage_error_kind() {
-            Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited) => {
-                UploadStorageErrorClass::Retryable
-            }
-            Some(StorageErrorKind::Auth)
-            | Some(StorageErrorKind::Permission)
-            | Some(StorageErrorKind::Misconfigured)
-            | Some(StorageErrorKind::Unsupported)
-            | Some(StorageErrorKind::Precondition) => UploadStorageErrorClass::RequiresIntervention,
-            Some(StorageErrorKind::NotFound) => UploadStorageErrorClass::NotFound,
-            Some(StorageErrorKind::Unknown) | None => UploadStorageErrorClass::Terminal,
-        },
+        AsterError::StorageDriverError(_) => error
+            .storage_error_kind()
+            .map(classify_storage_error_kind)
+            .unwrap_or(UploadStorageErrorClass::Terminal),
         _ => UploadStorageErrorClass::Terminal,
     }
 }
@@ -428,7 +438,10 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MultipartStorageDriver for NotFoundAbortMultipart {
-        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+        async fn create_multipart_upload(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
@@ -438,7 +451,7 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _expires: std::time::Duration,
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
@@ -447,7 +460,7 @@ mod tests {
             _path: &str,
             _upload_id: &str,
             _parts: Vec<(i32, String)>,
-        ) -> Result<()> {
+        ) -> aster_drive_storage::Result<()> {
             panic!("not used")
         }
 
@@ -457,13 +470,18 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _data: &[u8],
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
-        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+        async fn abort_multipart_upload(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> aster_drive_storage::Result<()> {
             self.abort_calls.fetch_add(1, Ordering::SeqCst);
-            Err(AsterError::storage_driver_error(
+            Err(aster_drive_storage::StorageError::new(
+                StorageErrorKind::NotFound,
                 "S3 abort_multipart_upload failed: NoSuchUpload",
             ))
         }
@@ -472,7 +490,8 @@ mod tests {
             &self,
             _path: &str,
             _upload_id: &str,
-        ) -> Result<Vec<crate::storage::traits::UploadedMultipartPart>> {
+        ) -> aster_drive_storage::Result<Vec<aster_drive_storage::traits::UploadedMultipartPart>>
+        {
             panic!("not used")
         }
     }

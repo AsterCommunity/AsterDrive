@@ -1065,7 +1065,6 @@ mod tests {
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail::sender, media::processing};
-    use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::body;
@@ -1077,6 +1076,7 @@ mod tests {
         BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
         StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
     };
+    use aster_drive_storage::StorageDriver;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;

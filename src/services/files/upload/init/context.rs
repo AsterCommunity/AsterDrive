@@ -9,12 +9,12 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
-use crate::storage::MultipartStorageDriver;
 use aster_drive_model::entities::{storage_policy, upload_session};
 use aster_drive_model::types::{
     ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
     UploadSessionKind, UploadSessionStatus,
 };
+use aster_drive_storage::MultipartStorageDriver;
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {

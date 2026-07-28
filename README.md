@@ -242,6 +242,7 @@ bun run check
 src/                             Rust application, services, API, and runtime
 crates/aster_drive_model/        Shared product models and SeaORM entities
 crates/aster_drive_migration/    SeaORM migrations
+crates/aster_drive_storage/      Storage contracts, descriptors, and structured errors
 frontend-panel/                  React admin/file panel
 docs/                            Deployment and end-user documentation
 developer-docs/                  API, architecture, testing, and internal positioning docs

@@ -6,17 +6,17 @@ use crate::api::response::ApiResponse;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::FollowerAppState;
 use crate::services::{ops::audit, remote::master_binding, remote::storage_target};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::object_key;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, PRESIGNED_AUTH_ACCESS_KEY_QUERY, REMOTE_LIST_PAGE_SIZE,
     RemoteBindingSyncRequest, RemoteCreateStorageTargetRequest, RemoteStorageCapabilities,
     RemoteStorageCapacityResponse, RemoteStorageComposeRequest, RemoteStorageComposeResponse,
     RemoteStorageListResponse, RemoteStorageObjectMetadata, RemoteUpdateStorageTargetRequest,
 };
-use crate::storage::{BlobMetadata, StorageDriver};
 use actix_web::http::{StatusCode, header::HeaderMap};
 use actix_web::{HttpRequest, HttpResponse, dev::HttpServiceFactory, web};
+use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::object_key;
+use aster_drive_storage::{BlobMetadata, StorageDriver};
 use aster_forge_utils::numbers;
 use futures::StreamExt;
 use serde::Deserialize;
@@ -119,7 +119,7 @@ async fn metadata_or_not_found(
                     "storage object '{storage_path}' not found"
                 )))
             } else {
-                Err(error)
+                Err(error.into())
             }
         }
     }
@@ -370,7 +370,7 @@ async fn list_objects(
 ) -> Result<HttpResponse> {
     let ctx = master_binding::authorize_internal_request(state.get_ref(), &req).await?;
     let list_driver = ctx.ingress_driver.extensions().list.ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
             "ingress target does not support list",
         )
@@ -468,7 +468,7 @@ async fn put_object(
         .extensions()
         .stream_upload
         .ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Unsupported,
                 "ingress target does not support stream upload",
             )
@@ -497,7 +497,8 @@ async fn put_object(
 
             let upload_result = stream_driver
                 .put_reader(&upload_storage_path, Box::new(reader), content_length)
-                .await;
+                .await
+                .map_err(AsterError::from);
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("relay upload task failed: {error}"))
             })?;
@@ -568,7 +569,7 @@ async fn compose_objects(
 
     let driver = ctx.ingress_driver.clone();
     let stream_driver = driver.extensions().stream_upload.ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
             "ingress target does not support stream upload",
         )
@@ -620,7 +621,8 @@ async fn compose_objects(
 
             let upload_result = stream_driver
                 .put_reader(&upload_target_storage_path, Box::new(reader), expected_size)
-                .await;
+                .await
+                .map_err(AsterError::from);
             let relay_result = relay_task.await.map_err(|error| {
                 AsterError::storage_driver_error(format!("compose relay task failed: {error}"))
             })?;

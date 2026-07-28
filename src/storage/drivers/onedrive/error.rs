@@ -1,8 +1,7 @@
 use reqwest::StatusCode;
 use serde::Deserialize;
 
-use crate::errors::AsterError;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::error::{StorageError, StorageErrorKind, storage_driver_error};
 
 #[derive(Debug, Deserialize)]
 pub(super) struct MicrosoftGraphErrorResponse {
@@ -18,7 +17,7 @@ pub(super) struct MicrosoftGraphErrorBody {
     pub message: Option<String>,
 }
 
-pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> AsterError {
+pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> StorageError {
     if error.is_timeout() {
         return storage_driver_error(
             StorageErrorKind::Transient,
@@ -37,7 +36,10 @@ pub(super) fn map_reqwest_error(ctx: &str, error: reqwest::Error) -> AsterError 
     )
 }
 
-pub(super) async fn map_graph_response_error(ctx: &str, response: reqwest::Response) -> AsterError {
+pub(super) async fn map_graph_response_error(
+    ctx: &str,
+    response: reqwest::Response,
+) -> StorageError {
     let status = response.status();
     let request_id = response
         .headers()
@@ -125,7 +127,7 @@ pub(super) fn classify_graph_error(status: StatusCode, code: Option<&str>) -> St
     }
 }
 
-pub(super) fn invalid_graph_url(error: url::ParseError) -> AsterError {
+pub(super) fn invalid_graph_url(error: url::ParseError) -> StorageError {
     storage_driver_error(
         StorageErrorKind::Misconfigured,
         format!("invalid Microsoft Graph URL: {error}"),

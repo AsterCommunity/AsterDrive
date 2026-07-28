@@ -15,8 +15,8 @@ use crate::services::workspace::storage::{
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::{file, file_blob, storage_policy};
+use aster_drive_storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,

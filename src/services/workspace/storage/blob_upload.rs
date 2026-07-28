@@ -6,9 +6,9 @@ use tokio::io::AsyncRead;
 
 use super::{StorageOperationContext, create_nondedup_blob_with_key, create_opaque_nondedup_blob};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::StorageConnectorObjectNamingMode;
 use crate::storage::connectors::{StorageConnectorUploadTransport, resolve_policy_object_naming};
 use aster_drive_model::entities::file_blob;
+use aster_drive_storage::StorageConnectorObjectNamingMode;
 
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
@@ -210,7 +210,7 @@ async fn cleanup_empty_local_blob_dirs(prefix_dir: &Path, root_dir: &Path) {
 }
 
 pub(crate) async fn cleanup_preuploaded_blob_upload(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reason: &str,
 ) {
@@ -250,7 +250,7 @@ pub(crate) async fn cleanup_preuploaded_blob_upload(
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
 ) -> Result<()> {
@@ -263,14 +263,14 @@ pub(crate) async fn upload_temp_file_to_prepared_blob(
         .await
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "upload error").await;
-        return Err(error);
+        return Err(error.into());
     }
 
     Ok(())
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob_cancellable(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
     operation_context: &StorageOperationContext,
@@ -346,7 +346,7 @@ async fn upload_temp_file_to_local_prepared_blob_cancellable(
             "cancellable upload error",
         )
         .await;
-        return Err(error);
+        return Err(error.into());
     }
 
     if let Err(error) = operation_context.checkpoint() {
@@ -357,7 +357,7 @@ async fn upload_temp_file_to_local_prepared_blob_cancellable(
             "cancellation after local upload",
         )
         .await;
-        return Err(error);
+        return Err(error.into());
     }
     Ok(())
 }
@@ -440,7 +440,7 @@ async fn cleanup_local_prepared_blob(
 }
 
 pub(crate) async fn upload_reader_to_prepared_blob(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,
@@ -454,14 +454,14 @@ pub(crate) async fn upload_reader_to_prepared_blob(
         .await
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "stream upload error").await;
-        return Err(error);
+        return Err(error.into());
     }
 
     Ok(())
 }
 
 async fn upload_reader_to_prepared_blob_with_context(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,
@@ -478,7 +478,7 @@ async fn upload_reader_to_prepared_blob_with_context(
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "stream upload error").await;
         operation_context.checkpoint()?;
-        return Err(error);
+        return Err(error.into());
     }
     if let Err(error) = operation_context.checkpoint() {
         cleanup_preuploaded_blob_upload(driver, prepared, "cancellation after stream upload").await;

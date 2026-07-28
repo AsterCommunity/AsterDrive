@@ -5,15 +5,14 @@ use std::any::Any;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::{ApiErrorDiagnostic, ApiErrorInfo};
-use crate::storage::error::{
-    StorageErrorContext, StorageErrorKind, storage_driver_error_display_message,
-    storage_driver_error_kind_from_message,
-};
+use aster_drive_storage::error::infer_storage_error_kind;
+use aster_drive_storage::{StorageError, StorageErrorContext, StorageErrorKind};
 
 #[derive(Debug, Clone)]
 pub struct AsterErrorPayload {
     message: String,
     api_code: Option<ApiErrorCode>,
+    storage_kind: Option<StorageErrorKind>,
     storage_context: Option<StorageErrorContext>,
     database_error_kind: Option<aster_forge_db::DatabaseErrorKind>,
     database_commit_outcome_uncertain: bool,
@@ -24,6 +23,7 @@ impl AsterErrorPayload {
         Self {
             message: message.into(),
             api_code: None,
+            storage_kind: None,
             storage_context: None,
             database_error_kind: None,
             database_commit_outcome_uncertain: false,
@@ -43,13 +43,18 @@ impl AsterErrorPayload {
         self.api_code
     }
 
-    fn with_storage_context(mut self, context: StorageErrorContext) -> Self {
-        self.storage_context = Some(context);
+    fn with_storage_kind(mut self, kind: StorageErrorKind) -> Self {
+        self.storage_kind = Some(kind);
         self
     }
 
-    fn storage_context(&self) -> Option<&StorageErrorContext> {
-        self.storage_context.as_ref()
+    fn storage_kind(&self) -> Option<StorageErrorKind> {
+        self.storage_kind
+    }
+
+    fn with_storage_context(mut self, context: StorageErrorContext) -> Self {
+        self.storage_context = Some(context);
+        self
     }
 
     fn with_database_error_kind(mut self, kind: aster_forge_db::DatabaseErrorKind) -> Self {
@@ -122,15 +127,21 @@ macro_rules! define_errors {
                 }
             }
 
+            fn into_payload(self) -> AsterErrorPayload {
+                match self {
+                    $(AsterError::$variant(payload) => payload,)*
+                }
+            }
+
             pub(crate) fn api_error_code_override(&self) -> Option<ApiErrorCode> {
                 match self {
                     $(AsterError::$variant(payload) => payload.api_code(),)*
                 }
             }
 
-            pub(crate) fn storage_error_context(&self) -> Option<&StorageErrorContext> {
+            fn structured_storage_error_kind(&self) -> Option<StorageErrorKind> {
                 match self {
-                    $(AsterError::$variant(payload) => payload.storage_context(),)*
+                    $(AsterError::$variant(payload) => payload.storage_kind(),)*
                 }
             }
 
@@ -190,7 +201,7 @@ macro_rules! define_errors {
 
             /// 错误详情
             pub fn message(&self) -> &str {
-                storage_driver_error_display_message(self.raw_message())
+                self.raw_message()
             }
         }
 
@@ -286,9 +297,10 @@ define_errors! {
 impl AsterError {
     pub fn storage_error_kind(&self) -> Option<StorageErrorKind> {
         match self {
-            Self::StorageDriverError(message) => {
-                Some(storage_driver_error_kind_from_message(message.message()))
-            }
+            Self::StorageDriverError(message) => Some(
+                self.structured_storage_error_kind()
+                    .unwrap_or_else(|| infer_storage_error_kind(message.message())),
+            ),
             Self::PreconditionFailed(_) => Some(StorageErrorKind::Precondition),
             Self::UnsupportedDriver(_) => Some(StorageErrorKind::Unsupported),
             _ => None,
@@ -465,6 +477,32 @@ impl From<aster_forge_db::DbError> for AsterError {
                 Self::database_operation("database retry exhausted")
             }
             aster_forge_db::DbError::NonRetryable(message) => Self::database_operation(message),
+        }
+    }
+}
+
+impl From<StorageError> for AsterError {
+    fn from(value: StorageError) -> Self {
+        let (kind, message, context) = value.into_parts();
+        let payload = AsterErrorPayload::new(message).with_storage_kind(kind);
+        let error = Self::StorageDriverError(payload);
+        match context {
+            Some(context) => error.with_storage_error_context(context),
+            None => error,
+        }
+    }
+}
+
+impl From<AsterError> for StorageError {
+    fn from(value: AsterError) -> Self {
+        let kind = value
+            .storage_error_kind()
+            .unwrap_or(StorageErrorKind::Unknown);
+        let payload = value.into_payload();
+        let error = StorageError::new(kind, payload.message);
+        match payload.storage_context {
+            Some(context) => error.with_context(context),
+            None => error,
         }
     }
 }
@@ -687,9 +725,7 @@ impl ApiErrorDiagnostic {
         let kind = error.storage_error_kind()?;
         Some(Self {
             kind: kind.as_str().to_string(),
-            message: sanitize_storage_driver_client_message(storage_driver_error_display_message(
-                error.message(),
-            )),
+            message: sanitize_storage_driver_client_message(error.message()),
         })
     }
 }
@@ -933,6 +969,20 @@ pub fn thumbnail_generation_error_with_code(
     AsterError::thumbnail_generation_failed(message).with_api_error_code(api_code)
 }
 
+pub fn storage_driver_error_with_code(
+    kind: StorageErrorKind,
+    api_code: ApiErrorCode,
+    message: impl Into<String>,
+) -> AsterError {
+    AsterError::from(StorageError::new(kind, message)).with_api_error_code(api_code)
+}
+
+/// Convert a storage-contract failure into the product error envelope without
+/// serializing or re-parsing its structured kind.
+pub fn storage_driver_error(kind: StorageErrorKind, message: impl Into<String>) -> AsterError {
+    AsterError::from(StorageError::new(kind, message))
+}
+
 fn storage_error_kind_api_error_code(kind: StorageErrorKind) -> ApiErrorCode {
     match kind {
         StorageErrorKind::Auth => ApiErrorCode::StorageAuth,
@@ -1036,14 +1086,14 @@ mod tests {
         auth_invalid_credentials_with_code, auth_mfa_failed_with_code,
         chunk_upload_error_with_code, file_upload_error_with_code, payload_too_large_with_code,
         precondition_failed_with_code, sanitize_storage_driver_client_message,
-        thumbnail_generation_error_with_code, upload_assembly_error_with_code,
-        validation_error_with_code,
+        storage_driver_error, thumbnail_generation_error_with_code,
+        upload_assembly_error_with_code, validation_error_with_code,
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::api::response::ApiErrorInfo;
-    use crate::storage::error::{StorageErrorKind, storage_driver_error};
     use actix_web::body;
     use actix_web::http::StatusCode;
+    use aster_drive_storage::StorageErrorKind;
     use aster_forge_actix_middleware::csrf::CsrfErrorKind;
 
     #[test]

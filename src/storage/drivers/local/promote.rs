@@ -1,7 +1,7 @@
+use crate::errors::{AsterError, MapAsterErr, Result};
 use std::path::Path;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::traits::driver::StorageDriver;
+use aster_drive_storage::traits::driver::StorageDriver;
 use aster_forge_utils::numbers;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -5,7 +5,6 @@ use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::services::remote::storage_target;
-use crate::storage::StorageDriver;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_NONCE_TTL_SECS,
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
@@ -14,6 +13,7 @@ use crate::storage::remote_protocol::{
     sign_presigned_request,
 };
 use aster_drive_model::entities::master_binding;
+use aster_drive_storage::StorageDriver;
 use chrono::Utc;
 use hmac::{Hmac, KeyInit, Mac};
 use sea_orm::{ConnectionTrait, Set};
@@ -329,24 +329,24 @@ async fn authorize_presigned_binding_request<S: FollowerRuntimeState>(
 }
 
 pub fn provider_storage_path(binding: &master_binding::Model, object_key: &str) -> Result<String> {
-    let object_key = crate::storage::object_key::normalize_relative_key(object_key)?;
+    let object_key = aster_drive_storage::object_key::normalize_relative_key(object_key)?;
     if object_key == "." || object_key.is_empty() {
         return Err(AsterError::validation_error(
             "object key cannot target the storage namespace root",
         ));
     }
-    Ok(crate::storage::object_key::join_key_prefix(
+    Ok(aster_drive_storage::object_key::join_key_prefix(
         &binding.storage_namespace,
         &object_key,
     ))
 }
 
 pub fn provider_storage_prefix(binding: &master_binding::Model, prefix: &str) -> Result<String> {
-    let prefix = crate::storage::object_key::normalize_relative_key(prefix)?;
+    let prefix = aster_drive_storage::object_key::normalize_relative_key(prefix)?;
     if prefix == "." || prefix.is_empty() {
         Ok(binding.storage_namespace.clone())
     } else {
-        Ok(crate::storage::object_key::join_key_prefix(
+        Ok(aster_drive_storage::object_key::join_key_prefix(
             &binding.storage_namespace,
             &prefix,
         ))

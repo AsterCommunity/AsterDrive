@@ -1,6 +1,6 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, precondition_failed_with_code};
-use crate::storage::{NativeThumbnailRequest, StorageDriver};
+use aster_drive_storage::{NativeThumbnailRequest, StorageDriver};
 
 use aster_drive_model::entities::file_blob;
 
@@ -77,11 +77,10 @@ pub(super) async fn render_image_preview_with_storage_native(
 #[cfg(test)]
 mod tests {
     use super::{render_image_preview_with_storage_native, render_thumbnail_with_storage_native};
-    use crate::errors::Result;
-    use crate::storage::{
+    use aster_drive_model::entities::file_blob;
+    use aster_drive_storage::{
         BlobMetadata, NativeThumbnailRequest, NativeThumbnailStorageDriver, StorageDriver,
     };
-    use aster_drive_model::entities::file_blob;
     use async_trait::async_trait;
     use chrono::Utc;
     use std::sync::Mutex;
@@ -116,32 +115,35 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for CapturingNativeDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             unreachable!()
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!()
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             unreachable!()
         }
 
-        fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-            crate::storage::traits::StorageDriverExtensions {
+        fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+            aster_drive_storage::traits::StorageDriverExtensions {
                 native_thumbnail: Some(self),
                 ..Default::default()
             }
@@ -153,7 +155,7 @@ mod tests {
         async fn get_native_thumbnail(
             &self,
             request: &NativeThumbnailRequest,
-        ) -> Result<Option<Vec<u8>>> {
+        ) -> aster_drive_storage::Result<Option<Vec<u8>>> {
             self.requests
                 .lock()
                 .expect("request capture lock should not be poisoned")

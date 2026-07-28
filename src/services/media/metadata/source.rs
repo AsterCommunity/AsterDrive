@@ -6,8 +6,8 @@ use tokio::io::AsyncWriteExt;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::archive::core::range_reader::StorageRangeReader;
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::file_blob;
+use aster_drive_storage::StorageDriver;
 use aster_forge_utils::raii::TempFileGuard;
 
 pub(super) async fn prepare_media_metadata_source(

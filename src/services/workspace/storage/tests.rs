@@ -4,14 +4,14 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
-use crate::storage::{BlobMetadata, StoragePathVisitor};
-use crate::storage::{
-    DriverRegistry, ListStorageDriver, LocalPathStorageDriver, PolicySnapshot, StorageDriver,
-    StreamUploadDriver,
-};
+use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{file, file_blob, storage_policy, user};
 use aster_drive_model::types::{DriverType, UserRole, UserStatus};
+use aster_drive_storage::{
+    BlobMetadata, ListStorageDriver, LocalPathStorageDriver, StorageDriver, StoragePathVisitor,
+    StreamUploadDriver,
+};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
@@ -120,34 +120,34 @@ impl CountingUploadDriver {
 
 #[async_trait]
 impl StorageDriver for CountingUploadDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.inner.put(path, data).await
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.inner.get_stream(path).await
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.inner.delete(path).await
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.inner.exists(path).await
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.inner.metadata(path).await
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         let mut extensions = self.inner.extensions();
         extensions.list = Some(self);
         extensions.stream_upload = Some(self);
@@ -158,7 +158,7 @@ impl StorageDriver for CountingUploadDriver {
 
 #[async_trait]
 impl ListStorageDriver for CountingUploadDriver {
-    async fn list_paths(&self, prefix: Option<&str>) -> crate::errors::Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         self.inner.list_paths(prefix).await
     }
 
@@ -166,7 +166,7 @@ impl ListStorageDriver for CountingUploadDriver {
         &self,
         prefix: Option<&str>,
         visitor: &mut dyn StoragePathVisitor,
-    ) -> crate::errors::Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         self.inner.scan_paths(prefix, visitor).await
     }
 }
@@ -177,7 +177,7 @@ impl StreamUploadDriver for CountingUploadDriver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.put_file_count.fetch_add(1, Ordering::SeqCst);
         self.inner.put_file(storage_path, local_path).await
     }
@@ -187,7 +187,7 @@ impl StreamUploadDriver for CountingUploadDriver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.put_reader_count.fetch_add(1, Ordering::SeqCst);
         self.inner.put_reader(storage_path, reader, size).await
     }
@@ -226,34 +226,34 @@ impl BlockingPutFileDriver {
 
 #[async_trait]
 impl StorageDriver for BlockingPutFileDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.inner.put(path, data).await
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.inner.get_stream(path).await
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.inner.delete(path).await
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.inner.exists(path).await
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.inner.metadata(path).await
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
         let mut extensions = self.inner.extensions();
         extensions.list = Some(self);
         extensions.stream_upload = Some(self);
@@ -264,7 +264,7 @@ impl StorageDriver for BlockingPutFileDriver {
 
 #[async_trait]
 impl ListStorageDriver for BlockingPutFileDriver {
-    async fn list_paths(&self, prefix: Option<&str>) -> crate::errors::Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         self.inner.list_paths(prefix).await
     }
 
@@ -272,7 +272,7 @@ impl ListStorageDriver for BlockingPutFileDriver {
         &self,
         prefix: Option<&str>,
         visitor: &mut dyn StoragePathVisitor,
-    ) -> crate::errors::Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         self.inner.scan_paths(prefix, visitor).await
     }
 }
@@ -283,7 +283,7 @@ impl StreamUploadDriver for BlockingPutFileDriver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         if let Some(sender) = self
             .put_file_entered
             .lock()
@@ -301,7 +301,7 @@ impl StreamUploadDriver for BlockingPutFileDriver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         if let Some(sender) = self
             .put_file_entered
             .lock()
@@ -340,35 +340,35 @@ impl BlockingLocalPathDriver {
 
 #[async_trait]
 impl StorageDriver for BlockingLocalPathDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.inner.put(path, data).await
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.inner.get_stream(path).await
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.inner.delete(path).await
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.inner.exists(path).await
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.inner.metadata(path).await
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             list: Some(self),
             stream_upload: Some(self),
             local_path: Some(self),
@@ -379,7 +379,7 @@ impl StorageDriver for BlockingLocalPathDriver {
 
 #[async_trait]
 impl ListStorageDriver for BlockingLocalPathDriver {
-    async fn list_paths(&self, prefix: Option<&str>) -> crate::errors::Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         self.inner.list_paths(prefix).await
     }
 
@@ -387,7 +387,7 @@ impl ListStorageDriver for BlockingLocalPathDriver {
         &self,
         prefix: Option<&str>,
         visitor: &mut dyn StoragePathVisitor,
-    ) -> crate::errors::Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         self.inner.scan_paths(prefix, visitor).await
     }
 }
@@ -398,7 +398,7 @@ impl StreamUploadDriver for BlockingLocalPathDriver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.inner.put_file(storage_path, local_path).await
     }
 
@@ -407,13 +407,13 @@ impl StreamUploadDriver for BlockingLocalPathDriver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.inner.put_reader(storage_path, reader, size).await
     }
 }
 
 impl LocalPathStorageDriver for BlockingLocalPathDriver {
-    fn resolve_local_path(&self, path: &str) -> crate::errors::Result<PathBuf> {
+    fn resolve_local_path(&self, path: &str) -> aster_drive_storage::Result<PathBuf> {
         if let Some(sender) = self
             .target_entered
             .lock()
@@ -483,7 +483,7 @@ impl RecoverableStreamDriver {
 
 #[async_trait]
 impl StorageDriver for RecoverableStreamDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.objects
             .lock()
             .expect("recoverable stream driver lock should succeed")
@@ -491,23 +491,28 @@ impl StorageDriver for RecoverableStreamDriver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.objects
             .lock()
             .expect("recoverable stream driver lock should succeed")
             .get(path)
             .cloned()
-            .ok_or_else(|| crate::errors::AsterError::storage_driver_error("object not found"))
+            .ok_or_else(|| {
+                aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::NotFound,
+                    "object not found",
+                )
+            })
     }
 
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         unreachable!()
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.delete_count.fetch_add(1, Ordering::SeqCst);
         self.objects
             .lock()
@@ -516,7 +521,7 @@ impl StorageDriver for RecoverableStreamDriver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         Ok(self
             .objects
             .lock()
@@ -524,7 +529,7 @@ impl StorageDriver for RecoverableStreamDriver {
             .contains_key(path))
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let size = self.get(path).await?.len();
         Ok(BlobMetadata {
             size: u64::try_from(size).expect("test object size should fit u64"),
@@ -532,8 +537,8 @@ impl StorageDriver for RecoverableStreamDriver {
         })
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
             ..Default::default()
         }
@@ -546,7 +551,7 @@ impl StreamUploadDriver for RecoverableStreamDriver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let data = tokio::fs::read(local_path).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(
                 "read test local file: {error}"
@@ -560,7 +565,7 @@ impl StreamUploadDriver for RecoverableStreamDriver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let mut data = Vec::new();
         if self.cancel_next_upload.swap(false, Ordering::SeqCst) {
             let mut buf = [0_u8; 4];
@@ -573,12 +578,14 @@ impl StreamUploadDriver for RecoverableStreamDriver {
             self.cancelled.store(true, Ordering::SeqCst);
             let mut next = [0_u8; 4];
             return match reader.read(&mut next).await {
-                Ok(_) => Err(crate::errors::AsterError::storage_driver_error(
+                Ok(_) => Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Precondition,
                     "reader continued after cancellation",
                 )),
-                Err(error) => Err(crate::errors::AsterError::storage_driver_error(format!(
-                    "reader stopped after cancellation: {error}"
-                ))),
+                Err(error) => Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Precondition,
+                    format!("reader stopped after cancellation: {error}"),
+                )),
             };
         }
 
@@ -593,36 +600,36 @@ impl StreamUploadDriver for RecoverableStreamDriver {
 
 #[async_trait]
 impl StorageDriver for CancelAfterFirstReadDriver {
-    async fn put(&self, _path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         unreachable!("temp import should use put_reader")
     }
 
-    async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         unreachable!()
     }
 
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         unreachable!()
     }
 
-    async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         self.delete_count.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(false)
     }
 
-    async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         unreachable!()
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
             ..Default::default()
         }
@@ -635,7 +642,7 @@ impl StreamUploadDriver for CancelAfterFirstReadDriver {
         &self,
         _storage_path: &str,
         _local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         unreachable!("cancellable temp import should not use put_file")
     }
 
@@ -644,7 +651,7 @@ impl StreamUploadDriver for CancelAfterFirstReadDriver {
         _storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let mut buf = [0_u8; 4];
         let first = reader
             .read(&mut buf)
@@ -653,12 +660,14 @@ impl StreamUploadDriver for CancelAfterFirstReadDriver {
         assert!(first > 0, "first reader chunk should contain payload bytes");
         self.cancelled.store(true, Ordering::SeqCst);
         match reader.read(&mut buf).await {
-            Ok(_) => Err(crate::errors::AsterError::storage_driver_error(
+            Ok(_) => Err(aster_drive_storage::StorageError::new(
+                aster_drive_storage::StorageErrorKind::Precondition,
                 "reader continued after cancellation",
             )),
-            Err(error) => Err(crate::errors::AsterError::storage_driver_error(format!(
-                "reader stopped after cancellation: {error}"
-            ))),
+            Err(error) => Err(aster_drive_storage::StorageError::new(
+                aster_drive_storage::StorageErrorKind::Precondition,
+                format!("reader stopped after cancellation: {error}"),
+            )),
         }
     }
 }
@@ -680,35 +689,35 @@ impl CancelAfterLocalPathDriver {
 
 #[async_trait]
 impl StorageDriver for CancelAfterLocalPathDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.inner.put(path, data).await
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.inner.get_stream(path).await
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.inner.delete(path).await
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.inner.exists(path).await
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.inner.metadata(path).await
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             local_path: Some(self),
             ..Default::default()
         }
@@ -716,7 +725,7 @@ impl StorageDriver for CancelAfterLocalPathDriver {
 }
 
 impl LocalPathStorageDriver for CancelAfterLocalPathDriver {
-    fn resolve_local_path(&self, path: &str) -> crate::errors::Result<PathBuf> {
+    fn resolve_local_path(&self, path: &str) -> aster_drive_storage::Result<PathBuf> {
         let resolved = self
             .inner
             .extensions()

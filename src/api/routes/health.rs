@@ -174,8 +174,7 @@ mod tests {
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
-    use crate::storage::BlobMetadata;
-    use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
+    use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{body, http::StatusCode, web};
     use aster_drive_migration::Migrator;
     use aster_drive_model::entities::{
@@ -185,6 +184,7 @@ mod tests {
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };
+    use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
@@ -262,42 +262,43 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for ProbeDriver {
-        async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+        async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             self.put_calls.fetch_add(1, Ordering::SeqCst);
             Ok(path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(Vec::new())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(tokio::io::empty()))
         }
 
-        async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             self.delete_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(false)
         }
 
-        async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: 0,
                 content_type: None,
             })
         }
 
-        async fn readiness_check(&self) -> crate::errors::Result<()> {
+        async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
             self.ready_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_ready {
-                Err(crate::errors::AsterError::storage_driver_error(
+                Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Transient,
                     "readiness probe failed",
                 ))
             } else {

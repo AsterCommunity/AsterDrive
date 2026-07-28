@@ -2,10 +2,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 
-use crate::errors::Result;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::PresignedDownloadOptions;
-use crate::storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
 
 use super::RemoteDriver;
 
@@ -16,7 +15,7 @@ impl PresignedStorageDriver for RemoteDriver {
         path: &str,
         expires: Duration,
         options: PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         if self.uses_reverse_tunnel {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -26,9 +25,14 @@ impl PresignedStorageDriver for RemoteDriver {
         self.client
             .presigned_url(&self.object_key(path), expires, options)
             .map(Some)
+            .map_err(Into::into)
     }
 
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
+    async fn presigned_put_url(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<Option<String>> {
         if self.uses_reverse_tunnel {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -38,5 +42,6 @@ impl PresignedStorageDriver for RemoteDriver {
         self.client
             .presigned_put_url(&self.object_key(path), expires)
             .map(Some)
+            .map_err(Into::into)
     }
 }

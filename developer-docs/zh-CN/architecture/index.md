@@ -13,6 +13,7 @@
 - 个人空间和团队空间共用同一条文件主链路，只是在 route / service 层通过 `WorkspaceStorageScope` 切换作用域
 - 后端主线仍然是：
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`
+- workspace crate 已拆出明确基础边界：`aster_drive_model` 负责领域类型和 Entity，`aster_drive_migration` 负责表结构演进，`aster_drive_storage` 负责存储 trait、descriptor、对象 key 与结构化错误；根包保留产品业务和具体运行时实现
 - WebDAV 不是普通 REST 路由的一个分支，而是独立挂载在 `src/webdav/`
 - 运行二进制默认启动 HTTP 服务；启用默认 `cli` feature 时，同一入口还提供 `doctor`、`config`、`database-migrate`、`node enroll` 等运维子命令
 - 前端代码在 `frontend-panel/`，生产产物由 primary 节点直接服务
@@ -32,7 +33,7 @@
 | 一个 REST 接口怎么实现 | 对应 `src/api/routes/**` 文件 | route 层做参数解析、鉴权包装和响应适配 |
 | 文件 / 团队 / 分享 / 上传的业务规则在哪 | `src/services/**` | 业务语义集中在 service 层，不应散落在 route 里 |
 | 数据怎么查怎么写 | `src/db/repository/**` | repo 层封装数据库访问和跨库兼容细节 |
-| 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `src/storage/**` | connector descriptor、驱动抽象、具体驱动和远端协议都在这里 |
+| 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `crates/aster_drive_storage/**`、`src/storage/**` | 前者定义 trait、descriptor 和结构化错误，后者实现 connector、具体驱动、registry、策略快照和远端协议运行时 |
 | WebDAV 为什么和 REST 不一样 | `src/webdav/**` | 这是单独的协议接入层 |
 | 团队空间为什么复用个人空间语义 | `src/services/workspace/scope/`、`src/services/workspace/storage/`、`src/services/workspace/models.rs`、`src/services/workspace/storage_core/`、`src/services/files/folder/`、`src/services/files/file/` | scope 切换、上传编排和统一存储核心链路都在这里 |
 | 表结构怎么演进 | `crates/aster_drive_migration/`、`crates/aster_drive_model/src/entities/**` | migration 和 entity 必须一起看 |
@@ -41,7 +42,7 @@
 
 1. 先从对应 `src/api/routes/**` 找入口
 2. 再跳到 `src/services/**`
-3. 最后看 `src/db/repository/**`、`src/storage/**` 或 `src/webdav/**`
+3. 最后看 `src/db/repository/**`、`crates/aster_drive_storage/**`、`src/storage/**` 或 `src/webdav/**`
 
 ## 运行模式与系统边界
 
@@ -191,6 +192,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/api/routes/internal_storage.rs` | follower 内部对象存储协议 |
 | `src/api/routes/remote_tunnel.rs` | primary 侧远端节点 reverse tunnel 内部入口 |
 | `src/services/` | 业务规则集中层 |
+| `crates/aster_drive_storage/` | 存储 trait、能力扩展、connector descriptor、对象 key 与结构化错误；根包不提供旧路径兼容导出 |
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
 | `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
 | `src/storage/remote_protocol/tunnel/` | reverse tunnel 传输运行时、鉴权、注册表和流式响应 |

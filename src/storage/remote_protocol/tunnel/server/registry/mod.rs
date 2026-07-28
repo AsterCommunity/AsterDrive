@@ -5,8 +5,8 @@ use dashmap::DashMap;
 use sea_orm::DatabaseConnection;
 use tokio::sync::Notify;
 
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 
 mod broker;
 mod headers;
@@ -105,7 +105,7 @@ fn is_recent_tunnel_seen_at(last_seen_at: chrono::DateTime<chrono::Utc>) -> bool
 }
 
 pub fn reverse_tunnel_offline_error(remote_node_id: i64) -> crate::errors::AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Transient,
         format!("remote node #{remote_node_id} reverse tunnel is offline"),
     )

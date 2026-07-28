@@ -38,9 +38,9 @@ use aster_drive::services::task::{
         RuntimeTaskName, RuntimeTaskPayload,
     },
 };
-use aster_drive::storage::{BlobMetadata, StorageDriver};
 use aster_drive_model::entities::{background_task, file_blob, storage_policy};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+use aster_drive_storage::{BlobMetadata, StorageDriver};
 
 const OLD_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 255;
 const EXPANDED_BACKGROUND_TASK_DISPLAY_NAME_LIMIT: usize = 512;
@@ -65,30 +65,30 @@ impl MetadataCountingDriver {
 
 #[async_trait]
 impl StorageDriver for MetadataCountingDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive::errors::Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> aster_drive::errors::Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> aster_drive::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(empty()))
     }
 
-    async fn delete(&self, _path: &str) -> aster_drive::errors::Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> aster_drive::errors::Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> aster_drive::errors::Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.metadata_calls.fetch_add(1, Ordering::SeqCst);
         Ok(BlobMetadata {
             size: 11,

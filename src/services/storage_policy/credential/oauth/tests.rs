@@ -20,14 +20,14 @@ use crate::db;
 use crate::services::storage_policy::credential::{
     default_microsoft_graph_scopes_for_onedrive_options, normalize_scopes_with_default,
 };
-use crate::storage::StorageErrorKind;
-use crate::storage::error::storage_driver_error;
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{audit_log, storage_policy};
 use aster_drive_model::types::{
     AuditAction, AuditEntityType, DriverType, MicrosoftGraphCloud, OneDriveAccountMode,
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole, UserStatus,
 };
+use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::error::storage_driver_error;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use secrecy::ExposeSecret;
 use std::collections::VecDeque;
@@ -1989,7 +1989,8 @@ async fn credential_token_provider_transient_refresh_failure_does_not_mark_reaut
         storage_driver_error(
             StorageErrorKind::Transient,
             "temporary Microsoft Graph outage",
-        ),
+        )
+        .into(),
     )]));
     let provider = build_microsoft_graph_credential_token_provider_with_refresher(
         db.clone(),

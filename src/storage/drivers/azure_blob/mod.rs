@@ -5,6 +5,7 @@ mod multipart;
 mod presigned;
 mod storage_driver;
 
+use crate::errors::AsterError;
 use std::time::Duration;
 
 use azure_core::http::Url;
@@ -13,11 +14,12 @@ use azure_storage_blob::{
     BlockBlobClient, BlockBlobClientOptions,
 };
 
-use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::object_key;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::effective_object_multipart_chunk_size;
+use aster_drive_storage::object_key;
+use aster_drive_storage::{
+    MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
+};
 use aster_forge_utils::net::is_loopback_host;
 
 const AZURE_STORAGE_VERSION: &str = "2023-11-03";
@@ -40,6 +42,23 @@ pub enum AzureBlobConfigError {
 
 impl AzureBlobConfigError {
     pub fn into_aster_error(self) -> AsterError {
+        match self {
+            Self::MissingEndpoint => crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "endpoint is required for Azure Blob storage",
+            ),
+            Self::InvalidEndpoint(endpoint) => crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                format!("invalid Azure Blob endpoint URL: '{endpoint}'"),
+            ),
+            Self::MissingContainer => crate::errors::storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "container is required for Azure Blob storage",
+            ),
+        }
+    }
+
+    fn into_storage_error(self) -> StorageError {
         match self {
             Self::MissingEndpoint => storage_driver_error(
                 StorageErrorKind::Misconfigured,
@@ -103,7 +122,7 @@ impl AzureBlobDriver {
         container: &str,
     ) -> Result<NormalizedAzureBlobConfig> {
         Self::try_normalize_endpoint_and_container(endpoint, container)
-            .map_err(AzureBlobConfigError::into_aster_error)
+            .map_err(AzureBlobConfigError::into_storage_error)
     }
 
     pub fn try_normalize_endpoint_and_container(
@@ -253,7 +272,8 @@ impl AzureBlobDriver {
         let configured = aster_forge_utils::numbers::i64_to_u64(
             self.effective_chunk_size(),
             "Azure Blob configured chunk size",
-        )?;
+        )
+        .map_storage_err(StorageErrorKind::Misconfigured)?;
         let required = if content_length == 0 {
             1
         } else {
@@ -276,10 +296,8 @@ impl AzureBlobDriver {
                 ),
             ));
         }
-        Ok(aster_forge_utils::numbers::u64_to_usize(
-            chunk_size,
-            "Azure Blob effective chunk size",
-        )?)
+        aster_forge_utils::numbers::u64_to_usize(chunk_size, "Azure Blob effective chunk size")
+            .map_storage_err(StorageErrorKind::Misconfigured)
     }
 
     fn block_id(part_number: i32) -> Result<Vec<u8>> {
@@ -368,12 +386,12 @@ impl AzureBlobDriver {
         Ok(serializer.finish())
     }
 
-    fn map_azure_error(ctx: &str, error: azure_core::Error) -> AsterError {
+    fn map_azure_error(ctx: &str, error: azure_core::Error) -> StorageError {
         let kind = Self::classify_azure_error(&error);
         storage_driver_error(kind, format!("{ctx}: {}", Self::format_azure_error(error)))
     }
 
-    fn rewrap_azure_error(ctx: &str, error: azure_core::Error) -> AsterError {
+    fn rewrap_azure_error(ctx: &str, error: azure_core::Error) -> StorageError {
         storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!(

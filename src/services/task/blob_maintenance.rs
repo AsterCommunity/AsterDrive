@@ -10,8 +10,8 @@ use crate::db::repository::{file_repo, version_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::{background_task, file_blob};
+use aster_drive_storage::StorageDriver;
 use aster_forge_db::transaction;
 use aster_forge_tasks::{
     TaskStepInfo, set_task_step_active, set_task_step_skipped, set_task_step_succeeded,
@@ -532,7 +532,7 @@ async fn check_blob_object(
         Err(error) => {
             return match driver.exists(&blob.storage_path).await {
                 Ok(false) => Ok(BlobObjectCheck::Missing),
-                Ok(true) => Err(error),
+                Ok(true) => Err(error.into()),
                 Err(exists_error) => Err(AsterError::storage_driver_error(format!(
                     "metadata failed and existence probe failed for blob #{}: metadata_error={error}; exists_error={exists_error}",
                     blob.id

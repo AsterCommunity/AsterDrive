@@ -21,16 +21,16 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use aster_drive::db::repository::{
     background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo,
 };
-use aster_drive::errors::{AsterError, MapAsterErr, Result};
+use aster_drive::errors::{AsterError, MapAsterErr};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::task;
-use aster_drive::storage::{
-    BlobMetadata, MultipartStorageDriver, StorageDriver, StorageDriverExtensions, StorageErrorKind,
-    StreamUploadDriver,
-};
 use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
 use aster_drive_model::types::{
     BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+};
+use aster_drive_storage::{
+    BlobMetadata, MultipartStorageDriver, Result, StorageDriver, StorageDriverExtensions,
+    StorageErrorKind, StreamUploadDriver,
 };
 use aster_forge_file_classification::FileCategory;
 use aster_forge_utils::numbers::usize_to_u64;
@@ -89,11 +89,12 @@ impl StorageDriver for FailingStreamUploadDriver {
     }
 
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
-        self.objects
-            .lock()
-            .get(path)
-            .cloned()
-            .ok_or_else(|| AsterError::storage_driver_error(format!("missing object {path}")))
+        self.objects.lock().get(path).cloned().ok_or_else(|| {
+            aster_drive_storage::StorageError::new(
+                StorageErrorKind::NotFound,
+                format!("missing object {path}"),
+            )
+        })
     }
 
     async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
@@ -102,7 +103,8 @@ impl StorageDriver for FailingStreamUploadDriver {
 
     async fn delete(&self, path: &str) -> Result<()> {
         if self.fail_delete && !path.starts_with("_aster_migration_preflight-") {
-            return Err(AsterError::storage_driver_error(
+            return Err(aster_drive_storage::StorageError::new(
+                StorageErrorKind::Permission,
                 "simulated cleanup delete failure",
             ));
         }
@@ -120,7 +122,7 @@ impl StorageDriver for FailingStreamUploadDriver {
                 AsterError::storage_driver_error(format!("missing object {path}"))
             })?;
         Ok(BlobMetadata {
-            size: usize_to_u64(size, "test object size")?,
+            size: usize_to_u64(size, "test object size").expect("test object size should fit u64"),
             content_type: None,
         })
     }
@@ -149,8 +151,9 @@ impl StreamUploadDriver for FailingStreamUploadDriver {
         if matches!(self.failure_mode, StreamUploadFailureMode::AfterWrite) {
             self.objects.lock().insert(storage_path.to_string(), bytes);
         }
-        Err(AsterError::storage_driver_error(
-            "simulated timeout after remote write",
+        Err(aster_drive_storage::StorageError::new(
+            StorageErrorKind::Permission,
+            "simulated upload failure after remote write",
         ))
     }
 
@@ -161,8 +164,9 @@ impl StreamUploadDriver for FailingStreamUploadDriver {
         if matches!(self.failure_mode, StreamUploadFailureMode::AfterWrite) {
             self.objects.lock().insert(storage_path.to_string(), bytes);
         }
-        Err(AsterError::storage_driver_error(
-            "simulated timeout after remote write",
+        Err(aster_drive_storage::StorageError::new(
+            StorageErrorKind::Permission,
+            "simulated upload failure after remote write",
         ))
     }
 }
@@ -284,12 +288,12 @@ impl StorageDriver for MultipartMigrationTestDriver {
     }
 
     async fn get(&self, path: &str) -> Result<Vec<u8>> {
-        self.state
-            .lock()
-            .objects
-            .get(path)
-            .cloned()
-            .ok_or_else(|| AsterError::storage_driver_error(format!("missing object {path}")))
+        self.state.lock().objects.get(path).cloned().ok_or_else(|| {
+            aster_drive_storage::StorageError::new(
+                StorageErrorKind::NotFound,
+                format!("missing object {path}"),
+            )
+        })
     }
 
     async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
@@ -316,7 +320,8 @@ impl StorageDriver for MultipartMigrationTestDriver {
             .map(Vec::len)
             .ok_or_else(|| AsterError::storage_driver_error(format!("missing object {path}")))?;
         Ok(BlobMetadata {
-            size: usize_to_u64(size, "test multipart object size")?,
+            size: usize_to_u64(size, "test multipart object size")
+                .expect("test multipart object size should fit u64"),
             content_type: None,
         })
     }
@@ -384,7 +389,7 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
         _part_number: i32,
         _expires: Duration,
     ) -> Result<String> {
-        Err(aster_drive::storage::error::storage_driver_error(
+        Err(aster_drive_storage::error::storage_driver_error(
             StorageErrorKind::Unsupported,
             "test driver does not presign multipart parts",
         ))
@@ -430,7 +435,7 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
             complete_mode,
             MultipartCompleteMode::TransientErrorAfterWrite
         ) {
-            return Err(aster_drive::storage::error::storage_driver_error(
+            return Err(aster_drive_storage::error::storage_driver_error(
                 StorageErrorKind::Transient,
                 "simulated complete timeout after object write",
             ));
@@ -467,7 +472,7 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
                 remaining_failures,
             }) if *failing_part == part_number && *remaining_failures > 0 => {
                 *remaining_failures -= 1;
-                Some(aster_drive::storage::error::storage_driver_error(
+                Some(aster_drive_storage::error::storage_driver_error(
                     StorageErrorKind::Transient,
                     "simulated transient multipart part failure",
                 ))
@@ -475,7 +480,7 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
             Some(MultipartPartFailure::Permanent {
                 part_number: failing_part,
             }) if *failing_part == part_number => {
-                Some(aster_drive::storage::error::storage_driver_error(
+                Some(aster_drive_storage::error::storage_driver_error(
                     StorageErrorKind::Permission,
                     "simulated permanent multipart part failure",
                 ))
@@ -514,21 +519,22 @@ impl MultipartStorageDriver for MultipartMigrationTestDriver {
         &self,
         path: &str,
         upload_id: &str,
-    ) -> Result<Vec<aster_drive::storage::UploadedMultipartPart>> {
+    ) -> Result<Vec<aster_drive_storage::UploadedMultipartPart>> {
         let state = self.state.lock();
         let upload = state.uploads.get(upload_id).ok_or_else(|| {
             AsterError::storage_driver_error(format!("missing upload {upload_id}"))
         })?;
         if upload.path != path {
-            return Err(AsterError::storage_driver_error(format!(
-                "upload {upload_id} path mismatch"
-            )));
+            return Err(aster_drive_storage::StorageError::new(
+                StorageErrorKind::Precondition,
+                format!("upload {upload_id} path mismatch"),
+            ));
         }
         Ok(upload
             .parts
             .iter()
             .map(
-                |(part_number, data)| aster_drive::storage::UploadedMultipartPart {
+                |(part_number, data)| aster_drive_storage::UploadedMultipartPart {
                     part_number: *part_number,
                     size: data.len() as i64,
                 },
@@ -1967,7 +1973,7 @@ async fn test_storage_migration_cleans_target_object_when_stream_upload_returns_
         task.last_error
             .as_deref()
             .expect("failed task should store last_error")
-            .contains("simulated timeout after remote write")
+            .contains("simulated upload failure after remote write")
     );
     assert!(
         !target_driver.contains(&target_path),
@@ -2012,7 +2018,7 @@ async fn test_storage_migration_stream_upload_error_without_target_object_stays_
         task.last_error
             .as_deref()
             .expect("failed task should store last_error")
-            .contains("simulated timeout after remote write")
+            .contains("simulated upload failure after remote write")
     );
     assert!(
         !target_driver.contains(&target_path),
@@ -2053,7 +2059,7 @@ async fn test_storage_migration_stream_upload_cleanup_error_preserves_upload_err
         .as_deref()
         .expect("failed task should store last_error");
     assert!(
-        last_error.contains("simulated timeout after remote write"),
+        last_error.contains("simulated upload failure after remote write"),
         "cleanup failure should not replace the original upload error"
     );
     assert!(

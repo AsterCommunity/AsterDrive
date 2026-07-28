@@ -1,13 +1,12 @@
 use super::S3Driver;
 use super::S3DriverOptions;
 use super::presigned::{MAX_PRESIGN_TTL, clamp_presign_ttl};
-use crate::errors::AsterError;
-use crate::storage::error::StorageErrorKind;
-use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
-use crate::storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
-use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{StoragePolicyOptions, serialize_storage_policy_options};
+use aster_drive_storage::error::StorageErrorKind;
+use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
 use aws_smithy_http_client::test_util::{ReplayEvent, StaticReplayClient, capture_request};
 use aws_smithy_types::body::SdkBody;
@@ -96,17 +95,16 @@ async fn capacity_info_returns_unsupported_without_s3_request() {
         .await
         .expect_err("S3 capacity should be explicitly unsupported");
 
-    assert_eq!(
-        err.storage_error_kind(),
-        Some(StorageErrorKind::Unsupported)
-    );
+    assert_eq!(err.kind(), StorageErrorKind::Unsupported);
     assert!(err.message().contains("does not expose standardized"));
     request.expect_no_request();
 }
 
-fn assert_storage_driver_error(err: AsterError, expected_kind: StorageErrorKind) {
-    assert_eq!(err.code(), "E031");
-    assert_eq!(err.storage_error_kind(), Some(expected_kind));
+fn assert_storage_driver_error(
+    err: aster_drive_storage::StorageError,
+    expected_kind: StorageErrorKind,
+) {
+    assert_eq!(err.kind(), expected_kind);
     assert!(
         err.message().contains("http_status=404"),
         "expected raw HTTP status in '{}'",
@@ -283,7 +281,6 @@ async fn put_surfaces_raw_http_error_when_metadata_missing() {
     let err = driver.put("foo.txt", b"hello").await.unwrap_err();
     request.expect_request();
 
-    assert_eq!(err.code(), "E031");
     assert!(
         err.message().contains("http_status=403"),
         "expected raw HTTP status in '{}'",
@@ -300,7 +297,7 @@ async fn put_surfaces_raw_http_error_when_metadata_missing() {
         "expected raw body preview in '{}'",
         err.message()
     );
-    assert_eq!(err.storage_error_kind(), Some(StorageErrorKind::Permission));
+    assert_eq!(err.kind(), StorageErrorKind::Permission);
 }
 
 #[tokio::test]
@@ -324,8 +321,7 @@ async fn abort_multipart_upload_maps_no_such_upload_to_not_found() {
         .unwrap_err();
     request.expect_request();
 
-    assert_eq!(err.code(), "E031");
-    assert_eq!(err.storage_error_kind(), Some(StorageErrorKind::NotFound));
+    assert_eq!(err.kind(), StorageErrorKind::NotFound);
 }
 
 #[tokio::test]
@@ -494,7 +490,7 @@ struct CollectingVisitor {
 }
 
 impl StoragePathVisitor for CollectingVisitor {
-    fn visit_path(&mut self, path: String) -> crate::errors::Result<()> {
+    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.paths.push(path);
         Ok(())
     }
@@ -540,7 +536,7 @@ async fn presigned_url_includes_download_response_overrides() {
         .presigned_url(
             "folder/file name.txt",
             Duration::from_secs(60),
-            crate::storage::traits::driver::PresignedDownloadOptions {
+            aster_drive_storage::traits::driver::PresignedDownloadOptions {
                 download_name: None,
                 require_download_name_match: false,
                 response_cache_control: Some("private, max-age=60".to_string()),
@@ -663,7 +659,7 @@ async fn create_multipart_upload_rejects_missing_upload_id() {
         .expect_err("missing upload_id should fail");
     request.expect_request();
 
-    assert_eq!(err.storage_error_kind(), Some(StorageErrorKind::Unknown));
+    assert_eq!(err.kind(), StorageErrorKind::Unknown);
     assert!(err.message().contains("missing upload_id"));
 }
 
@@ -715,7 +711,7 @@ async fn upload_multipart_part_rejects_missing_etag() {
         .expect_err("missing ETag should fail");
     request.expect_request();
 
-    assert_eq!(err.storage_error_kind(), Some(StorageErrorKind::Unknown));
+    assert_eq!(err.kind(), StorageErrorKind::Unknown);
     assert!(err.message().contains("missing ETag"));
 }
 

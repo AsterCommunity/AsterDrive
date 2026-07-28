@@ -270,7 +270,7 @@ async fn try_extract_storage_native_metadata(
         return Ok(None);
     };
     let Some(result) = native
-        .get_native_media_metadata(&crate::storage::NativeMediaMetadataRequest {
+        .get_native_media_metadata(&aster_drive_storage::NativeMediaMetadataRequest {
             storage_path: blob.storage_path.clone(),
             source_file_name: source_file_name.to_string(),
             source_mime_type: source_mime_type.to_string(),

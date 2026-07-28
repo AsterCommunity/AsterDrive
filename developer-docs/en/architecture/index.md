@@ -13,6 +13,7 @@ If you are new to the repository, read this page first and then [`module-designs
 - Personal spaces and team spaces share the same file pipeline; route and service layers switch scope through `WorkspaceStorageScope`
 - The backend main path is still:
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`
+- Workspace crates now define explicit foundation boundaries: `aster_drive_model` owns domain types and entities, `aster_drive_migration` owns schema evolution, and `aster_drive_storage` owns storage traits, descriptors, object keys, and structured errors; the root package keeps product behavior and concrete runtime implementations
 - WebDAV is not just another REST branch. It is mounted separately under `src/webdav/`
 - The binary starts HTTP service by default. With the default `cli` feature enabled, the same entry point also exposes operational subcommands such as `doctor`, `config`, `database-migrate`, and `node enroll`
 - Frontend code lives in `frontend-panel/`, and production assets are served directly by the primary node
@@ -32,7 +33,7 @@ If you are new to the repository, read this page first and then [`module-designs
 | How a REST endpoint is implemented | The corresponding `src/api/routes/**` file | Route handlers parse parameters, wrap auth, and adapt responses |
 | Where file, team, share, and upload rules live | `src/services/**` | Business semantics are centralized in the service layer |
 | How data is queried and written | `src/db/repository/**` | Repository code encapsulates database access and cross-database compatibility details |
-| How file content reaches disk, object storage, OneDrive, or remote nodes | `src/storage/**` | Connector descriptors, driver abstractions, concrete drivers, and remote protocol code live here |
+| How file content reaches disk, object storage, OneDrive, or remote nodes | `crates/aster_drive_storage/**`, `src/storage/**` | The crate defines traits, descriptors, and structured errors; the root module implements connectors, concrete drivers, registry, policy snapshots, and the remote protocol runtime |
 | Why WebDAV is different from REST | `src/webdav/**` | This is a separate protocol entry layer |
 | Why team spaces reuse personal-space semantics | `src/services/workspace/scope/`, `src/services/workspace/storage/`, `src/services/workspace/models.rs`, `src/services/workspace/storage_core/`, `src/services/files/folder/`, `src/services/files/file/` | Scope switching, upload orchestration, and the unified storage core all live here |
 | How the schema evolves | `crates/aster_drive_migration/`, `crates/aster_drive_model/src/entities/**` | Migration files and entities need to be read together |
@@ -41,7 +42,7 @@ When you are chasing a specific feature, the fastest path is usually:
 
 1. Find the entry point in `src/api/routes/**`
 2. Jump to `src/services/**`
-3. Then inspect `src/db/repository/**`, `src/storage/**`, or `src/webdav/**`
+3. Then inspect `src/db/repository/**`, `crates/aster_drive_storage/**`, `src/storage/**`, or `src/webdav/**`
 
 ## Runtime modes and system boundaries
 
@@ -189,6 +190,7 @@ The practical rule of thumb in this repository remains:
 | `src/api/routes/internal_storage.rs` | Follower internal object storage protocol |
 | `src/api/routes/remote_tunnel.rs` | Primary-side remote-node reverse tunnel internal entry |
 | `src/services/` | Central business rule layer |
+| `crates/aster_drive_storage/` | Storage traits, capability extensions, connector descriptors, object keys, and structured errors; the root package does not expose legacy compatibility paths |
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
 | `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `src/storage/remote_protocol/tunnel/` | Reverse tunnel transport runtime, auth, registry, and streaming responses |

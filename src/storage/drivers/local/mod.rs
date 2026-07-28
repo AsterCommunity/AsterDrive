@@ -11,8 +11,8 @@ mod tests;
 
 use std::path::PathBuf;
 
-use crate::errors::Result;
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::Result;
 
 pub(crate) use copy::copy_file_with_checkpoint;
 pub use paths::{effective_base_path, resolved_base_path, upload_staging_path};

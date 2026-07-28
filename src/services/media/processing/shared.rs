@@ -10,8 +10,8 @@ use crate::config::RuntimeConfig;
 use crate::config::media_processing as media_processing_config;
 use crate::config::operations;
 use crate::errors::{AsterError, Result};
-use crate::storage::StorageDriver;
 use aster_drive_model::types::MediaProcessorKind;
+use aster_drive_storage::StorageDriver;
 
 const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_CLI_OUTPUT_BYTES: usize = 16 * 1024 * 1024;

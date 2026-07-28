@@ -13,8 +13,8 @@ use crate::errors::{
     AsterError, MapAsterErr, Result, thumbnail_generation_error_with_code,
     validation_error_with_code,
 };
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::file_blob;
+use aster_drive_storage::StorageDriver;
 use aster_forge_utils::raii::TempFileGuard;
 use tokio::io::AsyncWriteExt;
 
@@ -323,9 +323,8 @@ mod tests {
     };
     use crate::api::api_error_code::ApiErrorCode;
     use crate::config::operations::DEFAULT_THUMBNAIL_MAX_SOURCE_BYTES;
-    use crate::errors::Result;
-    use crate::storage::{BlobMetadata, LocalPathStorageDriver, StorageDriver};
     use aster_drive_model::entities::file_blob;
+    use aster_drive_storage::{BlobMetadata, LocalPathStorageDriver, StorageDriver};
     use async_trait::async_trait;
     use chrono::Utc;
     use image::{GenericImageView, ImageFormat, Rgb, RgbImage};
@@ -373,32 +372,35 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for LocalPathOnlyDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             panic!("local thumbnail rendering should not read the whole object into memory")
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!()
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             unreachable!()
         }
 
-        fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-            crate::storage::traits::StorageDriverExtensions {
+        fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+            aster_drive_storage::traits::StorageDriverExtensions {
                 local_path: Some(self),
                 ..Default::default()
             }
@@ -406,7 +408,7 @@ mod tests {
     }
 
     impl LocalPathStorageDriver for LocalPathOnlyDriver {
-        fn resolve_local_path(&self, _path: &str) -> Result<PathBuf> {
+        fn resolve_local_path(&self, _path: &str) -> aster_drive_storage::Result<PathBuf> {
             Ok(self.path.clone())
         }
     }
@@ -417,30 +419,33 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for StreamingOnlyDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             panic!("streaming thumbnail rendering should not read the whole object into memory")
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(BytesReader {
                 bytes: self.bytes.clone(),
                 offset: 0,
             }))
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!()
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             unreachable!()
         }
     }

@@ -8,8 +8,8 @@ use crate::services::files::file::{
     inline_sandbox_csp, requires_inline_sandbox,
 };
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::storage::PresignedDownloadOptions;
 use aster_drive_model::entities::{file, file_blob};
+use aster_drive_storage::PresignedDownloadOptions;
 use aster_forge_utils::numbers;
 
 use super::range::ResolvedDownloadRange;

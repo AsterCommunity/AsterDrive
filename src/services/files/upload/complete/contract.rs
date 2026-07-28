@@ -1,7 +1,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{Result, upload_assembly_error_with_code};
 use crate::services::workspace::storage::{self, PreparedNonDedupBlobUpload};
-use crate::storage::StorageDriver;
+use aster_drive_storage::StorageDriver;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) enum UploadCleanupPlan {
@@ -186,9 +186,8 @@ mod tests {
         UploadCleanupPlan, VerifiedUploadSource, VerifiedUploadedBlob,
         cleanup_verified_upload_after_db_failure,
     };
-    use crate::errors::Result;
     use crate::services::workspace::storage::PreparedNonDedupBlobUpload;
-    use crate::storage::{BlobMetadata, StorageDriver};
+    use aster_drive_storage::{BlobMetadata, StorageDriver};
     use async_trait::async_trait;
     use std::sync::Mutex;
     use tokio::io::AsyncRead;
@@ -200,19 +199,22 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for RecordingDeleteDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             unreachable!()
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
         }
 
-        async fn delete(&self, path: &str) -> Result<()> {
+        async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
             self.deleted_paths
                 .lock()
                 .expect("deleted paths lock should not be poisoned")
@@ -220,15 +222,19 @@ mod tests {
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!()
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             unreachable!()
         }
 
-        async fn copy_object(&self, _src_path: &str, _dest_path: &str) -> Result<String> {
+        async fn copy_object(
+            &self,
+            _src_path: &str,
+            _dest_path: &str,
+        ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
     }

@@ -14,13 +14,13 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncSeekExt, AsyncWriteExt, ReadBuf};
 use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 
-use crate::errors::{AsterError, Result};
-use crate::storage::error::{
-    StorageErrorContext, StorageErrorKind, storage_driver_error, storage_driver_error_with_context,
-};
-use crate::storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::parse_storage_policy_options;
+use aster_drive_storage::error::{
+    Result, StorageError, StorageErrorContext, StorageErrorKind, storage_driver_error,
+    storage_driver_error_with_context,
+};
+use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 
 const DEFAULT_SFTP_PORT: u16 = 22;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
@@ -248,7 +248,9 @@ impl SftpConnectionLease {
         self.connection
             .as_ref()
             .map(|connection| &connection.sftp)
-            .ok_or_else(|| AsterError::internal_error("SFTP connection lease is empty"))
+            .ok_or_else(|| {
+                storage_driver_error(StorageErrorKind::Unknown, "SFTP connection lease is empty")
+            })
     }
 
     fn mark_reusable(&mut self) {
@@ -259,7 +261,7 @@ impl SftpConnectionLease {
         self.reusable = false;
     }
 
-    fn map_sftp_error(&mut self, context: &'static str, error: SftpError) -> AsterError {
+    fn map_sftp_error(&mut self, context: &'static str, error: SftpError) -> StorageError {
         if is_sftp_connection_reusable_after_error(&error) {
             self.mark_reusable();
         }
@@ -330,9 +332,8 @@ impl SftpDriver {
         Ok(())
     }
 
-    pub fn host_key_rejection(error: &AsterError) -> Option<SftpHostKeyRejection> {
-        let StorageErrorContext::SftpHostKeyRejected { expected, actual } =
-            error.storage_error_context()?;
+    pub fn host_key_rejection(error: &StorageError) -> Option<SftpHostKeyRejection> {
+        let StorageErrorContext::SftpHostKeyRejected { expected, actual } = error.context()?;
         Some(SftpHostKeyRejection {
             expected: expected.clone(),
             actual: actual.clone(),
@@ -444,7 +445,7 @@ impl SftpDriver {
 
 #[async_trait]
 impl StorageDriver for SftpDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
@@ -466,7 +467,7 @@ impl StorageDriver for SftpDriver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         let data = connection
@@ -478,7 +479,10 @@ impl StorageDriver for SftpDriver {
         Ok(data)
     }
 
-    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(self.open_reader(path, 0).await?))
     }
 
@@ -487,7 +491,7 @@ impl StorageDriver for SftpDriver {
         path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         if length == Some(0) {
             return Ok(Box::new(tokio::io::empty()));
         }
@@ -503,7 +507,7 @@ impl StorageDriver for SftpDriver {
         true
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         connection
@@ -515,7 +519,7 @@ impl StorageDriver for SftpDriver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         match connection.sftp()?.metadata(remote_path).await {
@@ -531,7 +535,7 @@ impl StorageDriver for SftpDriver {
         }
     }
 
-    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let remote_path = self.full_path(path)?;
         let mut connection = self.acquire_connection().await?;
         let stat = connection
@@ -546,7 +550,11 @@ impl StorageDriver for SftpDriver {
         })
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let src_remote_path = self.full_path(src_path)?;
         let dest_remote_path = self.full_path(dest_path)?;
         let mut connection = self.acquire_connection().await?;
@@ -574,8 +582,8 @@ impl StorageDriver for SftpDriver {
         Ok(dest_path.to_string())
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
             ..Default::default()
         }
@@ -589,7 +597,7 @@ impl StreamUploadDriver for SftpDriver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let remote_path = self.full_path(storage_path)?;
         let mut connection = self.acquire_connection().await?;
         ensure_remote_parent_dir(connection.sftp()?, &remote_path).await?;
@@ -613,7 +621,11 @@ impl StreamUploadDriver for SftpDriver {
         Ok(storage_path.to_string())
     }
 
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let local_file = tokio::fs::File::open(local_path)
             .await
             .map_err(|error| map_io_error("open local upload file failed", error))?;
@@ -661,7 +673,7 @@ fn record_host_key_rejection(
 fn host_key_rejection_error(
     endpoint: &SftpEndpoint,
     rejection: &Arc<Mutex<Option<HostKeyRejection>>>,
-) -> Option<AsterError> {
+) -> Option<StorageError> {
     let rejection = rejection.lock().ok()?.clone()?;
     let context = StorageErrorContext::SftpHostKeyRejected {
         expected: rejection.expected().map(ToOwned::to_owned),
@@ -909,18 +921,18 @@ fn join_remote_path(base_path: &str, relative_path: &str) -> Result<String> {
     })
 }
 
-fn map_ssh_error(context: &'static str, error: russh::Error) -> AsterError {
+fn map_ssh_error(context: &'static str, error: russh::Error) -> StorageError {
     storage_driver_error(
         classify_error_message(&error.to_string()),
         format!("{context}: {error}"),
     )
 }
 
-fn map_sftp_error(context: &'static str, error: SftpError) -> AsterError {
+fn map_sftp_error(context: &'static str, error: SftpError) -> StorageError {
     storage_driver_error(classify_sftp_error(&error), format!("{context}: {error}"))
 }
 
-fn map_io_error(context: &'static str, error: std::io::Error) -> AsterError {
+fn map_io_error(context: &'static str, error: std::io::Error) -> StorageError {
     storage_driver_error(classify_io_error(&error), format!("{context}: {error}"))
 }
 
@@ -1009,9 +1021,9 @@ mod tests {
         is_valid_host_key_fingerprint, join_remote_path, normalize_host_key_fingerprint,
         normalize_remote_base_path, parse_sftp_endpoint, sanitize_relative_storage_path,
     };
-    use crate::storage::error::StorageErrorKind;
-    use crate::storage::{StorageDriver, StreamUploadDriver};
     use aster_drive_model::types::{DriverType, StoredStoragePolicyAllowedTypes};
+    use aster_drive_storage::error::StorageErrorKind;
+    use aster_drive_storage::{StorageDriver, StreamUploadDriver};
     use chrono::Utc;
     use russh_sftp::client::error::Error as SftpError;
     use russh_sftp::protocol::{Status, StatusCode};

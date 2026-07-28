@@ -10,8 +10,8 @@ use sea_orm::{EntityTrait, QueryFilter};
 use crate::config::DeploymentConfig;
 use crate::db::repository::remote_tunnel_owner_repo;
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_model::entities::remote_tunnel_owner;
+use aster_drive_storage::StorageErrorKind;
 
 pub const REMOTE_TUNNEL_OWNER_LEASE_TTL: Duration = Duration::from_secs(45);
 pub const REMOTE_TUNNEL_OWNER_RENEW_INTERVAL: Duration = Duration::from_secs(15);
@@ -407,7 +407,7 @@ impl RemoteTunnelOwnerDirectory {
 }
 
 fn owner_fenced_error(remote_node_id: i64) -> AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Transient,
         format!("reverse tunnel remote node #{remote_node_id} owner lease was fenced"),
     )

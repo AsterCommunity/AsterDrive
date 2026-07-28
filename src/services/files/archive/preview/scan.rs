@@ -15,8 +15,8 @@ use crate::services::files::archive::core::scan::{
 use crate::services::files::archive::core::zip_scan::{
     build_zip_scan_result_from_raw_entries, scan_zip_archive_raw,
 };
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::{file, file_blob};
+use aster_drive_storage::StorageDriver;
 
 use super::cache::fit_raw_manifest_to_cache_limit;
 use super::model::{

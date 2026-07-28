@@ -1,28 +1,27 @@
 //! 存储子模块：`registry`。
 
-use super::StorageErrorKind;
 use super::drivers::azure_blob::AzureBlobDriver;
 use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
 use super::drivers::s3::S3Driver;
 use super::drivers::sftp::SftpDriver;
 use super::drivers::tencent_cos::TencentCosDriver;
-use super::error::storage_driver_error;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
-use super::traits::driver::StorageDriver;
-use super::traits::multipart::MultipartStorageDriver;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::Config;
 use crate::db::repository::{
     managed_follower_repo, master_binding_repo, policy_repo, storage_policy_credential_repo,
 };
-use crate::errors::{Result, precondition_failed_with_code};
+use crate::errors::{AsterError, Result, precondition_failed_with_code};
 use crate::metrics::SharedMetricsRecorder;
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{DriverType, StorageCredentialStatus, parse_storage_policy_options};
+use aster_drive_storage::{
+    MultipartStorageDriver, StorageDriver, StorageErrorKind, storage_driver_error,
+};
 use dashmap::DashMap;
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -99,13 +98,13 @@ impl DriverRegistry {
         policy: &storage_policy::Model,
     ) -> Result<Arc<dyn MultipartStorageDriver>> {
         self.get_entry(policy)?.multipart_driver().ok_or_else(|| {
-            storage_driver_error(
+            AsterError::from(storage_driver_error(
                 StorageErrorKind::Unsupported,
                 format!(
                     "storage policy {} (driver: {:?}) does not support multipart upload",
                     policy.id, policy.driver_type
                 ),
-            )
+            ))
         })
     }
 
@@ -323,16 +322,16 @@ impl DriverRegistry {
             }
             DriverType::Remote => {
                 let remote_node_id = policy.remote_node_id.ok_or_else(|| {
-                    storage_driver_error(
+                    AsterError::from(storage_driver_error(
                         StorageErrorKind::Misconfigured,
                         "remote storage policy missing remote_node_id",
-                    )
+                    ))
                 })?;
                 let remote_node = self.get_managed_follower(remote_node_id).ok_or_else(|| {
-                    storage_driver_error(
+                    AsterError::from(storage_driver_error(
                         StorageErrorKind::Misconfigured,
                         format!("remote node #{remote_node_id} not loaded in registry"),
-                    )
+                    ))
                 })?;
                 if !remote_node.is_enabled {
                     return Err(precondition_failed_with_code(
@@ -388,13 +387,13 @@ impl DriverRegistry {
             }
             DriverType::OneDrive => {
                 let credential = self.get_runtime_credential(policy.id).ok_or_else(|| {
-                    storage_driver_error(
+                    AsterError::from(storage_driver_error(
                         StorageErrorKind::Auth,
                         format!(
                             "OneDrive storage policy {} is missing authorized Microsoft Graph credentials",
                             policy.id
                         ),
-                    )
+                    ))
                 })?;
                 let storage =
                     crate::storage::connectors::build_authorized_driver(policy, credential)?;
@@ -441,8 +440,10 @@ impl Default for DriverRegistry {
 mod tests {
     use super::*;
     use crate::metrics::MetricsRecorder;
-    use crate::storage::error::{StorageErrorKind, storage_driver_error};
     use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+    use aster_drive_storage::error::{
+        Result as StorageResult, StorageErrorKind, storage_driver_error,
+    };
     use parking_lot::Mutex;
     use std::time::Duration;
 
@@ -472,38 +473,38 @@ mod tests {
 
     #[async_trait::async_trait]
     impl StorageDriver for TestMultipartDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> StorageResult<String> {
             panic!("not used")
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> StorageResult<Vec<u8>> {
             panic!("not used")
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+        ) -> StorageResult<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             panic!("not used")
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> StorageResult<()> {
             panic!("not used")
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> StorageResult<bool> {
             panic!("not used")
         }
 
         async fn metadata(
             &self,
             _path: &str,
-        ) -> Result<crate::storage::traits::driver::BlobMetadata> {
+        ) -> StorageResult<aster_drive_storage::traits::driver::BlobMetadata> {
             panic!("not used")
         }
 
-        fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-            crate::storage::traits::StorageDriverExtensions {
+        fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+            aster_drive_storage::traits::StorageDriverExtensions {
                 multipart: Some(self),
                 ..Default::default()
             }
@@ -512,7 +513,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl MultipartStorageDriver for TestMultipartDriver {
-        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+        async fn create_multipart_upload(&self, _path: &str) -> StorageResult<String> {
             Ok("upload-1".to_string())
         }
 
@@ -522,7 +523,7 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> Result<String> {
+        ) -> StorageResult<String> {
             panic!("not used")
         }
 
@@ -531,7 +532,7 @@ mod tests {
             _path: &str,
             _upload_id: &str,
             _parts: Vec<(i32, String)>,
-        ) -> Result<()> {
+        ) -> StorageResult<()> {
             panic!("not used")
         }
 
@@ -541,11 +542,11 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _data: &[u8],
-        ) -> Result<String> {
+        ) -> StorageResult<String> {
             panic!("not used")
         }
 
-        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> StorageResult<()> {
             Err(storage_driver_error(
                 StorageErrorKind::NotFound,
                 "multipart upload missing",
@@ -556,7 +557,7 @@ mod tests {
             &self,
             _path: &str,
             _upload_id: &str,
-        ) -> Result<Vec<crate::storage::traits::UploadedMultipartPart>> {
+        ) -> StorageResult<Vec<aster_drive_storage::traits::UploadedMultipartPart>> {
             panic!("not used")
         }
     }
@@ -720,7 +721,7 @@ mod tests {
             .await
             .expect_err("abort should fail for test driver");
 
-        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::NotFound));
+        assert_eq!(error.kind(), StorageErrorKind::NotFound);
         assert_eq!(
             metrics.storage_operations.lock().as_slice(),
             &["create_multipart_upload", "abort_multipart_upload"]

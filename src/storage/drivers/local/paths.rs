@@ -1,8 +1,8 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use crate::errors::{AsterError, MapAsterErr, Result};
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
 pub fn effective_base_path(policy: &storage_policy::Model) -> PathBuf {
     if policy.base_path.is_empty() {
@@ -43,9 +43,9 @@ fn absolute_path(path: &Path) -> Result<PathBuf> {
         path.to_path_buf()
     } else {
         std::env::current_dir()
-            .map_aster_err_ctx(
+            .map_storage_err_ctx(
+                StorageErrorKind::Misconfigured,
                 "resolve local storage current_dir",
-                AsterError::storage_driver_error,
             )?
             .join(path)
     };
@@ -61,31 +61,31 @@ fn resolve_existing_path(path: &Path) -> Result<PathBuf> {
             Ok(_) => break,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
                 let Some(name) = probe.file_name() else {
-                    return Err(AsterError::storage_driver_error(format!(
-                        "local path has no existing ancestor: {}",
-                        path.display()
-                    )));
+                    return Err(storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        format!("local path has no existing ancestor: {}", path.display()),
+                    ));
                 };
                 missing_suffix.push(name.to_os_string());
                 let Some(parent) = probe.parent() else {
-                    return Err(AsterError::storage_driver_error(format!(
-                        "local path has no parent: {}",
-                        path.display()
-                    )));
+                    return Err(storage_driver_error(
+                        StorageErrorKind::Misconfigured,
+                        format!("local path has no parent: {}", path.display()),
+                    ));
                 };
                 probe = parent.to_path_buf();
             }
             Err(error) => {
-                return Err(AsterError::storage_driver_error(format!(
-                    "inspect local path {}: {error}",
-                    probe.display()
-                )));
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("inspect local path {}: {error}", probe.display()),
+                ));
             }
         }
     }
 
     let mut resolved = std::fs::canonicalize(&probe)
-        .map_aster_err_ctx("canonicalize local path", AsterError::storage_driver_error)?;
+        .map_storage_err_ctx(StorageErrorKind::Misconfigured, "canonicalize local path")?;
     for segment in missing_suffix.into_iter().rev() {
         resolved.push(segment);
     }
@@ -102,9 +102,10 @@ pub(super) fn resolve_path_within_root(
     if resolved.starts_with(root) {
         Ok(resolved)
     } else {
-        Err(AsterError::storage_driver_error(format!(
-            "resolved storage path escapes base path: {requested_path}"
-        )))
+        Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("resolved storage path escapes base path: {requested_path}"),
+        ))
     }
 }
 
@@ -123,9 +124,10 @@ pub(super) fn sanitize_relative_path(path: &str) -> Result<PathBuf> {
             Component::Normal(segment) => safe.push(segment),
             Component::CurDir => {}
             Component::ParentDir | Component::RootDir | Component::Prefix(_) => {
-                return Err(AsterError::storage_driver_error(format!(
-                    "invalid storage path: {path}"
-                )));
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("invalid storage path: {path}"),
+                ));
             }
         }
     }

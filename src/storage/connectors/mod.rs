@@ -29,18 +29,18 @@ use std::sync::Arc;
 
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorObjectNamingMode,
-    StoragePolicyExecutableAction,
-};
 use crate::storage::drivers::{
     azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
     tencent_cos::TencentCosDriver,
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{DriverType, StorageCredentialKind, StorageCredentialProvider};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
+    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorObjectNamingMode,
+    StoragePolicyExecutableAction,
+};
 
 use azure_blob::AzureBlobConnector;
 pub use common::unsupported_multipart_error;
@@ -200,8 +200,8 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         credential: StorageConnectorRuntimeCredential,
     ) -> Result<Arc<dyn StorageDriver>> {
         let _ = (policy, credential);
-        Err(crate::storage::error::storage_driver_error(
-            crate::storage::StorageErrorKind::Unsupported,
+        Err(crate::errors::storage_driver_error(
+            aster_drive_storage::StorageErrorKind::Unsupported,
             format!(
                 "{} storage policies do not use runtime credential driver construction",
                 Self::driver_type().as_str()

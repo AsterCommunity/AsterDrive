@@ -1,8 +1,7 @@
 use percent_encoding::{AsciiSet, CONTROLS, utf8_percent_encode};
 
-use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::object_key;
+use aster_drive_storage::object_key;
+use aster_drive_storage::{Result, StorageErrorKind, storage_driver_error};
 
 const GRAPH_PATH_SEGMENT_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
@@ -115,7 +114,8 @@ fn sanitize_graph_relative_path(path: &str) -> Result<String> {
         return Ok(String::new());
     }
     if path.contains('\\') {
-        return Err(AsterError::storage_driver_error(
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
             "invalid OneDrive storage path: backslashes are not allowed",
         ));
     }
@@ -125,7 +125,8 @@ fn sanitize_graph_relative_path(path: &str) -> Result<String> {
             continue;
         }
         if segment == ".." {
-            return Err(AsterError::storage_driver_error(
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
                 "invalid OneDrive storage path: parent traversal is not allowed",
             ));
         }

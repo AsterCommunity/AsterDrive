@@ -4,9 +4,9 @@ use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::media::processing;
-use crate::storage::StorageErrorKind;
 use aster_drive_model::entities::{background_task, file_blob};
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{
     BackgroundTaskSpec, TaskRetryClass, set_task_step_active, set_task_step_succeeded,

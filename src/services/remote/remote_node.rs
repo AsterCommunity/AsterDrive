@@ -8,13 +8,13 @@ use crate::errors::{
 };
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::remote::capability::RemoteCapabilityResolver;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
     normalize_remote_base_url,
 };
 use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
 use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_api::{OffsetPage, SortOrder};
 use chrono::Utc;
 use futures::{StreamExt, stream};
@@ -716,7 +716,7 @@ async fn sync_remote_binding_config_with_timeout<S: RemoteProtocolRuntimeState>(
     tokio::time::timeout(timeout, sync_remote_binding_config(state, node))
         .await
         .map_err(|_| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!(
                     "sync remote binding config timed out after {}s",

@@ -132,9 +132,10 @@ Directories:
 
 - `src/storage/connectors/*`
 - `src/storage/drivers/*`
-- `src/storage/traits/*`
+- `crates/aster_drive_storage/src/traits/*`
+- `crates/aster_drive_storage/src/connector_descriptor.rs`
 
-The storage layer owns:
+`aster_drive_storage` owns backend-independent traits, capability extensions, descriptors, and structured errors. The root storage layer owns connector configuration behavior, concrete drivers, the registry, policy snapshots, and the remote protocol runtime:
 
 - Driver and connector descriptors
 - Connection test actions

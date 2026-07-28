@@ -157,7 +157,7 @@ pub(super) async fn persist_temp_store(
 
 async fn stage_temp_blob_before_transaction(
     blob_plan: &TempBlobPlan,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     size: i64,
     temp_path: &str,
     operation_context: &StorageOperationContext,
@@ -182,7 +182,7 @@ async fn cleanup_staged_blob_plan_after_contract_failure(
     state: &PrimaryAppState,
     blob_plan: &TempBlobPlan,
     staged_dedup_target: bool,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     policy_id: i64,
     reason: &str,
 ) {
@@ -207,7 +207,7 @@ async fn cleanup_staged_blob_plan_after_contract_failure(
 async fn cleanup_verified_temp_blob_after_db_failure(
     state: &PrimaryAppState,
     verified_blob: &VerifiedTempStoreBlob,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     reason: &str,
 ) {
     match verified_blob.cleanup() {
@@ -240,7 +240,7 @@ async fn rollback_staged_dedup_blob(
     state: &PrimaryAppState,
     file_hash: &str,
     storage_path: &str,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     policy_id: i64,
 ) {
     match file_repo::find_blob_by_hash(state.writer_db(), file_hash, policy_id).await {

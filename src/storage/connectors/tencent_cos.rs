@@ -4,17 +4,17 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
-    StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
-};
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
+};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
+    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
 };
 
 use super::common::{
@@ -72,7 +72,7 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
 
 impl TencentCosConnector {
     pub(super) fn validate_promotion_candidate(policy: &storage_policy::Model) -> Result<()> {
-        TencentCosDriver::validate_policy(policy)
+        Ok(TencentCosDriver::validate_policy(policy)?)
     }
 }
 

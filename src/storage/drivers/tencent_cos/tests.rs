@@ -1,11 +1,13 @@
 use super::native_thumbnail::is_cos_image_thumbnail_candidate;
 use super::signing::cos_virtual_hosted_s3_endpoint;
 use super::*;
-use crate::storage::traits::driver::StorageDriver;
-use crate::storage::traits::extensions::{NativeThumbnailRequest, NativeThumbnailStorageDriver};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+};
+use aster_drive_storage::traits::driver::StorageDriver;
+use aster_drive_storage::traits::extensions::{
+    NativeThumbnailRequest, NativeThumbnailStorageDriver,
 };
 use url::Url;
 
@@ -41,7 +43,7 @@ fn validate_policy_requires_cos_endpoint() {
     let err = TencentCosDriver::validate_policy(&sample_policy("", "bucket"))
         .expect_err("COS endpoint is required");
 
-    assert_eq!(err.code(), "E031");
+    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
     assert!(err.message().contains("COS endpoint is required"));
 }
 
@@ -51,7 +53,7 @@ fn validate_policy_rejects_non_myqcloud_host() {
         TencentCosDriver::validate_policy(&sample_policy("https://s3.amazonaws.com", "bucket"))
             .expect_err("non-COS host should fail");
 
-    assert_eq!(err.code(), "E031");
+    assert_eq!(err.kind(), StorageErrorKind::Misconfigured);
     assert!(err.message().contains("myqcloud.com"));
 }
 

@@ -3,6 +3,7 @@ members = [
     ".",
     "crates/aster_drive_migration",
     "crates/aster_drive_model",
+    "crates/aster_drive_storage",
 ]
 
 [workspace.package]
@@ -17,17 +18,23 @@ edition = "2024"
 rust-version = "1.95.0"
 license = "MIT"
 repository = "https://github.com/AsterCommunity/AsterDrive"
+publish = false
 
 [workspace.dependencies]
-aster_drive_migration = { version = "0.1.0", path = "crates/aster_drive_migration" }
+aster_drive_migration = { path = "crates/aster_drive_migration" }
 aster_drive_model = { path = "crates/aster_drive_model" }
+aster_drive_storage = { path = "crates/aster_drive_storage" }
 aster_forge_api = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_api" }
 aster_forge_db = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db" }
 aster_forge_db_migration = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_db_migration" }
 aster_forge_external_auth = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_external_auth" }
 aster_forge_file_classification = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_file_classification" }
 aster_forge_tasks = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_tasks" }
+aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
+async-trait = "0.1"
+bytes = "1"
 chrono = { version = "0.4.45", default-features = false, features = ["clock", "serde"] }
+rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
 sea-orm = { version = "2.0.0", default-features = false, features = [
     "macros",
     "runtime-tokio-rustls",
@@ -56,6 +63,7 @@ repository.workspace = true
 license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+publish.workspace = true
 
 # 开发构建优先缩短「改代码 -> 编译/测试」的反馈时间。
 # 工作区代码保持 O0 以避免每次修改后重做优化；第三方依赖单独使用 O1，
@@ -119,6 +127,7 @@ openapi = [
     "dep:utoipa",
     "dep:utoipa-swagger-ui",
     "aster_drive_model/openapi",
+    "aster_drive_storage/openapi",
     "aster_forge_api/openapi",
     "aster_forge_api_docs_macros/openapi",
     "aster_forge_config/openapi",
@@ -165,16 +174,17 @@ aster_forge_metrics = { git = "https://github.com/AsterCommunity/AsterForge", pa
 aster_forge_tasks = { workspace = true, features = ["runtime-component"] }
 aster_forge_panic = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_panic" }
 aster_forge_runtime = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_runtime" }
-aster_forge_utils = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_utils" }
+aster_forge_utils = { workspace = true }
 aster_forge_validation = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_validation" }
 aster_forge_webdav = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_webdav", features = ["actix"] }
 aster_forge_xml = { git = "https://github.com/AsterCommunity/AsterForge", package = "aster_forge_xml" }
 aster_drive_migration = { workspace = true }
 aster_drive_model = { workspace = true }
+aster_drive_storage = { workspace = true }
 async-stream = "0.3"
-async-trait = "0.1"
+async-trait = { workspace = true }
 base64 = { version = "0.23", default-features = false, features = ["std"] }
-bytes = "1"
+bytes = { workspace = true }
 aws-credential-types = { version = "1.3.0", features = ["hardcoded-credentials"] }
 aws-sdk-s3 = { version = "1.140.0", default-features = false, features = ["sigv4a", "http-1x", "default-https-client", "rt-tokio"] }
 aws-smithy-http = "0.64"
@@ -208,7 +218,7 @@ nom-exif = "3.6.1"
 parking_lot = "0.12"
 paste = "1.0.15"
 percent-encoding = "2.3"
-rand = { version = "0.10.2", default-features = false, features = ["std", "std_rng", "thread_rng"] }
+rand = { workspace = true }
 reqwest = { version = "0.13", features = ["stream", "json"] }
 ring = "0.17"
 rust-embed = { version = "8", features = ["interpolate-folder-path"] }

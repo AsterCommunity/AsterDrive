@@ -115,7 +115,7 @@ async fn cleanup_team_upload_sessions(
 }
 
 async fn cleanup_team_temp_object(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     session: &upload_session::Model,
     temp_key: &str,
 ) -> bool {

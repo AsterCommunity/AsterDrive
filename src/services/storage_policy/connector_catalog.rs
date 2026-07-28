@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::errors::{AsterError, Result};
-use crate::storage::StorageConnectorDescriptor;
+use aster_drive_storage::StorageConnectorDescriptor;
 use sea_orm::ConnectionTrait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

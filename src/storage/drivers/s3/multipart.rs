@@ -6,9 +6,8 @@ use aws_sdk_s3::primitives::ByteStream;
 use bytes::Bytes;
 use tokio::io::AsyncRead;
 
-use crate::errors::{MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
 use super::S3Driver;
 use super::presigned::clamp_presign_ttl;
@@ -19,7 +18,7 @@ use super::presigned::clamp_presign_ttl;
 
 #[async_trait]
 impl MultipartStorageDriver for S3Driver {
-    async fn create_multipart_upload(&self, path: &str) -> Result<String> {
+    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -44,14 +43,12 @@ impl MultipartStorageDriver for S3Driver {
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
         let presign_config = PresigningConfig::builder()
             .expires_in(clamp_presign_ttl(expires, "S3 presigned_upload_part_url"))
             .build()
-            .map_aster_err_ctx("presign config", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
         let url = self
             .client
@@ -62,9 +59,10 @@ impl MultipartStorageDriver for S3Driver {
             .part_number(part_number)
             .presigned(presign_config)
             .await
-            .map_aster_err_ctx("S3 presigned upload_part failed", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(
+                StorageErrorKind::Misconfigured,
+                "S3 presigned upload_part failed",
+            )?;
 
         Ok(url.uri().to_string())
     }
@@ -74,7 +72,7 @@ impl MultipartStorageDriver for S3Driver {
         path: &str,
         upload_id: &str,
         parts: Vec<(i32, String)>,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         use aws_sdk_s3::types::{CompletedMultipartUpload, CompletedPart};
 
         let completed_parts: Vec<CompletedPart> = parts
@@ -111,7 +109,7 @@ impl MultipartStorageDriver for S3Driver {
         upload_id: &str,
         part_number: i32,
         data: &[u8],
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::copy_from_slice(data))
             .await
     }
@@ -122,7 +120,7 @@ impl MultipartStorageDriver for S3Driver {
         upload_id: &str,
         part_number: i32,
         data: Bytes,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -151,10 +149,10 @@ impl MultipartStorageDriver for S3Driver {
         part_number: i32,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
-        let content_length =
-            aster_forge_utils::numbers::i64_to_u64(size, "S3 multipart part size")?;
+        let content_length = aster_forge_utils::numbers::i64_to_u64(size, "S3 multipart part size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         let body = ByteStream::from_body_1_x(super::stream_upload::SizedReaderBody::new(
             reader,
             content_length,
@@ -180,7 +178,11 @@ impl MultipartStorageDriver for S3Driver {
         })
     }
 
-    async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()> {
+    async fn abort_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
         let key = self.full_key(path);
         self.client
             .abort_multipart_upload()
@@ -197,7 +199,7 @@ impl MultipartStorageDriver for S3Driver {
         &self,
         path: &str,
         upload_id: &str,
-    ) -> Result<Vec<UploadedMultipartPart>> {
+    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
         let key = self.full_key(path);
         let mut parts = Vec::new();
         let mut part_marker: Option<String> = None;

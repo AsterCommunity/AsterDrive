@@ -8,8 +8,10 @@ use crate::db::repository::managed_follower_repo;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::services::storage_policy::credential::crypto;
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
+use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
     StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
     StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
@@ -19,8 +21,6 @@ use crate::storage::connector_descriptor::{
     server_relay_simple_upload_capabilities, storage_connector_field,
     storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
-use aster_drive_model::entities::{managed_follower, storage_policy};
-use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
 
 use super::common::{ensure_onedrive_options_absent, ensure_storage_native_processing_supported};
 use super::{

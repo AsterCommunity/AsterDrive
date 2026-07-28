@@ -10,11 +10,9 @@ use reqwest::StatusCode;
 use reqwest::header::CONTENT_TYPE;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error_with_code};
 use crate::http::read_reqwest_body_limited;
-use crate::storage::error::{
-    StorageErrorKind, storage_driver_error, storage_driver_error_with_code,
-};
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 
 use super::{TencentCosDriver, non_empty_xml_text};
 
@@ -244,10 +242,10 @@ pub(crate) fn parse_cors_configuration(body: &str) -> Result<CosCorsConfiguratio
         .map_aster_err_ctx("parse COS CORS XML", AsterError::storage_driver_error)?;
     let root = doc.root();
     if root.name() != "CORSConfiguration" {
-        return Err(storage_driver_error(
+        return Err(AsterError::from(storage_driver_error(
             StorageErrorKind::Misconfigured,
             "COS CORS XML root is not CORSConfiguration",
-        ));
+        )));
     }
 
     let mut rules = Vec::new();
@@ -382,7 +380,7 @@ fn cos_cors_response_error(status: StatusCode, body: &str, action: &str) -> Aste
             format!("{detail}. The Tencent COS credential needs name/cos:PutBucketCORS."),
         )
     } else {
-        storage_driver_error(kind, detail)
+        AsterError::from(storage_driver_error(kind, detail))
     }
 }
 

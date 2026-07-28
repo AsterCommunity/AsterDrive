@@ -15,9 +15,9 @@ use crate::services::files::upload::shared::{
 };
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::{file, storage_policy, upload_session};
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_storage::StorageDriver;
 use aster_forge_utils::numbers::{i32_to_usize, i64_to_u64};
 use tokio::io::AsyncReadExt;
 

@@ -1,3 +1,4 @@
+use crate::errors::Result as AsterResult;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
@@ -11,10 +12,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::BlobMetadata;
-use crate::storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
+use aster_drive_storage::traits::driver::BlobMetadata;
+use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
+use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
 use super::error::{invalid_graph_url, map_graph_response_error, map_reqwest_error};
 
@@ -36,8 +36,8 @@ pub trait MicrosoftGraphAccessTokenProvider: Send + Sync + std::fmt::Debug {
         true
     }
 
-    async fn access_token(&self) -> Result<String>;
-    async fn refresh_access_token(&self) -> Result<String>;
+    async fn access_token(&self) -> AsterResult<String>;
+    async fn refresh_access_token(&self) -> AsterResult<String>;
 }
 
 #[derive(Clone)]
@@ -177,12 +177,12 @@ impl MicrosoftGraphAccessTokenProvider for StaticMicrosoftGraphAccessTokenProvid
         !self.access_token.expose_secret().trim().is_empty()
     }
 
-    async fn access_token(&self) -> Result<String> {
+    async fn access_token(&self) -> AsterResult<String> {
         Ok(self.access_token.expose_secret().to_string())
     }
 
-    async fn refresh_access_token(&self) -> Result<String> {
-        Err(storage_driver_error(
+    async fn refresh_access_token(&self) -> AsterResult<String> {
+        Err(crate::errors::storage_driver_error(
             StorageErrorKind::Auth,
             "Microsoft Graph access token cannot be refreshed",
         ))
@@ -232,9 +232,9 @@ impl MicrosoftGraphClient {
             .timeout(std::time::Duration::from_secs(60))
             .user_agent(OUTBOUND_HTTP_USER_AGENT)
             .build()
-            .map_aster_err_ctx(
+            .map_storage_err_ctx(
+                StorageErrorKind::Misconfigured,
                 "failed to build Microsoft Graph HTTP client",
-                AsterError::internal_error,
             )?;
         Ok(Self { config, http })
     }
@@ -346,9 +346,9 @@ impl MicrosoftGraphClient {
         let session = response
             .json::<MicrosoftGraphUploadSession>()
             .await
-            .map_aster_err_ctx(
+            .map_storage_err_ctx(
+                StorageErrorKind::Unknown,
                 "create OneDrive upload session: invalid Microsoft Graph JSON",
-                AsterError::storage_driver_error,
             )?;
         if session.upload_url.trim().is_empty() {
             return Err(storage_driver_error(
@@ -386,9 +386,9 @@ impl MicrosoftGraphClient {
         let item = response
             .json::<MicrosoftGraphCreatedFolder>()
             .await
-            .map_aster_err_ctx(
+            .map_storage_err_ctx(
+                StorageErrorKind::Unknown,
                 "create OneDrive folder: invalid Microsoft Graph JSON",
-                AsterError::storage_driver_error,
             )?;
         Ok(MicrosoftGraphCreateFolderOutcome::Created {
             is_folder: item.is_folder(),
@@ -410,9 +410,9 @@ impl MicrosoftGraphClient {
         response
             .json::<MicrosoftGraphUploadSession>()
             .await
-            .map_aster_err_ctx(
+            .map_storage_err_ctx(
+                StorageErrorKind::Unknown,
                 "query OneDrive upload session: invalid Microsoft Graph JSON",
-                AsterError::storage_driver_error,
             )
     }
 
@@ -484,9 +484,9 @@ impl MicrosoftGraphClient {
             let session = response
                 .json::<MicrosoftGraphUploadSession>()
                 .await
-                .map_aster_err_ctx(
+                .map_storage_err_ctx(
+                    StorageErrorKind::Unknown,
                     "upload OneDrive session fragment: invalid Microsoft Graph JSON",
-                    AsterError::storage_driver_error,
                 )?;
             return Ok(MicrosoftGraphUploadFragmentOutcome {
                 completed: false,
@@ -586,9 +586,7 @@ impl MicrosoftGraphClient {
     pub async fn exists(&self, path: &str) -> Result<bool> {
         match self.get_drive_item(path).await {
             Ok(_) => Ok(true),
-            Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
-                Ok(false)
-            }
+            Err(error) if error.kind() == StorageErrorKind::NotFound => Ok(false),
             Err(error) => Err(error),
         }
     }
@@ -630,10 +628,10 @@ impl MicrosoftGraphClient {
             })
             .await?;
         let response = self.ensure_success(response, ctx).await?;
-        response.json::<T>().await.map_aster_err_ctx(
-            &format!("{ctx}: invalid Microsoft Graph JSON"),
-            AsterError::storage_driver_error,
-        )
+        response
+            .json::<T>()
+            .await
+            .map_storage_err(StorageErrorKind::Unknown)
     }
 
     async fn ensure_success(
@@ -869,7 +867,7 @@ mod tests {
 
     #[async_trait]
     impl MicrosoftGraphAccessTokenProvider for RefreshingTestTokenProvider {
-        async fn access_token(&self) -> Result<String> {
+        async fn access_token(&self) -> AsterResult<String> {
             *self
                 .access_token_calls
                 .lock()
@@ -877,10 +875,10 @@ mod tests {
             Ok("expired-token".to_string())
         }
 
-        async fn refresh_access_token(&self) -> Result<String> {
+        async fn refresh_access_token(&self) -> AsterResult<String> {
             *self.refresh_calls.lock().expect("refresh call lock") += 1;
             if self.fail_refresh {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Auth,
                     "refresh failed",
                 ));
@@ -1287,7 +1285,7 @@ mod tests {
 
             let error = client.get_download_url("/content").await.unwrap_err();
 
-            assert!(error.raw_message().contains(expected_message));
+            assert!(error.message().contains(expected_message));
             server.stop().await;
         }
     }
@@ -1306,10 +1304,7 @@ mod tests {
         ))
         .expect("client should build");
         let error = client.get_download_url("/content").await.unwrap_err();
-        assert_eq!(
-            error.storage_error_kind(),
-            Some(StorageErrorKind::Permission)
-        );
+        assert_eq!(error.kind(), StorageErrorKind::Permission);
         forbidden.stop().await;
 
         let ok =
@@ -1320,10 +1315,10 @@ mod tests {
         ))
         .expect("client should build");
         let error = client.get_download_url("/content").await.unwrap_err();
-        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Unknown));
+        assert_eq!(error.kind(), StorageErrorKind::Unknown);
         assert!(
             error
-                .raw_message()
+                .message()
                 .contains("did not provide a download redirect")
         );
         ok.stop().await;
@@ -1371,7 +1366,7 @@ mod tests {
 
         let error = client.get_me_drive().await.unwrap_err();
 
-        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Auth));
+        assert_eq!(error.kind(), StorageErrorKind::Auth);
         assert_eq!(provider.access_token_calls(), 1);
         assert_eq!(provider.refresh_calls(), 1);
         let auth_headers = server
@@ -1395,7 +1390,7 @@ mod tests {
 
         let error = client.get_me_drive().await.unwrap_err();
 
-        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Auth));
+        assert_eq!(error.kind(), StorageErrorKind::Auth);
         assert_eq!(provider.access_token_calls(), 1);
         assert_eq!(provider.refresh_calls(), 1);
         let auth_headers = server
@@ -1419,10 +1414,7 @@ mod tests {
 
         let error = client.get_me_drive().await.unwrap_err();
 
-        assert_eq!(
-            error.storage_error_kind(),
-            Some(StorageErrorKind::Permission)
-        );
+        assert_eq!(error.kind(), StorageErrorKind::Permission);
         assert_eq!(provider.access_token_calls(), 1);
         assert_eq!(provider.refresh_calls(), 0);
         let auth_headers = server
@@ -1594,8 +1586,8 @@ mod tests {
                 .await
                 .unwrap_err(),
         ] {
-            assert!(!error.raw_message().contains(&upload_url));
-            assert!(!error.raw_message().contains("sensitive-token"));
+            assert!(!error.message().contains(&upload_url));
+            assert!(!error.message().contains("sensitive-token"));
         }
     }
 
@@ -1625,10 +1617,7 @@ mod tests {
                 .await
                 .unwrap_err()
         });
-        assert_eq!(
-            empty.storage_error_kind(),
-            Some(StorageErrorKind::Misconfigured)
-        );
+        assert_eq!(empty.kind(), StorageErrorKind::Misconfigured);
 
         let overflow = futures::executor::block_on(async {
             let client = MicrosoftGraphClient::new(MicrosoftGraphClientConfig::new(
@@ -1646,10 +1635,7 @@ mod tests {
                 .await
                 .unwrap_err()
         });
-        assert_eq!(
-            overflow.storage_error_kind(),
-            Some(StorageErrorKind::Misconfigured)
-        );
+        assert_eq!(overflow.kind(), StorageErrorKind::Misconfigured);
     }
 
     #[test]
@@ -1660,6 +1646,6 @@ mod tests {
         ))
         .unwrap_err();
 
-        assert_eq!(error.storage_error_kind(), Some(StorageErrorKind::Auth));
+        assert_eq!(error.kind(), StorageErrorKind::Auth);
     }
 }

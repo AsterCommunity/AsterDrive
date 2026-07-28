@@ -5,11 +5,10 @@ use super::errors::{
 use super::*;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::AsterError;
-use crate::storage::error::StorageErrorKind;
-use crate::storage::traits::driver::PresignedDownloadOptions;
-use crate::storage::{StorageCapacityInfo, StorageCapacityStatus};
 use actix_web::{App, HttpRequest, HttpResponse, HttpServer, web};
 use aster_drive_model::types::DriverType;
+use aster_drive_storage::error::StorageErrorKind;
+use aster_drive_storage::{PresignedDownloadOptions, StorageCapacityInfo, StorageCapacityStatus};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

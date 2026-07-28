@@ -6,8 +6,8 @@ use tokio::io::AsyncReadExt;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::file_blob;
+use aster_drive_storage::StorageDriver;
 
 use crate::services::media::processing::cli_input::prepare_cli_source;
 use crate::services::media::processing::shared::{TempDirGuard, run_cli_command_with_timeout};

@@ -4,17 +4,16 @@ use sea_orm::ConnectionTrait;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::policy_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
-use crate::storage::connector_descriptor::{
-    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
-    StoragePolicyExecutableAction,
-};
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
-use crate::storage::error::storage_driver_error;
-use crate::storage::{StorageDriver, StorageErrorKind};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, serialize_storage_policy_options,
 };
+use aster_drive_storage::connector_descriptor::{
+    StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
+    StoragePolicyExecutableAction,
+};
+use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
 use super::{StorageConnector, StorageConnectorConnectionInput};
 
@@ -409,7 +408,7 @@ pub(super) async fn probe_storage_driver(
 }
 
 pub fn unsupported_multipart_error(policy: &storage_policy::Model) -> AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Unsupported,
         format!(
             "storage policy {} (driver: {:?}) does not support multipart upload",

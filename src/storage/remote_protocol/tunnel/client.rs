@@ -15,13 +15,13 @@ use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{FollowerAppState, SharedRuntimeState};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, REMOTE_CONTROL_PLANE_BODY_LIMIT, sign_internal_request,
 };
 use aster_drive_model::entities::master_binding;
+use aster_drive_storage::StorageErrorKind;
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use reqwest::Method;
@@ -350,7 +350,7 @@ async fn connect_stream_lane_once(
     let connect_url = stream_connect_url(&binding.master_url)?;
     let request = signed_master_ws_request(binding, &connect_url)?;
     let (ws, _) = connect_async(request).await.map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("connect reverse tunnel streaming lane: {error}"),
         )
@@ -373,7 +373,7 @@ async fn connect_stream_lane_once(
             break;
         };
         let message = message.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read reverse tunnel streaming lane: {error}"),
             )
@@ -382,7 +382,7 @@ async fn connect_stream_lane_once(
             WsMessage::Binary(bytes) => decode_stream_frame(bytes)?,
             WsMessage::Ping(bytes) => {
                 write.send(WsMessage::Pong(bytes)).await.map_err(|error| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Transient,
                         format!("pong reverse tunnel streaming lane: {error}"),
                     )
@@ -394,7 +394,7 @@ async fn connect_stream_lane_once(
             _ => continue,
         };
         if frame.kind != RemoteTunnelStreamFrameKind::RequestStart {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "reverse tunnel streaming lane expected request_start",
             ));
@@ -440,7 +440,7 @@ where
     }
 
     let method = Method::from_bytes(method.as_bytes()).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("invalid reverse tunnel stream request method: {error}"),
         )
@@ -465,13 +465,13 @@ where
     let mut body_finished = false;
     while !body_finished {
         let message = read.next().await.ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 "reverse tunnel streaming lane closed before request body end",
             )
         })?;
         let message = message.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read reverse tunnel streaming request body: {error}"),
             )
@@ -509,7 +509,7 @@ where
             }
             WsMessage::Ping(bytes) => {
                 write.send(WsMessage::Pong(bytes)).await.map_err(|error| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Transient,
                         format!("pong reverse tunnel streaming request body: {error}"),
                     )
@@ -517,7 +517,7 @@ where
             }
             WsMessage::Pong(_) => {}
             WsMessage::Close(_) => {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed during request",
                 ));
@@ -566,7 +566,7 @@ where
             return Ok(());
         };
         let message = message.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("drain reverse tunnel streaming request body: {error}"),
             )
@@ -612,7 +612,7 @@ where
             path_and_query: None,
             headers: Vec::new(),
             content_length: Some(u64::try_from(body.len()).map_err(|_| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Precondition,
                     "reverse tunnel streaming error body length overflow",
                 )
@@ -672,7 +672,7 @@ where
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read reverse tunnel streaming local response body: {error}"),
             )
@@ -706,7 +706,7 @@ where
 {
     let bytes = encode_stream_frame(&frame)?;
     write.send(WsMessage::Binary(bytes)).await.map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("send reverse tunnel streaming frame: {error}"),
         )
@@ -762,7 +762,7 @@ async fn execute_tunnel_request(
 
     let url = format!("{}{}", local_base_url, request.path_and_query);
     let method = Method::from_bytes(request.method.as_bytes()).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("invalid reverse tunnel request method: {error}"),
         )
@@ -776,7 +776,7 @@ async fn execute_tunnel_request(
     }
 
     let response = builder.send().await.map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("execute reverse tunnel local request: {error}"),
         )
@@ -844,7 +844,7 @@ async fn signed_master_request(
         .as_ref()
         .map(|body| {
             u64::try_from(body.len()).map_err(|_| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Precondition,
                     "reverse tunnel request body length overflow",
                 )
@@ -877,7 +877,7 @@ async fn signed_master_request(
     }
 
     builder.send().await.map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("send reverse tunnel master request: {error}"),
         )
@@ -900,7 +900,7 @@ fn signed_master_ws_request(
     );
 
     let mut request = url.into_client_request().map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("build reverse tunnel streaming websocket request: {error}"),
         )
@@ -927,7 +927,7 @@ fn signed_master_ws_request(
 
 fn stream_connect_url(master_url: &str) -> Result<String> {
     let mut url = reqwest::Url::parse(master_url).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("invalid reverse tunnel master url: {error}"),
         )
@@ -936,14 +936,14 @@ fn stream_connect_url(master_url: &str) -> Result<String> {
         "http" => "ws",
         "https" => "wss",
         other => {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("reverse tunnel master url must use http/https, got '{other}'"),
             ));
         }
     };
     url.set_scheme(scheme).map_err(|_| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             "failed to build reverse tunnel websocket url",
         )
@@ -959,7 +959,7 @@ fn header_value(
     name: &'static str,
 ) -> Result<tokio_tungstenite::tungstenite::http::HeaderValue> {
     tokio_tungstenite::tungstenite::http::HeaderValue::from_str(value).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("invalid reverse tunnel websocket header {name}: {error}"),
         )
@@ -975,7 +975,7 @@ async fn parse_api_response<T: for<'de> serde::Deserialize<'de>>(
         read_reqwest_response_body_limited(response, action, REMOTE_CONTROL_PLANE_BODY_LIMIT)
             .await?;
     let envelope: ApiEnvelope<T> = serde_json::from_slice(&body).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("failed to parse {action} response: {error}"),
         )
@@ -986,10 +986,13 @@ async fn parse_api_response<T: for<'de> serde::Deserialize<'de>>(
         } else {
             envelope.msg
         };
-        return Err(storage_driver_error(StorageErrorKind::Transient, message));
+        return Err(crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            message,
+        ));
     }
     envelope.data.ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{action} response missing data"),
         )
@@ -1003,7 +1006,7 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
             .await?;
     let envelope: ApiEnvelope<serde_json::Value> =
         serde_json::from_slice(&body).map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("failed to parse {action} response: {error}"),
             )
@@ -1014,7 +1017,10 @@ async fn parse_empty_api_response(response: reqwest::Response, action: &str) -> 
         } else {
             envelope.msg
         };
-        return Err(storage_driver_error(StorageErrorKind::Transient, message));
+        return Err(crate::errors::storage_driver_error(
+            StorageErrorKind::Transient,
+            message,
+        ));
     }
     Ok(())
 }

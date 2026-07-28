@@ -12,8 +12,8 @@ use crate::errors::Result as AsterResult;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
-use crate::storage::StorageDriver;
 use crate::webdav::backend::metadata::AsterDavMeta;
+use aster_drive_storage::StorageDriver;
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
 use aster_forge_webdav::{DavFile, DavMetaData, FsError, FsFuture};
 
@@ -205,6 +205,7 @@ impl AsterDavFile {
                     stream_driver
                         .put_reader(&storage_path_clone, Box::new(reader), size_clone)
                         .await
+                        .map_err(crate::errors::AsterError::from)
                 });
 
                 return Ok(Self {

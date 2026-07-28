@@ -241,7 +241,7 @@ pub async fn list_policies(
     operation_id = "list_storage_driver_descriptors",
     params(StorageConnectorCatalogQuery),
     responses(
-        (status = 200, description = "List storage driver capability descriptors", body = inline(ApiResponse<Vec<crate::storage::StorageConnectorDescriptor>>)),
+        (status = 200, description = "List storage driver capability descriptors", body = inline(ApiResponse<Vec<aster_drive_storage::StorageConnectorDescriptor>>)),
         (status = 401, description = crate::api::constants::OPENAPI_UNAUTHORIZED),
         (status = 403, description = "Forbidden"),
     ),

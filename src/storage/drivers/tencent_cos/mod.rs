@@ -12,19 +12,22 @@ mod tests;
 
 use std::time::Duration;
 
+use async_trait::async_trait;
+use bytes::Bytes;
+use tokio::io::AsyncRead;
 use url::Url;
 
-use super::s3::S3DriverOptions;
-use super::s3_compatible::{S3CompatibleDriver, S3CompatibleProvider};
+use super::s3::{S3Driver, S3DriverOptions};
+use super::s3_compatible::S3CompatibleDriver;
 use super::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::object_key;
-use crate::storage::traits::extensions::{
-    NativeMediaMetadataStorageDriver, NativeThumbnailStorageDriver,
-};
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::object_key;
+use aster_drive_storage::{
+    BlobMetadata, MapStorageErr, MultipartStorageDriver, Result, StorageDriver,
+    UploadedMultipartPart,
+};
 
 pub(super) const COS_NATIVE_PROCESSING_PROVIDER: &str = "tencent_cos_ci";
 pub(super) const MAX_COS_THUMBNAIL_TTL: Duration = Duration::from_secs(5 * 60);
@@ -46,7 +49,7 @@ pub struct TencentCosDriver {
 
 impl TencentCosDriver {
     pub fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        S3CompatibleDriver::validate_policy(policy)?;
+        S3Driver::validate_policy(policy)?;
         let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
         if normalized.endpoint.trim().is_empty() {
@@ -56,7 +59,7 @@ impl TencentCosDriver {
             ));
         }
         let endpoint = Url::parse(&normalized.endpoint)
-            .map_aster_err_ctx("parse COS endpoint", AsterError::storage_driver_error)?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "parse COS endpoint")?;
         let host = endpoint.host_str().ok_or_else(|| {
             storage_driver_error(StorageErrorKind::Misconfigured, "COS endpoint missing host")
         })?;
@@ -98,11 +101,14 @@ impl TencentCosDriver {
         self.storage.s3_driver()
     }
 
-    fn rewrap_s3_config_error(error: S3ConfigError) -> AsterError {
-        storage_driver_error(
-            StorageErrorKind::Misconfigured,
-            error.into_aster_error().message().to_string(),
-        )
+    fn rewrap_s3_config_error(error: S3ConfigError) -> aster_drive_storage::StorageError {
+        let message = match error {
+            S3ConfigError::MissingBucket => {
+                "bucket is required for S3-compatible storage".to_string()
+            }
+            S3ConfigError::InvalidEndpoint(message) => message,
+        };
+        storage_driver_error(StorageErrorKind::Misconfigured, message)
     }
 
     fn full_key(&self, path: &str) -> String {
@@ -119,19 +125,164 @@ fn cos_ci_http_client(policy: &storage_policy::Model) -> Result<reqwest::Client>
         .redirect(reqwest::redirect::Policy::none())
         .user_agent(OUTBOUND_HTTP_USER_AGENT)
         .build()
-        .map_aster_err_ctx("build COS CI HTTP client", AsterError::storage_driver_error)
+        .map_storage_err_ctx(StorageErrorKind::Misconfigured, "build COS CI HTTP client")
 }
 
-impl S3CompatibleProvider for TencentCosDriver {
-    fn s3_compatible_driver(&self) -> &S3CompatibleDriver {
-        &self.storage
+#[async_trait]
+impl StorageDriver for TencentCosDriver {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+        self.storage.put(path, data).await
     }
 
-    fn as_provider_native_thumbnail(&self) -> Option<&dyn NativeThumbnailStorageDriver> {
-        Some(self)
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        self.storage.get(path).await
     }
 
-    fn as_provider_native_media_metadata(&self) -> Option<&dyn NativeMediaMetadataStorageDriver> {
-        Some(self)
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.storage.get_stream(path).await
+    }
+
+    async fn get_range(
+        &self,
+        path: &str,
+        offset: u64,
+        length: Option<u64>,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        self.storage.get_range(path, offset, length).await
+    }
+
+    fn supports_efficient_range(&self) -> bool {
+        self.storage.supports_efficient_range()
+    }
+
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+        self.storage.delete(path).await
+    }
+
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+        self.storage.exists(path).await
+    }
+
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
+        self.storage.metadata(path).await
+    }
+
+    async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
+        self.storage.readiness_check().await
+    }
+
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage.copy_object(src_path, dest_path).await
+    }
+
+    fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
+        let base = self.storage.extensions();
+        aster_drive_storage::StorageDriverExtensions {
+            presigned: base.presigned,
+            list: base.list,
+            stream_upload: base.stream_upload,
+            native_thumbnail: Some(self),
+            native_media_metadata: Some(self),
+            multipart: Some(self),
+            ..Default::default()
+        }
+    }
+
+    async fn capacity_info(
+        &self,
+    ) -> aster_drive_storage::Result<aster_drive_storage::StorageCapacityInfo> {
+        self.storage.capacity_info().await
+    }
+}
+
+#[async_trait]
+impl MultipartStorageDriver for TencentCosDriver {
+    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
+        self.storage.create_multipart_upload(path).await
+    }
+
+    async fn presigned_upload_part_url(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .presigned_upload_part_url(path, upload_id, part_number, expires)
+            .await
+    }
+
+    async fn complete_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+        parts: Vec<(i32, String)>,
+    ) -> aster_drive_storage::Result<()> {
+        self.storage
+            .complete_multipart_upload(path, upload_id, parts)
+            .await
+    }
+
+    async fn upload_multipart_part(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: &[u8],
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part(path, upload_id, part_number, data)
+            .await
+    }
+
+    async fn upload_multipart_part_bytes(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        data: Bytes,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part_bytes(path, upload_id, part_number, data)
+            .await
+    }
+
+    async fn upload_multipart_part_reader(
+        &self,
+        path: &str,
+        upload_id: &str,
+        part_number: i32,
+        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
+        size: i64,
+    ) -> aster_drive_storage::Result<String> {
+        self.storage
+            .upload_multipart_part_reader(path, upload_id, part_number, reader, size)
+            .await
+    }
+
+    async fn abort_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
+        self.storage.abort_multipart_upload(path, upload_id).await
+    }
+
+    async fn list_uploaded_part_details(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
+        self.storage
+            .list_uploaded_part_details(path, upload_id)
+            .await
     }
 }

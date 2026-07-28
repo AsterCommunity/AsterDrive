@@ -24,11 +24,12 @@ src/config/                  静态配置、运行时配置定义、配置规范
 src/db/                      数据库连接、reader/writer 句柄、repository
 src/runtime/                 AppState、primary/follower 启动、关闭、周期任务
 src/services/                Auth、file、folder、upload、share、team、policy、task、audit、WebDAV/WOPI 等业务层
-src/storage/                 存储驱动、连接器、远端协议、multipart/stream 能力抽象
+src/storage/                 存储驱动、连接器、registry、策略快照和远端协议运行时
 src/utils/                   crypto、ID、path、number、email、RAII 等工具
 src/webdav/                  WebDAV/DeltaV 协议接入、文件系统、锁、属性和传输
 crates/aster_drive_model/    共享类型和 SeaORM Entity
 crates/aster_drive_migration/ SeaORM migration crate
+crates/aster_drive_storage/  存储 trait、能力扩展、connector descriptor、对象 key 和结构化错误
 frontend-panel/              React + Vite 前端，构建产物嵌入后端
 developer-docs/              开发说明和架构文档
 docs/                        用户/部署文档站
@@ -147,7 +148,7 @@ AI 很容易把能跑的代码堆到一个 service 里，后面就没人敢改�
 - `src/services/<domain>/*` 内部模块：承载可测试的领域规则，例如 normalization、target selection、capability resolver、descriptor builder、finalization contract；能写成纯函数就不要依赖 `AppState`。
 - `src/db/repository/*`：只做数据访问和原子 SQL，不写 transport、driver、UI descriptor、产品流程判断。
 - `src/storage/remote_protocol/*`：只处理 wire protocol、签名、path encoding、HTTP/tunnel transport、capability wire model 和 response parsing；不要决定 UI 展示、policy target 选择、default target 这类产品语义。
-- `src/storage/connectors/*` / `src/storage/traits/*`：表达存储能力、driver/connector descriptor 和对象内容能力；业务层不要绕过这些抽象直接分支到具体 SDK。
+- `crates/aster_drive_storage/*`：表达 driver trait、能力扩展、connector descriptor、对象 key 和结构化存储错误；根包通过 `src/storage/connectors/*` / `src/storage/drivers/*` 实现产品配置与具体后端，业务层不要绕过这些抽象直接分支到具体 SDK。
 
 触发以下信号时先拆模块，不要继续往当前函数里堆：
 
@@ -188,7 +189,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 ## 存储和上传约定
 
-- 存储能力优先通过 `src/storage/traits/` 和 connector/driver registry 表达，不要在业务层直接分支到具体 SDK。
+- 存储能力优先通过 `crates/aster_drive_storage/src/traits/` 和根包 connector/driver registry 表达，不要在业务层直接分支到具体 SDK。
 - 新增存储后端时，要同时考虑 policy descriptor、连接测试、credential 管理、上传/下载策略、admin 前端配置、OpenAPI 类型和文档最小更新。
 - 上传路径必须尊重策略协商结果：direct、chunked、presigned、multipart、remote relay/presigned 不要互相绕过。
 - 上传完成要保持元数据、blob/object、version、quota、audit、task/progress 的一致性；失败路径要能清理 session 或留下可恢复状态。

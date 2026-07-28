@@ -10,7 +10,7 @@ use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntime
 use crate::services::ops::audit::{self, AuditContext};
 use aster_drive_model::types::DriverType;
 
-pub use crate::storage::{
+pub use aster_drive_storage::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
     StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
     StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,

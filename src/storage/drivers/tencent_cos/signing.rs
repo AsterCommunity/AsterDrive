@@ -1,11 +1,11 @@
+use crate::errors::{AsterError, MapAsterErr, Result};
 use hmac::{Hmac, KeyInit, Mac};
 use percent_encoding::{AsciiSet, CONTROLS, percent_encode};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sha1::{Digest, Sha1};
 use url::Url;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 
 use super::TencentCosDriver;
 

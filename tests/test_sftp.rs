@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::SftpDriver;
-use aster_drive::storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
+use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
 
@@ -73,9 +73,7 @@ async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
                 .await
             {
                 Ok(Ok(_)) => last_error = Some("untrusted host key was accepted".to_string()),
-                Ok(Err(error))
-                    if error.storage_error_kind() == Some(StorageErrorKind::Precondition) =>
-                {
+                Ok(Err(error)) if error.kind() == StorageErrorKind::Precondition => {
                     let rejection = SftpDriver::host_key_rejection(&error)
                         .expect("untrusted host key error should expose rejection details");
                     assert_eq!(rejection.expected, None);
@@ -203,10 +201,7 @@ async fn test_sftp_driver_upload_download_round_trip() {
         .metadata("docs/missing.txt")
         .await
         .expect_err("missing sftp object metadata should fail");
-    assert_eq!(
-        missing_meta.storage_error_kind(),
-        Some(StorageErrorKind::NotFound)
-    );
+    assert_eq!(missing_meta.kind(), StorageErrorKind::NotFound);
     #[cfg(debug_assertions)]
     {
         let after_missing_metadata = driver.debug_connection_pool_snapshot();

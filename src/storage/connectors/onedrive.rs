@@ -6,19 +6,8 @@ use std::sync::Arc;
 use crate::db::repository::{
     storage_connector_application_config_repo, storage_policy_credential_repo,
 };
-use crate::errors::{AsterError, Result};
+use crate::errors::{AsterError, Result, storage_driver_error};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
-    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
-    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
-    validate_credential_action_descriptor,
-};
 use crate::storage::drivers::onedrive::{
     MicrosoftGraphClient, MicrosoftGraphClientConfig, OneDriveDriver,
     microsoft_graph_upload_capabilities,
@@ -27,6 +16,17 @@ use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     DriverType, ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
     StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
+};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
+    StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
+    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
+    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
+    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
+    validate_credential_action_descriptor,
 };
 
 use super::common::{
@@ -396,8 +396,8 @@ impl StorageConnector for OneDriveConnector {
             .and_then(non_empty_string)
             .or_else(|| credential.drive_id.and_then(non_empty_string))
             .ok_or_else(|| {
-                crate::storage::error::storage_driver_error(
-                    crate::storage::StorageErrorKind::Misconfigured,
+                storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
                     "OneDrive storage policy missing resolved drive_id; reauthorize Microsoft Graph",
                 )
             })?;
@@ -412,20 +412,20 @@ impl StorageConnector for OneDriveConnector {
             .or_else(|| credential.root_item_id.and_then(non_empty_string))
             .or_else(|| configured_root_item_id.map(ToOwned::to_owned))
             .ok_or_else(|| {
-                crate::storage::error::storage_driver_error(
-                    crate::storage::StorageErrorKind::Misconfigured,
+                aster_drive_storage::error::storage_driver_error(
+                    aster_drive_storage::StorageErrorKind::Misconfigured,
                     "OneDrive storage policy missing resolved root_item_id; reauthorize Microsoft Graph",
                 )
             })?;
         if root_item_id.trim().is_empty() {
-            return Err(crate::storage::error::storage_driver_error(
-                crate::storage::StorageErrorKind::Misconfigured,
+            return Err(storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Misconfigured,
                 "OneDrive storage policy missing resolved root_item_id; reauthorize Microsoft Graph",
             ));
         }
         if drive_id.trim().is_empty() {
-            return Err(crate::storage::error::storage_driver_error(
-                crate::storage::StorageErrorKind::Misconfigured,
+            return Err(storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Misconfigured,
                 "OneDrive storage policy missing resolved drive_id; reauthorize Microsoft Graph",
             ));
         }

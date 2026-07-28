@@ -2,7 +2,7 @@ use bytes::Bytes;
 use serde::{Deserialize, Serialize};
 
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::StorageErrorKind;
 
 pub(super) const REMOTE_TUNNEL_STREAM_META_LIMIT: usize = 64 * 1024;
 pub(super) const REMOTE_TUNNEL_STREAM_FRAME_VERSION: u8 = 1;
@@ -78,13 +78,13 @@ pub fn encode_stream_frame(frame: &RemoteTunnelStreamFrame) -> Result<Bytes> {
         message: frame.message.clone(),
     };
     let meta = serde_json::to_vec(&meta).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("encode reverse tunnel streaming frame metadata: {error}"),
         )
     })?;
     if meta.len() > REMOTE_TUNNEL_STREAM_META_LIMIT {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Precondition,
             "reverse tunnel streaming frame metadata is too large",
         ));
@@ -126,7 +126,7 @@ pub fn decode_stream_frame(bytes: Bytes) -> Result<RemoteTunnelStreamFrame> {
         ));
     }
     let meta_end = 9usize.checked_add(meta_len).ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Precondition,
             "reverse tunnel streaming frame metadata length overflow",
         )

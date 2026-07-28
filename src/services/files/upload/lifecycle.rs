@@ -9,12 +9,12 @@ use crate::services::files::upload::kind::resolve_upload_session_kind;
 use crate::services::files::upload::provider_session::decrypt_provider_session;
 use crate::services::files::upload::scope::{load_upload_session, personal_scope, team_scope};
 use crate::services::files::upload::shared::{
-    UploadStorageErrorClass, classify_upload_storage_error, cleanup_upload_temp_dir,
-    mark_session_failed_with_expiration, upload_storage_error_class_label,
+    UploadStorageErrorClass, classify_storage_error_kind, classify_upload_storage_error,
+    cleanup_upload_temp_dir, mark_session_failed_with_expiration, upload_storage_error_class_label,
 };
-use crate::storage::StorageDriver;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_storage::{StorageDriver, StorageError};
 use aster_forge_utils::numbers::usize_to_u32;
 
 const DEFERRED_UPLOAD_SESSION_CLEANUP_GRACE_SECS: i64 = 15;
@@ -39,8 +39,8 @@ impl UploadRemoteCleanupOutcome {
     }
 }
 
-fn blocked_cleanup_outcome(error: &AsterError) -> UploadRemoteCleanupOutcome {
-    match classify_upload_storage_error(error) {
+fn cleanup_outcome_for_class(class: UploadStorageErrorClass) -> UploadRemoteCleanupOutcome {
+    match class {
         UploadStorageErrorClass::Retryable => UploadRemoteCleanupOutcome::DeferredRetry,
         UploadStorageErrorClass::RequiresIntervention | UploadStorageErrorClass::Terminal => {
             UploadRemoteCleanupOutcome::DeferredIntervention
@@ -53,9 +53,9 @@ fn log_blocked_remote_cleanup(
     session_id: &str,
     temp_key: Option<&str>,
     context: &str,
-    error: &AsterError,
+    error: &StorageError,
 ) -> UploadRemoteCleanupOutcome {
-    let outcome = blocked_cleanup_outcome(error);
+    let outcome = cleanup_outcome_for_class(classify_storage_error_kind(error.kind()));
     if outcome.is_complete() {
         tracing::warn!(
             session_id,
@@ -68,7 +68,7 @@ fn log_blocked_remote_cleanup(
     tracing::warn!(
         session_id,
         temp_key = temp_key.unwrap_or_default(),
-        error_class = upload_storage_error_class_label(classify_upload_storage_error(error)),
+        error_class = upload_storage_error_class_label(classify_storage_error_kind(error.kind())),
         "{context}: remote cleanup is blocked, keeping session for follow-up: {error}"
     );
     outcome
@@ -93,11 +93,11 @@ async fn delete_temp_object_for_cleanup(
             }
             Ok(true) => log_blocked_remote_cleanup(session_id, Some(temp_key), context, &error),
             Err(exists_error) => {
-                let outcome = blocked_cleanup_outcome(&error);
+                let outcome = cleanup_outcome_for_class(classify_storage_error_kind(error.kind()));
                 tracing::warn!(
                     session_id,
                     temp_key = %temp_key,
-                    error_class = upload_storage_error_class_label(classify_upload_storage_error(&error)),
+                    error_class = upload_storage_error_class_label(classify_storage_error_kind(error.kind())),
                     "{context}: failed to delete temp object and verify existence, keeping session for follow-up: delete_error={error}, exists_error={exists_error}"
                 );
                 outcome
@@ -168,7 +168,7 @@ async fn cleanup_remote_upload_state(
                 error_class = upload_storage_error_class_label(classify_upload_storage_error(&error)),
                 "failed to resolve storage driver for upload cleanup, keeping session for follow-up: {error}"
             );
-            return blocked_cleanup_outcome(&error);
+            return cleanup_outcome_for_class(classify_upload_storage_error(&error));
         }
     };
 

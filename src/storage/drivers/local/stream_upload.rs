@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWriteExt};
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
 use super::LocalDriver;
@@ -14,8 +14,9 @@ impl StreamUploadDriver for LocalDriver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
-        let declared_size = numbers::i64_to_u64(size, "local put_reader declared size")?;
+    ) -> aster_drive_storage::Result<String> {
+        let declared_size = numbers::i64_to_u64(size, "local put_reader declared size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
 
         // 创建临时文件
         let temp_path = std::env::temp_dir().join(format!(
@@ -27,11 +28,11 @@ impl StreamUploadDriver for LocalDriver {
         // 流式写入临时文件
         let mut file = tokio::fs::File::create(&temp_path)
             .await
-            .map_aster_err(AsterError::storage_driver_error)?;
+            .map_storage_err(StorageErrorKind::Transient)?;
 
         let written = tokio::io::copy(&mut reader, &mut file)
             .await
-            .map_aster_err_ctx("write temp file", AsterError::storage_driver_error)?;
+            .map_storage_err_ctx(StorageErrorKind::Transient, "write temp file")?;
 
         // 验证实际写入大小与声明大小一致
         if written != declared_size {
@@ -43,21 +44,27 @@ impl StreamUploadDriver for LocalDriver {
                     "failed to cleanup local stream temp file after size mismatch: {error}"
                 );
             }
-            return Err(AsterError::storage_driver_error(format!(
-                "size mismatch: declared {}, actual written {}",
-                size, written
-            )));
+            return Err(storage_driver_error(
+                StorageErrorKind::Precondition,
+                format!(
+                    "size mismatch: declared {}, actual written {}",
+                    size, written
+                ),
+            ));
         }
 
         // 确保数据落盘
         file.flush()
             .await
-            .map_aster_err(AsterError::storage_driver_error)?;
+            .map_storage_err(StorageErrorKind::Transient)?;
         drop(file);
 
         // 使用 put_file 完成上传
         let temp_path_str = temp_path.to_str().ok_or_else(|| {
-            AsterError::storage_driver_error("temp upload path is not valid UTF-8")
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "temp upload path is not valid UTF-8",
+            )
         })?;
         let result = self.put_file(storage_path, temp_path_str).await;
 
@@ -74,18 +81,22 @@ impl StreamUploadDriver for LocalDriver {
         result
     }
 
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let full = self.full_path(storage_path)?;
         if let Some(parent) = full.parent() {
             tokio::fs::create_dir_all(parent)
                 .await
-                .map_aster_err(AsterError::storage_driver_error)?;
+                .map_storage_err(StorageErrorKind::Transient)?;
         }
         // rename 是零拷贝（同一文件系统），跨文件系统 fallback 到 copy + delete
         if tokio::fs::rename(local_path, &full).await.is_err() {
             tokio::fs::copy(local_path, &full)
                 .await
-                .map_aster_err_ctx("copy file", AsterError::storage_driver_error)?;
+                .map_storage_err_ctx(StorageErrorKind::Transient, "copy file")?;
             if let Err(error) = tokio::fs::remove_file(local_path).await
                 && error.kind() != std::io::ErrorKind::NotFound
             {

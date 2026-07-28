@@ -24,9 +24,9 @@ use crate::services::files::upload::scope::{
 use crate::services::files::upload::shared::expected_chunk_size_for_upload;
 use crate::services::files::upload::staging;
 use crate::services::workspace::storage;
-use crate::storage::StorageErrorKind;
 use aster_drive_model::entities::upload_session;
 use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_storage::StorageErrorKind;
 use futures::{StreamExt, stream};
 
 const RECOVERABLE_UPLOAD_SESSIONS_LIMIT: u64 = 100;
@@ -118,13 +118,13 @@ async fn get_progress_impl(
                         }),
                     )
                 }
-                Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+                Err(error) if error.kind() == StorageErrorKind::NotFound => {
                     let committed = match session.object_temp_key.as_deref() {
                         Some(temp_key) => driver.exists(temp_key).await?,
                         None => false,
                     };
                     if !committed {
-                        return Err(error);
+                        return Err(error.into());
                     }
                     (
                         (0..session.total_chunks).collect(),
@@ -135,7 +135,7 @@ async fn get_progress_impl(
                         }),
                     )
                 }
-                Err(error) => return Err(error),
+                Err(error) => return Err(error.into()),
             }
         }
     };

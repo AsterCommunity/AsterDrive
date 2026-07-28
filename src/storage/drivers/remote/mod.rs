@@ -10,9 +10,9 @@ mod tests;
 
 use crate::errors::{AsterError, Result};
 use crate::services::remote::capability::RemoteCapabilityResolver;
-use crate::storage::object_key;
 use crate::storage::remote_protocol::RemoteStorageClient;
 use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_storage::object_key;
 
 pub struct RemoteDriver {
     client: RemoteStorageClient,

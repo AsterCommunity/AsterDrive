@@ -7,14 +7,14 @@ mod paths;
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
-use crate::errors::Result;
-use crate::errors::{AsterError, MapAsterErr};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
-use crate::storage::traits::extensions::{
+use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
+use aster_drive_storage::traits::extensions::{
     PresignedStorageDriver, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageCapacityInfo, StreamUploadDriver,
+};
+use aster_drive_storage::{
+    MapStorageErr, Result, StorageError, StorageErrorKind, storage_driver_error,
 };
 use aster_forge_utils::numbers;
 
@@ -70,7 +70,7 @@ fn graph_upload_fragment_size(policy_chunk_size: i64) -> usize {
     capped - (capped % GRAPH_UPLOAD_FRAGMENT_ALIGNMENT)
 }
 
-fn graph_simple_upload_too_large_error() -> AsterError {
+fn graph_simple_upload_too_large_error() -> StorageError {
     storage_driver_error(
         StorageErrorKind::Unsupported,
         "OneDrive simple upload is limited to 250 MB; use upload session support for larger objects",
@@ -110,17 +110,17 @@ impl OneDriveDriver {
         }
     }
 
-    fn graph_path(&self, path: &str) -> crate::errors::Result<String> {
+    fn graph_path(&self, path: &str) -> Result<String> {
         let relative = paths::join_base_path(&self.base_path, path)?;
         paths::graph_drive_item_path(&self.drive_id, &self.root_item_id, &relative)
     }
 
-    fn graph_content_path(&self, path: &str) -> crate::errors::Result<String> {
+    fn graph_content_path(&self, path: &str) -> Result<String> {
         let relative = paths::join_base_path(&self.base_path, path)?;
         paths::graph_drive_item_content_path(&self.drive_id, &self.root_item_id, &relative)
     }
 
-    fn graph_upload_session_path(&self, path: &str) -> crate::errors::Result<String> {
+    fn graph_upload_session_path(&self, path: &str) -> Result<String> {
         let relative = paths::join_base_path(&self.base_path, path)?;
         let item_path =
             paths::graph_drive_item_path(&self.drive_id, &self.root_item_id, &relative)?;
@@ -131,7 +131,7 @@ impl OneDriveDriver {
         }
     }
 
-    fn graph_children_path(&self, parent_path: &str) -> crate::errors::Result<String> {
+    fn graph_children_path(&self, parent_path: &str) -> Result<String> {
         let relative = paths::join_base_path(&self.base_path, parent_path)?;
         let item_path =
             paths::graph_drive_item_path(&self.drive_id, &self.root_item_id, &relative)?;
@@ -147,7 +147,10 @@ impl OneDriveDriver {
             return Ok(None);
         };
         let upload_id = parent_path.strip_prefix("files/").ok_or_else(|| {
-            AsterError::storage_driver_error("invalid OneDrive named object path")
+            storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "invalid OneDrive named object path",
+            )
         })?;
 
         match self
@@ -208,7 +211,7 @@ impl OneDriveDriver {
         }
     }
 
-    pub async fn validate_root(&self) -> crate::errors::Result<MicrosoftGraphDriveItem> {
+    pub async fn validate_root(&self) -> Result<MicrosoftGraphDriveItem> {
         self.client
             .get_drive_item_by_id(&self.drive_id, &self.root_item_id)
             .await
@@ -220,20 +223,20 @@ impl OneDriveDriver {
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
     ) -> Result<String> {
-        let total_size = numbers::i64_to_u64(size, "OneDrive put_reader declared size")?;
+        let total_size = numbers::i64_to_u64(size, "OneDrive put_reader declared size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         if total_size == 0 {
             self.put(path, &[]).await?;
             return Ok(path.to_string());
         }
         if can_use_graph_in_memory_upload(total_size, self.policy_chunk_size) {
-            let capacity = numbers::u64_to_usize(total_size, "OneDrive simple upload size")?;
+            let capacity = numbers::u64_to_usize(total_size, "OneDrive simple upload size")
+                .map_storage_err(StorageErrorKind::Misconfigured)?;
             let mut data = vec![0_u8; capacity];
-            reader
-                .read_exact(&mut data)
-                .await
-                .map_aster_err_ctx("read OneDrive simple upload stream", |message| {
-                    storage_driver_error(StorageErrorKind::Precondition, message)
-                })?;
+            reader.read_exact(&mut data).await.map_storage_err_ctx(
+                StorageErrorKind::Precondition,
+                "read OneDrive simple upload stream",
+            )?;
             reject_extra_upload_bytes(reader).await?;
             self.put(path, &data).await?;
             return Ok(path.to_string());
@@ -251,20 +254,21 @@ impl OneDriveDriver {
             while uploaded < total_size {
                 let remaining = total_size - uploaded;
                 let read_len = numbers::u64_to_usize(
-                    remaining.min(numbers::usize_to_u64(
-                        fragment_size,
-                        "OneDrive upload fragment size",
-                    )?),
+                    remaining.min(
+                        numbers::usize_to_u64(fragment_size, "OneDrive upload fragment size")
+                            .map_storage_err(StorageErrorKind::Misconfigured)?,
+                    ),
                     "OneDrive upload next fragment size",
-                )?;
+                )
+                .map_storage_err(StorageErrorKind::Misconfigured)?;
                 let mut chunk = vec![0_u8; read_len];
-                reader
-                    .read_exact(&mut chunk)
-                    .await
-                    .map_aster_err_ctx("read OneDrive upload session fragment", |message| {
-                        storage_driver_error(StorageErrorKind::Precondition, message)
-                    })?;
-                if remaining > numbers::usize_to_u64(read_len, "OneDrive upload fragment length")?
+                reader.read_exact(&mut chunk).await.map_storage_err_ctx(
+                    StorageErrorKind::Precondition,
+                    "read OneDrive upload session fragment",
+                )?;
+                if remaining
+                    > numbers::usize_to_u64(read_len, "OneDrive upload fragment length")
+                        .map_storage_err(StorageErrorKind::Misconfigured)?
                     && read_len % GRAPH_UPLOAD_FRAGMENT_ALIGNMENT != 0
                 {
                     return Err(storage_driver_error(
@@ -280,7 +284,8 @@ impl OneDriveDriver {
                         chunk,
                     )
                     .await?;
-                uploaded += numbers::usize_to_u64(read_len, "OneDrive uploaded fragment size")?;
+                uploaded += numbers::usize_to_u64(read_len, "OneDrive uploaded fragment size")
+                    .map_storage_err(StorageErrorKind::Misconfigured)?;
             }
             reject_extra_upload_bytes(reader).await?;
             Ok(path.to_string())
@@ -310,7 +315,7 @@ fn ensure_created_graph_item_is_folder(is_folder: bool, context: &str) -> Result
 
 #[async_trait]
 impl StorageDriver for OneDriveDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         if data.len() > GRAPH_SIMPLE_UPLOAD_MAX_BYTES {
             return Err(graph_simple_upload_too_large_error());
         }
@@ -327,11 +332,14 @@ impl StorageDriver for OneDriveDriver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.client.get_bytes(&self.graph_content_path(path)?).await
     }
 
-    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.client
             .get_stream(&self.graph_content_path(path)?, None, None)
             .await
@@ -342,7 +350,7 @@ impl StorageDriver for OneDriveDriver {
         path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.client
             .get_stream(&self.graph_content_path(path)?, Some(offset), length)
             .await
@@ -352,8 +360,8 @@ impl StorageDriver for OneDriveDriver {
         true
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             presigned: Some(self),
             stream_upload: Some(self),
             provider_resumable: Some(self),
@@ -361,20 +369,20 @@ impl StorageDriver for OneDriveDriver {
         }
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let delete_path = paths::named_object_parent_path(path).unwrap_or_else(|| path.to_string());
         self.client.delete(&self.graph_path(&delete_path)?).await
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.client.exists(&self.graph_path(path)?).await
     }
 
-    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.client.metadata(&self.graph_path(path)?).await
     }
 
-    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+    async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
         self.client.capacity_info(&self.drive_id).await
     }
 }
@@ -385,8 +393,8 @@ impl PresignedStorageDriver for OneDriveDriver {
         &self,
         path: &str,
         _expires: std::time::Duration,
-        options: crate::storage::traits::driver::PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+        options: aster_drive_storage::traits::driver::PresignedDownloadOptions,
+    ) -> aster_drive_storage::Result<Option<String>> {
         if options.require_download_name_match {
             let Some(stored_filename) = paths::provider_resumable_filename(path) else {
                 // Legacy objects do not carry a provider filename in their
@@ -413,7 +421,7 @@ impl PresignedStorageDriver for OneDriveDriver {
         &self,
         _path: &str,
         _expires: std::time::Duration,
-    ) -> Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         Ok(None)
     }
 }
@@ -425,21 +433,25 @@ impl StreamUploadDriver for OneDriveDriver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.put_reader_via_upload_session(storage_path, reader, size)
             .await
     }
 
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
-        let file = tokio::fs::File::open(local_path).await.map_aster_err_ctx(
-            "open OneDrive upload file",
-            AsterError::storage_driver_error,
-        )?;
-        let metadata = file.metadata().await.map_aster_err_ctx(
-            "stat OneDrive upload file",
-            AsterError::storage_driver_error,
-        )?;
-        let size = numbers::u64_to_i64(metadata.len(), "OneDrive upload file size")?;
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let file = tokio::fs::File::open(local_path)
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "open OneDrive upload file")?;
+        let metadata = file
+            .metadata()
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "stat OneDrive upload file")?;
+        let size = numbers::u64_to_i64(metadata.len(), "OneDrive upload file size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         self.put_reader(storage_path, Box::new(file), size).await
     }
 }
@@ -450,7 +462,10 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         microsoft_graph_upload_capabilities()
     }
 
-    async fn create_upload_session(&self, path: &str) -> Result<ProviderResumableUploadSession> {
+    async fn create_upload_session(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadSession> {
         let parent_path = self.ensure_named_object_parent(path).await?;
         let session = match self
             .client
@@ -474,7 +489,7 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
     async fn query_upload_session(
         &self,
         upload_url: &str,
-    ) -> Result<ProviderResumableUploadStatus> {
+    ) -> aster_drive_storage::Result<ProviderResumableUploadStatus> {
         let session = self.client.query_upload_session(upload_url).await?;
         Ok(ProviderResumableUploadStatus {
             expires_at: session.expires_at,
@@ -482,7 +497,7 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         })
     }
 
-    async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
+    async fn abort_upload_session(&self, upload_url: &str) -> aster_drive_storage::Result<()> {
         self.client.abort_upload_session(upload_url).await
     }
 
@@ -493,15 +508,17 @@ impl ProviderResumableUploadDriver for OneDriveDriver {
         total_size: u64,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         fragment_size: i64,
-    ) -> Result<ProviderResumableUploadFragmentOutcome> {
-        let size = numbers::bytes_to_usize(fragment_size, "OneDrive upload fragment size")?;
+    ) -> aster_drive_storage::Result<ProviderResumableUploadFragmentOutcome> {
+        let size = numbers::bytes_to_usize(fragment_size, "OneDrive upload fragment size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         if size > GRAPH_UPLOAD_FRAGMENT_MAX_BYTES {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "OneDrive upload session fragment exceeds the provider request-size limit",
             ));
         }
-        let fragment_size_u64 = numbers::usize_to_u64(size, "OneDrive upload fragment size")?;
+        let fragment_size_u64 = numbers::usize_to_u64(size, "OneDrive upload fragment size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         let is_final = start
             .checked_add(fragment_size_u64)
             .is_some_and(|end| end == total_size);
@@ -526,12 +543,10 @@ async fn reject_extra_upload_bytes(
     mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
 ) -> Result<()> {
     let mut extra = [0_u8; 1];
-    let read = reader
-        .read(&mut extra)
-        .await
-        .map_aster_err_ctx("check OneDrive upload stream length", |message| {
-            storage_driver_error(StorageErrorKind::Precondition, message)
-        })?;
+    let read = reader.read(&mut extra).await.map_storage_err_ctx(
+        StorageErrorKind::Precondition,
+        "check OneDrive upload stream length",
+    )?;
     if read != 0 {
         return Err(storage_driver_error(
             StorageErrorKind::Misconfigured,
@@ -710,10 +725,7 @@ mod tests {
     fn graph_simple_upload_too_large_error_uses_decimal_units() {
         let error = graph_simple_upload_too_large_error();
 
-        assert_eq!(
-            error.storage_error_kind(),
-            Some(StorageErrorKind::Unsupported)
-        );
+        assert_eq!(error.kind(), StorageErrorKind::Unsupported);
         assert!(error.message().contains("250 MB"));
         assert!(!error.message().contains("MiB"));
     }
@@ -823,10 +835,7 @@ mod tests {
             )
             .await
             .expect_err("non-final fragments must be aligned");
-        assert_eq!(
-            misaligned.storage_error_kind(),
-            Some(StorageErrorKind::Misconfigured)
-        );
+        assert_eq!(misaligned.kind(), StorageErrorKind::Misconfigured);
 
         let oversized = provider
             .upload_session_fragment_reader(
@@ -838,10 +847,7 @@ mod tests {
             )
             .await
             .expect_err("provider request-size limit must be enforced");
-        assert_eq!(
-            oversized.storage_error_kind(),
-            Some(StorageErrorKind::Misconfigured)
-        );
+        assert_eq!(oversized.kind(), StorageErrorKind::Misconfigured);
     }
 
     #[tokio::test]
@@ -852,7 +858,7 @@ mod tests {
         ))
         .expect("Graph client should build");
         let driver = OneDriveDriver::new(client, "drive-id", "root-id", "", 5 * 1024 * 1024);
-        let options = crate::storage::traits::driver::PresignedDownloadOptions {
+        let options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             require_download_name_match: true,
             ..Default::default()
@@ -872,7 +878,7 @@ mod tests {
 
         let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
         let driver = lifecycle_driver(&server);
-        let native_options = crate::storage::traits::driver::PresignedDownloadOptions {
+        let native_options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             ..Default::default()
         };
@@ -895,7 +901,7 @@ mod tests {
     async fn renamed_object_declines_direct_download_when_filename_match_is_required() {
         let server = spawn_graph_lifecycle_server(GraphLifecycleConfig::default()).await;
         let driver = lifecycle_driver(&server);
-        let options = crate::storage::traits::driver::PresignedDownloadOptions {
+        let options = aster_drive_storage::traits::driver::PresignedDownloadOptions {
             download_name: Some("video.mp4".to_string()),
             require_download_name_match: true,
             ..Default::default()
@@ -924,7 +930,7 @@ mod tests {
             .presigned_url(
                 NAMED_PATH,
                 std::time::Duration::from_secs(60),
-                crate::storage::traits::driver::PresignedDownloadOptions {
+                aster_drive_storage::traits::driver::PresignedDownloadOptions {
                     download_name: Some("video.mp4".to_string()),
                     ..Default::default()
                 },
@@ -1027,10 +1033,7 @@ mod tests {
             .await
             .expect_err("existing upload namespace must be treated as a collision");
 
-        assert_eq!(
-            error.storage_error_kind(),
-            Some(StorageErrorKind::Precondition)
-        );
+        assert_eq!(error.kind(), StorageErrorKind::Precondition);
         {
             let state = server.state.lock().expect("Graph lifecycle state lock");
             assert_eq!(state.methods, ["POST", "POST"]);

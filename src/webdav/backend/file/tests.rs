@@ -5,11 +5,11 @@ use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
-use crate::storage::BlobMetadata;
-use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
+use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::{storage_policy, user};
 use aster_drive_model::types::{DriverType, UserRole, UserStatus};
+use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_webdav::DavFile;
@@ -29,7 +29,7 @@ struct MockDirectS3Driver {
 
 #[async_trait]
 impl StorageDriver for MockDirectS3Driver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.objects
             .lock()
             .expect("mock direct S3 driver lock should succeed")
@@ -37,7 +37,7 @@ impl StorageDriver for MockDirectS3Driver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(self
             .objects
             .lock()
@@ -50,11 +50,11 @@ impl StorageDriver for MockDirectS3Driver {
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(tokio::io::empty()))
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.objects
             .lock()
             .expect("mock direct S3 driver lock should succeed")
@@ -62,7 +62,7 @@ impl StorageDriver for MockDirectS3Driver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         Ok(self
             .objects
             .lock()
@@ -70,7 +70,7 @@ impl StorageDriver for MockDirectS3Driver {
             .contains_key(path))
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let size = self
             .objects
             .lock()
@@ -84,8 +84,8 @@ impl StorageDriver for MockDirectS3Driver {
         })
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
             ..Default::default()
         }
@@ -98,7 +98,7 @@ impl StreamUploadDriver for MockDirectS3Driver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let data = tokio::fs::read(local_path).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(
                 "mock direct S3 put_file failed: {error}"
@@ -116,7 +116,7 @@ impl StreamUploadDriver for MockDirectS3Driver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let mut data = Vec::new();
         reader.read_to_end(&mut data).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(

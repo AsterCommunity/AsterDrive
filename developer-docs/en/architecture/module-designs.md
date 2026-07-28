@@ -490,7 +490,7 @@ Main code paths:
 - `src/cli/doctor/execute.rs`
 - `src/cli/doctor/storage_scan.rs`
 - `src/services/ops/integrity.rs`
-- `src/storage/traits/driver.rs`
+- `crates/aster_drive_storage/src/traits/driver.rs`
 
 ### Design goal
 

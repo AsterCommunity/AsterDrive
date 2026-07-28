@@ -9,12 +9,12 @@ use super::{
     reverse_tunnel_offline_error,
 };
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::tunnel::server::response::tunnel_http_response;
 use crate::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelRequest, RemoteTunnelResponse,
 };
 use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 
 #[derive(Debug)]
 pub(crate) struct QueuedTunnelRequest {
@@ -116,7 +116,7 @@ impl RemoteTunnelRegistry {
         body: Bytes,
     ) -> Result<RemoteTunnelHttpResponse> {
         if body.len() > REMOTE_TUNNEL_BODY_LIMIT {
-            let error = storage_driver_error(
+            let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Unsupported,
                 format!(
                     "reverse tunnel request body exceeds {} bytes; use direct transport or a streaming tunnel",
@@ -159,7 +159,7 @@ impl RemoteTunnelRegistry {
         };
 
         if request_tx.send(QueuedTunnelRequest { request }).is_err() {
-            let error = storage_driver_error(
+            let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 "reverse tunnel poll closed before request dispatch",
             );
@@ -171,7 +171,7 @@ impl RemoteTunnelRegistry {
         {
             Ok(Ok(response)) => response,
             Ok(Err(error)) => {
-                let error = storage_driver_error(
+                let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel response channel closed: {error}"),
                 );
@@ -179,7 +179,7 @@ impl RemoteTunnelRegistry {
                 return Err(error);
             }
             Err(_) => {
-                let error = storage_driver_error(
+                let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel request timed out waiting for follower response",
                 );

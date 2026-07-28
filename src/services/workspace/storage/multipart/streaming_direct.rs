@@ -9,8 +9,8 @@ use crate::services::workspace::storage::{
     StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
 };
-use crate::storage::BlobMetadata;
 use aster_drive_model::entities::file;
+use aster_drive_storage::BlobMetadata;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::common::{
@@ -83,7 +83,8 @@ pub(super) async fn upload_streaming_direct(
 
                     let upload_result = stream_driver
                         .put_reader(&upload_storage_path, Box::new(reader), declared_size)
-                        .await;
+                        .await
+                        .map_err(AsterError::from);
                     let relay_result = relay_task.await.map_err(|err| {
                         file_upload_error_with_code(
                             ApiErrorCode::UploadDirectRelayTaskFailed,
@@ -124,7 +125,7 @@ pub(super) async fn upload_streaming_direct(
                         "direct stream metadata error",
                     )
                     .await;
-                    return Err(err);
+                    return Err(err.into());
                 }
             };
             let actual_size =
@@ -205,7 +206,7 @@ fn validate_streaming_direct_uploaded_size(
 #[cfg(test)]
 mod tests {
     use super::{resolve_streaming_direct_filename, validate_streaming_direct_uploaded_size};
-    use crate::storage::BlobMetadata;
+    use aster_drive_storage::BlobMetadata;
 
     fn policy_with_max_file_size(
         max_file_size: i64,

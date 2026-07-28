@@ -12,9 +12,9 @@ use crate::db::repository::{
 };
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
-use crate::storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
 use aster_drive_model::entities::{background_task, file_blob, storage_policy};
 use aster_drive_model::types::BackgroundTaskKind;
+use aster_drive_storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
 use aster_forge_crypto::{new_sha256, sha256_digest_to_hex, sha256_hex};
 use aster_forge_db::transaction;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
@@ -250,21 +250,21 @@ async fn build_storage_policy_migration_preflight(
 }
 
 fn migration_capacity_check(
-    capacity: &crate::storage::StorageCapacityInfo,
+    capacity: &aster_drive_storage::StorageCapacityInfo,
     required_bytes: i64,
 ) -> StoragePolicyMigrationCapacityCheck {
     match capacity.status {
-        crate::storage::StorageCapacityStatus::Supported => match capacity.available_bytes {
+        aster_drive_storage::StorageCapacityStatus::Supported => match capacity.available_bytes {
             Some(available) if available >= required_bytes => {
                 StoragePolicyMigrationCapacityCheck::Sufficient
             }
             Some(_) => StoragePolicyMigrationCapacityCheck::Insufficient,
             None => StoragePolicyMigrationCapacityCheck::Unavailable,
         },
-        crate::storage::StorageCapacityStatus::Unsupported => {
+        aster_drive_storage::StorageCapacityStatus::Unsupported => {
             StoragePolicyMigrationCapacityCheck::Unsupported
         }
-        crate::storage::StorageCapacityStatus::Unavailable => {
+        aster_drive_storage::StorageCapacityStatus::Unavailable => {
             StoragePolicyMigrationCapacityCheck::Unavailable
         }
     }
@@ -812,7 +812,7 @@ async fn copy_blob_streaming(
         context.ensure_active()?;
         cleanup_failed_target_object(state, context, target_driver, target_policy_id, target_path)
             .await;
-        return Err(error);
+        return Err(error.into());
     }
     context.ensure_active()?;
     let verify_result = async {
@@ -999,8 +999,10 @@ async fn upload_multipart_part_with_retry(
         {
             Ok(etag) => return Ok(etag),
             Err(error)
-                if storage_error_is_retryable(&error)
-                    && attempt < MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS =>
+                if matches!(
+                    error.kind(),
+                    StorageErrorKind::Transient | StorageErrorKind::RateLimited
+                ) && attempt < MIGRATION_MULTIPART_PART_UPLOAD_MAX_ATTEMPTS =>
             {
                 tracing::warn!(
                     target_path,
@@ -1014,7 +1016,7 @@ async fn upload_multipart_part_with_retry(
                 ))
                 .await;
             }
-            Err(error) => return Err(error),
+            Err(error) => return Err(error.into()),
         }
     }
     Err(AsterError::internal_error(
@@ -1035,14 +1037,16 @@ async fn complete_migration_multipart_upload(
         .complete_multipart_upload(target_path, upload_id, completed_parts)
         .await
     {
-        if storage_error_is_retryable(&error)
-            && let Ok(metadata) = target_driver.metadata(target_path).await
+        if matches!(
+            error.kind(),
+            StorageErrorKind::Transient | StorageErrorKind::RateLimited
+        ) && let Ok(metadata) = target_driver.metadata(target_path).await
             && u64_to_i64(metadata.size, "completed multipart object size")? == expected_size
         {
             context.ensure_active()?;
             return Ok(());
         }
-        return Err(error);
+        return Err(error.into());
     }
     Ok(())
 }
@@ -1062,13 +1066,6 @@ async fn abort_migration_multipart_upload(
             "failed to abort storage migration multipart upload: {error}"
         );
     }
-}
-
-fn storage_error_is_retryable(error: &AsterError) -> bool {
-    matches!(
-        error.storage_error_kind(),
-        Some(StorageErrorKind::Transient | StorageErrorKind::RateLimited)
-    )
 }
 
 async fn cleanup_failed_target_object(
@@ -1371,7 +1368,7 @@ impl HashDigestHandle {
 mod tests {
     use super::*;
     use crate::services::task::is_task_worker_shutdown_requested;
-    use crate::storage::{StorageCapacityInfo, StorageCapacityStatus};
+    use aster_drive_storage::{StorageCapacityInfo, StorageCapacityStatus};
     use aster_forge_tasks::TaskLease;
     use tokio_util::sync::CancellationToken;
 

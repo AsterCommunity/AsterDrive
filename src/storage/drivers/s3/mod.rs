@@ -14,10 +14,10 @@ use aws_sdk_s3::Client;
 use aws_sdk_s3::config::{BehaviorVersion, Region, timeout::TimeoutConfig};
 
 use super::s3_config::normalize_s3_endpoint_and_bucket;
-use crate::errors::Result;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::object_key;
 use aster_drive_model::entities::storage_policy;
+use aster_drive_storage::Result;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::object_key;
 
 pub struct S3Driver {
     client: Client,

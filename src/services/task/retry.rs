@@ -1,7 +1,7 @@
 //! Background task retry policy.
 
 use crate::errors::AsterError;
-use crate::storage::StorageErrorKind;
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::TaskRetryClass;
 
 pub(super) trait TaskRetryPolicy {
@@ -74,7 +74,7 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
 mod tests {
     use super::default_retry_class;
     use crate::errors::AsterError;
-    use crate::storage::error::{StorageErrorKind, storage_driver_error};
+    use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
     use aster_forge_tasks::TaskRetryClass;
 
     #[test]
@@ -82,8 +82,8 @@ mod tests {
         for error in [
             AsterError::database_connection("database unavailable"),
             AsterError::rate_limited("rate limited"),
-            storage_driver_error(StorageErrorKind::Transient, "remote timeout"),
-            storage_driver_error(StorageErrorKind::RateLimited, "provider throttled"),
+            storage_driver_error(StorageErrorKind::Transient, "remote timeout").into(),
+            storage_driver_error(StorageErrorKind::RateLimited, "provider throttled").into(),
         ] {
             assert_eq!(default_retry_class(&error), TaskRetryClass::Auto);
         }
@@ -95,8 +95,8 @@ mod tests {
             AsterError::storage_quota_exceeded("quota exceeded"),
             AsterError::resource_locked("resource locked"),
             AsterError::storage_policy_not_found("policy missing"),
-            storage_driver_error(StorageErrorKind::Auth, "credential expired"),
-            storage_driver_error(StorageErrorKind::Unknown, "unknown provider error"),
+            storage_driver_error(StorageErrorKind::Auth, "credential expired").into(),
+            storage_driver_error(StorageErrorKind::Unknown, "unknown provider error").into(),
         ] {
             assert_eq!(default_retry_class(&error), TaskRetryClass::Manual);
         }
@@ -104,8 +104,8 @@ mod tests {
         for error in [
             AsterError::validation_error("invalid input"),
             AsterError::record_not_found("record missing"),
-            storage_driver_error(StorageErrorKind::NotFound, "object missing"),
-            storage_driver_error(StorageErrorKind::Unsupported, "unsupported operation"),
+            storage_driver_error(StorageErrorKind::NotFound, "object missing").into(),
+            storage_driver_error(StorageErrorKind::Unsupported, "unsupported operation").into(),
         ] {
             assert_eq!(default_retry_class(&error), TaskRetryClass::Never);
         }

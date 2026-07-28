@@ -1,7 +1,7 @@
 use super::paths::sanitize_relative_path;
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
-use crate::storage::traits::driver::{StorageDriver, StoragePathVisitor};
-use crate::storage::traits::extensions::{
+use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
+use aster_drive_storage::traits::extensions::{
     ListStorageDriver, LocalPathStorageDriver, StorageCapacityStatus,
 };
 use std::path::{Path, PathBuf};
@@ -42,7 +42,7 @@ struct CollectingVisitor {
 }
 
 impl StoragePathVisitor for CollectingVisitor {
-    fn visit_path(&mut self, path: String) -> crate::errors::Result<()> {
+    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.paths.push(path);
         Ok(())
     }

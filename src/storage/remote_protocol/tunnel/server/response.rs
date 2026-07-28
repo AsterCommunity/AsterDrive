@@ -4,7 +4,7 @@ use serde::Serialize;
 
 use crate::api::response::ApiResponse;
 use crate::errors::Result;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::StorageErrorKind;
 
 use super::{REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelHttpResponse, RemoteTunnelResponse};
 
@@ -12,13 +12,13 @@ pub(crate) fn header_pairs_to_map(headers: Vec<(String, String)>) -> Result<Head
     let mut map = HeaderMap::new();
     for (name, value) in headers {
         let name = HeaderName::from_bytes(name.as_bytes()).map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("reverse tunnel returned invalid header name '{name}': {error}"),
             )
         })?;
         let value = HeaderValue::from_str(&value).map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("reverse tunnel returned invalid header value for '{name}': {error}"),
             )
@@ -32,7 +32,7 @@ pub(crate) fn tunnel_http_response(
     response: RemoteTunnelResponse,
 ) -> Result<RemoteTunnelHttpResponse> {
     let status = StatusCode::from_u16(response.status).map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("reverse tunnel returned invalid HTTP status: {error}"),
         )
@@ -68,13 +68,13 @@ pub async fn tunnel_response_from_reqwest(
     let status = response.status().as_u16();
     let headers = response_headers_for_reqwest(response.headers());
     let body = response.bytes().await.map_err(|error| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("read reverse tunnel proxied response body: {error}"),
         )
     })?;
     if body.len() > REMOTE_TUNNEL_BODY_LIMIT {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
             format!(
                 "reverse tunnel response body exceeds {} bytes; use direct transport or a streaming tunnel",

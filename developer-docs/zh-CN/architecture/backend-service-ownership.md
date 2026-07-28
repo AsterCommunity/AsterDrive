@@ -132,9 +132,10 @@ repo 不应该知道：
 
 - `src/storage/connectors/*`
 - `src/storage/drivers/*`
-- `src/storage/traits/*`
+- `crates/aster_drive_storage/src/traits/*`
+- `crates/aster_drive_storage/src/connector_descriptor.rs`
 
-storage 层拥有：
+`aster_drive_storage` 拥有跨具体后端复用的 trait、能力扩展、descriptor 和结构化错误；根包 storage 层拥有 connector 配置行为、具体 driver、registry、策略快照和远端协议运行时：
 
 - driver / connector descriptor
 - 连接测试 action

@@ -10,8 +10,8 @@ use crate::db::repository::file_repo;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{media::processing, workspace::storage::WorkspaceStorageScope};
-use crate::storage::PresignedDownloadOptions;
 use aster_drive_model::entities::{file, file_blob};
+use aster_drive_storage::PresignedDownloadOptions;
 
 use super::{DownloadDisposition, get_info_in_scope, requires_inline_sandbox};
 
@@ -199,6 +199,7 @@ async fn presigned_original_url(
             },
         )
         .await
+        .map_err(Into::into)
 }
 
 fn image_preview_handle(
@@ -383,14 +384,15 @@ mod tests {
     use crate::db::repository::file_repo;
     use crate::runtime::PrimaryAppState;
     use crate::services::{mail::sender, media::processing, storage_policy::policy};
-    use crate::storage::traits::driver::PresignedDownloadOptions;
-    use crate::storage::traits::extensions::PresignedStorageDriver;
-    use crate::storage::{BlobMetadata, DriverRegistry, PolicySnapshot, StorageDriver};
+    use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_model::entities::{file, file_blob, storage_policy, user};
     use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };
+    use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+    use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+    use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
 
@@ -404,30 +406,30 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for TestDriver {
-        async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+        async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Ok(path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(Vec::new())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(tokio::io::empty()))
         }
 
-        async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(true)
         }
 
-        async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: 0,
                 content_type: None,
@@ -440,38 +442,38 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for PresignedTestDriver {
-        async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+        async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Ok(path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(Vec::new())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(tokio::io::empty()))
         }
 
-        async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(true)
         }
 
-        async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: 0,
                 content_type: None,
             })
         }
 
-        fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-            crate::storage::traits::StorageDriverExtensions {
+        fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+            aster_drive_storage::traits::StorageDriverExtensions {
                 presigned: Some(self),
                 ..Default::default()
             }
@@ -485,7 +487,7 @@ mod tests {
             path: &str,
             expires: Duration,
             options: PresignedDownloadOptions,
-        ) -> crate::errors::Result<Option<String>> {
+        ) -> aster_drive_storage::Result<Option<String>> {
             let mut url = reqwest::Url::parse("https://objects.example.test/download")
                 .expect("test presigned URL base should parse");
             {
@@ -512,7 +514,7 @@ mod tests {
             &self,
             path: &str,
             _expires: Duration,
-        ) -> crate::errors::Result<Option<String>> {
+        ) -> aster_drive_storage::Result<Option<String>> {
             Ok(Some(format!(
                 "https://objects.example.test/upload?path={path}"
             )))

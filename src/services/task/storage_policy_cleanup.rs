@@ -6,14 +6,14 @@ use chrono::{Duration, Utc};
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, TaskRuntimeState};
-use crate::storage::StorageDriver;
-use crate::storage::StorageErrorKind;
 use crate::storage::connectors::{
     StoragePolicyCleanupSnapshots, build_cleanup_driver, can_create_cleanup_task_with_snapshot,
     cleanup_snapshot_for_policy,
 };
 use aster_drive_model::entities::{background_task, storage_policy};
 use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use aster_forge_utils::numbers::u64_to_i64;
 
@@ -172,7 +172,7 @@ pub(super) async fn process_storage_policy_temp_cleanup_task(
                 .await
             {
                 Ok(()) => stats.deleted_objects += 1,
-                Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+                Err(error) if error.kind() == StorageErrorKind::NotFound => {
                     stats.missing_objects += 1;
                 }
                 Err(error) => {

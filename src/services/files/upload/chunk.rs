@@ -369,7 +369,7 @@ async fn pipe_payload_to_writer(
 }
 
 async fn upload_multipart_part_payload(
-    multipart: &(dyn crate::storage::MultipartStorageDriver + Send + Sync),
+    multipart: &(dyn aster_drive_storage::MultipartStorageDriver + Send + Sync),
     temp_key: &str,
     multipart_id: &str,
     object_part_number: i32,
@@ -392,7 +392,7 @@ async fn upload_multipart_part_payload(
     tokio::select! {
         upload_result = &mut upload_future => {
             let writer_result = writer_future.await;
-            prioritize_multipart_part_results(upload_result, writer_result)
+            prioritize_multipart_part_results(upload_result.map_err(Into::into), writer_result)
         }
         writer_result = &mut writer_future => {
             if let Err(writer_error) = writer_result {
@@ -403,11 +403,14 @@ async fn upload_multipart_part_payload(
                 }
 
                 let upload_result = upload_future.await;
-                return prioritize_multipart_part_results(upload_result, Err(writer_error));
+                return prioritize_multipart_part_results(
+                    upload_result.map_err(Into::into),
+                    Err(writer_error),
+                );
             }
 
             let upload_result = upload_future.await;
-            prioritize_multipart_part_results(upload_result, Ok(()))
+            prioritize_multipart_part_results(upload_result.map_err(Into::into), Ok(()))
         }
     }
 }
@@ -556,7 +559,7 @@ async fn upload_chunk_impl(
                         "failed to release relay multipart part claim after upload error: {cleanup_err}"
                     );
                 }
-                return Err(err);
+                return Err(err.into());
             }
         };
 
@@ -1190,8 +1193,11 @@ mod tests {
     struct PendingMultipart;
 
     #[async_trait::async_trait]
-    impl crate::storage::MultipartStorageDriver for PendingMultipart {
-        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+    impl aster_drive_storage::MultipartStorageDriver for PendingMultipart {
+        async fn create_multipart_upload(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
@@ -1201,7 +1207,7 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
@@ -1210,7 +1216,7 @@ mod tests {
             _path: &str,
             _upload_id: &str,
             _parts: Vec<(i32, String)>,
-        ) -> Result<()> {
+        ) -> aster_drive_storage::Result<()> {
             panic!("not used")
         }
 
@@ -1220,7 +1226,7 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _data: &[u8],
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
@@ -1231,11 +1237,15 @@ mod tests {
             _part_number: i32,
             _reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
             _size: i64,
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             futures::future::pending().await
         }
 
-        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+        async fn abort_multipart_upload(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> aster_drive_storage::Result<()> {
             panic!("not used")
         }
 
@@ -1243,7 +1253,8 @@ mod tests {
             &self,
             _path: &str,
             _upload_id: &str,
-        ) -> Result<Vec<crate::storage::traits::UploadedMultipartPart>> {
+        ) -> aster_drive_storage::Result<Vec<aster_drive_storage::traits::UploadedMultipartPart>>
+        {
             panic!("not used")
         }
     }

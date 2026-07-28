@@ -15,10 +15,10 @@ use crate::db::{self, repository::config_repo};
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
 use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::background_task;
 use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use tokio_util::sync::CancellationToken;
 
 use super::claim::claim_candidates_for_lane;
@@ -549,8 +549,14 @@ async fn forge_task_context_preserves_drive_shutdown_error_code() {
 
 #[test]
 fn thumbnail_retry_only_keeps_transient_storage_errors() {
-    let transient = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
-    let misconfigured = storage_driver_error(StorageErrorKind::Misconfigured, "missing bucket");
+    let transient = AsterError::from(storage_driver_error(
+        StorageErrorKind::Transient,
+        "remote timeout",
+    ));
+    let misconfigured = AsterError::from(storage_driver_error(
+        StorageErrorKind::Misconfigured,
+        "missing bucket",
+    ));
 
     assert!(
         super::super::registry::task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &transient)
@@ -605,7 +611,10 @@ fn archive_validation_errors_are_not_retryable() {
 
 #[test]
 fn archive_transient_storage_errors_are_auto_retryable() {
-    let error = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
+    let error = AsterError::from(storage_driver_error(
+        StorageErrorKind::Transient,
+        "remote timeout",
+    ));
     let retry_class =
         super::super::registry::task_retry_class(BackgroundTaskKind::ArchiveCompress, &error);
 

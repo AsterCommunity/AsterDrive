@@ -4,15 +4,13 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::upload_session_part_repo;
 use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::services::files::upload::shared::{
-    run_upload_completion_stage, upload_completion_error_is_retryable,
-};
+use crate::services::files::upload::shared::run_upload_completion_stage;
 use crate::services::workspace::scope::WorkspaceStorageScope;
 use crate::services::workspace::storage;
-use crate::storage::StorageDriver;
-use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_drive_model::entities::{file, storage_policy, upload_session};
 use aster_drive_model::types::UploadSessionStatus;
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::contract::{VerifiedUploadedBlob, cleanup_verified_upload_after_db_failure};
@@ -178,13 +176,13 @@ pub(super) async fn ensure_uploaded_object_size(
                     missing_message,
                 ));
             }
-            Ok(true) => return Err(error),
+            Ok(true) => return Err(error.into()),
             Err(exists_error) => {
                 tracing::warn!(
                     temp_key = %temp_key,
                     "failed to verify uploaded temp object existence after metadata error: metadata_error={error}, exists_error={exists_error}"
                 );
-                return Err(error);
+                return Err(error.into());
             }
         },
     };
@@ -389,7 +387,7 @@ async fn complete_object_multipart_upload_session(
                     )
                     .await;
                 }
-                return Err(error);
+                return Err(error.into());
             }
 
             // multipart complete 之前要先把 part 列表排序；驱动层依赖有序 part 序列。
@@ -399,14 +397,17 @@ async fn complete_object_multipart_upload_session(
             {
                 // 远端节点可能已经完成了 multipart，但最终响应在返回前丢了。
                 // 这时继续按已落盘对象收尾，避免把可恢复的上传直接打成 failed。
-                if upload_completion_error_is_retryable(&error)
-                    && let Ok(actual_size) = ensure_uploaded_object_size(
-                        driver_ref,
-                        temp_key,
-                        session.total_size,
-                        missing_message,
-                    )
-                    .await
+                if matches!(
+                    error.kind(),
+                    aster_drive_storage::StorageErrorKind::Transient
+                        | aster_drive_storage::StorageErrorKind::RateLimited
+                ) && let Ok(actual_size) = ensure_uploaded_object_size(
+                    driver_ref,
+                    temp_key,
+                    session.total_size,
+                    missing_message,
+                )
+                .await
                 {
                     let verified = VerifiedUploadedBlob::completed_multipart_object(
                         actual_size,
@@ -423,7 +424,7 @@ async fn complete_object_multipart_upload_session(
                     )
                     .await;
                 }
-                return Err(error);
+                return Err(error.into());
             }
 
             let actual_size = ensure_uploaded_object_size(
@@ -603,10 +604,10 @@ mod tests {
         validate_uploaded_part_numbers, verify_uploaded_multipart_parts,
     };
     use crate::api::api_error_code::ApiErrorCode;
-    use crate::errors::{AsterError, Result, upload_assembly_error_with_code};
-    use crate::storage::traits::UploadedMultipartPart;
-    use crate::storage::{BlobMetadata, MultipartStorageDriver, StorageDriver};
+    use crate::errors::{AsterError, upload_assembly_error_with_code};
     use aster_drive_model::entities::upload_session;
+    use aster_drive_storage::traits::UploadedMultipartPart;
+    use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, StorageDriver};
     use async_trait::async_trait;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -624,27 +625,30 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for CountingCopyDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             unreachable!()
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!("metadata errors should not trigger exists in this success path")
         }
 
-        async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             self.metadata_paths
                 .lock()
                 .expect("metadata paths lock should not be poisoned")
@@ -655,26 +659,33 @@ mod tests {
             })
         }
 
-        async fn copy_object(&self, _src_path: &str, dest_path: &str) -> Result<String> {
+        async fn copy_object(
+            &self,
+            _src_path: &str,
+            dest_path: &str,
+        ) -> aster_drive_storage::Result<String> {
             Ok(dest_path.to_string())
         }
     }
 
     #[async_trait]
     impl StorageDriver for SizeMismatchDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             unreachable!()
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             unreachable!()
         }
 
-        async fn delete(&self, path: &str) -> Result<()> {
+        async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
             self.deleted_paths
                 .lock()
                 .expect("deleted paths lock should not be poisoned")
@@ -682,18 +693,22 @@ mod tests {
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             unreachable!("metadata succeeds in this test")
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: self.size,
                 content_type: None,
             })
         }
 
-        async fn copy_object(&self, _src_path: &str, _dest_path: &str) -> Result<String> {
+        async fn copy_object(
+            &self,
+            _src_path: &str,
+            _dest_path: &str,
+        ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
     }
@@ -704,7 +719,10 @@ mod tests {
 
     #[async_trait]
     impl MultipartStorageDriver for ListingMultipartDriver {
-        async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+        async fn create_multipart_upload(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
@@ -714,7 +732,7 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _expires: Duration,
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
@@ -723,7 +741,7 @@ mod tests {
             _path: &str,
             _upload_id: &str,
             _parts: Vec<(i32, String)>,
-        ) -> Result<()> {
+        ) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
@@ -733,11 +751,15 @@ mod tests {
             _upload_id: &str,
             _part_number: i32,
             _data: &[u8],
-        ) -> Result<String> {
+        ) -> aster_drive_storage::Result<String> {
             unreachable!()
         }
 
-        async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+        async fn abort_multipart_upload(
+            &self,
+            _path: &str,
+            _upload_id: &str,
+        ) -> aster_drive_storage::Result<()> {
             unreachable!()
         }
 
@@ -745,7 +767,7 @@ mod tests {
             &self,
             _path: &str,
             _upload_id: &str,
-        ) -> Result<Vec<UploadedMultipartPart>> {
+        ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
             Ok(self.parts.clone())
         }
     }

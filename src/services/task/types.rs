@@ -712,7 +712,7 @@ pub struct StoragePolicyMigrationDryRun {
     pub target_supports_stream_upload: bool,
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
-    pub target_capacity: crate::storage::StorageCapacityInfo,
+    pub target_capacity: aster_drive_storage::StorageCapacityInfo,
     pub delete_source_after_success_supported: bool,
     pub can_start: bool,
     pub warnings: Vec<StoragePolicyMigrationDryRunWarning>,

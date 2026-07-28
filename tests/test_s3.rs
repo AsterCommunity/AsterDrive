@@ -4,8 +4,9 @@
 mod common;
 
 use aster_drive::storage::drivers::s3::S3Driver;
-use aster_drive::storage::{PresignedDownloadOptions, StorageDriver};
-use aster_drive::storage::{PresignedStorageDriver, StreamUploadDriver};
+use aster_drive_storage::{
+    PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
+};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";

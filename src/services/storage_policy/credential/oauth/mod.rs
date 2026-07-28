@@ -782,7 +782,7 @@ async fn finish_microsoft_graph_callback(
         context.cloud.graph_base_url(),
         token.access_token.clone(),
     ))
-    .map_err(storage_authorization_callback_server_error)?;
+    .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
     let location = resolve_onedrive_location(&graph_client, options)
         .await
         .map_err(|error| {

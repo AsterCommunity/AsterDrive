@@ -19,12 +19,12 @@ use crate::services::files::upload::responses::ChunkUploadResponse;
 use crate::services::files::upload::shared::{
     expected_chunk_size_for_upload, upload_session_chunk_unavailable_error,
 };
-use crate::storage::{
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::UploadSessionStatus;
+use aster_drive_storage::{
     ProviderResumableUploadDriver, ProviderResumableUploadFragmentOutcome, StorageDriver,
     StorageErrorKind,
 };
-use aster_drive_model::entities::upload_session;
-use aster_drive_model::types::UploadSessionStatus;
 use aster_forge_utils::numbers;
 
 const RELAY_STREAM_PIPE_BUFFER_SIZE: usize = 64 * 1024;
@@ -82,18 +82,18 @@ async fn upload_bytes_with_context(
 
     let start = chunk_start(&session, chunk_number)?;
     let total_size = numbers::i64_to_u64(session.total_size, "provider relay total size")?;
-    let result = upload_with_claim_heartbeat(
-        state,
-        &session.id,
-        chunk_number,
-        provider(context)?.upload_session_fragment_reader(
-            &context.upload_url,
-            start,
-            total_size,
-            Box::new(std::io::Cursor::new(data)),
-            expected_size,
-        ),
-    )
+    let result = upload_with_claim_heartbeat(state, &session.id, chunk_number, async {
+        provider(context)?
+            .upload_session_fragment_reader(
+                &context.upload_url,
+                start,
+                total_size,
+                Box::new(std::io::Cursor::new(data)),
+                expected_size,
+            )
+            .await
+            .map_err(AsterError::from)
+    })
     .await;
     finish_fragment_result(
         state,
@@ -141,18 +141,18 @@ async fn upload_payload_with_context(
     let total_size = numbers::i64_to_u64(session.total_size, "provider relay total size")?;
     let (reader, writer) = tokio::io::duplex(RELAY_STREAM_PIPE_BUFFER_SIZE);
     let writer_future = pipe_payload(payload, writer, expected_size, chunk_number);
-    let upload_future = upload_with_claim_heartbeat(
-        state,
-        &session.id,
-        chunk_number,
-        provider(context)?.upload_session_fragment_reader(
-            &context.upload_url,
-            start,
-            total_size,
-            Box::new(reader),
-            expected_size,
-        ),
-    );
+    let upload_future = upload_with_claim_heartbeat(state, &session.id, chunk_number, async {
+        provider(context)?
+            .upload_session_fragment_reader(
+                &context.upload_url,
+                start,
+                total_size,
+                Box::new(reader),
+                expected_size,
+            )
+            .await
+            .map_err(AsterError::from)
+    });
     tokio::pin!(writer_future);
     tokio::pin!(upload_future);
 
@@ -243,7 +243,7 @@ where
         tokio::select! {
             result = &mut upload_future => return result,
             _ = &mut deadline => {
-                return Err(crate::storage::error::storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "provider relay fragment upload timed out",
                 ));
@@ -488,16 +488,16 @@ async fn provider_next_offset(context: &ProviderRelayContext, total_size: i64) -
         .await
     {
         Ok(status) => next_expected_offset(&status.next_expected_ranges),
-        Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+        Err(error) if error.kind() == StorageErrorKind::NotFound => {
             if context.driver.exists(&context.temp_key).await? {
                 return Ok(numbers::i64_to_u64(
                     total_size,
                     "provider relay total size",
                 )?);
             }
-            Err(error)
+            Err(error.into())
         }
-        Err(error) => Err(error),
+        Err(error) => Err(error.into()),
     }
 }
 

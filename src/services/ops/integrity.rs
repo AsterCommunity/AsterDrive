@@ -15,13 +15,14 @@ use serde::Serialize;
 use crate::db::repository::{team_repo, upload_session_repo, user_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::{files::thumbnail, media::processing};
-use crate::storage::{DriverRegistry, StoragePathVisitor};
+use crate::storage::DriverRegistry;
 use aster_drive_model::entities::{
     file::{self, Entity as File},
     file_blob::{self, Entity as FileBlob},
     file_version::{self, Entity as FileVersion},
     folder::{self, Entity as Folder},
 };
+use aster_drive_storage::StoragePathVisitor;
 
 // 审计走全表扫描，但必须控制单批内存占用；因此统一按主键顺序分批拉取。
 const INTEGRITY_BATCH_SIZE: u64 = 1_000;
@@ -114,7 +115,7 @@ struct StorageAuditVisitor<'a> {
 }
 
 impl StoragePathVisitor for StorageAuditVisitor<'_> {
-    fn visit_path(&mut self, path: String) -> Result<()> {
+    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.report.scanned_objects += 1;
 
         // 对象扫描的目标不是“列出全部文件”，而是把存储中的路径分流成三类：

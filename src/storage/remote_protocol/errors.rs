@@ -1,8 +1,6 @@
 use crate::api::api_error_code::ApiErrorCode;
-use crate::errors::{AsterError, precondition_failed_with_code};
-use crate::storage::error::{
-    StorageErrorKind, storage_driver_error, storage_driver_error_with_code,
-};
+use crate::errors::{AsterError, precondition_failed_with_code, storage_driver_error_with_code};
+use aster_drive_storage::StorageErrorKind;
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -13,15 +11,15 @@ struct RemoteErrorEnvelope {
 
 pub(super) fn map_reqwest_error(error: reqwest::Error) -> AsterError {
     if error.is_timeout() {
-        storage_driver_error(
+        AsterError::from(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("remote storage request timed out: {error}"),
-        )
+        ))
     } else {
-        storage_driver_error(
+        AsterError::from(crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("remote storage request failed: {error}"),
-        )
+        ))
     }
 }
 
@@ -75,7 +73,9 @@ pub fn build_remote_status_error_from_parts(
         }
         _ => remote_api_code
             .map(|api_code| storage_driver_error_with_code(kind, api_code, message.clone()))
-            .unwrap_or_else(|| storage_driver_error(kind, message)),
+            .unwrap_or_else(|| {
+                AsterError::from(crate::errors::storage_driver_error(kind, message))
+            }),
     }
 }
 

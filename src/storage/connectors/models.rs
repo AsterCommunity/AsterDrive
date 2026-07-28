@@ -4,12 +4,12 @@ use utoipa::ToSchema;
 
 use std::sync::Arc;
 
-use crate::storage::StoragePolicyExecutableAction;
 use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
 use aster_drive_model::types::{
     DriverType, MicrosoftGraphCloud, RemoteNodeTransportMode, StorageCredentialKind,
     StorageCredentialProvider,
 };
+use aster_drive_storage::StoragePolicyExecutableAction;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

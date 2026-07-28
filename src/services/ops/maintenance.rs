@@ -305,10 +305,7 @@ async fn cleanup_completed_session_stale_temp_object(
                 Ok(()) => {
                     return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
                 }
-                Err(err)
-                    if err.storage_error_kind()
-                        == Some(crate::storage::StorageErrorKind::NotFound) =>
-                {
+                Err(err) if err.kind() == aster_drive_storage::StorageErrorKind::NotFound => {
                     return delete_completed_stale_temp_object(&*driver, session, temp_key).await;
                 }
                 Err(err) => {
@@ -342,7 +339,7 @@ async fn cleanup_completed_session_stale_temp_object(
 }
 
 async fn delete_completed_stale_temp_object(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     session: &upload_session::Model,
     temp_key: &str,
 ) -> bool {

@@ -1,8 +1,8 @@
 use async_trait::async_trait;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::traits::driver::StoragePathVisitor;
-use crate::storage::traits::extensions::ListStorageDriver;
+use aster_drive_storage::traits::driver::StoragePathVisitor;
+use aster_drive_storage::traits::extensions::ListStorageDriver;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 
 use super::LocalDriver;
 
@@ -40,7 +40,7 @@ fn collect_local_paths(
 
 #[async_trait]
 impl ListStorageDriver for LocalDriver {
-    async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         let root = self.base_path.clone();
         let start = match prefix {
             Some(prefix) => self.full_path(prefix)?,
@@ -54,15 +54,15 @@ impl ListStorageDriver for LocalDriver {
             Ok::<Vec<String>, std::io::Error>(paths)
         })
         .await
-        .map_aster_err_ctx("list local paths", AsterError::storage_driver_error)?
-        .map_aster_err_ctx("list local paths", AsterError::storage_driver_error)
+        .map_storage_err_ctx(StorageErrorKind::Transient, "list local paths")?
+        .map_storage_err_ctx(StorageErrorKind::Transient, "list local paths")
     }
 
     async fn scan_paths(
         &self,
         prefix: Option<&str>,
         visitor: &mut dyn StoragePathVisitor,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         let root = self.base_path.clone();
         let start = match prefix {
             Some(prefix) => self.full_path(prefix)?,
@@ -72,9 +72,10 @@ impl ListStorageDriver for LocalDriver {
             Ok(metadata) => metadata,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
             Err(error) => {
-                return Err(AsterError::storage_driver_error(format!(
-                    "scan local paths metadata: {error}"
-                )));
+                return Err(storage_driver_error(
+                    StorageErrorKind::Transient,
+                    format!("scan local paths metadata: {error}"),
+                ));
             }
         };
 
@@ -90,21 +91,21 @@ impl ListStorageDriver for LocalDriver {
 
         let mut pending_dirs = vec![start];
         while let Some(current_dir) = pending_dirs.pop() {
-            let mut entries = tokio::fs::read_dir(&current_dir).await.map_aster_err_ctx(
-                "scan local paths read_dir",
-                AsterError::storage_driver_error,
-            )?;
+            let mut entries = tokio::fs::read_dir(&current_dir)
+                .await
+                .map_storage_err_ctx(StorageErrorKind::Transient, "scan local paths read_dir")?;
             let mut child_dirs = Vec::new();
             let mut child_files = Vec::new();
 
-            while let Some(entry) = entries.next_entry().await.map_aster_err_ctx(
-                "scan local paths next_entry",
-                AsterError::storage_driver_error,
-            )? {
+            while let Some(entry) = entries
+                .next_entry()
+                .await
+                .map_storage_err_ctx(StorageErrorKind::Transient, "scan local paths next_entry")?
+            {
                 let path = entry.path();
-                let file_type = entry.file_type().await.map_aster_err_ctx(
+                let file_type = entry.file_type().await.map_storage_err_ctx(
+                    StorageErrorKind::Transient,
                     "scan local paths file_type",
-                    AsterError::storage_driver_error,
                 )?;
 
                 if file_type.is_dir() {

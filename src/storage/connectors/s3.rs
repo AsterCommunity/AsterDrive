@@ -2,17 +2,17 @@ use async_trait::async_trait;
 
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
-    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
-    endpoint_driver_recommendation, endpoint_host_rule, object_storage_connector_descriptor,
-};
 use crate::storage::drivers::s3::S3Driver;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
+};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
+    ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
+    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    endpoint_driver_recommendation, endpoint_host_rule, object_storage_connector_descriptor,
 };
 
 use super::common::{normalize_s3_connection_fields, validate_static_secret_credentials};
