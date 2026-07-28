@@ -955,7 +955,7 @@ async fn assert_concurrent_setup_across_independent_connections(database_url: St
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("second SQLite writer connection should open");
@@ -4159,7 +4159,7 @@ async fn test_user_status_cached_in_auth_middleware() {
         config: base.config,
         cache,
         config_sync: base.config_sync,
-        metrics: aster_drive::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
@@ -4207,7 +4207,7 @@ async fn test_disable_user_invalidates_status_cache() {
         config: base.config,
         cache,
         config_sync: base.config_sync,
-        metrics: aster_drive::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,

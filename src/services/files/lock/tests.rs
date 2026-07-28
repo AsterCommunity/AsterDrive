@@ -47,7 +47,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("lock service test DB should connect");
@@ -160,7 +160,7 @@ async fn build_lock_test_state() -> (PrimaryAppState, user::Model, file::Model) 
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,

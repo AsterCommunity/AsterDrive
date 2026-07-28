@@ -221,7 +221,7 @@ pub(super) async fn connect_database(database_url: &str) -> Result<sea_orm::Data
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await?;
     config_repo::ensure_defaults_with_env(&db, &|name| std::env::var(name).ok()).await?;
@@ -249,7 +249,7 @@ pub(super) async fn prepare_database_config(
         pool_size: 1,
         retry_count: 0,
     };
-    let db = db::connect_with_metrics(&database, crate::metrics::NoopMetrics::arc()).await?;
+    let db = db::connect_with_metrics(&database, aster_drive_metrics::NoopMetrics::arc()).await?;
     crate::runtime::startup::initialize_database_state(
         &db,
         cfg.as_ref(),

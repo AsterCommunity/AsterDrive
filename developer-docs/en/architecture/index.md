@@ -178,7 +178,7 @@ The practical rule of thumb in this repository remains:
 | `src/runtime/startup/primary.rs` | Build the primary runtime: `RuntimeConfig`, mail sender, SSE broadcaster, share-download rollback queue, and remote protocol runtime |
 | `src/runtime/startup/follower.rs` | Build the follower runtime: keep only the shared state needed by the follower |
 | `src/runtime/tasks.rs` | Register and shut down primary periodic tasks; metrics system tasks are injected through `MetricsRecorder` |
-| `src/metrics.rs` | Drive product metrics trait, `NoopMetrics`, and the `aster_forge_metrics` adapter; the Prometheus recorder is created only with the `metrics` feature |
+| `crates/aster_drive_metrics/` | Drive product metrics trait, `NoopMetrics`, and the `aster_forge_metrics` adapter; the root package does not expose the old metrics path |
 | `src/api/primary.rs` | Primary route registration |
 | `src/api/follower.rs` | Follower route registration |
 | `src/api/routes/auth/mod.rs` | Authentication, sessions, preferences, avatars, SSE |
@@ -212,11 +212,11 @@ The rough order in `src/main.rs` is currently:
 6. Clean runtime temp directories
 7. Choose `primary` or `follower` according to `config.server.start_mode`
 
-Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()` creates the product `MetricsRecorder` through `src/metrics.rs`:
+Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()` creates the product `MetricsRecorder` through `aster_drive_metrics`:
 
 - when the `metrics` feature is enabled, Prometheus registry initialization is performed and a Prometheus recorder is injected
 - when it is disabled, `NoopMetrics` is injected
-- business code, storage-driver wrappers, and background tasks depend on `crate::metrics::MetricsRecorder`; Forge middleware and database runtime consumers receive the `aster_forge_metrics::MetricsRecorder` exposed by `forge_recorder()`
+- business code, storage-driver wrappers, and background tasks depend directly on `aster_drive_metrics::MetricsRecorder`; Forge middleware and database runtime consumers receive the `aster_forge_metrics::MetricsRecorder` exposed by `forge_recorder()`
 
 ### `prepare_common()`
 

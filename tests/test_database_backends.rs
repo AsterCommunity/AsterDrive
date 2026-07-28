@@ -39,7 +39,7 @@ async fn wait_for_database(database_url: &str) {
             };
             match aster_drive::db::connect_with_metrics(
                 &cfg,
-                aster_drive::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             )
             .await
             {
@@ -305,7 +305,7 @@ async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
         pool_size: 8,
         retry_count: 0,
     };
-    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive::metrics::NoopMetrics::arc())
+    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive_metrics::NoopMetrics::arc())
         .await
         .unwrap();
 
@@ -742,11 +742,11 @@ async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
         retry_count: 0,
     };
     let database_a =
-        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("first MySQL migration connection should succeed");
     let database_b =
-        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("second MySQL migration connection should succeed");
 

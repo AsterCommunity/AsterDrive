@@ -13,10 +13,10 @@ use crate::db::repository::{
     managed_follower_repo, master_binding_repo, policy_repo, storage_policy_credential_repo,
 };
 use crate::errors::{AsterError, Result, precondition_failed_with_code};
-use crate::metrics::SharedMetricsRecorder;
 use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::storage::connectors::StorageConnectorRuntimeCredential;
 use crate::storage::remote_protocol::RemoteProtocolRuntime;
+use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{DriverType, StorageCredentialStatus, parse_storage_policy_options};
 use aster_drive_storage::{
@@ -76,7 +76,7 @@ impl DriverRegistry {
     }
 
     pub fn noop() -> Self {
-        Self::new(crate::metrics::NoopMetrics::arc())
+        Self::new(aster_drive_metrics::NoopMetrics::arc())
     }
 
     /// 根据 StoragePolicy 获取或创建 driver（惰性实例化）
@@ -439,7 +439,7 @@ impl Default for DriverRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::MetricsRecorder;
+    use aster_drive_metrics::MetricsRecorder;
     use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
     use aster_drive_storage::error::{
         Result as StorageResult, StorageErrorKind, storage_driver_error,

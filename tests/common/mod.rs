@@ -378,7 +378,7 @@ async fn drop_stale_test_databases(
         retry_count: 0,
     };
     let admin_db =
-        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("stale test database cleanup should connect");
 
@@ -403,7 +403,7 @@ async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str)
         retry_count: 0,
     };
     let admin_db =
-        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("mysql test admin connection should succeed");
     let grant_sql = format!(
@@ -534,7 +534,7 @@ async fn wait_for_database(database_url: &str) {
             };
             match aster_drive::db::connect_with_metrics(
                 &cfg,
-                aster_drive::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             )
             .await
             {
@@ -758,7 +758,7 @@ async fn provision_isolated_test_database_url_with_template(
         retry_count: 0,
     };
     let admin_db =
-        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&admin_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .unwrap();
     let backend = admin_db.get_database_backend();
@@ -809,7 +809,7 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
         retry_count: 0,
     };
     let db =
-        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("postgres template database connection should succeed");
 
@@ -893,7 +893,7 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
         config: base.config,
         cache,
         config_sync: base.config_sync,
-        metrics: aster_drive::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: base.mail_sender,
         storage_change_bus: base.storage_change_bus,
         share_download_rollback: base.share_download_rollback,
@@ -1146,7 +1146,7 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
         retry_count: 0,
     };
     let db =
-        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("mysql schema template connection should succeed");
 
@@ -1201,7 +1201,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         retry_count: 0,
     };
     let db =
-        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&db_cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .unwrap();
 
@@ -1334,7 +1334,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         db_handles: aster_drive::db::connect_reader_for_writer_with_metrics(
             &db_cfg,
             db.clone(),
-            aster_drive::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap(),
@@ -1344,7 +1344,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
         config,
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: aster_drive::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender,
         storage_change_bus,
         share_download_rollback,

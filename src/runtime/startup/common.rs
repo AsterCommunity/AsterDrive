@@ -3,8 +3,8 @@ use crate::config::auth_runtime::AUTH_COOKIE_SECURE_KEY;
 use crate::config::node_mode::NodeRuntimeMode;
 use crate::db;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::metrics::SharedMetricsRecorder;
 use crate::storage::DriverRegistry;
+use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_migration::Migrator;
 use std::sync::Arc;
 
@@ -23,7 +23,7 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     let cfg = config::get_config();
     crate::config::deployment::validate_static(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
-    let metrics = crate::metrics::create_metrics_recorder();
+    let metrics = aster_drive_metrics::create_metrics_recorder();
 
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
     initialize_database_state(&database, cfg.as_ref(), mode).await?;
@@ -206,7 +206,7 @@ mod tests {
                     pool_size: 1,
                     retry_count: 0,
                 },
-                crate::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             )
             .await
             .unwrap();

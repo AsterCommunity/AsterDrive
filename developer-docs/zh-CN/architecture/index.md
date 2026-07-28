@@ -180,7 +180,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
 | `src/runtime/tasks.rs` | 声明 Drive 的 primary/follower worker 与周期任务执行体；生命周期、lease、scheduled claim 和关闭由 Forge 管理 |
-| `src/metrics.rs` | Drive 产品指标 trait、`NoopMetrics` 和 `aster_forge_metrics` 适配；Prometheus recorder 仅在 `metrics` feature 启用时创建 |
+| `crates/aster_drive_metrics/` | Drive 产品指标 trait、`NoopMetrics` 和 `aster_forge_metrics` 适配；根包不提供旧 metrics 路径兼容导出 |
 | `src/api/primary.rs` | primary 路由注册 |
 | `src/api/follower.rs` | follower 路由注册 |
 | `src/api/routes/auth/mod.rs` | 认证、会话、偏好、头像、SSE |
@@ -279,11 +279,11 @@ cargo check --features cli -j 1
 cargo check --tests -j 1
 ```
 
-Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `src/metrics.rs` 创建产品 `MetricsRecorder`：
+Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `aster_drive_metrics` 创建产品 `MetricsRecorder`：
 
 - 启用 `metrics` feature 时初始化 Prometheus registry，并注入 Prometheus recorder
 - 未启用时注入 `NoopMetrics`
-- 业务层、存储驱动 wrapper 和后台任务依赖 `crate::metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
+- 业务层、存储驱动 wrapper 和后台任务直接依赖 `aster_drive_metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
 
 ### `prepare_common()`
 

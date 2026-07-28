@@ -24,7 +24,7 @@ pub(super) async fn connect_database(database_url: &str) -> Result<DatabaseConne
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
 }

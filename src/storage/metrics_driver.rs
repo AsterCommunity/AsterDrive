@@ -1,6 +1,6 @@
 //! StorageDriver metrics decorator.
 
-use crate::metrics::SharedMetricsRecorder;
+use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::types::DriverType;
 use aster_drive_storage::traits::extensions;
 use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, Result, StorageDriver};
@@ -443,7 +443,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::metrics::MetricsRecorder;
+    use aster_drive_metrics::MetricsRecorder;
     use parking_lot::Mutex;
     use std::io;
     use tokio::io::{AsyncReadExt, ReadBuf};

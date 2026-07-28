@@ -3,7 +3,6 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, share_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
-use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{PrimaryAppState, ShareDownloadRuntimeState, SharedRuntimeState};
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::{
@@ -12,6 +11,7 @@ use crate::services::{
     media::processing,
     task,
 };
+use aster_drive_metrics::SharedMetricsRecorder;
 use aster_drive_model::entities::{file, share};
 use sea_orm::DatabaseConnection;
 use std::collections::HashMap;
@@ -101,7 +101,7 @@ pub fn spawn_detached_share_download_rollback_queue(
     capacity: usize,
 ) -> ShareDownloadRollbackQueue {
     let (queue, worker) =
-        build_share_download_rollback_queue(db, capacity, crate::metrics::NoopMetrics::arc());
+        build_share_download_rollback_queue(db, capacity, aster_drive_metrics::NoopMetrics::arc());
     drop(tokio::spawn(run_share_download_rollback_worker(
         worker, None,
     )));

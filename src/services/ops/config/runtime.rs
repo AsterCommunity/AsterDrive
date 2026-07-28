@@ -287,7 +287,7 @@ mod tests {
         config: Arc<crate::config::Config>,
         cache: Arc<dyn aster_forge_cache::CacheBackend>,
         config_sync: aster_forge_config::ConfigSyncRuntime,
-        metrics: crate::metrics::SharedMetricsRecorder,
+        metrics: aster_drive_metrics::SharedMetricsRecorder,
     }
 
     impl SharedRuntimeState for ReloadTestState {
@@ -323,7 +323,7 @@ mod tests {
             &self.config_sync
         }
 
-        fn metrics(&self) -> &crate::metrics::SharedMetricsRecorder {
+        fn metrics(&self) -> &aster_drive_metrics::SharedMetricsRecorder {
             &self.metrics
         }
     }
@@ -407,7 +407,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("config reload test database should connect");
@@ -471,7 +471,7 @@ mod tests {
             cache: aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default())
                 .await,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         });
 
         let notifier: aster_forge_config::SharedConfigChangeNotifier =

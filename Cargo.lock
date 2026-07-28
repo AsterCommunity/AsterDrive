@@ -761,6 +761,7 @@ dependencies = [
  "actix-ws",
  "aes-gcm 0.11.0",
  "aster_drive_http",
+ "aster_drive_metrics",
  "aster_drive_migration",
  "aster_drive_model",
  "aster_drive_storage",
@@ -871,6 +872,16 @@ dependencies = [
  "futures",
  "reqwest 0.13.4",
  "tokio",
+]
+
+[[package]]
+name = "aster_drive_metrics"
+version = "0.4.0"
+dependencies = [
+ "aster_forge_metrics",
+ "aster_forge_runtime",
+ "tokio-util",
+ "tracing",
 ]
 
 [[package]]

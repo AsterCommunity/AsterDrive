@@ -187,7 +187,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("runtime graph database should connect");
@@ -210,7 +210,7 @@ mod tests {
             config: Arc::new(crate::config::Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         }
     }
 

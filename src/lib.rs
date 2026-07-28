@@ -19,7 +19,6 @@ pub mod cli;
 pub mod config;
 pub mod db;
 pub mod errors;
-pub mod metrics;
 pub(crate) mod ownership;
 pub mod runtime;
 pub mod services;

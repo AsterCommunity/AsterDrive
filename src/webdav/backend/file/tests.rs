@@ -177,7 +177,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("test database connection should succeed");
@@ -269,7 +269,7 @@ async fn build_s3_direct_test_state() -> (PrimaryAppState, user::Model, MockDire
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,

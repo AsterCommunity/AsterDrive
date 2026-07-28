@@ -21,7 +21,7 @@ async fn build_test_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("background task repo test DB should connect");

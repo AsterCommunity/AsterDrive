@@ -293,7 +293,7 @@ async fn assert_concurrent_remote_enrollment_single_winner(database_url: String)
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("second writer connection should open");

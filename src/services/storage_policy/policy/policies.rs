@@ -845,7 +845,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("policy service test DB should connect");
@@ -877,7 +877,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             config_sync,
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,

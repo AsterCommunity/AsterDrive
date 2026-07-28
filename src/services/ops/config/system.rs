@@ -431,7 +431,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("config sync service test database should connect");
@@ -465,7 +465,7 @@ mod tests {
             crate::services::share::build_share_download_rollback_queue(
                 db.clone(),
                 1,
-                crate::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             );
 
         (
@@ -477,7 +477,7 @@ mod tests {
                 config: Arc::new(crate::config::Config::default()),
                 cache,
                 config_sync,
-                metrics: crate::metrics::NoopMetrics::arc(),
+                metrics: aster_drive_metrics::NoopMetrics::arc(),
                 mail_sender: aster_forge_mail::memory_sender(),
                 storage_change_bus,
                 share_download_rollback,

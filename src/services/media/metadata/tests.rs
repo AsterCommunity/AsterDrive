@@ -532,7 +532,7 @@ async fn test_state_with_driver_and_options(
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("test database should connect");
@@ -596,7 +596,7 @@ async fn test_state_with_driver_and_options(
         config: Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,

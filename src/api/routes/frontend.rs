@@ -283,7 +283,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("frontend test DB should connect");
@@ -303,8 +303,11 @@ mod tests {
         let storage_change_bus = crate::services::events::storage_change::StorageChangeBus::new(
             crate::services::events::storage_change::STORAGE_CHANGE_CHANNEL_CAPACITY,
         );
-        let (share_download_rollback, _worker) =
-            build_share_download_rollback_queue(db.clone(), 1, crate::metrics::NoopMetrics::arc());
+        let (share_download_rollback, _worker) = build_share_download_rollback_queue(
+            db.clone(),
+            1,
+            aster_drive_metrics::NoopMetrics::arc(),
+        );
 
         PrimaryAppState {
             db_handles: aster_forge_db::DbHandles::single(db),
@@ -314,7 +317,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,

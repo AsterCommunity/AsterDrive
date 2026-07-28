@@ -32,7 +32,7 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("dispatch test DB should connect");
@@ -63,7 +63,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         crate::services::share::build_share_download_rollback_queue(
             db.clone(),
             1,
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         );
 
     crate::runtime::PrimaryAppState {
@@ -74,7 +74,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         config: Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,

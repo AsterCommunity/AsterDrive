@@ -137,7 +137,7 @@ fn background_task_dispatch_outcome(
 }
 
 fn build_background_tasks_base(
-    metrics: &crate::metrics::SharedMetricsRecorder,
+    metrics: &aster_drive_metrics::SharedMetricsRecorder,
     shutdown_token: CancellationToken,
 ) -> BackgroundTasks {
     let mut tasks = BackgroundTasks::with_shutdown_token(shutdown_token);
@@ -703,7 +703,7 @@ pub(crate) mod test_support {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("runtime task test database should connect");
@@ -728,7 +728,7 @@ pub(crate) mod test_support {
             crate::services::share::build_share_download_rollback_queue(
                 db.clone(),
                 1,
-                crate::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             );
 
         web::Data::new(PrimaryAppState {
@@ -739,7 +739,7 @@ pub(crate) mod test_support {
             config: Arc::new(crate::config::Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: aster_forge_mail::memory_sender(),
             storage_change_bus,
             share_download_rollback,
