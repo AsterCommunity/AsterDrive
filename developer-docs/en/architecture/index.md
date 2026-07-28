@@ -35,7 +35,7 @@ If you are new to the repository, read this page first and then [`module-designs
 | How file content reaches disk, object storage, OneDrive, or remote nodes | `src/storage/**` | Connector descriptors, driver abstractions, concrete drivers, and remote protocol code live here |
 | Why WebDAV is different from REST | `src/webdav/**` | This is a separate protocol entry layer |
 | Why team spaces reuse personal-space semantics | `src/services/workspace/scope/`, `src/services/workspace/storage/`, `src/services/workspace/models.rs`, `src/services/workspace/storage_core/`, `src/services/files/folder/`, `src/services/files/file/` | Scope switching, upload orchestration, and the unified storage core all live here |
-| How the schema evolves | `migration/`, `src/entities/**` | Migration files and entities need to be read together |
+| How the schema evolves | `crates/aster_drive_migration/`, `crates/aster_drive_model/src/entities/**` | Migration files and entities need to be read together |
 
 When you are chasing a specific feature, the fastest path is usually:
 
@@ -406,7 +406,7 @@ Adding a category requires updating the allowed list and frontend zh/en i18n. Un
 | New query, pagination, or filter condition | `src/db/repository/**` |
 | Storage connector descriptors, connection tests, driver actions, upload strategies, and object read/write rules | `src/storage/**` |
 | WebDAV protocol behavior | `src/webdav/**` |
-| Table fields, indexes, defaults | `migration/` + `src/entities/**` |
+| Table fields, indexes, defaults | `crates/aster_drive_migration/` + `crates/aster_drive_model/src/entities/**` |
 | Frontend page, state management, SDK call | `frontend-panel/src/**` |
 
 Complex business logic in the route layer is usually a code smell.

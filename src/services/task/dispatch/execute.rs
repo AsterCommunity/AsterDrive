@@ -42,16 +42,6 @@ pub(super) async fn run_claimed_tasks(
     .await
 }
 
-impl aster_forge_tasks::ExecutableTaskRecord<BackgroundTaskKind> for background_task::Model {
-    fn attempt_count(&self) -> i32 {
-        self.attempt_count
-    }
-
-    fn max_attempts(&self) -> i32 {
-        self.max_attempts
-    }
-}
-
 #[derive(Clone)]
 pub(super) struct BackgroundTaskExecutionStore {
     state: PrimaryAppState,

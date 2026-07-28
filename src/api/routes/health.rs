@@ -182,11 +182,11 @@ mod tests {
         UserStatus,
     };
     use actix_web::{body, http::StatusCode, web};
+    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
     use std::sync::{
         Arc,

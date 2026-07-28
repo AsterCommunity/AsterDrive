@@ -7,9 +7,9 @@ use crate::api::pagination::AdminTaskSortBy;
 use crate::config::DatabaseConfig;
 use crate::entities::background_task;
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskSteps};
+use aster_drive_migration::Migrator;
 use aster_forge_api::SortOrder;
 use chrono::{Duration, Utc};
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
 async fn build_test_db() -> sea_orm::DatabaseConnection {

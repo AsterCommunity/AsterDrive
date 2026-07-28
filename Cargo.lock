@@ -760,6 +760,8 @@ dependencies = [
  "actix-web",
  "actix-ws",
  "aes-gcm 0.11.0",
+ "aster_drive_migration",
+ "aster_drive_model",
  "aster_forge_actix_middleware",
  "aster_forge_actix_observability",
  "aster_forge_alloc",
@@ -816,7 +818,6 @@ dependencies = [
  "jsonwebtoken",
  "lofty",
  "md-5",
- "migration",
  "mime_guess",
  "moka",
  "nom-exif",
@@ -859,6 +860,36 @@ dependencies = [
  "webauthn-rs",
  "webauthn-rs-proto",
  "zip 8.6.0",
+]
+
+[[package]]
+name = "aster_drive_migration"
+version = "0.1.0"
+dependencies = [
+ "aster_forge_db",
+ "aster_forge_db_migration",
+ "aster_forge_file_classification",
+ "sea-orm-migration",
+ "serde_json",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
+name = "aster_drive_model"
+version = "0.4.0"
+dependencies = [
+ "aster_forge_api",
+ "aster_forge_external_auth",
+ "aster_forge_file_classification",
+ "aster_forge_tasks",
+ "chrono",
+ "sea-orm",
+ "serde",
+ "serde_json",
+ "tracing",
+ "utoipa",
+ "validator",
 ]
 
 [[package]]
@@ -4797,19 +4828,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "488016bfae457b036d996092f6cb448677611ce4449e970ceaf42695203f218a"
 dependencies = [
  "autocfg",
-]
-
-[[package]]
-name = "migration"
-version = "0.1.0"
-dependencies = [
- "aster_forge_db",
- "aster_forge_db_migration",
- "aster_forge_file_classification",
- "sea-orm-migration",
- "serde_json",
- "tokio",
- "tracing",
 ]
 
 [[package]]

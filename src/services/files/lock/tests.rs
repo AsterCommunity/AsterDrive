@@ -3,8 +3,8 @@ use super::*;
 
 use std::sync::Arc;
 
+use aster_drive_migration::Migrator;
 use chrono::{Duration, Utc};
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};

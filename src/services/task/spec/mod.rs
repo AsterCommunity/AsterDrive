@@ -85,24 +85,6 @@ where
     .map_err(AsterError::from)
 }
 
-impl aster_forge_tasks::TaskRecord<BackgroundTaskKind> for background_task::Model {
-    fn id(&self) -> i64 {
-        self.id
-    }
-
-    fn kind(&self) -> BackgroundTaskKind {
-        self.kind
-    }
-
-    fn payload_json(&self) -> &str {
-        self.payload_json.as_ref()
-    }
-
-    fn result_json(&self) -> Option<&str> {
-        self.result_json.as_ref().map(AsRef::as_ref)
-    }
-}
-
 pub(super) fn serialize_result<S>(result: &S::Result) -> Result<crate::types::StoredTaskResult>
 where
     S: BackgroundTaskSpec,

@@ -11,40 +11,40 @@ The supported migration chain starts at `m20260512_000001_baseline_schema`.
 
 - Generate a new migration file
     ```sh
-    cargo run -p migration --features cli -- generate MIGRATION_NAME
+    cargo run -p aster_drive_migration --features cli -- generate MIGRATION_NAME
     ```
 - Apply all pending migrations
     ```sh
-    cargo run -p migration --features cli
+    cargo run -p aster_drive_migration --features cli
     ```
     ```sh
-    cargo run -p migration --features cli -- up
+    cargo run -p aster_drive_migration --features cli -- up
     ```
 - Apply first 10 pending migrations
     ```sh
-    cargo run -p migration --features cli -- up -n 10
+    cargo run -p aster_drive_migration --features cli -- up -n 10
     ```
 - Rollback last applied migrations
     ```sh
-    cargo run -p migration --features cli -- down
+    cargo run -p aster_drive_migration --features cli -- down
     ```
 - Rollback last 10 applied migrations
     ```sh
-    cargo run -p migration --features cli -- down -n 10
+    cargo run -p aster_drive_migration --features cli -- down -n 10
     ```
 - Drop all tables from the database, then reapply all migrations
     ```sh
-    cargo run -p migration --features cli -- fresh
+    cargo run -p aster_drive_migration --features cli -- fresh
     ```
 - Rollback all applied migrations, then reapply all migrations
     ```sh
-    cargo run -p migration --features cli -- refresh
+    cargo run -p aster_drive_migration --features cli -- refresh
     ```
 - Rollback all applied migrations
     ```sh
-    cargo run -p migration --features cli -- reset
+    cargo run -p aster_drive_migration --features cli -- reset
     ```
 - Check the status of all migrations
     ```sh
-    cargo run -p migration --features cli -- status
+    cargo run -p aster_drive_migration --features cli -- status
     ```

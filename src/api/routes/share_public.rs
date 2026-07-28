@@ -1187,12 +1187,12 @@ mod tests {
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, HttpResponse, test, web};
+    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use image::codecs::png::PngEncoder;
     use image::{ColorType, ImageEncoder};
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
     use std::io::Cursor;
     use std::sync::Arc;

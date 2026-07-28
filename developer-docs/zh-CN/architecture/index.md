@@ -35,7 +35,7 @@
 | 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `src/storage/**` | connector descriptor、驱动抽象、具体驱动和远端协议都在这里 |
 | WebDAV 为什么和 REST 不一样 | `src/webdav/**` | 这是单独的协议接入层 |
 | 团队空间为什么复用个人空间语义 | `src/services/workspace/scope/`、`src/services/workspace/storage/`、`src/services/workspace/models.rs`、`src/services/workspace/storage_core/`、`src/services/files/folder/`、`src/services/files/file/` | scope 切换、上传编排和统一存储核心链路都在这里 |
-| 表结构怎么演进 | `migration/`、`src/entities/**` | migration 和 entity 必须一起看 |
+| 表结构怎么演进 | `crates/aster_drive_migration/`、`crates/aster_drive_model/src/entities/**` | migration 和 entity 必须一起看 |
 
 追一个具体功能时，最省时间的路径通常是：
 
@@ -255,7 +255,7 @@ primary 的 audit assembly 直接调用 `aster_forge_audit::audit_component_infa
 - 密码 Argon2 hash/verify、SHA-256 和 hex 编码使用 `aster_forge_crypto`；Drive 只负责把 `CryptoError` 映射为产品内部错误。
 - Drive 的静态路径默认值保留在 `src/config/paths.rs`；相对路径和 SQLite URL 的通用解析由 Forge 完成，Drive adapter 只负责映射成 config error。
 - HTTP date、`If-Match` 强比较和 `If-None-Match` 弱比较使用 `aster_forge_utils::http_validators`，WebDAV / 文件路由继续负责协议状态码。
-- 资源 owner 检查属于 Drive 权限语义，集中在 crate-private `src/types/ownership.rs`，供 repo 和 service 直接使用，不复制判断，也不制造 repo 到 service 的反向依赖。`AsterDrive/<version>` outbound user-agent 是产品静态配置，保留在 `src/config/mod.rs`。
+- 资源 owner 检查属于 Drive 权限语义，集中在 crate-private `src/ownership.rs`，供 repo 和 service 直接使用，不复制判断，也不制造 repo 到 service 的反向依赖。`AsterDrive/<version>` outbound user-agent 是产品静态配置，保留在 `src/config/mod.rs`。
 - 原 `src/utils/` 已删除。新增共享 helper 时先判断应进入具体 Forge crate、产品领域模块还是协议层，不再恢复通用杂物目录。
 
 多实例部署的静态配置示例：
@@ -480,7 +480,7 @@ dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它�
 | 新增查询、分页、过滤条件 | `src/db/repository/**` |
 | 存储 connector descriptor、连接测试、驱动 action、上传策略和对象读写规则 | `src/storage/**` |
 | WebDAV 协议行为 | `src/webdav/**` |
-| 表字段、索引、默认值 | `migration/` + `src/entities/**` |
+| 表字段、索引、默认值 | `crates/aster_drive_migration/` + `crates/aster_drive_model/src/entities/**` |
 | 前端页面、状态管理、SDK 调用 | `frontend-panel/src/**` |
 
 如果你发现复杂业务判断写在 route 层，基本就是代码气味。

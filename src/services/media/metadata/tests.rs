@@ -516,7 +516,7 @@ async fn test_state_with_driver_and_options(
     )
     .await
     .expect("test database should connect");
-    migration::Migrator::up(&db, None)
+    aster_drive_migration::Migrator::up(&db, None)
         .await
         .expect("test migrations should run");
 

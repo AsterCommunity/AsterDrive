@@ -66,7 +66,7 @@ async fn build_folder_contents(
     let file_count = usize_to_u64(files.len(), "folder listing file count")?;
     let next_file_cursor = if file_count == params.file_limit && params.file_limit > 0 {
         files.last().map(|f| FileCursor {
-            value: crate::api::pagination::SortBy::cursor_value(f, params.sort_by),
+            value: crate::api::pagination::file_cursor_value(f, params.sort_by),
             id: f.id,
         })
     } else {

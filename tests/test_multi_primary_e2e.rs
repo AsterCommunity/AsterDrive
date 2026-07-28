@@ -4,6 +4,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
+use aster_drive_migration::Migrator;
 use aster_forge_test::postgres::{PostgresTestContainer, PostgresTestDatabase};
 use aster_forge_test::process::{TestProcess, available_loopback_port};
 use aster_forge_test::redis::RedisTestContainer;
@@ -11,7 +12,6 @@ use aster_forge_test::smtp::SmtpTestContainer;
 use aster_forge_test::suite::TestContainerSuite;
 use chrono::Utc;
 use futures::{SinkExt, StreamExt};
-use migration::Migrator;
 use reqwest::header::SET_COOKIE;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, Database, DatabaseConnection, EntityTrait,
@@ -1527,13 +1527,19 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
     assert_eq!(ready_b["data"]["status"], "ready");
 
     let database = services.connect_database().await;
-    let history = migration::inspect_migration_history(&database)
+    let history = aster_drive_migration::inspect_migration_history(&database)
         .await
         .expect("inspect migration history after concurrent startup");
-    assert_eq!(history.track, migration::MigrationTrack::Current);
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Current
+    );
     assert!(history.pending_current.is_empty());
     assert!(history.unknown_applied.is_empty());
-    assert_eq!(history.applied, migration::current_migration_names());
+    assert_eq!(
+        history.applied,
+        aster_drive_migration::current_migration_names()
+    );
     assert_eq!(
         aster_drive::db::repository::policy_repo::find_all(&database)
             .await

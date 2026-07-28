@@ -333,7 +333,7 @@ mod tests {
     use crate::config::DatabaseConfig;
     use crate::db;
     use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(

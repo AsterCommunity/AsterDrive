@@ -4,9 +4,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::io::{AsyncRead, empty};
 

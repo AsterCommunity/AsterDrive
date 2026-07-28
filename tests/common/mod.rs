@@ -813,7 +813,7 @@ async fn build_postgres_database_template() -> PostgresDatabaseTemplate {
             .await
             .expect("postgres template database connection should succeed");
 
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     Migrator::up(&db, None)
         .await
         .expect("postgres template database migrations should succeed");
@@ -1150,7 +1150,7 @@ async fn build_mysql_schema_template() -> MySqlSchemaTemplate {
             .await
             .expect("mysql schema template connection should succeed");
 
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     Migrator::up(&db, None)
         .await
         .expect("mysql schema template migrations should succeed");
@@ -1206,7 +1206,7 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
             .unwrap();
 
     // 跑迁移
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     if should_use_mysql_schema_template(database_url) {
         clone_mysql_schema_from_template(&db).await;
     } else {

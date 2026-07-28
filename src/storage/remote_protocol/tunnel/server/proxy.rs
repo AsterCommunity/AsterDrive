@@ -634,7 +634,7 @@ mod tests {
     use crate::entities::managed_follower;
     use crate::runtime::test_support::CacheOnlyState;
     use crate::storage::remote_protocol::tunnel::server::RemoteTunnelOwnerLease;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
     #[test]

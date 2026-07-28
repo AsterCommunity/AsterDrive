@@ -168,8 +168,8 @@ pub async fn drain_mail_outbox_on_shutdown(
 mod tests {
     use std::sync::Arc;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_runtime::RuntimeComponentBundle;
-    use migration::Migrator;
 
     use super::{MailOutboxRuntimeResources, drain_mail_outbox_on_shutdown};
     use crate::runtime::{FollowerAppState, SharedRuntimeState};

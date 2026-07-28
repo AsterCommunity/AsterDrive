@@ -13,7 +13,7 @@ async fn in_memory_db() -> sea_orm::DatabaseConnection {
     let db = sea_orm::Database::connect("sqlite::memory:")
         .await
         .expect("in-memory db should connect");
-    migration::Migrator::up(&db, None)
+    aster_drive_migration::Migrator::up(&db, None)
         .await
         .expect("migrations should run");
     db

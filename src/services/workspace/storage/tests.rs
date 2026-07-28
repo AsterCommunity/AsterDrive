@@ -11,11 +11,11 @@ use crate::storage::{
     StreamUploadDriver,
 };
 use crate::types::{DriverType, UserRole, UserStatus};
+use aster_drive_migration::Migrator;
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use async_trait::async_trait;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};

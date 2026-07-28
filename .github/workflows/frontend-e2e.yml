@@ -6,7 +6,7 @@ on:
     paths:
       - 'frontend-panel/**'
       - 'src/**'
-      - 'migration/**'
+      - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/frontend-e2e.yml'
@@ -15,7 +15,7 @@ on:
     paths:
       - 'frontend-panel/**'
       - 'src/**'
-      - 'migration/**'
+      - 'crates/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - '.github/workflows/frontend-e2e.yml'

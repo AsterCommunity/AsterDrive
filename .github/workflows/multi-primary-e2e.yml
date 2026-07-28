@@ -5,7 +5,7 @@ on:
     branches: [master]
     paths:
       - 'src/**'
-      - 'migration/**'
+      - 'crates/**'
       - 'tests/test_multi_primary_e2e.rs'
       - 'tests/test_multi_primary_storage_events_e2e.rs'
       - 'Cargo.toml'
@@ -16,7 +16,7 @@ on:
     branches: [master, develop]
     paths:
       - 'src/**'
-      - 'migration/**'
+      - 'crates/**'
       - 'tests/test_multi_primary_e2e.rs'
       - 'tests/test_multi_primary_storage_events_e2e.rs'
       - 'Cargo.toml'

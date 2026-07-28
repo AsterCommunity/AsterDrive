@@ -272,8 +272,8 @@ mod tests {
     use crate::services::share::build_share_download_rollback_queue;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::{App, http::StatusCode, http::header, test};
+    use aster_drive_migration::Migrator;
     use aster_forge_cache::CacheConfig;
-    use migration::Migrator;
     use std::sync::Arc;
 
     async fn frontend_test_state() -> PrimaryAppState {

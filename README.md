@@ -239,12 +239,13 @@ bun run check
 ## Project structure
 
 ```text
-src/                    Rust backend
-migration/              SeaORM migrations
-frontend-panel/         React admin/file panel
-docs/                   Deployment and end-user documentation
-developer-docs/         API, architecture, testing, and internal positioning docs
-tests/                  Integration tests
+src/                             Rust application, services, API, and runtime
+crates/aster_drive_model/        Shared product models and SeaORM entities
+crates/aster_drive_migration/    SeaORM migrations
+frontend-panel/                  React admin/file panel
+docs/                            Deployment and end-user documentation
+developer-docs/                  API, architecture, testing, and internal positioning docs
+tests/                           Integration tests
 ```
 
 ## License

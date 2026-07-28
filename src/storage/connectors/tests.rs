@@ -5,8 +5,8 @@ use crate::storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDeploymentScope,
     StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
+use aster_drive_migration::Migrator;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::ActiveValue::Set;
 
 use crate::entities::storage_policy;

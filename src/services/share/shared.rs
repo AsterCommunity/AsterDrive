@@ -44,7 +44,7 @@ fn ensure_share_scope(share: &share::Model, scope: WorkspaceStorageScope) -> Res
                     "share belongs to a team workspace",
                 ));
             }
-            crate::types::ownership::verify_owner(share.user_id, user_id, "share")?;
+            crate::ownership::verify_owner(share.user_id, user_id, "share")?;
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
             if share.team_id != Some(team_id) {
@@ -141,7 +141,7 @@ pub(super) fn ensure_share_matches_file(
         }
     } else {
         file::ensure_personal_file_scope(file)?;
-        crate::types::ownership::verify_optional_owner(file.owner_user_id, share.user_id, "file")?;
+        crate::ownership::verify_optional_owner(file.owner_user_id, share.user_id, "file")?;
     }
     Ok(())
 }
@@ -159,11 +159,7 @@ pub(super) fn ensure_share_matches_folder(
         }
     } else {
         folder::ensure_personal_folder_scope(folder)?;
-        crate::types::ownership::verify_optional_owner(
-            folder.owner_user_id,
-            share.user_id,
-            "folder",
-        )?;
+        crate::ownership::verify_optional_owner(folder.owner_user_id, share.user_id, "folder")?;
     }
     Ok(())
 }

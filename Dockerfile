@@ -17,7 +17,7 @@ RUN apk add --no-cache build-base pkgconfig sqlite-dev curl
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY migration/ migration/
+COPY crates/ crates/
 COPY benches/ benches/
 COPY tests/test_multi_primary_e2e.rs tests/test_multi_primary_storage_events_e2e.rs tests/
 

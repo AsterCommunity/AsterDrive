@@ -5,7 +5,7 @@ use crate::db;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::metrics::SharedMetricsRecorder;
 use crate::storage::DriverRegistry;
-use migration::Migrator;
+use aster_drive_migration::Migrator;
 use std::sync::Arc;
 
 pub(super) struct CommonRuntimeParts {

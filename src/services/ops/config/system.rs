@@ -418,8 +418,8 @@ pub(super) fn invalidate_all_dependent_public_config_caches() {
 mod tests {
     use std::sync::Arc;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_config::{ConfigChangeNotifier, ConfigNotificationSource};
-    use migration::Migrator;
 
     use super::{delete, set};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};

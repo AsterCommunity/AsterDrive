@@ -14,14 +14,6 @@ struct BackgroundTaskClaimStore<'a, State> {
     state: &'a State,
 }
 
-impl aster_forge_tasks::ClaimableTaskRecord<crate::types::BackgroundTaskKind>
-    for background_task::Model
-{
-    fn processing_token(&self) -> i64 {
-        self.processing_token
-    }
-}
-
 #[async_trait::async_trait]
 impl<State>
     aster_forge_tasks::TaskClaimStore<

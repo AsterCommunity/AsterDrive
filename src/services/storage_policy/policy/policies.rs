@@ -821,9 +821,9 @@ mod tests {
         StorageCredentialKind, StorageCredentialProvider, StoragePolicyOptions,
         StoredStoragePolicyAllowedTypes,
     };
+    use aster_drive_migration::Migrator;
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
-    use migration::Migrator;
     use sea_orm::ActiveValue::Set;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};

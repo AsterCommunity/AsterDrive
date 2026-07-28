@@ -51,11 +51,7 @@ async fn load_upload_session_with_db<C: ConnectionTrait>(
     // 发起人掉线后的残留资源（chunk 临时文件 / S3 temp 对象 / session DB 行）
     // 由 `cleanup_expired`（expires_at 到期，默认 24h）兜底。注意 storage_used
     // 配额并不会在 init 时预占——只在 complete 时写入，所以这里不会泄漏配额。
-    crate::types::ownership::verify_owner(
-        session.user_id,
-        scope.actor_user_id(),
-        "upload session",
-    )?;
+    crate::ownership::verify_owner(session.user_id, scope.actor_user_id(), "upload session")?;
     if let Some(team_id) = scope.team_id() {
         storage::require_team_access_with_db(state, db, team_id, scope.actor_user_id()).await?;
         ensure_team_upload_session_scope(&session, team_id)?;

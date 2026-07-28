@@ -14,5 +14,5 @@ use sea_orm_migration::prelude::*;
 
 #[tokio::main]
 async fn main() {
-    cli::run_cli(migration::Migrator).await;
+    cli::run_cli(aster_drive_migration::Migrator).await;
 }

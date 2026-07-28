@@ -22,15 +22,13 @@ src/cache/                   cache trait 以及 memory/Redis 实现
 src/cli/                     doctor、config、database-migrate、node enroll 等运维 CLI
 src/config/                  静态配置、运行时配置定义、配置规范化、模板
 src/db/                      数据库连接、reader/writer 句柄、repository
-src/entities/                SeaORM Entity
 src/runtime/                 AppState、primary/follower 启动、关闭、周期任务
 src/services/                Auth、file、folder、upload、share、team、policy、task、audit、WebDAV/WOPI 等业务层
 src/storage/                 存储驱动、连接器、远端协议、multipart/stream 能力抽象
-src/types/                   共享枚举、DTO 辅助类型和 DB wrapper 类型
 src/utils/                   crypto、ID、path、number、email、RAII 等工具
 src/webdav/                  WebDAV/DeltaV 协议接入、文件系统、锁、属性和传输
-migration/                   SeaORM migration crate
-api-docs-macros/             OpenAPI 辅助宏
+crates/aster_drive_model/    共享类型和 SeaORM Entity
+crates/aster_drive_migration/ SeaORM migration crate
 frontend-panel/              React + Vite 前端，构建产物嵌入后端
 developer-docs/              开发说明和架构文档
 docs/                        用户/部署文档站
@@ -129,7 +127,7 @@ bun run test:e2e
 ## 后端代码约定
 
 - 路由模块放在 `src/api/routes/`，按现有 primary/follower 注册方式接入 `src/api/primary.rs`、`src/api/follower.rs` 或对应 `routes/mod.rs`。
-- DTO 放在 `src/api/dto/`，领域共享类型放在 `src/types/`，不要在 handler 里散落匿名 JSON 拼装。
+- DTO 放在 `src/api/dto/`，领域共享类型放在 `crates/aster_drive_model/src/types/`，不要在 handler 里散落匿名 JSON 拼装。
 - 业务逻辑放 `src/services/`，数据库访问放 `src/db/repository/`，对象内容能力放 `src/storage/`，handler 只做认证、参数提取、调用 service、返回响应。
 - WebDAV 不走普通 REST 路由；WebDAV 相关协议行为放在 `src/webdav/`，只在需要复用业务语义时调用 service/repo。
 - 新表必须有 SeaORM entity 和 migration，测试覆盖 SQLite；涉及数据库差异时同时考虑 MySQL/PostgreSQL。

@@ -700,8 +700,8 @@ fn preview_system_config(key: &str, value: &str) -> SystemConfig {
 mod tests {
     use std::sync::Arc;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_config::{ConfigChangeNotifier, ConfigNotificationSource};
-    use migration::Migrator;
 
     use super::{
         ConfigCommand, FileArgs, KeyArgs, KeyValueArgs, execute_config_command_with_runtime,

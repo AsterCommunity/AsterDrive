@@ -2,7 +2,7 @@
 
 mod common;
 
-use migration::{CurrentMigrator, MigratorTrait};
+use aster_drive_migration::{CurrentMigrator, MigratorTrait};
 use sea_orm::{ConnectionTrait, Database, DatabaseConnection, DbBackend, DbErr, Statement};
 
 const ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION: &str = "m20260604_000001_allow_shared_webdav_locks";

@@ -27,7 +27,7 @@ use crate::types::{
     AuditAction, AuditEntityType, DriverType, MicrosoftGraphCloud, OneDriveAccountMode,
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole, UserStatus,
 };
-use migration::Migrator;
+use aster_drive_migration::Migrator;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use secrecy::ExposeSecret;
 use std::collections::VecDeque;

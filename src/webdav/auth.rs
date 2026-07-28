@@ -261,6 +261,7 @@ mod tests {
     use crate::types::{UserRole, UserStatus};
     use actix_web::http::header::{self, HeaderValue};
     use actix_web::{HttpRequest, test, web};
+    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use aster_forge_crypto::{
@@ -269,7 +270,6 @@ mod tests {
     };
     use base64::Engine;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
     use std::num::{NonZeroU32, NonZeroU64};
     use std::sync::Arc;

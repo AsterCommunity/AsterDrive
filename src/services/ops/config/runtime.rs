@@ -273,8 +273,8 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_config::ConfigSyncConfig;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
     use crate::runtime::SharedRuntimeState;

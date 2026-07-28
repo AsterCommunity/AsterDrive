@@ -133,10 +133,10 @@ mod tests {
     use crate::config::definitions::CONFIG_CATEGORY_SITE;
     use crate::db;
     use crate::db::repository::config_repo;
+    use aster_drive_migration::Migrator;
     use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;
-    use migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(

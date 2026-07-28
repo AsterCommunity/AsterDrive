@@ -125,8 +125,8 @@ pub async fn configured_default_policy_group_id<C: ConnectionTrait>(db: &C) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aster_drive_migration::Migrator;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
     use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item, user};

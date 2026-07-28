@@ -21,7 +21,7 @@ pub async fn record_server_shutdown<S: SharedRuntimeState>(state: &S) {
 mod tests {
     use super::record_server_shutdown;
     use crate::runtime::FollowerAppState;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
 

@@ -246,7 +246,7 @@ pub(crate) fn ensure_file_resource_scope(
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_file_scope(file)?;
-            crate::types::ownership::verify_owner(
+            crate::ownership::verify_owner(
                 file.owner_user_id.ok_or_else(|| {
                     auth_forbidden_with_code(
                         ApiErrorCode::WorkspaceScopeDenied,
@@ -300,7 +300,7 @@ pub(crate) fn ensure_folder_resource_scope(
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_folder_scope(folder)?;
-            crate::types::ownership::verify_owner(
+            crate::ownership::verify_owner(
                 folder.owner_user_id.ok_or_else(|| {
                     auth_forbidden_with_code(
                         ApiErrorCode::WorkspaceScopeDenied,
@@ -517,10 +517,10 @@ mod tests {
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
         UserRole, UserStatus,
     };
+    use aster_drive_migration::Migrator;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
     use std::sync::Arc;
 

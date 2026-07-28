@@ -600,7 +600,7 @@ pub async fn find_ancestors<C: ConnectionTrait>(
     folder_id: i64,
 ) -> Result<Vec<(i64, String)>> {
     let folder = find_by_id(db, folder_id).await?;
-    crate::types::ownership::verify_optional_owner(folder.owner_user_id, user_id, "folder")?;
+    crate::ownership::verify_optional_owner(folder.owner_user_id, user_id, "folder")?;
     if folder.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "folder #{folder_id} is in trash"

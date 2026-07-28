@@ -1,4 +1,4 @@
-//! Shared AsterDrive ownership rules used by repositories and services.
+//! Product-level ownership checks.
 
 use crate::errors::{AsterError, Result};
 

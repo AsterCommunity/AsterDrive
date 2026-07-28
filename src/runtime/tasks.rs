@@ -692,7 +692,7 @@ pub(crate) mod test_support {
     use std::sync::Arc;
 
     use actix_web::web;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
 
     use super::PrimaryAppState;
 

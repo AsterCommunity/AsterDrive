@@ -496,7 +496,7 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 - `src/api/routes/admin/storage_migrations.rs`
 - `src/services/task/storage_migration.rs`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
-- `src/entities/storage_migration_checkpoint.rs`
+- `crates/aster_drive_model/src/entities/storage_migration_checkpoint.rs`
 
 这不是“把策略配置从 A 改到 B”，而是把 `file_blobs.policy_id = source_policy_id` 的实际对象内容迁到目标策略，并在数据库里把 blob 指向新的策略和存储路径。
 

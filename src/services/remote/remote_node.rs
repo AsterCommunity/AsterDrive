@@ -748,9 +748,9 @@ mod tests {
     use crate::runtime::SharedRuntimeState;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use crate::types::RemoteNodeTransportMode;
+    use aster_drive_migration::Migrator;
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
-    use migration::Migrator;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

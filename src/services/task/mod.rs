@@ -852,7 +852,7 @@ fn ensure_task_in_scope(task: &background_task::Model, scope: WorkspaceStorageSc
             let creator_user_id = task.creator_user_id.ok_or_else(|| {
                 AsterError::internal_error(format!("task #{} is missing creator_user_id", task.id))
             })?;
-            crate::types::ownership::verify_owner(creator_user_id, user_id, "task")?;
+            crate::ownership::verify_owner(creator_user_id, user_id, "task")?;
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
             if task.team_id != Some(team_id) {

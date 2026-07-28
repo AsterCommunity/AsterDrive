@@ -18,12 +18,13 @@ pub mod build_info;
 pub mod cli;
 pub mod config;
 pub mod db;
-pub mod entities;
 pub mod errors;
 mod http;
 pub mod metrics;
+pub(crate) mod ownership;
 pub mod runtime;
 pub mod services;
 pub mod storage;
-pub mod types;
 pub mod webdav;
+
+pub use aster_drive_model::{entities, types};

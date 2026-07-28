@@ -1,0 +1,43 @@
+[package]
+name = "aster_drive_migration"
+version = "0.1.0"
+authors.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[features]
+default = []
+cli = ["sea-orm-migration/cli"]
+
+[lints]
+workspace = true
+
+[lib]
+name = "aster_drive_migration"
+path = "src/lib.rs"
+doctest = false
+
+[[bin]]
+name = "aster_drive_migration"
+path = "src/main.rs"
+required-features = ["cli"]
+
+[dependencies]
+aster_forge_db = { workspace = true, features = ["audit-log", "mail-outbox", "runtime-lease", "scheduled-task", "system-config"] }
+aster_forge_db_migration = { workspace = true }
+aster_forge_file_classification = { workspace = true }
+sea-orm-migration = { workspace = true, features = [
+  # Enable at least one `ASYNC_RUNTIME` and `DATABASE_DRIVER` feature if you want to run migration via CLI.
+  # View the list of supported features at https://www.sea-ql.org/SeaORM/docs/install-and-config/database-and-async-runtime.
+  # e.g.
+  "runtime-tokio-rustls",  # `ASYNC_RUNTIME` feature
+  "sqlx-postgres",         # `DATABASE_DRIVER` feature
+  "sqlx-mysql",
+  "sqlx-sqlite",
+] }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["macros", "rt", "rt-multi-thread"] }
+tracing = { workspace = true }

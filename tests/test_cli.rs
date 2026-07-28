@@ -25,8 +25,8 @@ use aster_drive::types::{
     StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TagScopeType,
     UserInvitationStatus, VerificationChannel, VerificationPurpose,
 };
+use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
 use chrono::{Duration, Utc};
-use migration::{CurrentMigrator, Migrator, MigratorTrait};
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Set, Statement,
 };
@@ -1313,7 +1313,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
     let versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
     assert_eq!(
         versions,
-        migration::current_migration_names(),
+        aster_drive_migration::current_migration_names(),
         "fresh install should stamp all current migrations"
     );
 }
@@ -1334,7 +1334,7 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
     .unwrap();
 
     let migration_count_before_opaque_backfill = u32::try_from(
-        migration::current_migration_names()
+        aster_drive_migration::current_migration_names()
             .iter()
             .position(|name| name.contains("add_storage_migration_opaque_rename_count"))
             .expect("opaque rename count migration should exist"),
@@ -1491,7 +1491,7 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
-    let current_names = migration::current_migration_names();
+    let current_names = aster_drive_migration::current_migration_names();
     db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "DELETE FROM seaql_migrations WHERE version = ?",
@@ -1500,8 +1500,13 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
     .await
     .unwrap();
 
-    let history = migration::inspect_migration_history(&db).await.unwrap();
-    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+    let history = aster_drive_migration::inspect_migration_history(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Unknown
+    );
 
     let error = Migrator::up(&db, None)
         .await
@@ -1533,8 +1538,13 @@ async fn test_migrations_reject_existing_schema_with_empty_history() {
     .await
     .unwrap();
 
-    let history = migration::inspect_migration_history(&db).await.unwrap();
-    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+    let history = aster_drive_migration::inspect_migration_history(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Unknown
+    );
 
     let error = Migrator::up(&db, None)
         .await

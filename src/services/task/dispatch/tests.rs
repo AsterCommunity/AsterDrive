@@ -18,7 +18,7 @@ use crate::runtime::SharedRuntimeState;
 use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
 use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
-use migration::Migrator;
+use aster_drive_migration::Migrator;
 use tokio_util::sync::CancellationToken;
 
 use super::claim::claim_candidates_for_lane;

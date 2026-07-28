@@ -368,9 +368,9 @@ mod tests {
     use std::sync::Arc;
     use std::time::Duration;
 
+    use aster_drive_migration::Migrator;
     use async_trait::async_trait;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
     use tokio::io::AsyncRead;
 

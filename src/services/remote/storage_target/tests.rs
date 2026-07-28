@@ -86,7 +86,9 @@ async fn setup_state() -> TestFollowerState {
     )
     .await
     .unwrap();
-    migration::Migrator::up(&db, None).await.unwrap();
+    aster_drive_migration::Migrator::up(&db, None)
+        .await
+        .unwrap();
 
     let root = std::env::temp_dir().join(format!(
         "aster-remote-storage-target-service-root-{}",

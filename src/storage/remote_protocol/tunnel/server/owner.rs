@@ -429,7 +429,7 @@ mod tests {
     use super::*;
     use crate::config::{Config, DeploymentProfile};
     use crate::entities::managed_follower;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
     async fn setup() -> (sea_orm::DatabaseConnection, Config) {
