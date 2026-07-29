@@ -55,4 +55,6 @@ jobs:
 
       - name: Run audit
         working-directory: frontend-panel
-        run: bun audit --audit-level=high
+        # React Router's GHSA-qwww-vcr4-c8h2 only affects RSC Mode. AsterDrive
+        # ships a Vite SPA, and the advisory has no patched stable release yet.
+        run: bun run audit
