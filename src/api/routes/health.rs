@@ -172,21 +172,23 @@ fn status_response(status: &str) -> HealthResponse {
 mod tests {
     use super::{READY_STORAGE_UNAVAILABLE_MESSAGE, follower_ready, ready};
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-    use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item, user};
     use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
-    use crate::storage::BlobMetadata;
-    use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{
+    use crate::storage::{DriverRegistry, PolicySnapshot};
+    use actix_web::{body, http::StatusCode, web};
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{
+        storage_policy, storage_policy_group, storage_policy_group_item, user,
+    };
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole,
         UserStatus,
     };
-    use actix_web::{body, http::StatusCode, web};
+    use aster_drive_storage::{BlobMetadata, StorageDriver};
     use aster_forge_cache as cache;
     use aster_forge_cache::{CacheBackend, CacheConfig, CacheError};
     use async_trait::async_trait;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
     use std::sync::{
         Arc,
@@ -260,42 +262,43 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for ProbeDriver {
-        async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+        async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             self.put_calls.fetch_add(1, Ordering::SeqCst);
             Ok(path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(Vec::new())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(tokio::io::empty()))
         }
 
-        async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             self.delete_calls.fetch_add(1, Ordering::SeqCst);
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(false)
         }
 
-        async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: 0,
                 content_type: None,
             })
         }
 
-        async fn readiness_check(&self) -> crate::errors::Result<()> {
+        async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
             self.ready_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_ready {
-                Err(crate::errors::AsterError::storage_driver_error(
+                Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Transient,
                     "readiness probe failed",
                 ))
             } else {
@@ -310,7 +313,7 @@ mod tests {
                 url: "sqlite::memory:".into(),
                 ..Default::default()
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("health test db should connect");
@@ -420,7 +423,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,
@@ -475,7 +478,7 @@ mod tests {
             .expect("health response body should read");
         let payload: serde_json::Value =
             serde_json::from_slice(&body).expect("health response should be valid json");
-        assert_eq!(payload["code"], "storage.unknown");
+        assert_eq!(payload["code"], "storage.transient");
         assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
     }
 

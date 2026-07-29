@@ -11,14 +11,14 @@ use super::{
 };
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{master_binding_repo, remote_storage_target_repo};
-use crate::entities::{master_binding, remote_storage_target};
-use crate::metrics::SharedMetricsRecorder;
 use crate::runtime::{FollowerRuntimeState, SharedRuntimeState};
 use crate::storage::remote_protocol::{
     RemoteCreateLocalStorageTargetRequest, RemoteCreateS3StorageTargetRequest,
     RemoteCreateStorageTargetRequest, RemoteUpdateStorageTargetRequest,
 };
-use crate::types::DriverType;
+use aster_drive_metrics::SharedMetricsRecorder;
+use aster_drive_model::entities::{master_binding, remote_storage_target};
+use aster_drive_model::types::DriverType;
 use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 use std::fs;
@@ -82,11 +82,13 @@ async fn setup_state() -> TestFollowerState {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
-    migration::Migrator::up(&db, None).await.unwrap();
+    aster_drive_migration::Migrator::up(&db, None)
+        .await
+        .unwrap();
 
     let root = std::env::temp_dir().join(format!(
         "aster-remote-storage-target-service-root-{}",
@@ -115,7 +117,7 @@ async fn setup_state() -> TestFollowerState {
         config,
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
     }
 }
 

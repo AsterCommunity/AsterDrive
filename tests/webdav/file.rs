@@ -131,8 +131,8 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     use aster_drive::db::repository::property_repo;
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::files::file;
-    use aster_drive::types::EntityType;
     use aster_drive::webdav::backend::AsterDavFs;
+    use aster_drive_model::types::EntityType;
     use aster_forge_webdav::{DavFileSystem, DavPath, DavProp};
     use sea_orm::{ActiveModelTrait, Set};
 
@@ -161,7 +161,7 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
     assert_eq!(used, content.len() as u64);
     assert_eq!(total, None);
 
-    let mut updated_user: aster_drive::entities::user::ActiveModel =
+    let mut updated_user: aster_drive_model::entities::user::ActiveModel =
         user_repo::find_by_id(state.writer_db(), user.id)
             .await
             .unwrap()

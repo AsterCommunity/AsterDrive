@@ -11,11 +11,11 @@ use crate::db::repository::{
     mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
     mfa_totp_setup_flow_repo, user_repo,
 };
-use crate::entities::{mfa_factor, mfa_totp_setup_flow};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, auth_mfa_failed_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{auth::local, ops::audit};
-use crate::types::MfaPersistentFactorMethod;
+use aster_drive_model::entities::{mfa_factor, mfa_totp_setup_flow};
+use aster_drive_model::types::MfaPersistentFactorMethod;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::{
@@ -538,7 +538,7 @@ fn looks_like_recovery_code(code: &str) -> bool {
     recovery_codes::looks_like_code(code)
 }
 
-fn ensure_user_can_manage_mfa(user: &crate::entities::user::Model) -> Result<()> {
+fn ensure_user_can_manage_mfa(user: &aster_drive_model::entities::user::Model) -> Result<()> {
     if !user.status.is_active() {
         return Err(AsterError::auth_forbidden("account is disabled"));
     }

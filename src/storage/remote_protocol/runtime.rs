@@ -2,10 +2,10 @@ use std::sync::Arc;
 
 use sea_orm::DatabaseConnection;
 
-use crate::entities::{managed_follower, storage_policy};
 use crate::errors::Result;
 use crate::storage::drivers::remote::RemoteDriver;
-use crate::types::RemoteNodeTransportMode;
+use aster_drive_model::entities::{managed_follower, storage_policy};
+use aster_drive_model::types::RemoteNodeTransportMode;
 
 use super::RemoteStorageClient;
 use super::tunnel::server::{
@@ -96,8 +96,8 @@ impl Default for RemoteProtocolRuntime {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::error::StorageErrorKind;
-    use crate::storage::traits::driver::PresignedDownloadOptions;
+    use aster_drive_storage::error::StorageErrorKind;
+    use aster_drive_storage::traits::driver::PresignedDownloadOptions;
     use std::time::Duration;
 
     fn build_node(

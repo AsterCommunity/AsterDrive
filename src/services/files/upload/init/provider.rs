@@ -10,7 +10,7 @@ use crate::services::files::upload::responses::{
 };
 use crate::services::files::upload::shared::{UniqueUuidAttempt, with_unique_upload_id};
 use crate::services::workspace::storage::PolicyUploadTransport;
-use crate::types::{
+use aster_drive_model::types::{
     ProviderResumableUploadStrategy, UploadMode, UploadSessionKind, UploadSessionStatus,
 };
 use aster_forge_utils::numbers;
@@ -199,7 +199,7 @@ fn provider_upload_response(
     chunk_size: i64,
     total_chunks: i32,
     session_kind: UploadSessionKind,
-    provider_session: crate::storage::ProviderResumableUploadSession,
+    provider_session: aster_drive_storage::ProviderResumableUploadSession,
 ) -> InitUploadResponse {
     InitUploadResponse {
         mode,
@@ -220,8 +220,8 @@ fn provider_upload_response(
 }
 
 async fn cleanup_provider_session_after_init_error(
-    driver: &dyn crate::storage::StorageDriver,
-    provider: &dyn crate::storage::ProviderResumableUploadDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
+    provider: &dyn aster_drive_storage::ProviderResumableUploadDriver,
     upload_url: &str,
     temp_key: &str,
     context: &str,
@@ -243,7 +243,7 @@ async fn cleanup_provider_session_after_init_error(
 }
 
 fn validate_provider_fragment_capabilities(
-    capabilities: &crate::storage::ProviderResumableUploadCapabilities,
+    capabilities: &aster_drive_storage::ProviderResumableUploadCapabilities,
 ) -> Result<()> {
     let size = capabilities.default_fragment_size;
     if size == 0
@@ -268,12 +268,13 @@ mod tests {
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    use crate::errors::{AsterError, Result};
-    use crate::storage::{
+    use aster_drive_model::types::{
+        ProviderResumableUploadStrategy, UploadMode, UploadSessionKind,
+    };
+    use aster_drive_storage::{
         BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
         ProviderResumableUploadSession, ProviderResumableUploadStatus, StorageDriver,
     };
-    use crate::types::{ProviderResumableUploadStrategy, UploadMode, UploadSessionKind};
 
     #[test]
     fn server_relay_response_keeps_provider_url_private_and_sequential() {
@@ -303,34 +304,37 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for CleanupDriver {
-        async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Ok(path.to_string())
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(Vec::new())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             Ok(Box::new(tokio::io::empty()))
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             self.delete_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_delete {
-                return Err(AsterError::storage_driver_error("delete failed"));
+                return Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Transient,
+                    "delete failed",
+                ));
             }
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(false)
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: 0,
                 content_type: None,
@@ -352,21 +356,24 @@ mod tests {
         async fn create_upload_session(
             &self,
             _path: &str,
-        ) -> Result<ProviderResumableUploadSession> {
+        ) -> aster_drive_storage::Result<ProviderResumableUploadSession> {
             unreachable!("cleanup test does not create sessions")
         }
 
         async fn query_upload_session(
             &self,
             _upload_url: &str,
-        ) -> Result<ProviderResumableUploadStatus> {
+        ) -> aster_drive_storage::Result<ProviderResumableUploadStatus> {
             unreachable!("cleanup test does not query sessions")
         }
 
-        async fn abort_upload_session(&self, _upload_url: &str) -> Result<()> {
+        async fn abort_upload_session(&self, _upload_url: &str) -> aster_drive_storage::Result<()> {
             self.abort_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_abort {
-                return Err(AsterError::storage_driver_error("abort failed"));
+                return Err(aster_drive_storage::StorageError::new(
+                    aster_drive_storage::StorageErrorKind::Transient,
+                    "abort failed",
+                ));
             }
             Ok(())
         }
@@ -378,7 +385,8 @@ mod tests {
             _total_size: u64,
             _reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
             _fragment_size: i64,
-        ) -> Result<crate::storage::ProviderResumableUploadFragmentOutcome> {
+        ) -> aster_drive_storage::Result<aster_drive_storage::ProviderResumableUploadFragmentOutcome>
+        {
             panic!("not used")
         }
     }

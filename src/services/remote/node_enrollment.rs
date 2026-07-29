@@ -6,10 +6,10 @@ use std::time::Duration;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::master_binding_repo;
-use crate::entities::master_binding as master_binding_entity;
 use crate::errors::{AsterError, Result};
 use crate::services::{remote::enrollment, remote::master_binding};
 use crate::storage::remote_protocol::normalize_remote_base_url;
+use aster_drive_model::entities::master_binding as master_binding_entity;
 use sea_orm::DatabaseConnection;
 use serde::Deserialize;
 
@@ -326,7 +326,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("node enrollment test db should connect");

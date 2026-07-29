@@ -16,7 +16,7 @@ fn build_remote_node(id: i64, access_key: &str) -> managed_follower::Model {
         access_key: access_key.to_string(),
         secret_key: format!("secret-{id}"),
         is_enabled: true,
-        transport_mode: crate::types::RemoteNodeTransportMode::ReverseTunnel,
+        transport_mode: aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel,
         last_capabilities: "{}".to_string(),
         last_error: String::new(),
         last_checked_at: None,

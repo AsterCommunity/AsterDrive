@@ -296,7 +296,7 @@ async fn test_force_delete_user_preserves_team_upload_and_blob_ref() {
     assert_eq!(status, 200, "{}", String::from_utf8_lossy(&body));
     assert_eq!(&body[..], b"still team data");
 
-    let team_members = aster_drive::entities::team_member::Entity::find()
+    let team_members = aster_drive_model::entities::team_member::Entity::find()
         .all(&db)
         .await
         .unwrap();

@@ -4,14 +4,14 @@ use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succeeded};
 
 use crate::db::repository::background_task_repo;
-use crate::entities::{background_task, file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::media::metadata;
-use crate::storage::StorageErrorKind;
-use crate::types::{
+use aster_drive_model::entities::{background_task, file, file_blob};
+use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, MediaMetadataKind, MediaMetadataStatus,
 };
+use aster_drive_storage::StorageErrorKind;
 
 use super::retry::TaskRetryPolicy;
 use super::spec::{self, MediaMetadataExtractTask, decode_payload_as};

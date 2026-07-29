@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
+use aster_drive_model::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
 
 use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSemantics};
 
@@ -515,31 +515,31 @@ pub struct StorageConnectorUiDescriptor {
     pub base_path_placeholder: String,
 }
 
-pub(crate) struct ObjectStorageConnectorDescriptorInput {
-    pub(crate) driver_type: DriverType,
-    pub(crate) label: &'static str,
-    pub(crate) description: &'static str,
-    pub(crate) ui: StorageConnectorUiDescriptorInput,
-    pub(crate) deployment_scope: StorageConnectorDeploymentScope,
-    pub(crate) supports_initial_setup: bool,
-    pub(crate) fields: ObjectStorageFieldDescriptorInput,
-    pub(crate) include_s3_path_style: bool,
-    pub(crate) presigned_part_etag_required: bool,
-    pub(crate) storage_native_processing: bool,
-    pub(crate) related_issues: Vec<u16>,
+pub struct ObjectStorageConnectorDescriptorInput {
+    pub driver_type: DriverType,
+    pub label: &'static str,
+    pub description: &'static str,
+    pub ui: StorageConnectorUiDescriptorInput,
+    pub deployment_scope: StorageConnectorDeploymentScope,
+    pub supports_initial_setup: bool,
+    pub fields: ObjectStorageFieldDescriptorInput,
+    pub include_s3_path_style: bool,
+    pub presigned_part_etag_required: bool,
+    pub storage_native_processing: bool,
+    pub related_issues: Vec<u16>,
 }
 
-pub(crate) struct ObjectStorageFieldDescriptorInput {
-    pub(crate) endpoint_placeholder: &'static str,
-    pub(crate) endpoint_help_key: &'static str,
-    pub(crate) endpoint_protocol_error_key: &'static str,
-    pub(crate) bucket_required_message_key: &'static str,
-    pub(crate) access_key_label_key: &'static str,
-    pub(crate) secret_key_label_key: &'static str,
-    pub(crate) access_key_trim_on_blur: bool,
+pub struct ObjectStorageFieldDescriptorInput {
+    pub endpoint_placeholder: &'static str,
+    pub endpoint_help_key: &'static str,
+    pub endpoint_protocol_error_key: &'static str,
+    pub bucket_required_message_key: &'static str,
+    pub access_key_label_key: &'static str,
+    pub secret_key_label_key: &'static str,
+    pub access_key_trim_on_blur: bool,
 }
 
-pub(crate) fn object_storage_connector_descriptor(
+pub fn object_storage_connector_descriptor(
     input: ObjectStorageConnectorDescriptorInput,
 ) -> StorageConnectorDescriptor {
     let mut fields = vec![
@@ -699,7 +699,7 @@ pub(crate) fn object_storage_connector_descriptor(
     }
 }
 
-pub(crate) fn server_relay_simple_upload_capabilities(
+pub fn server_relay_simple_upload_capabilities(
     max_provider_single_request_size: Option<u64>,
 ) -> StorageConnectorSimpleUploadCapabilities {
     StorageConnectorSimpleUploadCapabilities {
@@ -709,11 +709,11 @@ pub(crate) fn server_relay_simple_upload_capabilities(
     }
 }
 
-pub(crate) struct ObjectMultipartUploadCapabilitiesInput {
-    pub(crate) presigned_part_etag_required: bool,
+pub struct ObjectMultipartUploadCapabilitiesInput {
+    pub presigned_part_etag_required: bool,
 }
 
-pub(crate) fn object_multipart_upload_capabilities(
+pub fn object_multipart_upload_capabilities(
     input: ObjectMultipartUploadCapabilitiesInput,
 ) -> StorageConnectorObjectMultipartUploadCapabilities {
     StorageConnectorObjectMultipartUploadCapabilities {
@@ -728,7 +728,7 @@ pub(crate) fn object_multipart_upload_capabilities(
     }
 }
 
-pub(crate) fn endpoint_driver_recommendation(
+pub fn endpoint_driver_recommendation(
     target_driver_type: DriverType,
     endpoint_host_rules: Vec<StorageConnectorEndpointHostRule>,
 ) -> StorageConnectorDriverRecommendation {
@@ -738,7 +738,7 @@ pub(crate) fn endpoint_driver_recommendation(
     }
 }
 
-pub(crate) fn endpoint_host_rule(
+pub fn endpoint_host_rule(
     equals: Option<&str>,
     ends_with: Option<&str>,
 ) -> StorageConnectorEndpointHostRule {
@@ -748,7 +748,7 @@ pub(crate) fn endpoint_host_rule(
     }
 }
 
-pub(crate) fn policy_action_descriptor(
+pub fn policy_action_descriptor(
     action: StoragePolicyExecutableAction,
 ) -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
@@ -765,7 +765,7 @@ pub(crate) fn policy_action_descriptor(
     }
 }
 
-pub(crate) fn start_authorization_action_descriptor() -> StorageConnectorActionDescriptor {
+pub fn start_authorization_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         policy_action: None,
         affordance_action: Some(StorageConnectorAffordanceAction::StartAuthorization),
@@ -777,7 +777,7 @@ pub(crate) fn start_authorization_action_descriptor() -> StorageConnectorActionD
     }
 }
 
-pub(crate) fn validate_credential_action_descriptor() -> StorageConnectorActionDescriptor {
+pub fn validate_credential_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         policy_action: None,
         affordance_action: Some(StorageConnectorAffordanceAction::ValidateCredential),
@@ -789,7 +789,7 @@ pub(crate) fn validate_credential_action_descriptor() -> StorageConnectorActionD
     }
 }
 
-pub(crate) fn draft_connection_test_action_descriptor() -> StorageConnectorActionDescriptor {
+pub fn draft_connection_test_action_descriptor() -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
         policy_action: None,
         affordance_action: Some(StorageConnectorAffordanceAction::TestDraftConnection),
@@ -801,7 +801,7 @@ pub(crate) fn draft_connection_test_action_descriptor() -> StorageConnectorActio
     }
 }
 
-pub(crate) fn saved_connection_test_action_descriptor(
+pub fn saved_connection_test_action_descriptor(
     requires_authorization: bool,
 ) -> StorageConnectorActionDescriptor {
     StorageConnectorActionDescriptor {
@@ -815,7 +815,7 @@ pub(crate) fn saved_connection_test_action_descriptor(
     }
 }
 
-pub(crate) fn storage_connector_field(
+pub fn storage_connector_field(
     name: &str,
     scope: StorageConnectorFieldScope,
     kind: StorageConnectorFieldKind,
@@ -840,24 +840,24 @@ pub(crate) fn storage_connector_field(
     })
 }
 
-pub(crate) struct StorageConnectorFieldDisplayInput<'a> {
-    pub(crate) name: &'a str,
-    pub(crate) scope: StorageConnectorFieldScope,
-    pub(crate) kind: StorageConnectorFieldKind,
-    pub(crate) required: bool,
-    pub(crate) secret: bool,
-    pub(crate) label_key: &'a str,
-    pub(crate) placeholder: Option<&'a str>,
-    pub(crate) help_key: Option<&'a str>,
-    pub(crate) required_message_key: Option<&'a str>,
-    pub(crate) invalid_protocol_message_key: Option<&'a str>,
-    pub(crate) allowed_endpoint_protocols: Vec<&'a str>,
-    pub(crate) allow_endpoint_without_protocol: bool,
-    pub(crate) trim_on_blur: bool,
-    pub(crate) visible_when_driver_types: Vec<DriverType>,
+pub struct StorageConnectorFieldDisplayInput<'a> {
+    pub name: &'a str,
+    pub scope: StorageConnectorFieldScope,
+    pub kind: StorageConnectorFieldKind,
+    pub required: bool,
+    pub secret: bool,
+    pub label_key: &'a str,
+    pub placeholder: Option<&'a str>,
+    pub help_key: Option<&'a str>,
+    pub required_message_key: Option<&'a str>,
+    pub invalid_protocol_message_key: Option<&'a str>,
+    pub allowed_endpoint_protocols: Vec<&'a str>,
+    pub allow_endpoint_without_protocol: bool,
+    pub trim_on_blur: bool,
+    pub visible_when_driver_types: Vec<DriverType>,
 }
 
-pub(crate) fn storage_connector_field_with_display(
+pub fn storage_connector_field_with_display(
     input: StorageConnectorFieldDisplayInput<'_>,
 ) -> StorageConnectorFieldDescriptor {
     let semantics = StorageDescriptorFieldSemantics::from_descriptor_bits(
@@ -888,7 +888,7 @@ pub(crate) fn storage_connector_field_with_display(
     }
 }
 
-pub(crate) fn storage_connector_field_with_options(
+pub fn storage_connector_field_with_options(
     name: &str,
     scope: StorageConnectorFieldScope,
     kind: StorageConnectorFieldKind,
@@ -902,20 +902,20 @@ pub(crate) fn storage_connector_field_with_options(
     }
 }
 
-pub(crate) struct StorageConnectorUiDescriptorInput {
-    pub(crate) label_key: &'static str,
-    pub(crate) description_key: &'static str,
-    pub(crate) icon_src: Option<&'static str>,
-    pub(crate) icon_name: Option<&'static str>,
-    pub(crate) helper_key: &'static str,
-    pub(crate) config_step_title_key: &'static str,
-    pub(crate) config_step_description_key: &'static str,
-    pub(crate) edit_context_key: &'static str,
-    pub(crate) base_path_empty_display: &'static str,
-    pub(crate) base_path_placeholder: &'static str,
+pub struct StorageConnectorUiDescriptorInput {
+    pub label_key: &'static str,
+    pub description_key: &'static str,
+    pub icon_src: Option<&'static str>,
+    pub icon_name: Option<&'static str>,
+    pub helper_key: &'static str,
+    pub config_step_title_key: &'static str,
+    pub config_step_description_key: &'static str,
+    pub edit_context_key: &'static str,
+    pub base_path_empty_display: &'static str,
+    pub base_path_placeholder: &'static str,
 }
 
-pub(crate) fn storage_connector_ui_descriptor(
+pub fn storage_connector_ui_descriptor(
     input: StorageConnectorUiDescriptorInput,
 ) -> StorageConnectorUiDescriptor {
     StorageConnectorUiDescriptor {

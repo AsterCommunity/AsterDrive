@@ -6,7 +6,7 @@
 mod convert;
 mod copy;
 
-use migration::Migrator;
+use aster_drive_migration::Migrator;
 use sea_orm::DatabaseConnection;
 
 use crate::errors::{AsterError, MapAsterErr, Result};

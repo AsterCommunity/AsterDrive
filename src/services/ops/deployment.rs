@@ -5,7 +5,7 @@ use sea_orm::DatabaseConnection;
 use crate::config::Config;
 use crate::db::repository::{managed_follower_repo, policy_repo};
 use crate::errors::{AsterError, Result};
-use crate::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
+use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, UploadSessionKind};
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DeploymentTopologyReport {
@@ -156,9 +156,9 @@ mod tests {
         validate_upload_session_kind,
     };
     use crate::config::{Config, DeploymentProfile};
-    use crate::entities::managed_follower;
-    use crate::types::{RemoteNodeTransportMode, UploadSessionKind};
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::managed_follower;
+    use aster_drive_model::types::{RemoteNodeTransportMode, UploadSessionKind};
     use sea_orm::{ActiveModelTrait, Set};
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
@@ -168,7 +168,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("deployment topology test database should connect");
@@ -196,18 +196,19 @@ mod tests {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
-        let error = validate_storage_policy_driver(&config, crate::types::DriverType::Local)
-            .expect_err("cluster profile must reject instance-local connectors")
-            .to_string();
+        let error =
+            validate_storage_policy_driver(&config, aster_drive_model::types::DriverType::Local)
+                .expect_err("cluster profile must reject instance-local connectors")
+                .to_string();
         assert!(error.contains("local"));
         assert!(error.contains("instance_local"));
         for driver_type in [
-            crate::types::DriverType::S3,
-            crate::types::DriverType::Sftp,
-            crate::types::DriverType::AzureBlob,
-            crate::types::DriverType::TencentCos,
-            crate::types::DriverType::Remote,
-            crate::types::DriverType::OneDrive,
+            aster_drive_model::types::DriverType::S3,
+            aster_drive_model::types::DriverType::Sftp,
+            aster_drive_model::types::DriverType::AzureBlob,
+            aster_drive_model::types::DriverType::TencentCos,
+            aster_drive_model::types::DriverType::Remote,
+            aster_drive_model::types::DriverType::OneDrive,
         ] {
             validate_storage_policy_driver(&config, driver_type).unwrap_or_else(|error| {
                 panic!("cluster profile rejected shared connector {driver_type:?}: {error}")

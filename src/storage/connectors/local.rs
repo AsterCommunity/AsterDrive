@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
+use crate::storage::drivers::local::LocalDriver;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
     StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
     StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
@@ -13,8 +15,6 @@ use crate::storage::connector_descriptor::{
     server_relay_simple_upload_capabilities, storage_connector_field,
     storage_connector_ui_descriptor,
 };
-use crate::storage::drivers::local::LocalDriver;
-use crate::types::DriverType;
 
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
 

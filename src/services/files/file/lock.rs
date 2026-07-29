@@ -1,13 +1,13 @@
 //! 文件服务子模块：`lock`。
 
-use crate::entities::file;
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
     events::storage_change, files::lock, workspace::models::FileInfo,
     workspace::storage::WorkspaceStorageScope,
 };
-use crate::types::EntityType;
+use aster_drive_model::entities::file;
+use aster_drive_model::types::EntityType;
 
 pub(crate) async fn set_lock_in_scope(
     state: &impl StorageChangeRuntimeState,

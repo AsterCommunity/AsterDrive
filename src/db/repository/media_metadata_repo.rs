@@ -5,9 +5,11 @@ use sea_orm::{
     ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter, Set, sea_query::OnConflict,
 };
 
-use crate::entities::blob_media_metadata::{self, Entity as BlobMediaMetadata};
 use crate::errors::{AsterError, Result};
-use crate::types::{MediaMetadataKind, MediaMetadataStatus, StoredMediaMetadataPayload};
+use aster_drive_model::entities::blob_media_metadata::{self, Entity as BlobMediaMetadata};
+use aster_drive_model::types::{
+    MediaMetadataKind, MediaMetadataStatus, StoredMediaMetadataPayload,
+};
 
 pub async fn find_by_blob_id(
     db: &DatabaseConnection,

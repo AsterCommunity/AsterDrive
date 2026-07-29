@@ -10,10 +10,10 @@ use crate::api::dto::admin::{
 };
 use crate::api::pagination::load_offset_page;
 use crate::db::repository::{file_repo, version_repo};
-use crate::entities::{file, file_blob, file_version};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
+use aster_drive_model::entities::{file, file_blob, file_version};
 use aster_forge_api::OffsetPage;
 
 pub async fn list_files(

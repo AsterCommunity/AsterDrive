@@ -4,9 +4,9 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::background_task::{self, Entity as BackgroundTask};
 use crate::errors::{AsterError, Result};
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::background_task::{self, Entity as BackgroundTask};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

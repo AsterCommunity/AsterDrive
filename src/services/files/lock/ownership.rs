@@ -2,7 +2,7 @@ use sea_orm::ConnectionTrait;
 
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
-use crate::types::EntityType;
+use aster_drive_model::types::EntityType;
 
 /// 校验资源归属
 pub(in crate::services::files::lock) async fn check_entity_ownership<C: ConnectionTrait>(

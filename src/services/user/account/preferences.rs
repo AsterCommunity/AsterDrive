@@ -4,10 +4,10 @@ use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 use std::collections::{BTreeMap, BTreeSet};
 
 use crate::db::repository::user_repo;
-use crate::entities::user;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::{StoredUserConfig, UserConfig};
+use aster_drive_model::entities::user;
+use aster_drive_model::types::{StoredUserConfig, UserConfig};
 
 use super::models::{UpdatePreferencesReq, UserPreferences};
 

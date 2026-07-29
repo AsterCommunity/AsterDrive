@@ -6,7 +6,7 @@ mod common;
 use actix_web::test;
 use aster_drive::db::repository::{background_task_repo, file_repo, policy_repo};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
-use aster_drive::types::{
+use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, MediaProcessorKind, StoragePolicyOptions,
     serialize_storage_policy_options,
 };
@@ -195,7 +195,7 @@ fn thumbnail_processor_display_name(processor: MediaProcessorKind) -> &'static s
 async fn blob_for_file(
     state: &PrimaryAppState,
     file_id: i64,
-) -> aster_drive::entities::file_blob::Model {
+) -> aster_drive_model::entities::file_blob::Model {
     let file = file_repo::find_by_id(state.writer_db(), file_id)
         .await
         .unwrap();
@@ -221,7 +221,7 @@ async fn enable_default_policy_storage_native_thumbnail(state: &PrimaryAppState)
         .await
         .unwrap()
         .expect("default policy should exist");
-    let mut active: aster_drive::entities::storage_policy::ActiveModel = policy.into();
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
     active.options = Set(serialize_storage_policy_options(&StoragePolicyOptions {
         thumbnail_processor: Some(MediaProcessorKind::StorageNative),
         thumbnail_extensions: vec!["png".to_string()],
@@ -239,7 +239,7 @@ async fn enable_default_policy_storage_native_thumbnail(state: &PrimaryAppState)
 async fn latest_thumbnail_task(
     state: &PrimaryAppState,
     file_id: i64,
-) -> aster_drive::entities::background_task::Model {
+) -> aster_drive_model::entities::background_task::Model {
     latest_thumbnail_task_for_processor(state, file_id, MediaProcessorKind::Images).await
 }
 
@@ -247,7 +247,7 @@ async fn latest_thumbnail_task_for_processor(
     state: &PrimaryAppState,
     file_id: i64,
     processor: MediaProcessorKind,
-) -> aster_drive::entities::background_task::Model {
+) -> aster_drive_model::entities::background_task::Model {
     let display_name = thumbnail_task_display_name_for_processor(state, file_id, processor).await;
     background_task_repo::find_latest_by_kind_and_display_name(
         state.writer_db(),

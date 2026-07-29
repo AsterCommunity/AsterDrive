@@ -3,9 +3,8 @@ use std::path::Path;
 use async_trait::async_trait;
 use tokio::io::AsyncRead;
 
-use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::extensions::StreamUploadDriver;
 
 use super::RemoteDriver;
 
@@ -16,7 +15,7 @@ impl StreamUploadDriver for RemoteDriver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let size = u64::try_from(size).map_err(|_| {
             storage_driver_error(
                 StorageErrorKind::Precondition,
@@ -29,13 +28,25 @@ impl StreamUploadDriver for RemoteDriver {
         Ok(storage_path.to_string())
     }
 
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
-        let metadata = tokio::fs::metadata(local_path).await.map_err(|e| {
-            AsterError::storage_driver_error(format!("remote put_file metadata: {e}"))
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let metadata = tokio::fs::metadata(local_path).await.map_err(|error| {
+            storage_driver_error(
+                StorageErrorKind::Transient,
+                format!("remote put_file metadata: {error}"),
+            )
         })?;
         let file = tokio::fs::File::open(Path::new(local_path))
             .await
-            .map_err(|e| AsterError::storage_driver_error(format!("remote put_file open: {e}")))?;
+            .map_err(|error| {
+                storage_driver_error(
+                    StorageErrorKind::Transient,
+                    format!("remote put_file open: {error}"),
+                )
+            })?;
         self.put_reader(
             storage_path,
             Box::new(file),

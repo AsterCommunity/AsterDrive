@@ -1,6 +1,6 @@
 //! Object-storage key helpers.
 
-use crate::errors::{AsterError, Result};
+use crate::error::{Result, StorageErrorKind, storage_driver_error};
 
 const INVALID_RELATIVE_KEY_MESSAGE: &str = "object key must be a safe relative storage path";
 
@@ -19,7 +19,12 @@ pub fn normalize_relative_key(value: &str) -> Result<String> {
     for segment in value.split('/') {
         match segment {
             "" | "." => {}
-            ".." => return Err(AsterError::validation_error(INVALID_RELATIVE_KEY_MESSAGE)),
+            ".." => {
+                return Err(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    INVALID_RELATIVE_KEY_MESSAGE,
+                ));
+            }
             segment => segments.push(segment),
         }
     }

@@ -22,15 +22,15 @@ src/cache/                   cache trait 以及 memory/Redis 实现
 src/cli/                     doctor、config、database-migrate、node enroll 等运维 CLI
 src/config/                  静态配置、运行时配置定义、配置规范化、模板
 src/db/                      数据库连接、reader/writer 句柄、repository
-src/entities/                SeaORM Entity
 src/runtime/                 AppState、primary/follower 启动、关闭、周期任务
 src/services/                Auth、file、folder、upload、share、team、policy、task、audit、WebDAV/WOPI 等业务层
-src/storage/                 存储驱动、连接器、远端协议、multipart/stream 能力抽象
-src/types/                   共享枚举、DTO 辅助类型和 DB wrapper 类型
-src/utils/                   crypto、ID、path、number、email、RAII 等工具
+src/storage/                 存储驱动、连接器、registry、策略快照和远端协议运行时
 src/webdav/                  WebDAV/DeltaV 协议接入、文件系统、锁、属性和传输
-migration/                   SeaORM migration crate
-api-docs-macros/             OpenAPI 辅助宏
+crates/aster_drive_http/     有严格大小限制、错误类型无关的 HTTP 响应体读取工具
+crates/aster_drive_metrics/  Drive 产品指标 contract、Noop recorder 和 AsterForge adapter
+crates/aster_drive_migration/ SeaORM migration crate
+crates/aster_drive_model/    共享类型和 SeaORM Entity
+crates/aster_drive_storage/  存储 trait、能力扩展、connector descriptor、对象 key 和结构化错误
 frontend-panel/              React + Vite 前端，构建产物嵌入后端
 developer-docs/              开发说明和架构文档
 docs/                        用户/部署文档站
@@ -129,7 +129,7 @@ bun run test:e2e
 ## 后端代码约定
 
 - 路由模块放在 `src/api/routes/`，按现有 primary/follower 注册方式接入 `src/api/primary.rs`、`src/api/follower.rs` 或对应 `routes/mod.rs`。
-- DTO 放在 `src/api/dto/`，领域共享类型放在 `src/types/`，不要在 handler 里散落匿名 JSON 拼装。
+- DTO 放在 `src/api/dto/`，领域共享类型放在 `crates/aster_drive_model/src/types/`，不要在 handler 里散落匿名 JSON 拼装。
 - 业务逻辑放 `src/services/`，数据库访问放 `src/db/repository/`，对象内容能力放 `src/storage/`，handler 只做认证、参数提取、调用 service、返回响应。
 - WebDAV 不走普通 REST 路由；WebDAV 相关协议行为放在 `src/webdav/`，只在需要复用业务语义时调用 service/repo。
 - 新表必须有 SeaORM entity 和 migration，测试覆盖 SQLite；涉及数据库差异时同时考虑 MySQL/PostgreSQL。
@@ -149,7 +149,7 @@ AI 很容易把能跑的代码堆到一个 service 里，后面就没人敢改�
 - `src/services/<domain>/*` 内部模块：承载可测试的领域规则，例如 normalization、target selection、capability resolver、descriptor builder、finalization contract；能写成纯函数就不要依赖 `AppState`。
 - `src/db/repository/*`：只做数据访问和原子 SQL，不写 transport、driver、UI descriptor、产品流程判断。
 - `src/storage/remote_protocol/*`：只处理 wire protocol、签名、path encoding、HTTP/tunnel transport、capability wire model 和 response parsing；不要决定 UI 展示、policy target 选择、default target 这类产品语义。
-- `src/storage/connectors/*` / `src/storage/traits/*`：表达存储能力、driver/connector descriptor 和对象内容能力；业务层不要绕过这些抽象直接分支到具体 SDK。
+- `crates/aster_drive_storage/*`：表达 driver trait、能力扩展、connector descriptor、对象 key 和结构化存储错误；根包通过 `src/storage/connectors/*` / `src/storage/drivers/*` 实现产品配置与具体后端，业务层不要绕过这些抽象直接分支到具体 SDK。
 
 触发以下信号时先拆模块，不要继续往当前函数里堆：
 
@@ -190,7 +190,7 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 ## 存储和上传约定
 
-- 存储能力优先通过 `src/storage/traits/` 和 connector/driver registry 表达，不要在业务层直接分支到具体 SDK。
+- 存储能力优先通过 `crates/aster_drive_storage/src/traits/` 和根包 connector/driver registry 表达，不要在业务层直接分支到具体 SDK。
 - 新增存储后端时，要同时考虑 policy descriptor、连接测试、credential 管理、上传/下载策略、admin 前端配置、OpenAPI 类型和文档最小更新。
 - 上传路径必须尊重策略协商结果：direct、chunked、presigned、multipart、remote relay/presigned 不要互相绕过。
 - 上传完成要保持元数据、blob/object、version、quota、audit、task/progress 的一致性；失败路径要能清理 session 或留下可恢复状态。

@@ -4,10 +4,10 @@ use sea_orm::{ActiveValue::Set, IntoActiveModel};
 use crate::api::pagination::load_offset_page;
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
 use crate::db::repository::external_auth_provider_repo;
-use crate::entities::external_auth_provider;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::external_auth_provider::StoredExternalAuthProviderOptions;
+use aster_drive_model::entities::external_auth_provider;
+use aster_drive_model::types::external_auth_provider::StoredExternalAuthProviderOptions;
 use aster_forge_api::NullablePatch;
 use aster_forge_api::OffsetPage;
 use aster_forge_external_auth::providers::microsoft::{

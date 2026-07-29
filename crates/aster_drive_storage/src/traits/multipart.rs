@@ -9,7 +9,7 @@
 //! `ProviderResumableUploadDriver` 描述能力，并由具体 driver 在 `StreamUploadDriver`
 //! 内部封装 session 细节。
 
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::error::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::time::Duration;
@@ -89,8 +89,8 @@ pub trait MultipartStorageDriver: Send + Sync {
         size: i64,
     ) -> Result<String> {
         let mut reader = reader;
-        let expected_size =
-            aster_forge_utils::numbers::bytes_to_usize(size, "multipart part size")?;
+        let expected_size = aster_forge_utils::numbers::bytes_to_usize(size, "multipart part size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         let mut data = Vec::with_capacity(expected_size);
         let mut buffer = vec![0u8; DEFAULT_MULTIPART_READER_BUFFER_SIZE.min(expected_size.max(1))];
 
@@ -100,10 +100,7 @@ pub trait MultipartStorageDriver: Send + Sync {
             let read = reader
                 .read(&mut buffer[..read_len])
                 .await
-                .map_aster_err_ctx(
-                    "read multipart part stream",
-                    AsterError::storage_driver_error,
-                )?;
+                .map_storage_err_ctx(StorageErrorKind::Transient, "read multipart part stream")?;
             if read == 0 {
                 break;
             }
@@ -111,20 +108,26 @@ pub trait MultipartStorageDriver: Send + Sync {
         }
 
         if data.len() < expected_size {
-            return Err(AsterError::storage_driver_error(format!(
-                "read multipart part stream: multipart part stream ended before expected size {size}"
-            )));
+            return Err(storage_driver_error(
+                StorageErrorKind::Transient,
+                format!(
+                    "read multipart part stream: multipart part stream ended before expected size {size}"
+                ),
+            ));
         }
 
         let mut extra = [0u8; 1];
-        let extra_read = reader.read(&mut extra).await.map_aster_err_ctx(
-            "read multipart part stream",
-            AsterError::storage_driver_error,
-        )?;
+        let extra_read = reader
+            .read(&mut extra)
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "read multipart part stream")?;
         if extra_read > 0 {
-            return Err(AsterError::storage_driver_error(format!(
-                "read multipart part stream: multipart part stream exceeds expected size {size}"
-            )));
+            return Err(storage_driver_error(
+                StorageErrorKind::Transient,
+                format!(
+                    "read multipart part stream: multipart part stream exceeds expected size {size}"
+                ),
+            ));
         }
 
         self.upload_multipart_part(path, upload_id, part_number, &data)
@@ -261,7 +264,7 @@ mod tests {
             .await
             .expect_err("oversized stream should fail");
 
-        assert_eq!(error.code(), "E031");
+        assert_eq!(error.kind(), StorageErrorKind::Transient);
         assert!(
             error
                 .message()
@@ -291,7 +294,7 @@ mod tests {
             .await
             .expect_err("short stream should fail");
 
-        assert_eq!(error.code(), "E031");
+        assert_eq!(error.kind(), StorageErrorKind::Transient);
         assert!(
             error
                 .message()
@@ -346,7 +349,7 @@ mod tests {
             .await
             .expect_err("zero-size stream with data should fail");
 
-        assert_eq!(error.code(), "E031");
+        assert_eq!(error.kind(), StorageErrorKind::Transient);
         assert!(
             error
                 .message()
@@ -376,7 +379,7 @@ mod tests {
             .await
             .expect_err("negative size should fail");
 
-        assert_eq!(error.code(), "E004");
+        assert_eq!(error.kind(), StorageErrorKind::Misconfigured);
         assert!(
             driver
                 .uploaded

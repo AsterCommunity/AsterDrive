@@ -3,10 +3,9 @@ use std::time::Duration;
 use async_trait::async_trait;
 use aws_sdk_s3::presigning::PresigningConfig;
 
-use crate::errors::{MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::PresignedDownloadOptions;
-use crate::storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::traits::driver::PresignedDownloadOptions;
+use aster_drive_storage::traits::extensions::PresignedStorageDriver;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind};
 
 use super::S3Driver;
 
@@ -45,14 +44,12 @@ impl PresignedStorageDriver for S3Driver {
         path: &str,
         expires: Duration,
         options: PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         let key = self.full_key(path);
         let presign_config = PresigningConfig::builder()
             .expires_in(clamp_presign_ttl(expires, "S3 presigned_url"))
             .build()
-            .map_aster_err_ctx("presign config", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
         let mut request = self.client.get_object().bucket(&self.bucket).key(&key);
         if let Some(cache_control) = options.response_cache_control {
@@ -68,21 +65,21 @@ impl PresignedStorageDriver for S3Driver {
         let url = request
             .presigned(presign_config)
             .await
-            .map_aster_err_ctx("S3 presigned URL failed", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "S3 presigned URL failed")?;
 
         Ok(Some(url.uri().to_string()))
     }
 
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
+    async fn presigned_put_url(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<Option<String>> {
         let key = self.full_key(path);
         let presign_config = PresigningConfig::builder()
             .expires_in(clamp_presign_ttl(expires, "S3 presigned_put_url"))
             .build()
-            .map_aster_err_ctx("presign config", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "presign config")?;
 
         let url = self
             .client
@@ -91,9 +88,7 @@ impl PresignedStorageDriver for S3Driver {
             .key(&key)
             .presigned(presign_config)
             .await
-            .map_aster_err_ctx("S3 presigned PUT failed", |message| {
-                storage_driver_error(StorageErrorKind::Misconfigured, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Misconfigured, "S3 presigned PUT failed")?;
 
         Ok(Some(url.uri().to_string()))
     }

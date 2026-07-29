@@ -12,13 +12,13 @@ use tokio::time::{Duration, sleep};
 use crate::config::DatabaseConfig;
 use crate::db::repository::background_task_repo;
 use crate::db::{self, repository::config_repo};
-use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::runtime::SharedRuntimeState;
 use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
-use migration::Migrator;
+use aster_drive_migration::Migrator;
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload};
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
 use tokio_util::sync::CancellationToken;
 
 use super::claim::claim_candidates_for_lane;
@@ -32,7 +32,7 @@ async fn build_dispatch_test_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("dispatch test DB should connect");
@@ -63,7 +63,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         crate::services::share::build_share_download_rollback_queue(
             db.clone(),
             1,
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         );
 
     crate::runtime::PrimaryAppState {
@@ -74,7 +74,7 @@ async fn build_dispatch_test_state() -> crate::runtime::PrimaryAppState {
         config: Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,
@@ -549,8 +549,14 @@ async fn forge_task_context_preserves_drive_shutdown_error_code() {
 
 #[test]
 fn thumbnail_retry_only_keeps_transient_storage_errors() {
-    let transient = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
-    let misconfigured = storage_driver_error(StorageErrorKind::Misconfigured, "missing bucket");
+    let transient = AsterError::from(storage_driver_error(
+        StorageErrorKind::Transient,
+        "remote timeout",
+    ));
+    let misconfigured = AsterError::from(storage_driver_error(
+        StorageErrorKind::Misconfigured,
+        "missing bucket",
+    ));
 
     assert!(
         super::super::registry::task_retry_class(BackgroundTaskKind::ThumbnailGenerate, &transient)
@@ -605,7 +611,10 @@ fn archive_validation_errors_are_not_retryable() {
 
 #[test]
 fn archive_transient_storage_errors_are_auto_retryable() {
-    let error = storage_driver_error(StorageErrorKind::Transient, "remote timeout");
+    let error = AsterError::from(storage_driver_error(
+        StorageErrorKind::Transient,
+        "remote timeout",
+    ));
     let retry_class =
         super::super::registry::task_retry_class(BackgroundTaskKind::ArchiveCompress, &error);
 

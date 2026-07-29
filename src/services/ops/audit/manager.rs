@@ -3,7 +3,7 @@ use sea_orm::DatabaseConnection;
 
 use crate::config::RuntimeConfig;
 use crate::runtime::SharedRuntimeState;
-use crate::types::{AuditAction, AuditEntityType};
+use aster_drive_model::types::{AuditAction, AuditEntityType};
 
 use super::context::AuditContext;
 

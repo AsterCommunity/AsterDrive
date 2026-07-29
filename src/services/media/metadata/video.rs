@@ -5,7 +5,7 @@ use serde_json::Value;
 use crate::config::media_processing;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::services::media::processing::run_cli_command_with_timeout;
-use crate::types::VideoMediaMetadata;
+use aster_drive_model::types::VideoMediaMetadata;
 
 pub(super) fn parse_video_metadata_from_path(
     command: &str,

@@ -1,9 +1,9 @@
 use chrono::{DateTime, Utc};
 
 use crate::db::repository::{background_task_repo, config_repo};
-use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::background_task;
 use aster_forge_db::transaction;
 use aster_forge_tasks::TaskLease;
 
@@ -14,19 +14,11 @@ struct BackgroundTaskClaimStore<'a, State> {
     state: &'a State,
 }
 
-impl aster_forge_tasks::ClaimableTaskRecord<crate::types::BackgroundTaskKind>
-    for background_task::Model
-{
-    fn processing_token(&self) -> i64 {
-        self.processing_token
-    }
-}
-
 #[async_trait::async_trait]
 impl<State>
     aster_forge_tasks::TaskClaimStore<
         background_task::Model,
-        crate::types::BackgroundTaskKind,
+        aster_drive_model::types::BackgroundTaskKind,
         super::lane::TaskLane,
     > for BackgroundTaskClaimStore<'_, State>
 where
@@ -38,7 +30,7 @@ where
         &self,
         now: DateTime<Utc>,
         stale_before: DateTime<Utc>,
-        kinds: &'static [crate::types::BackgroundTaskKind],
+        kinds: &'static [aster_drive_model::types::BackgroundTaskKind],
         limit: u64,
     ) -> Result<Vec<background_task::Model>> {
         background_task_repo::list_claimable_by_kinds(
@@ -54,7 +46,7 @@ where
     async fn count_active_processing_by_kinds(
         &self,
         now: DateTime<Utc>,
-        kinds: &'static [crate::types::BackgroundTaskKind],
+        kinds: &'static [aster_drive_model::types::BackgroundTaskKind],
     ) -> Result<u64> {
         background_task_repo::count_active_processing_by_kinds(self.state.writer_db(), now, kinds)
             .await

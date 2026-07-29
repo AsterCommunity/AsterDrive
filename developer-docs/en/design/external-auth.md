@@ -15,7 +15,7 @@ Generic provider drivers, descriptors, the registry, OIDC / OAuth2 protocol impl
 | Route | `src/api/routes/auth/external_auth.rs` | Anonymous provider list, login start, callback, email verification fallback, password linking, user unbinding |
 | Admin route | `src/api/routes/admin/external_auth.rs` | Provider kind list, provider CRUD, draft testing, saved provider testing |
 | Service | `src/services/auth/external/` | Drive provider persistence, login flow, identity binding, account provisioning, MFA completion, and audit integration |
-| Entity / repo | `src/entities/external_auth_*`, `src/db/repository/external_auth_*` | Persistent provider and identity storage |
+| Entity / repo | `crates/aster_drive_model/src/entities/external_auth_*`, `src/db/repository/external_auth_*` | Persistent provider and identity storage |
 | Driver trait / descriptor / registry | `aster_forge_external_auth` | Shared provider interfaces, `default_registry()`, kind descriptors, and normalization |
 | OIDC / Generic OAuth2 drivers | `aster_forge_external_auth` | Discovery, PKCE, nonce, ID token validation, token exchange, and UserInfo claim mapping |
 | GitHub / QQ / Google / Microsoft drivers | `aster_forge_external_auth` | Provider-specific endpoints, claim / issuer semantics, and test support |

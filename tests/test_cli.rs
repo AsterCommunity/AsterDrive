@@ -14,19 +14,19 @@ use aster_drive::db::repository::{
     mfa_recovery_code_repo, mfa_totp_setup_flow_repo, policy_repo, property_repo, tag_repo,
     user_repo,
 };
-use aster_drive::entities::{
+use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_migration::{CurrentMigrator, Migrator, MigratorTrait};
+use aster_drive_model::entities::{
     contact_verification_token, follower_enrollment_session, managed_follower, master_binding,
     mfa_factor, mfa_login_flow, mfa_recovery_code, mfa_totp_setup_flow, passkey, storage_policy,
     user_invitation,
 };
-use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::types::{
+use aster_drive_model::types::{
     DriverType, EntityType, MfaFirstFactor, MfaPersistentFactorMethod, StoredPasskeyCredential,
     StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TagScopeType,
     UserInvitationStatus, VerificationChannel, VerificationPurpose,
 };
 use chrono::{Duration, Utc};
-use migration::{CurrentMigrator, Migrator, MigratorTrait};
 use sea_orm::{
     ActiveModelTrait, ConnectionTrait, DatabaseConnection, DbBackend, EntityTrait, Set, Statement,
 };
@@ -57,7 +57,7 @@ async fn setup_database_url() -> String {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -74,7 +74,7 @@ async fn setup_empty_database_url(prefix: &str) -> String {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -542,7 +542,7 @@ async fn seed_contact_verification_history(database_url: &str) {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -609,7 +609,7 @@ async fn assert_migrated_fixture(
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -705,7 +705,7 @@ async fn assert_migrated_fixture(
         &format!("SELECT name FROM files WHERE id = {file_id}"),
     )
     .await;
-    let passkey = aster_drive::entities::passkey::Entity::find()
+    let passkey = aster_drive_model::entities::passkey::Entity::find()
         .one(&target_db)
         .await
         .unwrap()
@@ -1305,7 +1305,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1313,7 +1313,7 @@ async fn test_migrations_use_current_baseline_for_fresh_install() {
     let versions = applied_migration_versions(&db, DbBackend::Sqlite).await;
     assert_eq!(
         versions,
-        migration::current_migration_names(),
+        aster_drive_migration::current_migration_names(),
         "fresh install should stamp all current migrations"
     );
 }
@@ -1328,13 +1328,13 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
 
     let migration_count_before_opaque_backfill = u32::try_from(
-        migration::current_migration_names()
+        aster_drive_migration::current_migration_names()
             .iter()
             .position(|name| name.contains("add_storage_migration_opaque_rename_count"))
             .expect("opaque rename count migration should exist"),
@@ -1378,10 +1378,10 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
         )",
         vec![
-            aster_drive::types::BackgroundTaskKind::StoragePolicyMigration
+            aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration
                 .as_str()
                 .into(),
-            aster_drive::types::BackgroundTaskStatus::Succeeded
+            aster_drive_model::types::BackgroundTaskStatus::Succeeded
                 .as_str()
                 .into(),
             Option::<i64>::None.into(),
@@ -1415,7 +1415,7 @@ async fn test_migration_backfills_storage_migration_result_renamed_opaque_count(
 
     CurrentMigrator::up(&db, None).await.unwrap();
 
-    let task = aster_drive::entities::background_task::Entity::find()
+    let task = aster_drive_model::entities::background_task::Entity::find()
         .one(&db)
         .await
         .unwrap()
@@ -1439,7 +1439,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1459,7 +1459,7 @@ async fn test_migrations_reject_unsupported_historical_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1486,12 +1486,12 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
     Migrator::up(&db, None).await.unwrap();
-    let current_names = migration::current_migration_names();
+    let current_names = aster_drive_migration::current_migration_names();
     db.execute_raw(Statement::from_sql_and_values(
         DbBackend::Sqlite,
         "DELETE FROM seaql_migrations WHERE version = ?",
@@ -1500,8 +1500,13 @@ async fn test_migrations_reject_non_prefix_current_migration_history() {
     .await
     .unwrap();
 
-    let history = migration::inspect_migration_history(&db).await.unwrap();
-    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+    let history = aster_drive_migration::inspect_migration_history(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Unknown
+    );
 
     let error = Migrator::up(&db, None)
         .await
@@ -1522,7 +1527,7 @@ async fn test_migrations_reject_existing_schema_with_empty_history() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1533,8 +1538,13 @@ async fn test_migrations_reject_existing_schema_with_empty_history() {
     .await
     .unwrap();
 
-    let history = migration::inspect_migration_history(&db).await.unwrap();
-    assert_eq!(history.track, migration::MigrationTrack::Unknown);
+    let history = aster_drive_migration::inspect_migration_history(&db)
+        .await
+        .unwrap();
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Unknown
+    );
 
     let error = Migrator::up(&db, None)
         .await
@@ -1562,11 +1572,11 @@ async fn test_root_binary_doctor_deep_fix_repairs_counters() {
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
     let blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
 
-    let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user.into();
     user_active.storage_used = Set(0);
     user_active.update(&db).await.unwrap();
 
-    let mut blob_active: aster_drive::entities::file_blob::ActiveModel = blob.into();
+    let mut blob_active: aster_drive_model::entities::file_blob::ActiveModel = blob.into();
     blob_active.ref_count = Set(0);
     blob_active.updated_at = Set(Utc::now());
     blob_active.update(&db).await.unwrap();
@@ -1630,11 +1640,11 @@ async fn test_root_binary_doctor_scope_and_policy_filter_limit_deep_checks() {
     let file = file_repo::find_by_id(&db, file_id).await.unwrap();
     let blob = file_repo::find_blob_by_id(&db, file.blob_id).await.unwrap();
 
-    let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user.into();
     user_active.storage_used = Set(0);
     user_active.update(&db).await.unwrap();
 
-    let mut blob_active: aster_drive::entities::file_blob::ActiveModel = blob.into();
+    let mut blob_active: aster_drive_model::entities::file_blob::ActiveModel = blob.into();
     blob_active.ref_count = Set(0);
     blob_active.updated_at = Set(Utc::now());
     blob_active.update(&db).await.unwrap();
@@ -1790,7 +1800,7 @@ async fn test_root_binary_database_migrate_rejects_current_history_with_missing_
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -1892,7 +1902,7 @@ async fn test_root_binary_database_migrate_sqlite_to_postgres_happy_path() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -2038,7 +2048,7 @@ async fn test_root_binary_database_migrate_sqlite_resume_from_checkpoint() {
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();
@@ -2196,7 +2206,7 @@ async fn test_root_binary_database_migrate_allows_consumed_contact_verification_
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .unwrap();

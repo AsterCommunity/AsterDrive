@@ -5,9 +5,9 @@ use std::collections::HashSet;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::entities::{file, folder};
 use crate::services::content::tag::TagSummary;
-use crate::types::EntityType;
+use aster_drive_model::entities::{file, folder};
+use aster_drive_model::types::EntityType;
 
 #[derive(Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

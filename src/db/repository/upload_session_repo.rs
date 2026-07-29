@@ -1,8 +1,8 @@
 //! 仓储模块：`upload_session_repo`。
 
-use crate::entities::upload_session::{self, Entity as UploadSession};
 use crate::errors::{AsterError, Result};
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::upload_session::{self, Entity as UploadSession};
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DbBackend, EntityTrait, ExprTrait,
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, SqlErr, sea_query::Expr,

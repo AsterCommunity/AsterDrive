@@ -1,7 +1,8 @@
 //! API 分页参数与响应封装。
 
-use crate::entities::file;
 use crate::errors::Result;
+use aster_drive_model::entities::file;
+pub use aster_drive_model::types::SortBy;
 use serde::{Deserialize, Serialize};
 use std::future::Future;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -27,30 +28,14 @@ where
     Ok(OffsetPage::new(items, total, limit, offset))
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
-#[serde(rename_all = "snake_case")]
-#[derive(Default)]
-pub enum SortBy {
-    #[default]
-    Name,
-    Size,
-    CreatedAt,
-    UpdatedAt,
-    #[serde(rename = "type")]
-    Type,
-}
-
-impl SortBy {
-    /// 从文件 Model 提取对应排序字段的字符串值，用于 cursor
-    pub fn cursor_value(f: &file::Model, sort_by: SortBy) -> String {
-        match sort_by {
-            SortBy::Name => f.name.clone(),
-            SortBy::Size => f.size.to_string(),
-            SortBy::CreatedAt => f.created_at.to_rfc3339(),
-            SortBy::UpdatedAt => f.updated_at.to_rfc3339(),
-            SortBy::Type => f.mime_type.clone(),
-        }
+/// 从文件 Model 提取对应排序字段的字符串值，用于 cursor。
+pub fn file_cursor_value(f: &file::Model, sort_by: SortBy) -> String {
+    match sort_by {
+        SortBy::Name => f.name.clone(),
+        SortBy::Size => f.size.to_string(),
+        SortBy::CreatedAt => f.created_at.to_rfc3339(),
+        SortBy::UpdatedAt => f.updated_at.to_rfc3339(),
+        SortBy::Type => f.mime_type.clone(),
     }
 }
 

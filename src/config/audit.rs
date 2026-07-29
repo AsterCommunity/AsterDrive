@@ -1,7 +1,7 @@
 use crate::config::bool_like::parse_bool_like;
 pub use crate::config::definitions::{AUDIT_LOG_ENABLED_KEY, AUDIT_LOG_RECORDED_ACTIONS_KEY};
 use crate::errors::{AsterError, Result};
-use crate::types::AuditAction;
+use aster_drive_model::types::AuditAction;
 
 pub const DEFAULT_AUDIT_LOG_ENABLED: bool = true;
 // Ceiling division: AuditAction::COUNT is the number of action bits, and

@@ -4,7 +4,7 @@ use crate::config::operations::{
     DEFAULT_MEDIA_METADATA_MAX_SOURCE_BYTES, MEDIA_METADATA_ENABLED_KEY,
     MEDIA_METADATA_MAX_SOURCE_BYTES_KEY,
 };
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
 use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use chrono::Utc;

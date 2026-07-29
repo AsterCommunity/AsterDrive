@@ -4,9 +4,9 @@ use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
 use crate::api::pagination::{AdminUserSortBy, SortBy};
-use crate::entities::user;
 use crate::services::{auth::local, user::profile};
-use crate::types::{
+use aster_drive_model::entities::user;
+use aster_drive_model::types::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, ThemeMode, UserConfig,
     UserPreferences as StoredUserPreferences, UserRole, UserStatus,
 };

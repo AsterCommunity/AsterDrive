@@ -9,9 +9,9 @@ use sea_orm::{EntityTrait, QueryFilter};
 
 use crate::config::DeploymentConfig;
 use crate::db::repository::remote_tunnel_owner_repo;
-use crate::entities::remote_tunnel_owner;
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::remote_tunnel_owner;
+use aster_drive_storage::StorageErrorKind;
 
 pub const REMOTE_TUNNEL_OWNER_LEASE_TTL: Duration = Duration::from_secs(45);
 pub const REMOTE_TUNNEL_OWNER_RENEW_INTERVAL: Duration = Duration::from_secs(15);
@@ -407,7 +407,7 @@ impl RemoteTunnelOwnerDirectory {
 }
 
 fn owner_fenced_error(remote_node_id: i64) -> AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Transient,
         format!("reverse tunnel remote node #{remote_node_id} owner lease was fenced"),
     )
@@ -428,8 +428,8 @@ fn lease_expires_at(now: DateTime<Utc>) -> DateTime<Utc> {
 mod tests {
     use super::*;
     use crate::config::{Config, DeploymentProfile};
-    use crate::entities::managed_follower;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::managed_follower;
     use sea_orm::{ActiveModelTrait, Set};
 
     async fn setup() -> (sea_orm::DatabaseConnection, Config) {
@@ -439,7 +439,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("owner directory database should connect");
@@ -453,7 +453,7 @@ mod tests {
             access_key: Set("access".to_string()),
             secret_key: Set("secret".to_string()),
             is_enabled: Set(true),
-            transport_mode: Set(crate::types::RemoteNodeTransportMode::ReverseTunnel),
+            transport_mode: Set(aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel),
             last_capabilities: Set("{}".to_string()),
             last_error: Set(String::new()),
             last_checked_at: Set(None),

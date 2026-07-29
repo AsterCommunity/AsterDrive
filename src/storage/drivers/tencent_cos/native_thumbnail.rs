@@ -2,9 +2,12 @@ use async_trait::async_trait;
 use chrono::Utc;
 use url::Url;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::extensions::{NativeThumbnailRequest, NativeThumbnailStorageDriver};
+use crate::errors::{AsterError, MapAsterErr};
+use aster_drive_storage::Result;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::extensions::{
+    NativeThumbnailRequest, NativeThumbnailStorageDriver,
+};
 
 use super::{COS_NATIVE_PROCESSING_PROVIDER, MAX_COS_THUMBNAIL_TTL, TencentCosDriver};
 
@@ -49,7 +52,7 @@ impl NativeThumbnailStorageDriver for TencentCosDriver {
     async fn get_native_thumbnail(
         &self,
         request: &NativeThumbnailRequest,
-    ) -> Result<Option<Vec<u8>>> {
+    ) -> aster_drive_storage::Result<Option<Vec<u8>>> {
         if !is_cos_image_thumbnail_candidate(&request.source_mime_type) {
             return Ok(None);
         }

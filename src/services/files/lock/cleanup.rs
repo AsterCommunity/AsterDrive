@@ -6,7 +6,7 @@ use crate::db::repository::lock_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use crate::types::EntityType;
+use aster_drive_model::types::EntityType;
 use aster_forge_utils::numbers::usize_to_u64;
 
 /// 清理过期锁（后台任务用）

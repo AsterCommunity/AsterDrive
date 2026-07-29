@@ -58,7 +58,7 @@ pub async fn login(
         let completion = mfa::complete_primary_login_or_start_mfa(
             state,
             &user,
-            crate::types::MfaFirstFactor::Password,
+            aster_drive_model::types::MfaFirstFactor::Password,
             None,
             ip_address,
             user_agent,
@@ -189,7 +189,7 @@ pub async fn set_password(
 
 pub(crate) async fn verify_user_password(
     state: &impl SharedRuntimeState,
-    user: &crate::entities::user::Model,
+    user: &aster_drive_model::entities::user::Model,
     password: &str,
 ) -> Result<bool> {
     let verification = state
@@ -209,7 +209,7 @@ pub(crate) async fn verify_user_password(
 
 async fn upgrade_user_password_hash(
     state: &impl SharedRuntimeState,
-    user: &crate::entities::user::Model,
+    user: &aster_drive_model::entities::user::Model,
     password: &str,
 ) {
     let new_hash = match state

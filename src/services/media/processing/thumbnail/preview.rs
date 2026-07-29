@@ -1,6 +1,6 @@
-use crate::entities::file_blob;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive_model::entities::file_blob;
 use bytes::Bytes;
 
 use crate::services::media::processing::resolve::build_thumbnail_context;
@@ -8,7 +8,7 @@ use crate::services::media::processing::resolve::build_thumbnail_context_with_pr
 use crate::services::media::processing::shared::{
     ImagePreviewData, StoredImagePreview, ThumbnailContext,
 };
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
 
 use super::cache::load_thumbnail_from_path;
 use super::render::render_image_preview_bytes;

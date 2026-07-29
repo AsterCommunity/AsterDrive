@@ -11,11 +11,11 @@ use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{team_member_repo, team_repo, user_repo};
-use crate::entities::team_member;
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage;
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::team_member;
+use aster_drive_model::types::TeamMemberRole;
 
 use super::shared::{
     build_team_member_info, ensure_can_manage_team, ensure_not_last_manager, ensure_not_last_owner,

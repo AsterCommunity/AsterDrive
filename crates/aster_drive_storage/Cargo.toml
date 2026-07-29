@@ -1,0 +1,28 @@
+[package]
+name = "aster_drive_storage"
+version.workspace = true
+description = "AsterDrive storage contracts, descriptors, and error types."
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+openapi = ["dep:utoipa", "aster_drive_model/openapi"]
+
+[dependencies]
+aster_drive_model = { workspace = true }
+aster_forge_utils = { workspace = true }
+async-trait = { workspace = true }
+bytes = { workspace = true }
+chrono = { workspace = true }
+rand = { workspace = true }
+serde = { workspace = true }
+tokio = { workspace = true, features = ["fs", "io-util"] }
+utoipa = { workspace = true, optional = true }
+
+[lints]
+workspace = true

@@ -6,8 +6,8 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
 };
 
-use crate::entities::folder::{self, Entity as Folder};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::folder::{self, Entity as Folder};
 
 use super::common::{FolderScope, map_bulk_name_db_err, map_name_db_err, scope_condition};
 use super::query::find_by_id;

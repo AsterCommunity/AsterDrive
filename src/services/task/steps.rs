@@ -1,7 +1,7 @@
 //! Background task step keys and persisted JSON boundary.
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::StoredTaskSteps;
+use aster_drive_model::types::StoredTaskSteps;
 use aster_forge_tasks::TaskStepInfo;
 
 pub(super) const TASK_STEP_WAITING: &str = "waiting";

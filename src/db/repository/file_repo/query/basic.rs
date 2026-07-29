@@ -3,8 +3,8 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, sea_query::Expr,
 };
 
-use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file::{self, Entity as File};
 
 use crate::db::repository::file_repo::common::{
     FileScope, active_scope_condition, apply_folder_condition, scope_condition,

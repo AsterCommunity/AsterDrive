@@ -94,7 +94,7 @@ pub(super) async fn store_actor_username(
 mod tests {
     use super::*;
     use crate::runtime::test_support::CacheOnlyState;
-    use crate::types::TeamMemberRole;
+    use aster_drive_model::types::TeamMemberRole;
 
     fn access(team_id: i64, role: TeamMemberRole) -> CachedTeamAccess {
         CachedTeamAccess {

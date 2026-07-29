@@ -647,7 +647,7 @@ async fn test_folder_copy_quota_failure_does_not_materialize_nested_descendants(
         .unwrap()
         .unwrap();
     let storage_used = user.storage_used;
-    let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user.into();
     user_active.storage_quota = Set(storage_used);
     user_active.update(&db).await.unwrap();
 

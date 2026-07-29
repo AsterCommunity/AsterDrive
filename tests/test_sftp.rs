@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use aster_drive::storage::drivers::sftp::SftpDriver;
-use aster_drive::storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
+use aster_drive_storage::{StorageDriver, StorageErrorKind, StreamUploadDriver};
 use testcontainers::{GenericImage, ImageExt, core::IntoContainerPort, runners::AsyncRunner};
 use tokio::io::AsyncReadExt as _;
 
@@ -18,25 +18,25 @@ fn sftp_policy(
     endpoint: &str,
     base_path: &str,
     host_key_fingerprint: Option<&str>,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
 
     let options = host_key_fingerprint
         .map(|fingerprint| {
-            aster_drive::types::serialize_storage_policy_options(
-                &aster_drive::types::StoragePolicyOptions {
+            aster_drive_model::types::serialize_storage_policy_options(
+                &aster_drive_model::types::StoragePolicyOptions {
                     sftp_host_key_fingerprint: Some(fingerprint.to_string()),
                     ..Default::default()
                 },
             )
             .expect("serialize SFTP host key options")
         })
-        .unwrap_or_else(aster_drive::types::StoredStoragePolicyOptions::empty);
+        .unwrap_or_else(aster_drive_model::types::StoredStoragePolicyOptions::empty);
 
-    aster_drive::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 997,
         name: "Test SFTP".to_string(),
-        driver_type: aster_drive::types::DriverType::Sftp,
+        driver_type: aster_drive_model::types::DriverType::Sftp,
         endpoint: endpoint.to_string(),
         bucket: String::new(),
         access_key: SFTP_USERNAME.to_string(),
@@ -45,7 +45,7 @@ fn sftp_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
         options,
         is_default: false,
         chunk_size: 1024 * 1024,
@@ -73,9 +73,7 @@ async fn wait_for_sftp_host_key_fingerprint(driver: &SftpDriver) -> String {
                 .await
             {
                 Ok(Ok(_)) => last_error = Some("untrusted host key was accepted".to_string()),
-                Ok(Err(error))
-                    if error.storage_error_kind() == Some(StorageErrorKind::Precondition) =>
-                {
+                Ok(Err(error)) if error.kind() == StorageErrorKind::Precondition => {
                     let rejection = SftpDriver::host_key_rejection(&error)
                         .expect("untrusted host key error should expose rejection details");
                     assert_eq!(rejection.expected, None);
@@ -203,10 +201,7 @@ async fn test_sftp_driver_upload_download_round_trip() {
         .metadata("docs/missing.txt")
         .await
         .expect_err("missing sftp object metadata should fail");
-    assert_eq!(
-        missing_meta.storage_error_kind(),
-        Some(StorageErrorKind::NotFound)
-    );
+    assert_eq!(missing_meta.kind(), StorageErrorKind::NotFound);
     #[cfg(debug_assertions)]
     {
         let after_missing_metadata = driver.debug_connection_pool_snapshot();

@@ -1,8 +1,10 @@
 //! 仓储模块：`contact_verification_token_repo`。
 
-use crate::entities::contact_verification_token::{self, Entity as ContactVerificationToken};
 use crate::errors::{AsterError, Result};
-use crate::types::{VerificationChannel, VerificationPurpose};
+use aster_drive_model::entities::contact_verification_token::{
+    self, Entity as ContactVerificationToken,
+};
+use aster_drive_model::types::{VerificationChannel, VerificationPurpose};
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ActiveValue::Set, ColumnTrait, ConnectionTrait, DatabaseConnection,

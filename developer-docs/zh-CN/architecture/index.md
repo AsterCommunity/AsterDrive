@@ -13,6 +13,7 @@
 - 个人空间和团队空间共用同一条文件主链路，只是在 route / service 层通过 `WorkspaceStorageScope` 切换作用域
 - 后端主线仍然是：
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`
+- workspace crate 已拆出明确基础边界：`aster_drive_model` 负责领域类型和 Entity，`aster_drive_migration` 负责表结构演进，`aster_drive_storage` 负责存储 trait、descriptor、对象 key 与结构化错误；根包保留产品业务和具体运行时实现
 - WebDAV 不是普通 REST 路由的一个分支，而是独立挂载在 `src/webdav/`
 - 运行二进制默认启动 HTTP 服务；启用默认 `cli` feature 时，同一入口还提供 `doctor`、`config`、`database-migrate`、`node enroll` 等运维子命令
 - 前端代码在 `frontend-panel/`，生产产物由 primary 节点直接服务
@@ -32,16 +33,16 @@
 | 一个 REST 接口怎么实现 | 对应 `src/api/routes/**` 文件 | route 层做参数解析、鉴权包装和响应适配 |
 | 文件 / 团队 / 分享 / 上传的业务规则在哪 | `src/services/**` | 业务语义集中在 service 层，不应散落在 route 里 |
 | 数据怎么查怎么写 | `src/db/repository/**` | repo 层封装数据库访问和跨库兼容细节 |
-| 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `src/storage/**` | connector descriptor、驱动抽象、具体驱动和远端协议都在这里 |
+| 文件内容怎么落盘 / 上对象存储 / 走 OneDrive 或远端节点 | `crates/aster_drive_storage/**`、`src/storage/**` | 前者定义 trait、descriptor 和结构化错误，后者实现 connector、具体驱动、registry、策略快照和远端协议运行时 |
 | WebDAV 为什么和 REST 不一样 | `src/webdav/**` | 这是单独的协议接入层 |
 | 团队空间为什么复用个人空间语义 | `src/services/workspace/scope/`、`src/services/workspace/storage/`、`src/services/workspace/models.rs`、`src/services/workspace/storage_core/`、`src/services/files/folder/`、`src/services/files/file/` | scope 切换、上传编排和统一存储核心链路都在这里 |
-| 表结构怎么演进 | `migration/`、`src/entities/**` | migration 和 entity 必须一起看 |
+| 表结构怎么演进 | `crates/aster_drive_migration/`、`crates/aster_drive_model/src/entities/**` | migration 和 entity 必须一起看 |
 
 追一个具体功能时，最省时间的路径通常是：
 
 1. 先从对应 `src/api/routes/**` 找入口
 2. 再跳到 `src/services/**`
-3. 最后看 `src/db/repository/**`、`src/storage/**` 或 `src/webdav/**`
+3. 最后看 `src/db/repository/**`、`crates/aster_drive_storage/**`、`src/storage/**` 或 `src/webdav/**`
 
 ## 运行模式与系统边界
 
@@ -179,7 +180,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/runtime/startup/primary.rs` | 构造 primary 运行时：`RuntimeConfig`、邮件发送器、SSE 广播、分享下载回滚队列和远端协议运行时 |
 | `src/runtime/startup/follower.rs` | 构造 follower 运行时：只保留 follower 需要的共享状态 |
 | `src/runtime/tasks.rs` | 声明 Drive 的 primary/follower worker 与周期任务执行体；生命周期、lease、scheduled claim 和关闭由 Forge 管理 |
-| `src/metrics.rs` | Drive 产品指标 trait、`NoopMetrics` 和 `aster_forge_metrics` 适配；Prometheus recorder 仅在 `metrics` feature 启用时创建 |
+| `crates/aster_drive_metrics/` | Drive 产品指标 trait、`NoopMetrics` 和 `aster_forge_metrics` 适配；根包不提供旧 metrics 路径兼容导出 |
 | `src/api/primary.rs` | primary 路由注册 |
 | `src/api/follower.rs` | follower 路由注册 |
 | `src/api/routes/auth/mod.rs` | 认证、会话、偏好、头像、SSE |
@@ -191,6 +192,8 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/api/routes/internal_storage.rs` | follower 内部对象存储协议 |
 | `src/api/routes/remote_tunnel.rs` | primary 侧远端节点 reverse tunnel 内部入口 |
 | `src/services/` | 业务规则集中层 |
+| `crates/aster_drive_http/` | 与产品错误类型解耦、严格限制大小的 reqwest 响应体读取；错误码映射由调用方负责 |
+| `crates/aster_drive_storage/` | 存储 trait、能力扩展、connector descriptor、对象 key 与结构化错误；根包不提供旧路径兼容导出 |
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
 | `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
 | `src/storage/remote_protocol/tunnel/` | reverse tunnel 传输运行时、鉴权、注册表和流式响应 |
@@ -255,7 +258,7 @@ primary 的 audit assembly 直接调用 `aster_forge_audit::audit_component_infa
 - 密码 Argon2 hash/verify、SHA-256 和 hex 编码使用 `aster_forge_crypto`；Drive 只负责把 `CryptoError` 映射为产品内部错误。
 - Drive 的静态路径默认值保留在 `src/config/paths.rs`；相对路径和 SQLite URL 的通用解析由 Forge 完成，Drive adapter 只负责映射成 config error。
 - HTTP date、`If-Match` 强比较和 `If-None-Match` 弱比较使用 `aster_forge_utils::http_validators`，WebDAV / 文件路由继续负责协议状态码。
-- 资源 owner 检查属于 Drive 权限语义，集中在 crate-private `src/types/ownership.rs`，供 repo 和 service 直接使用，不复制判断，也不制造 repo 到 service 的反向依赖。`AsterDrive/<version>` outbound user-agent 是产品静态配置，保留在 `src/config/mod.rs`。
+- 资源 owner 检查属于 Drive 权限语义，集中在 crate-private `src/ownership.rs`，供 repo 和 service 直接使用，不复制判断，也不制造 repo 到 service 的反向依赖。`AsterDrive/<version>` outbound user-agent 是产品静态配置，保留在 `src/config/mod.rs`。
 - 原 `src/utils/` 已删除。新增共享 helper 时先判断应进入具体 Forge crate、产品领域模块还是协议层，不再恢复通用杂物目录。
 
 多实例部署的静态配置示例：
@@ -276,11 +279,11 @@ cargo check --features cli -j 1
 cargo check --tests -j 1
 ```
 
-Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `src/metrics.rs` 创建产品 `MetricsRecorder`：
+Prometheus 指标不在 `main.rs` 直接初始化，而是在 `prepare_common()` 中通过 `aster_drive_metrics` 创建产品 `MetricsRecorder`：
 
 - 启用 `metrics` feature 时初始化 Prometheus registry，并注入 Prometheus recorder
 - 未启用时注入 `NoopMetrics`
-- 业务层、存储驱动 wrapper 和后台任务依赖 `crate::metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
+- 业务层、存储驱动 wrapper 和后台任务直接依赖 `aster_drive_metrics::MetricsRecorder`；需要接入 Forge middleware / DB runtime 时通过 `forge_recorder()` 暴露 `aster_forge_metrics::MetricsRecorder`
 
 ### `prepare_common()`
 
@@ -480,7 +483,7 @@ dispatcher 认领任务后会为业务执行创建 `TaskExecutionContext`。它�
 | 新增查询、分页、过滤条件 | `src/db/repository/**` |
 | 存储 connector descriptor、连接测试、驱动 action、上传策略和对象读写规则 | `src/storage/**` |
 | WebDAV 协议行为 | `src/webdav/**` |
-| 表字段、索引、默认值 | `migration/` + `src/entities/**` |
+| 表字段、索引、默认值 | `crates/aster_drive_migration/` + `crates/aster_drive_model/src/entities/**` |
 | 前端页面、状态管理、SDK 调用 | `frontend-panel/src/**` |
 
 如果你发现复杂业务判断写在 route 层，基本就是代码气味。

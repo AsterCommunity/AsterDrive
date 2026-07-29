@@ -7570,7 +7570,10 @@ export interface components {
             id: number;
             type: components["schemas"]["EntityType"];
         };
-        /** @enum {string} */
+        /**
+         * @description File and folder ordering used by persisted user preferences and listing APIs.
+         * @enum {string}
+         */
         SortBy: "name" | "size" | "created_at" | "updated_at" | "type";
         /**
          * @description Sort direction used by API query parameters.

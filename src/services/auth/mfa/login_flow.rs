@@ -12,7 +12,6 @@ use crate::db::repository::{
     mfa_email_code_repo, mfa_factor_repo, mfa_login_flow_repo, mfa_recovery_code_repo,
     mfa_totp_setup_flow_repo, user_repo,
 };
-use crate::entities::{mfa_email_code, mfa_login_flow, user};
 use crate::errors::{AsterError, Result, auth_mfa_failed_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
@@ -23,7 +22,8 @@ use crate::services::{
     ops::audit,
     ops::audit::AuditRequestInfo,
 };
-use crate::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
+use aster_drive_model::entities::{mfa_email_code, mfa_login_flow, user};
+use aster_drive_model::types::{MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod};
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64};
 
 use super::{

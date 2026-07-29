@@ -6,7 +6,7 @@ mod common;
 use actix_web::test;
 use aster_drive::db::repository::property_repo;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::types::EntityType;
+use aster_drive_model::types::EntityType;
 use serde_json::Value;
 
 #[actix_web::test]

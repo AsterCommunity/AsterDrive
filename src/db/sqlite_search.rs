@@ -5,7 +5,7 @@ use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use std::collections::HashSet;
 
 pub const SQLITE_SEARCH_MIGRATION_NAMES: &[&str] = &[
-    migration::BASELINE_MIGRATION_NAME,
+    aster_drive_migration::BASELINE_MIGRATION_NAME,
     "m20260415_000001_add_sqlite_search_fts",
     "m20260415_000002_add_user_search_acceleration",
     "m20260415_000003_add_team_search_acceleration",

@@ -3,13 +3,13 @@ use futures::StreamExt;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
     StoreFromTempHints, StoreFromTempParams, create_empty, local_content_dedup_enabled,
     store_from_temp_with_hints,
 };
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::usize_to_i64;
 
 use super::common::{

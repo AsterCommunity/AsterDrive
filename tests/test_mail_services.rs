@@ -4,10 +4,10 @@ use std::any::Any;
 use std::sync::{Arc, Mutex};
 
 use aster_drive::config::{audit, mail, site_url};
-use aster_drive::entities::audit_log;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::{mail::outbox, mail::sender};
-use aster_drive::types::AuditAction;
+use aster_drive_model::entities::audit_log;
+use aster_drive_model::types::AuditAction;
 use aster_forge_db::mail_outbox;
 use aster_forge_mail::{
     MailMessage, MailOutboxStatus, MailSender, MailTemplateCode, RenderedMail, StoredMailPayload,

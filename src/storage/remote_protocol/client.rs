@@ -9,9 +9,9 @@ use tokio::io::AsyncRead;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use crate::storage::StorageCapacityInfo;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::{BlobMetadata, PresignedDownloadOptions};
+use aster_drive_storage::StorageCapacityInfo;
+use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::traits::driver::{BlobMetadata, PresignedDownloadOptions};
 
 use super::errors::remote_api_error_kind;
 use super::models::{
@@ -64,7 +64,7 @@ impl RemoteStorageClient {
     }
 
     pub(crate) fn new_reverse_tunnel(
-        remote_node: &crate::entities::managed_follower::Model,
+        remote_node: &aster_drive_model::entities::managed_follower::Model,
         broker: std::sync::Arc<dyn RemoteTunnelBroker>,
     ) -> Result<Self> {
         Ok(Self {
@@ -101,19 +101,19 @@ impl RemoteStorageClient {
         .await?;
         let envelope: ApiEnvelope<RemoteStorageCapabilities> = serde_json::from_slice(&body)
             .map_err(|e| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("decode remote storage capabilities response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                 format!("remote storage capabilities failed: {}", envelope.msg),
             ));
         }
         let capabilities = envelope.data.ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage capabilities response missing data",
             )
@@ -223,19 +223,19 @@ impl RemoteStorageClient {
         .await?;
         let envelope: ApiEnvelope<RemoteStorageObjectMetadata> = serde_json::from_slice(&body)
             .map_err(|e| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("decode remote storage metadata response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                 format!("remote storage metadata failed: {}", envelope.msg),
             ));
         }
         let metadata = envelope.data.ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage metadata response missing data",
             )
@@ -275,13 +275,13 @@ impl RemoteStorageClient {
             .await?;
             let envelope: ApiEnvelope<RemoteStorageListResponse> = serde_json::from_slice(&body)
                 .map_err(|e| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Misconfigured,
                         format!("decode remote storage list response: {e}"),
                     )
                 })?;
             if envelope.code != ApiErrorCode::Success {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                     format!("remote storage list failed: {}", envelope.msg),
                 ));
@@ -293,7 +293,7 @@ impl RemoteStorageClient {
                 break;
             };
             if next_cursor <= cursor.unwrap_or(0) {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     "remote storage list cursor did not advance",
                 ));
@@ -318,19 +318,19 @@ impl RemoteStorageClient {
         .await?;
         let envelope: ApiEnvelope<RemoteStorageCapacityResponse> = serde_json::from_slice(&body)
             .map_err(|e| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("decode remote storage capacity response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                 format!("remote storage capacity failed: {}", envelope.msg),
             ));
         }
         envelope.data.map(|data| data.capacity).ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage capacity response missing data",
             )
@@ -340,7 +340,7 @@ impl RemoteStorageClient {
     pub async fn sync_binding(&self, binding: &RemoteBindingSyncRequest) -> Result<()> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/binding");
         let body = serde_json::to_vec(binding).map_err(|e| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Unknown,
                 format!("encode remote binding sync request: {e}"),
             )
@@ -369,19 +369,19 @@ impl RemoteStorageClient {
         .await?;
         let envelope: ApiEnvelope<Vec<RemoteStorageTargetInfo>> = serde_json::from_slice(&body)
             .map_err(|e| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("decode remote storage target list response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                 format!("remote storage target list failed: {}", envelope.msg),
             ));
         }
         envelope.data.ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "list remote storage targets response missing data",
             )
@@ -394,7 +394,7 @@ impl RemoteStorageClient {
     ) -> Result<RemoteStorageTargetInfo> {
         let path = format!("{INTERNAL_STORAGE_BASE_PATH}/targets");
         let body = serde_json::to_vec(target).map_err(|e| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Unknown,
                 format!("encode remote storage target create request: {e}"),
             )
@@ -417,7 +417,7 @@ impl RemoteStorageClient {
     ) -> Result<RemoteStorageTargetInfo> {
         let path = self.storage_target_path(target_key);
         let body = serde_json::to_vec(target).map_err(|e| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Unknown,
                 format!("encode remote storage target update request: {e}"),
             )
@@ -486,7 +486,7 @@ impl RemoteStorageClient {
             expected_size,
         })
         .map_err(|e| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Unknown,
                 format!("encode remote compose request: {e}"),
             )
@@ -507,19 +507,19 @@ impl RemoteStorageClient {
         .await?;
         let envelope: ApiEnvelope<RemoteStorageComposeResponse> = serde_json::from_slice(&body)
             .map_err(|e| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("decode remote storage compose response: {e}"),
                 )
             })?;
         if envelope.code != ApiErrorCode::Success {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
                 format!("remote storage compose failed: {}", envelope.msg),
             ));
         }
         envelope.data.ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote storage compose response missing data",
             )
@@ -593,19 +593,19 @@ async fn parse_storage_target_response(
         ensure_success_with_body_limit(response, context, REMOTE_CONTROL_PLANE_BODY_LIMIT).await?;
     let envelope: ApiEnvelope<RemoteStorageTargetInfo> =
         serde_json::from_slice(&body).map_err(|e| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("decode remote storage target response: {e}"),
             )
         })?;
     if envelope.code != ApiErrorCode::Success {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             remote_api_error_kind(envelope.code).unwrap_or(StorageErrorKind::Unknown),
             format!("{context} failed: {}", envelope.msg),
         ));
     }
     envelope.data.ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{context} response missing data"),
         )

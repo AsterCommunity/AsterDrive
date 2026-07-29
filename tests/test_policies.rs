@@ -645,7 +645,7 @@ struct PolicyUploadSessionSpec<'a> {
     policy_id: i64,
     user_id: i64,
     object_temp_key: Option<&'a str>,
-    status: Option<aster_drive::types::UploadSessionStatus>,
+    status: Option<aster_drive_model::types::UploadSessionStatus>,
     expires_at: Option<chrono::DateTime<Utc>>,
 }
 
@@ -659,7 +659,7 @@ async fn create_policy_upload_session(
     let now = Utc::now();
     upload_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::upload_session::ActiveModel {
+        aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(spec.upload_id.to_string()),
             user_id: Set(spec.user_id),
             team_id: Set(None),
@@ -673,11 +673,11 @@ async fn create_policy_upload_session(
             policy_id: Set(spec.policy_id),
             status: Set(spec
                 .status
-                .unwrap_or(aster_drive::types::UploadSessionStatus::Uploading)),
+                .unwrap_or(aster_drive_model::types::UploadSessionStatus::Uploading)),
             session_kind: Set(if spec.object_temp_key.is_some() {
-                aster_drive::types::UploadSessionKind::ProviderPresignedSingle
+                aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle
             } else {
-                aster_drive::types::UploadSessionKind::OffsetStaging
+                aster_drive_model::types::UploadSessionKind::OffsetStaging
             }),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
             object_multipart_id: Set(None),
@@ -695,7 +695,7 @@ async fn create_policy_upload_session(
 #[actix_web::test]
 async fn test_user_default_policy_switch_updates_snapshot_immediately() {
     use aster_drive::services::{files::file, storage_policy::policy, user::account};
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -810,7 +810,7 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
         .unwrap()
         .len();
 
-    let mut user_active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user.into();
     user_active.policy_group_id = Set(None);
     user_active.update(state.writer_db()).await.unwrap();
 
@@ -840,7 +840,7 @@ async fn test_seed_policy_groups_backfills_missing_users_to_default_group() {
 async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
     let state = common::setup().await;
@@ -852,7 +852,7 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
     )
     .await
     .unwrap();
-    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut active: aster_drive_model::entities::user::ActiveModel = user.into();
     active.policy_group_id = Set(None);
     active.update(state.writer_db()).await.unwrap();
     state
@@ -937,7 +937,7 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
 async fn test_promoting_policy_backfills_unassigned_users() {
     use aster_drive::db::repository::user_repo;
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -949,7 +949,7 @@ async fn test_promoting_policy_backfills_unassigned_users() {
     )
     .await
     .unwrap();
-    let mut active: aster_drive::entities::user::ActiveModel = user.into();
+    let mut active: aster_drive_model::entities::user::ActiveModel = user.into();
     active.policy_group_id = Set(None);
     active.update(state.writer_db()).await.unwrap();
 
@@ -1102,7 +1102,7 @@ async fn test_policy_crud() {
 #[actix_web::test]
 async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::{
+    use aster_drive_model::types::{
         DriverType, ObjectStorageDownloadStrategy, ObjectStorageUploadStrategy,
         StoragePolicyOptions, parse_storage_policy_options,
     };
@@ -1194,7 +1194,7 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_bucket_change() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -1256,7 +1256,7 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
@@ -1323,7 +1323,7 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1391,7 +1391,7 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1473,7 +1473,7 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
 #[actix_web::test]
 async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
     use aster_drive::services::storage_policy::policy;
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -1661,9 +1661,9 @@ async fn test_policy_delete_rejects_upload_sessions_unless_forced() {
 #[actix_web::test]
 async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
-    use aster_drive::entities::background_task;
     use aster_drive::services::task;
-    use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
 
     let state = common::setup().await;
@@ -1780,8 +1780,8 @@ async fn test_policy_force_delete_schedules_late_temp_object_cleanup() {
 #[actix_web::test]
 async fn test_policy_force_delete_removes_corrupted_session_without_temp_object() {
     use aster_drive::db::repository::{policy_repo, upload_session_repo};
-    use aster_drive::entities::upload_session;
-    use aster_drive::types::UploadSessionKind;
+    use aster_drive_model::entities::upload_session;
+    use aster_drive_model::types::UploadSessionKind;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
@@ -1854,7 +1854,7 @@ async fn test_policy_force_delete_removes_corrupted_session_without_temp_object(
 async fn test_policy_force_delete_still_rejects_blob_references() {
     use aster_drive::db::repository::{file_repo, policy_group_repo, policy_repo};
     use aster_drive::services::{files::file, storage_policy::policy, user::account};
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     let state = common::setup().await;
     let db = state.writer_db().clone();
@@ -3050,7 +3050,7 @@ async fn test_resolve_policy_fails_without_user_policy_group() {
     let model = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
-    let mut active: aster_drive::entities::user::ActiveModel = model.into();
+    let mut active: aster_drive_model::entities::user::ActiveModel = model.into();
     active.policy_group_id = Set(None);
     active.updated_at = Set(chrono::Utc::now());
     active.update(state.writer_db()).await.unwrap();
@@ -3090,7 +3090,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     let now = chrono::Utc::now();
     let group = policy_group_repo::create_group(
         state.writer_db(),
-        aster_drive::entities::storage_policy_group::ActiveModel {
+        aster_drive_model::entities::storage_policy_group::ActiveModel {
             name: Set("Disabled Assigned Group".to_string()),
             description: Set(String::new()),
             is_enabled: Set(true),
@@ -3104,7 +3104,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     .unwrap();
     policy_group_repo::create_group_item(
         state.writer_db(),
-        aster_drive::entities::storage_policy_group_item::ActiveModel {
+        aster_drive_model::entities::storage_policy_group_item::ActiveModel {
             group_id: Set(group.id),
             policy_id: Set(default_policy.id),
             priority: Set(1),
@@ -3120,7 +3120,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     let user_model = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
-    let mut user_active: aster_drive::entities::user::ActiveModel = user_model.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user_model.into();
     user_active.policy_group_id = Set(Some(group.id));
     user_active.updated_at = Set(chrono::Utc::now());
     user_active.update(state.writer_db()).await.unwrap();
@@ -3128,7 +3128,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
     let group_model = policy_group_repo::find_group_by_id(state.writer_db(), group.id)
         .await
         .unwrap();
-    let mut group_active: aster_drive::entities::storage_policy_group::ActiveModel =
+    let mut group_active: aster_drive_model::entities::storage_policy_group::ActiveModel =
         group_model.into();
     group_active.is_enabled = Set(false);
     group_active.updated_at = Set(chrono::Utc::now());
@@ -3151,7 +3151,7 @@ async fn test_resolve_policy_fails_for_disabled_assigned_policy_group() {
 async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     use aster_drive::db::repository::{policy_group_repo, policy_repo, user_repo};
     use aster_drive::services::{files::file, storage_policy::policy};
-    use aster_drive::types::DriverType;
+    use aster_drive_model::types::DriverType;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -3200,7 +3200,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     let now = chrono::Utc::now();
     let group = policy_group_repo::create_group(
         state.writer_db(),
-        aster_drive::entities::storage_policy_group::ActiveModel {
+        aster_drive_model::entities::storage_policy_group::ActiveModel {
             name: Set("Gap Rule Group".to_string()),
             description: Set(String::new()),
             is_enabled: Set(true),
@@ -3218,7 +3218,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     ] {
         policy_group_repo::create_group_item(
             state.writer_db(),
-            aster_drive::entities::storage_policy_group_item::ActiveModel {
+            aster_drive_model::entities::storage_policy_group_item::ActiveModel {
                 group_id: Set(group.id),
                 policy_id: Set(policy_id),
                 priority: Set(priority),
@@ -3235,7 +3235,7 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
     let user_model = user_repo::find_by_id(state.writer_db(), user.id)
         .await
         .unwrap();
-    let mut user_active: aster_drive::entities::user::ActiveModel = user_model.into();
+    let mut user_active: aster_drive_model::entities::user::ActiveModel = user_model.into();
     user_active.policy_group_id = Set(Some(group.id));
     user_active.updated_at = Set(now);
     user_active.update(state.writer_db()).await.unwrap();
@@ -4164,7 +4164,7 @@ async fn test_policy_create_rejects_remote_node_for_non_remote_policy_with_stabl
 #[actix_web::test]
 async fn test_policy_create_rejects_unusable_remote_nodes_with_stable_codes() {
     use aster_drive::services::remote::remote_node;
-    use aster_drive::types::RemoteNodeTransportMode;
+    use aster_drive_model::types::RemoteNodeTransportMode;
 
     let state = common::setup().await;
     let app = create_test_app!(state.clone());

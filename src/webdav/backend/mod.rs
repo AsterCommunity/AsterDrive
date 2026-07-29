@@ -14,7 +14,6 @@ use futures::stream;
 use tokio::io::AsyncRead;
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
-use crate::entities::{file as file_entity, file_blob};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     content::property,
@@ -24,7 +23,6 @@ use crate::services::{
     webdav::tree,
     workspace::storage::WorkspaceStorageScope,
 };
-use crate::types::EntityType;
 use crate::webdav::backend::dir_entry::AsterDavDirEntry;
 use crate::webdav::backend::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
@@ -32,6 +30,8 @@ use crate::webdav::backend::download_audit::{
 use crate::webdav::backend::file::AsterDavFile;
 use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
+use aster_drive_model::entities::{file as file_entity, file_blob};
+use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::i64_to_u64;
 use aster_forge_webdav::plan_atomic_proppatch;
@@ -875,7 +875,7 @@ impl DavFileSystem for AsterDavFs {
 }
 
 fn entity_props_to_dav_props(
-    props: Vec<crate::entities::entity_property::Model>,
+    props: Vec<aster_drive_model::entities::entity_property::Model>,
     do_content: bool,
 ) -> Vec<DavProp> {
     props
@@ -886,7 +886,7 @@ fn entity_props_to_dav_props(
 }
 
 fn entity_prop_to_dav_prop(
-    prop: crate::entities::entity_property::Model,
+    prop: aster_drive_model::entities::entity_property::Model,
     do_content: bool,
 ) -> DavProp {
     DavProp {
@@ -968,7 +968,7 @@ async fn load_child_folders_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     parent_ids: &[i64],
-) -> Result<Vec<crate::entities::folder::Model>, FsError> {
+) -> Result<Vec<aster_drive_model::entities::folder::Model>, FsError> {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             folder_repo::find_children_in_parents(state.writer_db(), user_id, parent_ids).await
@@ -984,7 +984,7 @@ async fn load_files_in_folders_in_scope(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     folder_ids: &[i64],
-) -> Result<Vec<crate::entities::file::Model>, FsError> {
+) -> Result<Vec<aster_drive_model::entities::file::Model>, FsError> {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             file_repo::find_by_folders(state.writer_db(), user_id, folder_ids).await
@@ -1095,7 +1095,7 @@ async fn find_file_by_name_in_scope(
     scope: WorkspaceStorageScope,
     folder_id: Option<i64>,
     name: &str,
-) -> Result<Option<crate::entities::file::Model>, FsError> {
+) -> Result<Option<aster_drive_model::entities::file::Model>, FsError> {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             file_repo::find_by_name_in_folder(state.writer_db(), user_id, folder_id, name).await
@@ -1113,7 +1113,7 @@ async fn find_folder_by_name_in_scope(
     scope: WorkspaceStorageScope,
     parent_id: Option<i64>,
     name: &str,
-) -> Result<Option<crate::entities::folder::Model>, FsError> {
+) -> Result<Option<aster_drive_model::entities::folder::Model>, FsError> {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => {
             folder_repo::find_by_name_in_parent(state.writer_db(), user_id, parent_id, name).await

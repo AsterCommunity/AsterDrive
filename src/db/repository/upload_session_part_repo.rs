@@ -6,8 +6,8 @@ use sea_orm::{
     TryInsertResult, sea_query::Expr,
 };
 
-use crate::entities::upload_session_part::{self, Entity as UploadSessionPart};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::upload_session_part::{self, Entity as UploadSessionPart};
 
 pub struct UpsertPartResult {
     pub model: upload_session_part::Model,

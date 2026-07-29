@@ -28,7 +28,7 @@ pub async fn record_server_start<S: SharedRuntimeState>(state: &S) {
 mod tests {
     use super::record_server_start;
     use crate::runtime::FollowerAppState;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
 
@@ -39,7 +39,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap();
@@ -63,7 +63,7 @@ mod tests {
             config: Arc::new(crate::config::Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         };
 
         (state, db)
@@ -75,10 +75,10 @@ mod tests {
 
         record_server_start(&state).await;
 
-        let count = crate::entities::audit_log::Entity::find()
+        let count = aster_drive_model::entities::audit_log::Entity::find()
             .filter(
-                crate::entities::audit_log::Column::Action
-                    .eq(crate::types::AuditAction::ServerStart),
+                aster_drive_model::entities::audit_log::Column::Action
+                    .eq(aster_drive_model::types::AuditAction::ServerStart),
             )
             .count(&db)
             .await

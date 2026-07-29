@@ -6,10 +6,10 @@ use tokio::io::AsyncReadExt;
 
 use crate::config::operations;
 use crate::db::repository::file_repo;
-use crate::entities::file_blob;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::storage::{StorageDriver, StorageErrorKind};
+use aster_drive_model::entities::file_blob;
+use aster_drive_storage::{StorageDriver, StorageErrorKind};
 use aster_forge_utils::numbers::u64_to_usize;
 
 use crate::services::media::processing::shared::{
@@ -172,19 +172,19 @@ async fn read_thumbnail_from_path(
 
     let stream = match driver.get_range(path, 0, Some(range_limit)).await {
         Ok(stream) => stream,
-        Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+        Err(error) if error.kind() == StorageErrorKind::NotFound => {
             return Ok(None);
         }
         Err(error) => match driver.exists(path).await {
             Ok(false) => return Ok(None),
-            Ok(true) => return Err(error),
+            Ok(true) => return Err(error.into()),
             Err(exists_error) => {
                 tracing::warn!(
                     blob_id,
                     path,
                     "thumbnail range read failed and existence recheck also failed: {exists_error}"
                 );
-                return Err(error);
+                return Err(error.into());
             }
         },
     };
@@ -243,9 +243,8 @@ pub(super) async fn persist_thumbnail_metadata(
 #[cfg(test)]
 mod tests {
     use super::{MAX_CACHED_THUMBNAIL_BYTES, read_thumbnail_from_path};
-    use crate::errors::{AsterError, Result};
-    use crate::storage::error::storage_driver_error;
-    use crate::storage::{BlobMetadata, StorageDriver, StorageErrorKind};
+    use aster_drive_storage::error::storage_driver_error;
+    use aster_drive_storage::{BlobMetadata, StorageDriver, StorageErrorKind};
     use aster_forge_utils::numbers::u64_to_usize;
     use async_trait::async_trait;
     use bytes::Bytes;
@@ -325,7 +324,7 @@ mod tests {
         }
     }
 
-    fn unsupported_test_call(method: &str) -> AsterError {
+    fn unsupported_test_call(method: &str) -> aster_drive_storage::StorageError {
         storage_driver_error(
             StorageErrorKind::Unsupported,
             format!("thumbnail cache test driver does not support {method}"),
@@ -334,16 +333,19 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for ThumbnailCacheDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Err(unsupported_test_call("put"))
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             self.get_calls.fetch_add(1, Ordering::SeqCst);
             Ok(vec![b'x'; self.data_len])
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Err(unsupported_test_call("get_stream"))
         }
 
@@ -352,7 +354,7 @@ mod tests {
             _path: &str,
             offset: u64,
             length: Option<u64>,
-        ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             self.range_calls.fetch_add(1, Ordering::SeqCst);
             if let Some(kind) = self.range_error_kind {
                 return Err(storage_driver_error(kind, "thumbnail range read failed"));
@@ -372,17 +374,17 @@ mod tests {
             Ok(Box::new(std::io::Cursor::new(vec![b'x'; returned_len])))
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Err(unsupported_test_call("delete"))
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             self.exists_calls.fetch_add(1, Ordering::SeqCst);
             self.exists_result
                 .map_err(|kind| storage_driver_error(kind, "thumbnail existence check failed"))
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             self.metadata_calls.fetch_add(1, Ordering::SeqCst);
             Err(unsupported_test_call("metadata"))
         }

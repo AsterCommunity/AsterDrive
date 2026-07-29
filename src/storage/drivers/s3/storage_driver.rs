@@ -2,10 +2,9 @@ use async_trait::async_trait;
 use aws_sdk_s3::primitives::ByteStream;
 use tokio::io::AsyncRead;
 
-use crate::errors::{MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
-use crate::storage::traits::extensions::StorageCapacityInfo;
+use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
+use aster_drive_storage::traits::extensions::StorageCapacityInfo;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
 use super::S3Driver;
@@ -16,7 +15,7 @@ use super::S3Driver;
 
 #[async_trait]
 impl StorageDriver for S3Driver {
-    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         let key = self.full_key(path);
         self.client
             .put_object()
@@ -29,7 +28,7 @@ impl StorageDriver for S3Driver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -44,15 +43,16 @@ impl StorageDriver for S3Driver {
             .body
             .collect()
             .await
-            .map_aster_err_ctx("S3 read body failed", |message| {
-                storage_driver_error(StorageErrorKind::Transient, message)
-            })?
+            .map_storage_err_ctx(StorageErrorKind::Transient, "S3 read body failed")?
             .into_bytes();
 
         Ok(bytes.to_vec())
     }
 
-    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -71,7 +71,7 @@ impl StorageDriver for S3Driver {
         path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let key = self.full_key(path);
         // HTTP Range 规范使用闭区间 [start, end]
         let range = match length {
@@ -99,7 +99,7 @@ impl StorageDriver for S3Driver {
         true
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let key = self.full_key(path);
         self.client
             .delete_object()
@@ -111,7 +111,7 @@ impl StorageDriver for S3Driver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         let key = self.full_key(path);
         match self
             .client
@@ -132,7 +132,7 @@ impl StorageDriver for S3Driver {
         }
     }
 
-    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let key = self.full_key(path);
         let resp = self
             .client
@@ -147,7 +147,7 @@ impl StorageDriver for S3Driver {
             .content_length
             .map(|value| numbers::i64_to_u64(value, "S3 content_length"))
             .transpose()
-            .map_err(|error| Self::rewrap_message_as_storage_error(error.into()))?
+            .map_storage_err(StorageErrorKind::Misconfigured)?
             .unwrap_or(0);
 
         Ok(BlobMetadata {
@@ -156,7 +156,11 @@ impl StorageDriver for S3Driver {
         })
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let src_key = self.full_key(src_path);
         let dest_key = self.full_key(dest_path);
         // CopySource 形如 "{bucket}/{key}"，bucket 与 key 中的特殊字符（空格、中文、
@@ -182,15 +186,15 @@ impl StorageDriver for S3Driver {
         Ok(dest_path.to_string())
     }
 
-    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+    async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
         Err(storage_driver_error(
             StorageErrorKind::Unsupported,
             "S3-compatible storage does not expose standardized bucket capacity information",
         ))
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             presigned: Some(self),
             list: Some(self),
             stream_upload: Some(self),

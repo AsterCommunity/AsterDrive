@@ -8,7 +8,7 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
-use crate::types::{RemoteUploadStrategy, UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{RemoteUploadStrategy, UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 
 use super::context::{
@@ -121,7 +121,7 @@ async fn init_presigned_remote_upload(
 async fn init_remote_presigned_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
 ) -> Result<InitUploadResponse> {
     with_unique_upload_id(|upload_id| async {
         let temp_key = format!("files/{upload_id}");
@@ -191,7 +191,7 @@ async fn init_remote_presigned_single_upload(
 }
 
 async fn remote_presigned_put_url(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
 ) -> Result<String> {
     let presigned_driver = driver.extensions().presigned.ok_or_else(|| {

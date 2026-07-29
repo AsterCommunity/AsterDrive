@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
-use crate::storage::field_contract::{
+use aster_drive_storage::field_contract::{
     RelativeLocalPathNormalizationError, normalize_relative_local_target_path,
 };
 

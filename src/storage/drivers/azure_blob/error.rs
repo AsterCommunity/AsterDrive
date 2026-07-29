@@ -2,7 +2,7 @@ use azure_core::error::ErrorKind;
 use azure_core::http::StatusCode;
 use azure_storage_blob::models::StorageErrorCode;
 
-use crate::storage::error::StorageErrorKind;
+use aster_drive_storage::error::StorageErrorKind;
 
 use super::AzureBlobDriver;
 

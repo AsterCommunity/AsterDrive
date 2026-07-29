@@ -9,8 +9,8 @@ use sea_orm::{
 use unicode_normalization::{UnicodeNormalization, is_nfc, is_nfd};
 
 use crate::api::pagination::SortBy;
-use crate::entities::folder::{self, Entity as Folder};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::folder::{self, Entity as Folder};
 use aster_forge_api::SortOrder;
 
 use super::common::{FolderScope, active_scope_condition, apply_parent_condition, scope_condition};
@@ -454,8 +454,8 @@ pub async fn find_all_children_in_parents<C: ConnectionTrait>(
 pub async fn find_all_files_in_folder<C: ConnectionTrait>(
     db: &C,
     folder_id: i64,
-) -> Result<Vec<crate::entities::file::Model>> {
-    use crate::entities::file::{self, Entity as File};
+) -> Result<Vec<aster_drive_model::entities::file::Model>> {
+    use aster_drive_model::entities::file::{self, Entity as File};
 
     File::find()
         .filter(file::Column::FolderId.eq(folder_id))

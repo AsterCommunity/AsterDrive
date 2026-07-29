@@ -8,11 +8,11 @@ use sea_orm::Set;
 use crate::api::constants::YEAR_SECS;
 use crate::config::{avatar, operations};
 use crate::db::repository::{user_profile_repo, user_repo};
-use crate::entities::user_profile;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::media::processing;
-use crate::types::AvatarSource;
+use aster_drive_model::entities::user_profile;
+use aster_drive_model::types::AvatarSource;
 
 use super::avatar_image::read_avatar_upload;
 use super::avatar_storage::{

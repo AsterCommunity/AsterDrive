@@ -5,7 +5,6 @@ use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
-use crate::entities::{background_task, file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::{
@@ -22,7 +21,8 @@ use crate::services::{
     },
     workspace::storage::WorkspaceStorageScope,
 };
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::{background_task, file, file_blob};
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 
 pub(crate) async fn ensure_archive_preview_task(
     state: &impl TaskRuntimeState,
@@ -124,7 +124,7 @@ pub(super) async fn process_archive_preview_task(
         let archive_format = preview::ensure_archive_preview_source_supported(&source_file)?;
         let limits = preview::ArchivePreviewLimits::from_runtime_config(
             state.runtime_config(),
-            crate::types::ArchiveFilenameEncoding::Auto,
+            aster_drive_model::types::ArchiveFilenameEncoding::Auto,
             archive_format,
         )?;
         if limits.task_signature != payload.limit_signature {

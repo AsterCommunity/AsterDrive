@@ -3,9 +3,9 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo};
-use crate::entities::follower_enrollment_session;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::follower_enrollment_session;
 use aster_forge_db::transaction;
 use chrono::{Duration, Utc};
 use sea_orm::Set;

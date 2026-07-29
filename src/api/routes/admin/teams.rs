@@ -304,7 +304,9 @@ pub async fn add_team_member(
         team::AddTeamMemberInput {
             user_id: body.user_id,
             identifier: body.identifier.clone(),
-            role: body.role.unwrap_or(crate::types::TeamMemberRole::Member),
+            role: body
+                .role
+                .unwrap_or(aster_drive_model::types::TeamMemberRole::Member),
         },
         &ctx,
     )

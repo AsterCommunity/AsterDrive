@@ -5,9 +5,8 @@ use async_trait::async_trait;
 use azure_storage_blob::models::BlobContainerClientListBlobsOptions;
 use futures::{StreamExt as _, TryStreamExt as _};
 
-use crate::errors::Result;
-use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
-use crate::storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
+use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use aster_drive_storage::traits::extensions::{ListStorageDriver, PresignedStorageDriver};
 
 use super::AzureBlobDriver;
 
@@ -18,11 +17,15 @@ impl PresignedStorageDriver for AzureBlobDriver {
         path: &str,
         expires: Duration,
         _options: PresignedDownloadOptions,
-    ) -> Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         Ok(Some(self.blob_url(path, "r", expires)?.to_string()))
     }
 
-    async fn presigned_put_url(&self, path: &str, expires: Duration) -> Result<Option<String>> {
+    async fn presigned_put_url(
+        &self,
+        path: &str,
+        expires: Duration,
+    ) -> aster_drive_storage::Result<Option<String>> {
         Ok(Some(self.blob_url(path, "cw", expires)?.to_string()))
     }
 
@@ -37,7 +40,7 @@ impl PresignedStorageDriver for AzureBlobDriver {
 
 #[async_trait]
 impl ListStorageDriver for AzureBlobDriver {
-    async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         let mut output = Vec::new();
         self.scan_paths(prefix, &mut VecVisitor(&mut output))
             .await?;
@@ -48,7 +51,7 @@ impl ListStorageDriver for AzureBlobDriver {
         &self,
         prefix: Option<&str>,
         visitor: &mut dyn StoragePathVisitor,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         let container = self.container_client("rl")?;
 
         let full_prefix = prefix.map(|value| self.full_key(value));
@@ -75,7 +78,7 @@ impl ListStorageDriver for AzureBlobDriver {
 struct VecVisitor<'a>(&'a mut Vec<String>);
 
 impl StoragePathVisitor for VecVisitor<'_> {
-    fn visit_path(&mut self, path: String) -> Result<()> {
+    fn visit_path(&mut self, path: String) -> aster_drive_storage::Result<()> {
         self.0.push(path);
         Ok(())
     }

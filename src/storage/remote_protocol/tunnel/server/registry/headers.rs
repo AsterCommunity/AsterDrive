@@ -1,10 +1,10 @@
 use http::Method;
 
-use crate::entities::managed_follower;
 use crate::storage::remote_protocol::{
     INTERNAL_AUTH_ACCESS_KEY_HEADER, INTERNAL_AUTH_NONCE_HEADER, INTERNAL_AUTH_SIGNATURE_HEADER,
     INTERNAL_AUTH_TIMESTAMP_HEADER, sign_internal_request,
 };
+use aster_drive_model::entities::managed_follower;
 
 pub(super) fn request_headers(
     remote_node: &managed_follower::Model,

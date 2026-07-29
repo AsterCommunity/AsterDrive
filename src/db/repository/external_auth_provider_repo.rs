@@ -6,8 +6,8 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::external_auth_provider::{self, Entity as ExternalAuthProvider};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::external_auth_provider::{self, Entity as ExternalAuthProvider};
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_external_auth::ExternalAuthProviderKind;
 

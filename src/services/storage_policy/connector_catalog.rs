@@ -2,7 +2,7 @@
 
 use crate::config::Config;
 use crate::errors::{AsterError, Result};
-use crate::storage::StorageConnectorDescriptor;
+use aster_drive_storage::StorageConnectorDescriptor;
 use sea_orm::ConnectionTrait;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,7 +72,7 @@ fn connector_visible_in_context(
 mod tests {
     use super::{StorageConnectorCatalogContext, list_storage_connector_catalog};
     use crate::config::{Config, DeploymentProfile};
-    use crate::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     fn driver_types(config: &Config, context: StorageConnectorCatalogContext) -> Vec<DriverType> {
         list_storage_connector_catalog(config, context)

@@ -16,8 +16,10 @@ use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use sea_orm::{ActiveValue, Set};
 use serde::{Deserialize, Serialize};
 
-use crate::entities::user;
-use crate::types::{StoredUserConfig, TokenType, UserRole, UserStatus, VerificationPurpose};
+use aster_drive_model::entities::user;
+use aster_drive_model::types::{
+    StoredUserConfig, TokenType, UserRole, UserStatus, VerificationPurpose,
+};
 
 pub use contact_verification::{
     cleanup_expired_contact_verification_tokens, confirm_contact_verification,

@@ -13,7 +13,6 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, policy_repo, version_repo};
-use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -21,6 +20,7 @@ use crate::services::{
     workspace::models::FolderInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
+use aster_drive_model::entities::{file, folder};
 use aster_forge_api::NullablePatch;
 use aster_forge_utils::numbers::u64_to_usize;
 
@@ -322,7 +322,7 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     let tags =
         crate::services::content::tag::load_entity_tag_map(state, scope.into(), &[], &[folder.id])
             .await?
-            .remove(&(crate::types::EntityType::Folder, folder.id))
+            .remove(&(aster_drive_model::types::EntityType::Folder, folder.id))
             .unwrap_or_default();
     Ok(FolderInfo::from_model_with_storage_used(folder, storage_used).with_tags(tags))
 }
@@ -639,7 +639,7 @@ pub(crate) async fn set_lock_in_scope(
     locked: bool,
 ) -> Result<folder::Model> {
     use crate::services::files::lock;
-    use crate::types::EntityType;
+    use aster_drive_model::types::EntityType;
 
     tracing::debug!(
         scope = ?scope,

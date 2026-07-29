@@ -5,8 +5,8 @@ use parking_lot::Mutex;
 use tokio::io::AsyncRead;
 
 use super::*;
-use crate::storage::error::storage_driver_error;
-use crate::storage::{
+use aster_drive_storage::error::storage_driver_error;
+use aster_drive_storage::{
     BlobMetadata, ProviderResumableUploadCapabilities, ProviderResumableUploadDriver,
     ProviderResumableUploadFragmentOutcome, ProviderResumableUploadSession,
     ProviderResumableUploadStatus, StorageDriverExtensions, StorageErrorKind,
@@ -65,25 +65,28 @@ impl MockCleanupDriver {
     }
 }
 
-fn mock_error(kind: StorageErrorKind, operation: &str) -> AsterError {
+fn mock_error(kind: StorageErrorKind, operation: &str) -> aster_drive_storage::StorageError {
     storage_driver_error(kind, format!("mock {operation} error"))
 }
 
 #[async_trait]
 impl StorageDriver for MockCleanupDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 
-    async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(tokio::io::empty()))
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let mut state = self.state.lock();
         state.events.push(format!("delete:{path}"));
         match state.delete_result {
@@ -92,7 +95,7 @@ impl StorageDriver for MockCleanupDriver {
         }
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         let mut state = self.state.lock();
         state.events.push(format!("exists:{path}"));
         state
@@ -100,7 +103,7 @@ impl StorageDriver for MockCleanupDriver {
             .map_err(|kind| mock_error(kind, "exists"))
     }
 
-    async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: 0,
             content_type: None,
@@ -133,8 +136,12 @@ impl ProviderResumableUploadDriver for MockCleanupDriver {
         }
     }
 
-    async fn create_upload_session(&self, _path: &str) -> Result<ProviderResumableUploadSession> {
-        Err(AsterError::storage_driver_error(
+    async fn create_upload_session(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<ProviderResumableUploadSession> {
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
             "mock create is not used by lifecycle tests",
         ))
     }
@@ -142,13 +149,14 @@ impl ProviderResumableUploadDriver for MockCleanupDriver {
     async fn query_upload_session(
         &self,
         _upload_url: &str,
-    ) -> Result<ProviderResumableUploadStatus> {
-        Err(AsterError::storage_driver_error(
+    ) -> aster_drive_storage::Result<ProviderResumableUploadStatus> {
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
             "mock query is not used by lifecycle tests",
         ))
     }
 
-    async fn abort_upload_session(&self, upload_url: &str) -> Result<()> {
+    async fn abort_upload_session(&self, upload_url: &str) -> aster_drive_storage::Result<()> {
         let mut state = self.state.lock();
         state.events.push(format!("abort:{upload_url}"));
         match state.abort_result {
@@ -164,8 +172,9 @@ impl ProviderResumableUploadDriver for MockCleanupDriver {
         _total_size: u64,
         _reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _fragment_size: i64,
-    ) -> Result<ProviderResumableUploadFragmentOutcome> {
-        Err(AsterError::storage_driver_error(
+    ) -> aster_drive_storage::Result<ProviderResumableUploadFragmentOutcome> {
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
             "mock upload is not used by lifecycle tests",
         ))
     }

@@ -1,13 +1,13 @@
 use chrono::Utc;
 use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
-use crate::entities::{file, file_blob};
 use crate::errors::{AsterError, Result};
 use crate::services::workspace::storage::{
     WorkspaceStorageScope, create_exact_file_from_blob,
     create_exact_file_from_blob_with_actor_username, create_new_file_from_blob,
     create_new_file_from_blob_with_actor_username, update_storage_used,
 };
+use aster_drive_model::entities::{file, file_blob};
 
 use super::NewFileMode;
 use super::prepare::OverwriteContext;
@@ -65,7 +65,7 @@ pub(super) async fn write_file_record_from_temp<C: ConnectionTrait>(
         let next_ver = crate::db::repository::version_repo::next_version(txn, existing_id).await?;
         crate::db::repository::version_repo::create(
             txn,
-            crate::entities::file_version::ActiveModel {
+            aster_drive_model::entities::file_version::ActiveModel {
                 file_id: Set(existing_id),
                 blob_id: Set(old_blob.id),
                 version: Set(next_ver),

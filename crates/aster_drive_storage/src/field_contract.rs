@@ -7,7 +7,7 @@
 
 use std::path::{Component, Path, PathBuf};
 
-use crate::errors::{AsterError, Result};
+use crate::error::{Result, StorageErrorKind, storage_driver_error};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum StorageDescriptorFieldKind {
@@ -91,9 +91,10 @@ pub enum RelativeLocalPathNormalizationError {
 pub fn normalize_required_storage_field(field: &str, value: &str) -> Result<String> {
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Err(AsterError::validation_error(format!(
-            "{field} cannot be blank"
-        )));
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
+            format!("{field} cannot be blank"),
+        ));
     }
     Ok(trimmed.to_string())
 }
@@ -115,7 +116,8 @@ pub fn normalize_object_storage_prefix(value: &str) -> String {
 
 pub fn normalize_storage_policy_max_file_size(value: i64) -> Result<i64> {
     if value < 0 {
-        return Err(AsterError::validation_error(
+        return Err(storage_driver_error(
+            StorageErrorKind::Misconfigured,
             "max_file_size must be non-negative",
         ));
     }

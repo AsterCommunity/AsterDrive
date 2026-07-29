@@ -1,10 +1,12 @@
 use async_trait::async_trait;
 
-use crate::entities::storage_policy;
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::StorageDriver;
-use crate::storage::connector_descriptor::{
+use crate::storage::drivers::sftp::SftpDriver;
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
     StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
     StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
@@ -13,8 +15,6 @@ use crate::storage::connector_descriptor::{
     saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
     storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
-use crate::storage::drivers::sftp::SftpDriver;
-use crate::types::DriverType;
 
 use super::common::{ensure_onedrive_options_absent, validate_static_secret_credentials};
 use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
@@ -163,12 +163,12 @@ impl StorageConnector for SftpConnector {
 
     fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
         validate_static_secret_credentials(input, "SFTP")?;
-        SftpDriver::validate_connection_parts(
+        Ok(SftpDriver::validate_connection_parts(
             &input.endpoint,
             &input.access_key,
             &input.secret_key,
             &input.base_path,
-        )
+        )?)
     }
 
     fn supports_saved_draft_credentials() -> bool {
@@ -178,7 +178,7 @@ impl StorageConnector for SftpConnector {
     async fn validate_policy_options<C: sea_orm::ConnectionTrait + Sync>(
         db: &C,
         remote_node_id: Option<i64>,
-        options: &crate::types::StoragePolicyOptions,
+        options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
         ensure_onedrive_options_absent(options)?;

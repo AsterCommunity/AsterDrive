@@ -419,7 +419,7 @@ Main code paths:
 - `src/api/routes/admin/storage_migrations.rs`
 - `src/services/task/storage_migration.rs`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
-- `src/entities/storage_migration_checkpoint.rs`
+- `crates/aster_drive_model/src/entities/storage_migration_checkpoint.rs`
 
 This is not “change policy A to policy B.” It actually migrates the blob content owned by `file_blobs.policy_id = source_policy_id` to the target policy, then updates the database to point each blob at the new policy and storage path.
 
@@ -490,7 +490,7 @@ Main code paths:
 - `src/cli/doctor/execute.rs`
 - `src/cli/doctor/storage_scan.rs`
 - `src/services/ops/integrity.rs`
-- `src/storage/traits/driver.rs`
+- `crates/aster_drive_storage/src/traits/driver.rs`
 
 ### Design goal
 

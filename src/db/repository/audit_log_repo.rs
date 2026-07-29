@@ -7,9 +7,9 @@ use sea_orm::{
 };
 
 use crate::api::pagination::AdminAuditLogSortBy;
-use crate::entities::audit_log as product_audit_log;
 use crate::errors::{AsterError, Result};
-use crate::types::AuditAction;
+use aster_drive_model::entities::audit_log as product_audit_log;
+use aster_drive_model::types::AuditAction;
 use aster_forge_api::SortOrder;
 use aster_forge_db::audit_log::{self, Entity as AuditLog};
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
@@ -63,36 +63,34 @@ pub async fn find_with_filters(
 
     let items = items
         .into_iter()
-        .map(product_audit_log::Model::try_from)
+        .map(product_audit_log_from_forge)
         .collect::<Result<Vec<_>>>()?;
 
     Ok((items, total))
 }
 
-impl TryFrom<aster_forge_db::audit_log::Model> for product_audit_log::Model {
-    type Error = AsterError;
+fn product_audit_log_from_forge(
+    value: aster_forge_db::audit_log::Model,
+) -> Result<product_audit_log::Model> {
+    let action = AuditAction::from_str_name(&value.action).ok_or_else(|| {
+        AsterError::database_operation(format!(
+            "unsupported audit action in audit log row {}: {}",
+            value.id, value.action
+        ))
+    })?;
 
-    fn try_from(value: aster_forge_db::audit_log::Model) -> Result<Self> {
-        let action = AuditAction::from_str_name(&value.action).ok_or_else(|| {
-            AsterError::database_operation(format!(
-                "unsupported audit action in audit log row {}: {}",
-                value.id, value.action
-            ))
-        })?;
-
-        Ok(Self {
-            id: value.id,
-            user_id: value.user_id,
-            action,
-            entity_type: value.entity_type,
-            entity_id: value.entity_id,
-            entity_name: value.entity_name,
-            details: value.details,
-            ip_address: value.ip_address,
-            user_agent: value.user_agent,
-            created_at: value.created_at,
-        })
-    }
+    Ok(product_audit_log::Model {
+        id: value.id,
+        user_id: value.user_id,
+        action,
+        entity_type: value.entity_type,
+        entity_id: value.entity_id,
+        entity_name: value.entity_name,
+        details: value.details,
+        ip_address: value.ip_address,
+        user_agent: value.user_agent,
+        created_at: value.created_at,
+    })
 }
 
 fn apply_admin_audit_log_sort(

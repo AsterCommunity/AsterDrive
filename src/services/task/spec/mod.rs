@@ -18,10 +18,10 @@
 use aster_forge_tasks::TaskExecutionContext;
 
 use crate::config::RuntimeConfig;
-use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::types::BackgroundTaskKind;
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::BackgroundTaskKind;
 
 use super::dispatch::TaskLane;
 use super::types::{TaskPayload, TaskResult};
@@ -69,7 +69,9 @@ impl<T> BackgroundTaskSpec for T where
 {
 }
 
-pub(super) fn serialize_payload<S>(payload: &S::Payload) -> Result<crate::types::StoredTaskPayload>
+pub(super) fn serialize_payload<S>(
+    payload: &S::Payload,
+) -> Result<aster_drive_model::types::StoredTaskPayload>
 where
     S: BackgroundTaskSpec,
 {
@@ -81,29 +83,13 @@ where
         TaskExecutionContext,
         AsterError,
     >(payload)
-    .map(crate::types::StoredTaskPayload)
+    .map(aster_drive_model::types::StoredTaskPayload)
     .map_err(AsterError::from)
 }
 
-impl aster_forge_tasks::TaskRecord<BackgroundTaskKind> for background_task::Model {
-    fn id(&self) -> i64 {
-        self.id
-    }
-
-    fn kind(&self) -> BackgroundTaskKind {
-        self.kind
-    }
-
-    fn payload_json(&self) -> &str {
-        self.payload_json.as_ref()
-    }
-
-    fn result_json(&self) -> Option<&str> {
-        self.result_json.as_ref().map(AsRef::as_ref)
-    }
-}
-
-pub(super) fn serialize_result<S>(result: &S::Result) -> Result<crate::types::StoredTaskResult>
+pub(super) fn serialize_result<S>(
+    result: &S::Result,
+) -> Result<aster_drive_model::types::StoredTaskResult>
 where
     S: BackgroundTaskSpec,
 {
@@ -115,7 +101,7 @@ where
         TaskExecutionContext,
         AsterError,
     >(result)
-    .map(crate::types::StoredTaskResult)
+    .map(aster_drive_model::types::StoredTaskResult)
     .map_err(AsterError::from)
 }
 
@@ -167,20 +153,20 @@ macro_rules! define_task_spec {
 
         impl aster_forge_tasks::BackgroundTaskSpec<
             $crate::runtime::PrimaryAppState,
-            $crate::entities::background_task::Model,
+            aster_drive_model::entities::background_task::Model,
             $crate::config::RuntimeConfig,
             aster_forge_tasks::TaskExecutionContext,
             $crate::errors::AsterError,
         > for $spec {
-            type Kind = $crate::types::BackgroundTaskKind;
+            type Kind = aster_drive_model::types::BackgroundTaskKind;
             type Lane = $crate::services::task::dispatch::TaskLane;
             type Payload = $payload;
             type Result = $result;
             type PayloadEnvelope = $crate::services::task::types::TaskPayload;
             type ResultEnvelope = $crate::services::task::types::TaskResult;
 
-            const KIND: $crate::types::BackgroundTaskKind =
-                $crate::types::BackgroundTaskKind::$kind;
+            const KIND: aster_drive_model::types::BackgroundTaskKind =
+                aster_drive_model::types::BackgroundTaskKind::$kind;
 
             fn step_specs() -> &'static [aster_forge_tasks::TaskStepSpec] {
                 $steps
@@ -204,7 +190,7 @@ macro_rules! define_task_spec {
 
             fn process<'a>(
                 state: &'a $crate::runtime::PrimaryAppState,
-                task: &'a $crate::entities::background_task::Model,
+                task: &'a aster_drive_model::entities::background_task::Model,
                 context: aster_forge_tasks::TaskExecutionContext,
             ) -> $crate::services::task::spec::TaskProcessFuture<'a> {
                 Box::pin($process(state, task, context))

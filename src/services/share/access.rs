@@ -4,10 +4,10 @@ use chrono::Utc;
 use std::net::{IpAddr, Ipv6Addr};
 
 use crate::db::repository::{share_repo, user_profile_repo, user_repo};
-use crate::entities::share;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::user::profile;
+use aster_drive_model::entities::share;
 use aster_forge_crypto as hash;
 
 use super::cache::invalidate_share_token_record_cache_for_share;
@@ -65,8 +65,8 @@ pub async fn get_share_info(
 }
 
 fn resolve_share_owner_name(
-    user: &crate::entities::user::Model,
-    profile: Option<&crate::entities::user_profile::Model>,
+    user: &aster_drive_model::entities::user::Model,
+    profile: Option<&aster_drive_model::entities::user_profile::Model>,
 ) -> String {
     profile
         .and_then(|p| p.display_name.as_deref())
@@ -464,13 +464,13 @@ mod tests {
 
     #[test]
     fn resolve_share_owner_name_prefers_display_name() {
-        let user = crate::entities::user::Model {
+        let user = aster_drive_model::entities::user::Model {
             id: 1,
             username: "alice".to_string(),
             email: "alice@test.com".to_string(),
             password_hash: String::new(),
-            role: crate::types::UserRole::User,
-            status: crate::types::UserStatus::Active,
+            role: aster_drive_model::types::UserRole::User,
+            status: aster_drive_model::types::UserStatus::Active,
             session_version: 0,
             must_change_password: false,
             email_verified_at: None,
@@ -482,11 +482,11 @@ mod tests {
             updated_at: chrono::Utc::now(),
             config: None,
         };
-        let profile = crate::entities::user_profile::Model {
+        let profile = aster_drive_model::entities::user_profile::Model {
             user_id: 1,
             display_name: Some("Alicia".to_string()),
             wopi_user_info: None,
-            avatar_source: crate::types::AvatarSource::None,
+            avatar_source: aster_drive_model::types::AvatarSource::None,
             avatar_key: None,
             avatar_version: 0,
             created_at: chrono::Utc::now(),
@@ -498,13 +498,13 @@ mod tests {
 
     #[test]
     fn resolve_share_owner_name_falls_back_to_username() {
-        let user = crate::entities::user::Model {
+        let user = aster_drive_model::entities::user::Model {
             id: 1,
             username: "bob".to_string(),
             email: "bob@test.com".to_string(),
             password_hash: String::new(),
-            role: crate::types::UserRole::User,
-            status: crate::types::UserStatus::Active,
+            role: aster_drive_model::types::UserRole::User,
+            status: aster_drive_model::types::UserStatus::Active,
             session_version: 0,
             must_change_password: false,
             email_verified_at: None,
@@ -522,13 +522,13 @@ mod tests {
 
     #[test]
     fn resolve_share_owner_name_skips_empty_display_name() {
-        let user = crate::entities::user::Model {
+        let user = aster_drive_model::entities::user::Model {
             id: 1,
             username: "charlie".to_string(),
             email: "charlie@test.com".to_string(),
             password_hash: String::new(),
-            role: crate::types::UserRole::User,
-            status: crate::types::UserStatus::Active,
+            role: aster_drive_model::types::UserRole::User,
+            status: aster_drive_model::types::UserStatus::Active,
             session_version: 0,
             must_change_password: false,
             email_verified_at: None,
@@ -540,11 +540,11 @@ mod tests {
             updated_at: chrono::Utc::now(),
             config: None,
         };
-        let profile = crate::entities::user_profile::Model {
+        let profile = aster_drive_model::entities::user_profile::Model {
             user_id: 1,
             display_name: Some("   ".to_string()),
             wopi_user_info: None,
-            avatar_source: crate::types::AvatarSource::None,
+            avatar_source: aster_drive_model::types::AvatarSource::None,
             avatar_key: None,
             avatar_version: 0,
             created_at: chrono::Utc::now(),

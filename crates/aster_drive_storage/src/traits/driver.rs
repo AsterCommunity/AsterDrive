@@ -4,7 +4,7 @@
 //! 管理端表单显示哪些字段、OAuth 怎么授权、连接测试是否需要保存 policy，都不
 //! 属于 `StorageDriver`，应放在 `storage::connectors` 和 connector descriptor。
 
-use crate::errors::{AsterError, MapAsterErr, Result};
+use crate::error::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncReadExt};
 
@@ -74,7 +74,7 @@ pub trait StorageDriver: Send + Sync {
             let mut skip = (&mut stream).take(offset);
             tokio::io::copy(&mut skip, &mut tokio::io::sink())
                 .await
-                .map_aster_err_ctx("skip bytes for range", AsterError::storage_driver_error)?;
+                .map_storage_err_ctx(StorageErrorKind::Transient, "skip bytes for range")?;
         }
         Ok(match length {
             Some(len) => Box::new(stream.take(len)),
@@ -135,8 +135,8 @@ pub trait StorageDriver: Send + Sync {
     /// 不支持容量查询的驱动必须明确返回 `StorageErrorKind::Unsupported`，不要静默
     /// 猜测或 panic。调用方可把该错误转换成用户可见的 `unsupported` 状态。
     async fn capacity_info(&self) -> Result<super::extensions::StorageCapacityInfo> {
-        Err(crate::storage::error::storage_driver_error(
-            crate::storage::StorageErrorKind::Unsupported,
+        Err(storage_driver_error(
+            StorageErrorKind::Unsupported,
             "storage driver does not support capacity observability",
         ))
     }
@@ -259,10 +259,7 @@ mod tests {
             .await
             .expect_err("default capacity observability should be unsupported");
 
-        assert_eq!(
-            error.storage_error_kind(),
-            Some(crate::storage::StorageErrorKind::Unsupported)
-        );
+        assert_eq!(error.kind(), StorageErrorKind::Unsupported);
         assert!(
             error
                 .message()

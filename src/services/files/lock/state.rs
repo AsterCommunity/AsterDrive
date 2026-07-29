@@ -3,7 +3,7 @@ use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::db::repository::{file_repo, folder_repo, lock_repo};
 use crate::errors::{AsterError, Result};
-use crate::types::EntityType;
+use aster_drive_model::types::EntityType;
 
 pub(crate) async fn clear_entity_locked_if_unlocked(
     db: &impl ConnectionTrait,
@@ -33,7 +33,7 @@ pub async fn set_entity_locked(
     match entity_type {
         EntityType::File => {
             let f = file_repo::find_by_id(db, entity_id).await?;
-            let mut active: crate::entities::file::ActiveModel = f.into();
+            let mut active: aster_drive_model::entities::file::ActiveModel = f.into();
             active.is_locked = Set(locked);
             active.updated_at = Set(now);
             active.update(db).await.map_err(|e| {
@@ -43,7 +43,7 @@ pub async fn set_entity_locked(
         }
         EntityType::Folder => {
             let f = folder_repo::find_by_id(db, entity_id).await?;
-            let mut active: crate::entities::folder::ActiveModel = f.into();
+            let mut active: aster_drive_model::entities::folder::ActiveModel = f.into();
             active.is_locked = Set(locked);
             active.updated_at = Set(now);
             active.update(db).await.map_err(|e| {

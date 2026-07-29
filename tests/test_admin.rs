@@ -15,8 +15,8 @@ use std::os::unix::fs::PermissionsExt;
 use aster_drive::db::repository::{
     audit_log_repo, background_task_repo, lock_repo, policy_repo, team_repo, user_repo,
 };
-use aster_drive::entities::{background_task, file, file_blob, file_version, resource_lock};
-use aster_drive::types::{
+use aster_drive_model::entities::{background_task, file, file_blob, file_version, resource_lock};
+use aster_drive_model::types::{
     AuditAction, BackgroundTaskKind, BackgroundTaskStatus, EntityType, StoredLockOwnerInfo,
     StoredTaskPayload, StoredTaskResult,
 };
@@ -966,7 +966,7 @@ async fn test_admin_create_blob_maintenance_task_audits_and_deduplicates_targets
         audit_log_repo::AuditLogQuery {
             user_id: None,
             action: Some(AuditAction::AdminCreateBlobMaintenanceTask.as_str()),
-            entity_type: Some(aster_drive::types::AuditEntityType::Task.as_str()),
+            entity_type: Some(aster_drive_model::types::AuditEntityType::Task.as_str()),
             entity_id: body["data"]["id"].as_i64(),
             after: None,
             before: None,

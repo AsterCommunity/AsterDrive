@@ -1175,24 +1175,25 @@ mod tests {
     use super::{direct_routes, routes};
     use crate::config::{Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
-    use crate::entities::{file, file_blob, folder, storage_policy, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::{mail::sender, media::processing, share};
     use crate::storage::drivers::local::LocalDriver;
-    use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-    use crate::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, UserRole, UserStatus,
-    };
+    use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, HttpResponse, test, web};
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{file, file_blob, folder, storage_policy, user};
+    use aster_drive_model::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, UserRole, UserStatus,
+    };
+    use aster_drive_storage::StorageDriver;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use image::codecs::png::PngEncoder;
     use image::{ColorType, ImageEncoder};
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
     use std::io::Cursor;
     use std::sync::Arc;
@@ -1226,7 +1227,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("share image preview route database should connect");
@@ -1386,7 +1387,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,

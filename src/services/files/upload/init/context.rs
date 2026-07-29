@@ -2,7 +2,6 @@ use chrono::{DateTime, Utc};
 use sea_orm::Set;
 
 use crate::db::repository::upload_session_repo;
-use crate::entities::{storage_policy, upload_session};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::files::upload::responses::InitUploadResponse;
@@ -10,11 +9,12 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, abort_created_multipart_upload_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{self, PolicyUploadTransport, WorkspaceStorageScope};
-use crate::storage::MultipartStorageDriver;
-use crate::types::{
+use aster_drive_model::entities::{storage_policy, upload_session};
+use aster_drive_model::types::{
     ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
     UploadSessionKind, UploadSessionStatus,
 };
+use aster_drive_storage::MultipartStorageDriver;
 
 #[derive(Debug)]
 pub(super) struct ResolvedUploadTarget {
@@ -423,7 +423,7 @@ pub(super) fn chunked_upload_response(
 mod tests {
     use super::session_kind_for_transport;
     use crate::services::workspace::storage::PolicyUploadTransport;
-    use crate::types::{
+    use aster_drive_model::types::{
         ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy,
         UploadMode, UploadSessionKind,
     };

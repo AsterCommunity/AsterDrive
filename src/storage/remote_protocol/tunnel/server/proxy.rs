@@ -16,10 +16,8 @@ use super::{
     RemoteTunnelOwnerDirectory, RemoteTunnelRegistry, RemoteTunnelStreamHttpResponse,
 };
 use crate::db::repository::managed_follower_repo;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::transport::read_reqwest_response_body_limited;
 use crate::storage::remote_protocol::tunnel::is_allowed_tunnel_target;
 use crate::storage::remote_protocol::{
@@ -27,6 +25,8 @@ use crate::storage::remote_protocol::{
     INTERNAL_AUTH_SIGNATURE_HEADER, INTERNAL_AUTH_SKEW_SECS, INTERNAL_AUTH_TIMESTAMP_HEADER,
     REMOTE_CONTROL_PLANE_BODY_LIMIT, internal_request_mac, sign_internal_request,
 };
+use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 
 pub const REMOTE_TUNNEL_PROXY_PATH_PREFIX: &str = "/api/v1/internal/remote-tunnel/proxy";
 const REMOTE_TUNNEL_PROXY_BODY_BRIDGE_CAPACITY: usize = 128 * 1024;
@@ -85,7 +85,7 @@ impl ClusterRemoteTunnelBroker {
         let proxy_path = format!("{REMOTE_TUNNEL_PROXY_PATH_PREFIX}/{}", remote_node.id);
         let mut url = reqwest::Url::parse(&format!("{}{}", owner.internal_endpoint, proxy_path))
             .map_err(|error| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("build reverse tunnel owner proxy URL: {error}"),
                 )
@@ -125,7 +125,7 @@ impl ClusterRemoteTunnelBroker {
             request = request.header(reqwest::header::CONTENT_LENGTH, content_length);
         }
         let response = request.send().await.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("send reverse tunnel owner proxy request: {error}"),
             )
@@ -141,7 +141,7 @@ impl ClusterRemoteTunnelBroker {
             )
             .await
             .unwrap_or_default();
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!(
                     "reverse tunnel owner proxy returned HTTP {status}: {}",
@@ -228,13 +228,13 @@ impl RemoteTunnelBroker for ClusterRemoteTunnelBroker {
         );
         let mut body = Vec::new();
         reader.read_to_end(&mut body).await.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read buffered tunnel owner proxy response: {error}"),
             )
         })?;
         if body.len() > REMOTE_TUNNEL_BODY_LIMIT {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Unsupported,
                 "reverse tunnel owner proxy response exceeds buffered body limit",
             ));
@@ -366,13 +366,13 @@ pub async fn proxy_tunnel_request<S: RemoteProtocolRuntimeState>(
             );
             let mut buffered = Vec::new();
             limited.read_to_end(&mut buffered).await.map_err(|error| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("buffer tunnel owner proxy request: {error}"),
                 )
             })?;
             if buffered.len() > REMOTE_TUNNEL_BODY_LIMIT {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Unsupported,
                     "tunnel owner proxy request exceeds buffered body limit",
                 ));
@@ -631,10 +631,10 @@ fn is_hop_by_hop_header(name: &str) -> bool {
 mod tests {
     use super::*;
     use crate::config::{Config, DeploymentProfile};
-    use crate::entities::managed_follower;
     use crate::runtime::test_support::CacheOnlyState;
     use crate::storage::remote_protocol::tunnel::server::RemoteTunnelOwnerLease;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::managed_follower;
     use sea_orm::{ActiveModelTrait, Set};
 
     #[test]
@@ -717,7 +717,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap();
@@ -730,7 +730,7 @@ mod tests {
             access_key: Set("access".to_string()),
             secret_key: Set("secret".to_string()),
             is_enabled: Set(true),
-            transport_mode: Set(crate::types::RemoteNodeTransportMode::ReverseTunnel),
+            transport_mode: Set(aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel),
             last_capabilities: Set("{}".to_string()),
             last_error: Set(String::new()),
             last_checked_at: Set(None),
@@ -764,7 +764,7 @@ mod tests {
             access_key: "access".to_string(),
             secret_key: "secret".to_string(),
             is_enabled: true,
-            transport_mode: crate::types::RemoteNodeTransportMode::ReverseTunnel,
+            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel,
             last_capabilities: "{}".to_string(),
             last_error: String::new(),
             last_checked_at: None,

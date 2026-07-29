@@ -258,9 +258,9 @@ pub async fn put_avatar_source(
         || {
             audit::details(audit::UserAvatarSourceAuditDetails {
                 source: match body.source {
-                    crate::types::AvatarSource::None => "none",
-                    crate::types::AvatarSource::Gravatar => "gravatar",
-                    crate::types::AvatarSource::Upload => "upload",
+                    aster_drive_model::types::AvatarSource::None => "none",
+                    aster_drive_model::types::AvatarSource::Gravatar => "gravatar",
+                    aster_drive_model::types::AvatarSource::Upload => "upload",
                 },
             })
         },

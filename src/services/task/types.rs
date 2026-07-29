@@ -12,7 +12,9 @@ use crate::storage::connectors::{
     StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
     StoragePolicyCleanupRemoteNodeSnapshot,
 };
-use crate::types::{ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType};
+use aster_drive_model::types::{
+    ArchiveFilenameEncoding, BackgroundTaskKind, BackgroundTaskStatus, DriverType,
+};
 
 use super::runtime::SystemRuntimeTaskKind;
 
@@ -329,7 +331,7 @@ pub struct ThumbnailGenerateTaskPayload {
     #[serde(default)]
     pub source_file_name: String,
     pub source_mime_type: String,
-    pub processor: crate::types::MediaProcessorKind,
+    pub processor: aster_drive_model::types::MediaProcessorKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -340,7 +342,7 @@ pub struct ImagePreviewGenerateTaskPayload {
     #[serde(default)]
     pub source_file_name: String,
     pub source_mime_type: String,
-    pub processor: crate::types::MediaProcessorKind,
+    pub processor: aster_drive_model::types::MediaProcessorKind,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -447,7 +449,7 @@ mod tests {
             .unwrap()
             .with_timezone(&chrono::Utc);
         let snapshot = StoragePolicyCleanupOneDriveCredentialSnapshot {
-            cloud: crate::types::MicrosoftGraphCloud::Global,
+            cloud: aster_drive_model::types::MicrosoftGraphCloud::Global,
             tenant_id: Some("tenant".to_string()),
             client_id: Some("client-id".to_string()),
             client_secret_ciphertext: Some("client-secret-ciphertext".to_string()),
@@ -502,7 +504,7 @@ pub struct ThumbnailGenerateTaskResult {
     pub thumbnail_path: String,
     pub thumbnail_processor: String,
     pub thumbnail_version: String,
-    pub processor: crate::types::MediaProcessorKind,
+    pub processor: aster_drive_model::types::MediaProcessorKind,
     pub reused_existing_thumbnail: bool,
 }
 
@@ -513,7 +515,7 @@ pub struct ImagePreviewGenerateTaskResult {
     pub image_preview_path: String,
     pub image_preview_processor: String,
     pub image_preview_version: String,
-    pub processor: crate::types::MediaProcessorKind,
+    pub processor: aster_drive_model::types::MediaProcessorKind,
     pub reused_existing_preview: bool,
 }
 
@@ -710,7 +712,7 @@ pub struct StoragePolicyMigrationDryRun {
     pub target_supports_stream_upload: bool,
     pub target_connection_ok: bool,
     pub target_capacity_check: StoragePolicyMigrationCapacityCheck,
-    pub target_capacity: crate::storage::StorageCapacityInfo,
+    pub target_capacity: aster_drive_storage::StorageCapacityInfo,
     pub delete_source_after_success_supported: bool,
     pub can_start: bool,
     pub warnings: Vec<StoragePolicyMigrationDryRunWarning>,

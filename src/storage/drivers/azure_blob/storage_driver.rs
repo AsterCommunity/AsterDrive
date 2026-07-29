@@ -6,16 +6,15 @@ use azure_storage_blob::models::{
 use futures::TryStreamExt as _;
 use tokio::io::AsyncRead;
 
-use crate::errors::{MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
-use crate::storage::traits::extensions::{StorageCapacityInfo, StreamUploadDriver};
+use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
+use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StreamUploadDriver};
+use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
 use super::{AzureBlobDriver, DEFAULT_OPERATION_SAS_TTL};
 
 #[async_trait]
 impl StorageDriver for AzureBlobDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         let client = self.blob_client(path, "cw")?;
         client
             .upload(RequestContent::from(data.to_vec()), None)
@@ -24,7 +23,7 @@ impl StorageDriver for AzureBlobDriver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         let client = self.blob_client(path, "r")?;
         let resp = client
             .download(None)
@@ -34,13 +33,14 @@ impl StorageDriver for AzureBlobDriver {
             .body
             .collect()
             .await
-            .map_aster_err_ctx("Azure Blob read body failed", |message| {
-                storage_driver_error(StorageErrorKind::Transient, message)
-            })?;
+            .map_storage_err_ctx(StorageErrorKind::Transient, "Azure Blob read body failed")?;
         Ok(bytes.to_vec())
     }
 
-    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let client = self.blob_client(path, "r")?;
         let resp = client
             .download(None)
@@ -56,7 +56,7 @@ impl StorageDriver for AzureBlobDriver {
         path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         if length == Some(0) {
             return Ok(Box::new(tokio::io::empty()));
         }
@@ -82,7 +82,7 @@ impl StorageDriver for AzureBlobDriver {
         true
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let client = self.blob_client(path, "d")?;
         match client.delete(None).await {
             Ok(_) => {}
@@ -92,7 +92,7 @@ impl StorageDriver for AzureBlobDriver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         let client = self.blob_client(path, "r")?;
         client
             .exists()
@@ -100,7 +100,7 @@ impl StorageDriver for AzureBlobDriver {
             .map_err(|error| Self::map_azure_error("Azure Blob exists check failed", error))
     }
 
-    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let client = self.blob_client(path, "r")?;
         let resp = client
             .get_properties(None)
@@ -118,7 +118,11 @@ impl StorageDriver for AzureBlobDriver {
         Ok(BlobMetadata { size, content_type })
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let source_url = self.blob_url(src_path, "r", DEFAULT_OPERATION_SAS_TTL)?;
         let dest_client = self.block_blob_client(dest_path, "cw")?;
 
@@ -142,15 +146,15 @@ impl StorageDriver for AzureBlobDriver {
         Ok(dest_path.to_string())
     }
 
-    async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+    async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
         Err(storage_driver_error(
             StorageErrorKind::Unsupported,
             "Azure Blob storage does not expose storage account capacity through the blob data API",
         ))
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             presigned: Some(self),
             list: Some(self),
             stream_upload: Some(self),
@@ -176,19 +180,20 @@ impl AzureBlobDriver {
         let mut reader = self.get_stream(src_path).await?;
         let mut file = tokio::fs::File::create(temp_path.path())
             .await
-            .map_aster_err_ctx("create Azure Blob copy temp file", |message| {
-                storage_driver_error(StorageErrorKind::Transient, message)
-            })?;
+            .map_storage_err_ctx(
+                StorageErrorKind::Transient,
+                "create Azure Blob copy temp file",
+            )?;
         tokio::io::copy(&mut reader, &mut file)
             .await
-            .map_aster_err_ctx("write Azure Blob copy temp file", |message| {
-                storage_driver_error(StorageErrorKind::Transient, message)
-            })?;
-        file.flush()
-            .await
-            .map_aster_err_ctx("flush Azure Blob copy temp file", |message| {
-                storage_driver_error(StorageErrorKind::Transient, message)
-            })?;
+            .map_storage_err_ctx(
+                StorageErrorKind::Transient,
+                "write Azure Blob copy temp file",
+            )?;
+        file.flush().await.map_storage_err_ctx(
+            StorageErrorKind::Transient,
+            "flush Azure Blob copy temp file",
+        )?;
         drop(file);
 
         let temp_path_str = temp_path

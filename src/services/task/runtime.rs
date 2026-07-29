@@ -3,11 +3,11 @@
 use chrono::{DateTime, Utc};
 
 use crate::db::repository::background_task_repo;
-use crate::entities::background_task;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::task::types::TaskPresentationCode;
-use crate::types::{BackgroundTaskStatus, StoredTaskPayload};
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskStatus, StoredTaskPayload};
 
 use super::spec::{self, SystemRuntimeTask};
 use super::types::{RuntimeSystemHealthResult, RuntimeTaskPayload, RuntimeTaskResult};
@@ -480,8 +480,10 @@ mod tests {
         assert_eq!(first.dedupe_key, second.dedupe_key);
         assert!(first.dedupe_key.is_some());
         assert_eq!(
-            crate::entities::background_task::Entity::find()
-                .filter(crate::entities::background_task::Column::DedupeKey.is_not_null())
+            aster_drive_model::entities::background_task::Entity::find()
+                .filter(
+                    aster_drive_model::entities::background_task::Column::DedupeKey.is_not_null()
+                )
                 .count(state.writer_db())
                 .await
                 .unwrap(),

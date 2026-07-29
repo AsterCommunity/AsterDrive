@@ -9,7 +9,7 @@ use lofty::probe::Probe;
 use lofty::tag::{ItemKey, Tag};
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::AudioMediaMetadata;
+use aster_drive_model::types::AudioMediaMetadata;
 
 pub(super) fn parse_audio_metadata_from_path(path: &Path) -> Result<AudioMediaMetadata> {
     let file = std::fs::File::open(path).map_aster_err_ctx(

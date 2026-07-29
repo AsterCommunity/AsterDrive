@@ -10,8 +10,8 @@ use crate::config::RuntimeConfig;
 use crate::config::media_processing as media_processing_config;
 use crate::config::operations;
 use crate::errors::{AsterError, Result};
-use crate::storage::StorageDriver;
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
+use aster_drive_storage::StorageDriver;
 
 const CLI_PROCESS_TIMEOUT: Duration = Duration::from_secs(60);
 const MAX_CLI_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
@@ -393,7 +393,7 @@ mod tests {
         RuntimeConfig,
         operations::{IMAGE_PREVIEW_MAX_DIMENSION_KEY, THUMBNAIL_MAX_DIMENSION_KEY},
     };
-    use crate::types::MediaProcessorKind;
+    use aster_drive_model::types::MediaProcessorKind;
     use aster_forge_config::{ConfigSource, ConfigValueType};
     use aster_forge_db::system_config;
     use chrono::Utc;

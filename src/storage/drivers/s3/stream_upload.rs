@@ -9,8 +9,8 @@ use http_body::{Frame, SizeHint};
 use tokio::io::AsyncRead;
 use tokio_util::io::ReaderStream;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::{MapStorageErr, StorageErrorKind};
 use aster_forge_utils::numbers;
 
 use super::S3Driver;
@@ -113,11 +113,15 @@ where
 
 #[async_trait]
 impl StreamUploadDriver for S3Driver {
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(storage_path);
         let body = ByteStream::from_path(local_path)
             .await
-            .map_aster_err_ctx("S3 read file", AsterError::storage_driver_error)?;
+            .map_storage_err_ctx(StorageErrorKind::Transient, "S3 read file")?;
         self.client
             .put_object()
             .bucket(&self.bucket)
@@ -134,9 +138,10 @@ impl StreamUploadDriver for S3Driver {
         storage_path: &str,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let key = self.full_key(storage_path);
-        let content_length = numbers::i64_to_u64(size, "S3 put_reader content_length")?;
+        let content_length = numbers::i64_to_u64(size, "S3 put_reader content_length")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         let body = ByteStream::from_body_1_x(SizedReaderBody::new(reader, content_length));
 
         self.client

@@ -4,16 +4,16 @@ use aster_forge_tasks::TaskExecutionContext;
 use chrono::{Duration, Utc};
 
 use crate::api::constants::HOUR_SECS;
-use crate::entities::{background_task, storage_policy};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, TaskRuntimeState};
-use crate::storage::StorageDriver;
-use crate::storage::StorageErrorKind;
 use crate::storage::connectors::{
     StoragePolicyCleanupSnapshots, build_cleanup_driver, can_create_cleanup_task_with_snapshot,
     cleanup_snapshot_for_policy,
 };
-use crate::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_drive_model::entities::{background_task, storage_policy};
+use aster_drive_model::types::{StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::{set_task_step_active, set_task_step_succeeded};
 use aster_forge_utils::numbers::u64_to_i64;
 
@@ -172,7 +172,7 @@ pub(super) async fn process_storage_policy_temp_cleanup_task(
                 .await
             {
                 Ok(()) => stats.deleted_objects += 1,
-                Err(error) if error.storage_error_kind() == Some(StorageErrorKind::NotFound) => {
+                Err(error) if error.kind() == StorageErrorKind::NotFound => {
                     stats.missing_objects += 1;
                 }
                 Err(error) => {
@@ -368,16 +368,16 @@ mod tests {
     #[test]
     fn onedrive_cleanup_task_requires_driver_snapshot() {
         assert!(!can_create_cleanup_task_with_snapshot(
-            crate::types::DriverType::OneDrive,
+            aster_drive_model::types::DriverType::OneDrive,
             &None
         ));
         assert!(can_create_cleanup_task_with_snapshot(
-            crate::types::DriverType::Local,
+            aster_drive_model::types::DriverType::Local,
             &None
         ));
 
         let snapshot = StoragePolicyCleanupOneDriveCredentialSnapshot {
-            cloud: crate::types::MicrosoftGraphCloud::Global,
+            cloud: aster_drive_model::types::MicrosoftGraphCloud::Global,
             tenant_id: None,
             client_id: None,
             client_secret_ciphertext: None,
@@ -388,7 +388,7 @@ mod tests {
             expires_at: None,
         };
         assert!(can_create_cleanup_task_with_snapshot(
-            crate::types::DriverType::OneDrive,
+            aster_drive_model::types::DriverType::OneDrive,
             &Some(StoragePolicyCleanupDriverSnapshot::MicrosoftGraph(snapshot))
         ));
     }
@@ -396,7 +396,7 @@ mod tests {
     #[test]
     fn remote_cleanup_task_requires_driver_snapshot() {
         assert!(!can_create_cleanup_task_with_snapshot(
-            crate::types::DriverType::Remote,
+            aster_drive_model::types::DriverType::Remote,
             &None
         ));
 
@@ -404,13 +404,13 @@ mod tests {
             id: 7,
             name: "edge".to_string(),
             base_url: "https://edge.example.test".to_string(),
-            transport_mode: crate::types::RemoteNodeTransportMode::Direct,
+            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
             access_key_ciphertext: "access".to_string(),
             secret_key_ciphertext: "secret".to_string(),
             last_capabilities: "{}".to_string(),
         };
         assert!(can_create_cleanup_task_with_snapshot(
-            crate::types::DriverType::Remote,
+            aster_drive_model::types::DriverType::Remote,
             &Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(snapshot))
         ));
     }

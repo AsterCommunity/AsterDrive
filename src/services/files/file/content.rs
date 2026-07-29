@@ -25,7 +25,7 @@ use aster_forge_utils::numbers::usize_to_i64;
 pub(crate) struct StreamedTempUpload {
     pub temp_path: String,
     pub size: i64,
-    pub resolved_policy: Option<crate::entities::storage_policy::Model>,
+    pub resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
     pub precomputed_hash: Option<String>,
 }
 
@@ -48,12 +48,12 @@ fn upload_temp_file_flush_failed(message: String) -> AsterError {
 pub(crate) async fn stream_request_body_to_temp_upload(
     state: &PrimaryAppState,
     payload: &mut Payload,
-    resolved_policy_hint: Option<crate::entities::storage_policy::Model>,
+    resolved_policy_hint: Option<aster_drive_model::entities::storage_policy::Model>,
     declared_size: Option<i64>,
 ) -> Result<StreamedTempUpload> {
     let (temp_path, should_hash) = if let Some(policy) = resolved_policy_hint
         .as_ref()
-        .filter(|policy| policy.driver_type == crate::types::DriverType::Local)
+        .filter(|policy| policy.driver_type == aster_drive_model::types::DriverType::Local)
     {
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
         let staging_path =
@@ -247,7 +247,7 @@ pub(crate) async fn update_content_in_scope(
     file_id: i64,
     body: Bytes,
     if_match: Option<&str>,
-) -> Result<(crate::entities::file::Model, String)> {
+) -> Result<(aster_drive_model::entities::file::Model, String)> {
     let db = state.writer_db();
     tracing::debug!(
         scope = ?scope,
@@ -261,7 +261,7 @@ pub(crate) async fn update_content_in_scope(
     if f.is_locked {
         let lock = crate::db::repository::lock_repo::find_by_entity(
             db,
-            crate::types::EntityType::File,
+            aster_drive_model::types::EntityType::File,
             file_id,
         )
         .await?;
@@ -287,7 +287,7 @@ pub(crate) async fn update_content_in_scope(
 
     let size = usize_to_i64(body.len(), "body length")?;
     let resolved_policy = storage::resolve_policy_for_size(state, scope, f.folder_id, size).await?;
-    let result = if resolved_policy.driver_type == crate::types::DriverType::Local {
+    let result = if resolved_policy.driver_type == aster_drive_model::types::DriverType::Local {
         let should_dedup = storage::local_content_dedup_enabled(&resolved_policy);
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
         let staging_path =
@@ -373,7 +373,7 @@ pub(crate) async fn update_content_stream_in_scope(
     payload: &mut Payload,
     declared_size: Option<i64>,
     if_match: Option<&str>,
-) -> Result<(crate::entities::file::Model, String)> {
+) -> Result<(aster_drive_model::entities::file::Model, String)> {
     let db = state.writer_db();
     tracing::debug!(
         scope = ?scope,
@@ -387,7 +387,7 @@ pub(crate) async fn update_content_stream_in_scope(
     if f.is_locked {
         let lock = crate::db::repository::lock_repo::find_by_entity(
             db,
-            crate::types::EntityType::File,
+            aster_drive_model::types::EntityType::File,
             file_id,
         )
         .await?;

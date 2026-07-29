@@ -238,12 +238,13 @@ bun run check
 ## 项目结构
 
 ```text
-src/                    Rust 后端
-migration/              SeaORM 迁移
-frontend-panel/         React 管理 / 文件前端
-docs/                   部署与面向最终用户的文档
-developer-docs/         API、架构、测试和内部定位文档
-tests/                  集成测试
+src/                             Rust 应用、服务、API 与运行时
+crates/aster_drive_model/        共享产品模型与 SeaORM Entity
+crates/aster_drive_migration/    SeaORM 迁移
+frontend-panel/                  React 管理 / 文件前端
+docs/                            部署与面向最终用户的文档
+developer-docs/                  API、架构、测试和内部定位文档
+tests/                           集成测试
 ```
 
 ## 许可证

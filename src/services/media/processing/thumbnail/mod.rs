@@ -7,10 +7,10 @@ mod render;
 mod storage_native;
 
 use crate::db::repository::file_repo;
-use crate::entities::file_blob;
 use crate::errors::Result;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
-use crate::types::MediaProcessorKind;
+use aster_drive_model::entities::file_blob;
+use aster_drive_model::types::MediaProcessorKind;
 use bytes::Bytes;
 
 use super::resolve::{build_thumbnail_context, build_thumbnail_context_with_processor};

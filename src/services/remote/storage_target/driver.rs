@@ -2,17 +2,19 @@ use std::path::Path;
 use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::{remote_storage_target, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::FollowerRuntimeState;
-use crate::storage::StorageDriver;
 use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
 use crate::storage::drivers::{local::LocalDriver, s3::S3Driver};
-use crate::storage::field_contract::{
+use aster_drive_model::entities::{remote_storage_target, storage_policy};
+use aster_drive_model::types::{
+    DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+};
+use aster_drive_storage::StorageDriver;
+use aster_drive_storage::field_contract::{
     StorageDescriptorFieldKind, StorageDescriptorFieldSemantics, normalize_object_storage_prefix,
     normalize_required_storage_field,
 };
-use crate::types::{DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions};
 use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
@@ -346,7 +348,7 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
     }
 
     fn validate_policy(policy: &storage_policy::Model) -> Result<()> {
-        S3Driver::validate_policy(policy)
+        Ok(S3Driver::validate_policy(policy)?)
     }
 
     fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {

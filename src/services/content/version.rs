@@ -7,7 +7,6 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::db::repository::{file_repo, version_repo};
-use crate::entities::file_version;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -16,6 +15,7 @@ use crate::services::{
     workspace::models::{FileInfo, FileVersion},
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::file_version;
 
 async fn load_version_for_file(
     db: &sea_orm::DatabaseConnection,
@@ -33,7 +33,9 @@ async fn load_version_for_file(
     Ok(version)
 }
 
-fn resource_scope_from_file(file: &crate::entities::file::Model) -> Result<WorkspaceResourceScope> {
+fn resource_scope_from_file(
+    file: &aster_drive_model::entities::file::Model,
+) -> Result<WorkspaceResourceScope> {
     match file.team_id {
         Some(team_id) => Ok(WorkspaceResourceScope::Team { team_id }),
         None => Ok(WorkspaceResourceScope::Personal {
@@ -64,9 +66,9 @@ fn add_cleanup_count(counts: &mut BTreeMap<i64, i32>, blob_id: i64, context: &st
 async fn restore_version_inner(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
-    file: crate::entities::file::Model,
+    file: aster_drive_model::entities::file::Model,
     version: file_version::Model,
-) -> Result<crate::entities::file::Model> {
+) -> Result<aster_drive_model::entities::file::Model> {
     let db = state.writer_db();
     if file.is_locked {
         return Err(AsterError::resource_locked("file is locked"));
@@ -88,7 +90,7 @@ async fn restore_version_inner(
     let previous_blob_id = current_blob.id;
     let target_blob_id = version.blob_id;
 
-    let mut active: crate::entities::file::ActiveModel = file.into();
+    let mut active: aster_drive_model::entities::file::ActiveModel = file.into();
     active.blob_id = Set(target_blob_id);
     active.size = Set(version.size);
     active.updated_at = Set(now);
@@ -223,7 +225,7 @@ async fn restore_version_in_scope(
     scope: WorkspaceStorageScope,
     file_id: i64,
     version_id: i64,
-) -> Result<crate::entities::file::Model> {
+) -> Result<aster_drive_model::entities::file::Model> {
     let file = storage::verify_file_access(state, scope, file_id).await?;
     if let WorkspaceStorageScope::Team {
         team_id,

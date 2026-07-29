@@ -1,9 +1,9 @@
 use crate::api::pagination::{AdminLockSortBy, load_offset_page};
 use crate::db::repository::lock_repo;
-use crate::entities::resource_lock;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
+use aster_drive_model::entities::resource_lock;
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::ResourceLock;

@@ -8,10 +8,10 @@
 //! 如果要给后台任务增加一种新 kind，先改 `spec.rs`，再在这里注册即可。
 
 use crate::config::RuntimeConfig;
-use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
-use crate::types::{BackgroundTaskKind, BackgroundTaskStatus};
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{TaskRetryClass, TaskStepInfo, initial_task_steps_from_specs};
 
@@ -28,50 +28,50 @@ use super::types::{TaskPayload, TaskPresentation, TaskResult};
 aster_forge_tasks::task_registry! {
     pub(super) mod registered {
         state: crate::runtime::PrimaryAppState;
-        task: crate::entities::background_task::Model;
+        task: aster_drive_model::entities::background_task::Model;
         config: crate::config::RuntimeConfig;
         context: aster_forge_tasks::TaskExecutionContext;
         error: crate::errors::AsterError;
-        kind: crate::types::BackgroundTaskKind;
+        kind: aster_drive_model::types::BackgroundTaskKind;
         lane: crate::services::task::dispatch::TaskLane;
         payload: crate::services::task::types::TaskPayload;
         result: crate::services::task::types::TaskResult;
         specs {
-            ARCHIVE_COMPRESS: super::ArchiveCompressTask => crate::types::BackgroundTaskKind::ArchiveCompress,
-            ARCHIVE_EXTRACT: super::ArchiveExtractTask => crate::types::BackgroundTaskKind::ArchiveExtract,
-            ARCHIVE_PREVIEW_GENERATE: super::ArchivePreviewGenerateTask => crate::types::BackgroundTaskKind::ArchivePreviewGenerate,
-            THUMBNAIL_GENERATE: super::ThumbnailGenerateTask => crate::types::BackgroundTaskKind::ThumbnailGenerate,
-            IMAGE_PREVIEW_GENERATE: super::ImagePreviewGenerateTask => crate::types::BackgroundTaskKind::ImagePreviewGenerate,
-            MEDIA_METADATA_EXTRACT: super::MediaMetadataExtractTask => crate::types::BackgroundTaskKind::MediaMetadataExtract,
-            TRASH_PURGE_ALL: super::TrashPurgeAllTask => crate::types::BackgroundTaskKind::TrashPurgeAll,
-            STORAGE_POLICY_TEMP_CLEANUP: super::StoragePolicyTempCleanupTask => crate::types::BackgroundTaskKind::StoragePolicyTempCleanup,
-            STORAGE_POLICY_MIGRATION: super::StoragePolicyMigrationTask => crate::types::BackgroundTaskKind::StoragePolicyMigration,
-            BLOB_MAINTENANCE: super::BlobMaintenanceTask => crate::types::BackgroundTaskKind::BlobMaintenance,
-            OFFLINE_DOWNLOAD: super::OfflineDownloadTask => crate::types::BackgroundTaskKind::OfflineDownload,
-            SYSTEM_RUNTIME: super::SystemRuntimeTask => crate::types::BackgroundTaskKind::SystemRuntime,
+            ARCHIVE_COMPRESS: super::ArchiveCompressTask => aster_drive_model::types::BackgroundTaskKind::ArchiveCompress,
+            ARCHIVE_EXTRACT: super::ArchiveExtractTask => aster_drive_model::types::BackgroundTaskKind::ArchiveExtract,
+            ARCHIVE_PREVIEW_GENERATE: super::ArchivePreviewGenerateTask => aster_drive_model::types::BackgroundTaskKind::ArchivePreviewGenerate,
+            THUMBNAIL_GENERATE: super::ThumbnailGenerateTask => aster_drive_model::types::BackgroundTaskKind::ThumbnailGenerate,
+            IMAGE_PREVIEW_GENERATE: super::ImagePreviewGenerateTask => aster_drive_model::types::BackgroundTaskKind::ImagePreviewGenerate,
+            MEDIA_METADATA_EXTRACT: super::MediaMetadataExtractTask => aster_drive_model::types::BackgroundTaskKind::MediaMetadataExtract,
+            TRASH_PURGE_ALL: super::TrashPurgeAllTask => aster_drive_model::types::BackgroundTaskKind::TrashPurgeAll,
+            STORAGE_POLICY_TEMP_CLEANUP: super::StoragePolicyTempCleanupTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyTempCleanup,
+            STORAGE_POLICY_MIGRATION: super::StoragePolicyMigrationTask => aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration,
+            BLOB_MAINTENANCE: super::BlobMaintenanceTask => aster_drive_model::types::BackgroundTaskKind::BlobMaintenance,
+            OFFLINE_DOWNLOAD: super::OfflineDownloadTask => aster_drive_model::types::BackgroundTaskKind::OfflineDownload,
+            SYSTEM_RUNTIME: super::SystemRuntimeTask => aster_drive_model::types::BackgroundTaskKind::SystemRuntime,
         }
         lanes {
             crate::services::task::dispatch::TaskLane::Archive => [
-                crate::types::BackgroundTaskKind::ArchiveCompress,
-                crate::types::BackgroundTaskKind::ArchiveExtract,
-                crate::types::BackgroundTaskKind::ArchivePreviewGenerate,
+                aster_drive_model::types::BackgroundTaskKind::ArchiveCompress,
+                aster_drive_model::types::BackgroundTaskKind::ArchiveExtract,
+                aster_drive_model::types::BackgroundTaskKind::ArchivePreviewGenerate,
             ],
             crate::services::task::dispatch::TaskLane::Thumbnail => [
-                crate::types::BackgroundTaskKind::ThumbnailGenerate,
-                crate::types::BackgroundTaskKind::ImagePreviewGenerate,
-                crate::types::BackgroundTaskKind::MediaMetadataExtract,
+                aster_drive_model::types::BackgroundTaskKind::ThumbnailGenerate,
+                aster_drive_model::types::BackgroundTaskKind::ImagePreviewGenerate,
+                aster_drive_model::types::BackgroundTaskKind::MediaMetadataExtract,
             ],
             crate::services::task::dispatch::TaskLane::OfflineDownload => [
-                crate::types::BackgroundTaskKind::OfflineDownload,
+                aster_drive_model::types::BackgroundTaskKind::OfflineDownload,
             ],
             crate::services::task::dispatch::TaskLane::StorageMigration => [
-                crate::types::BackgroundTaskKind::StoragePolicyMigration,
+                aster_drive_model::types::BackgroundTaskKind::StoragePolicyMigration,
             ],
             crate::services::task::dispatch::TaskLane::Fallback => [
-                crate::types::BackgroundTaskKind::SystemRuntime,
-                crate::types::BackgroundTaskKind::StoragePolicyTempCleanup,
-                crate::types::BackgroundTaskKind::TrashPurgeAll,
-                crate::types::BackgroundTaskKind::BlobMaintenance,
+                aster_drive_model::types::BackgroundTaskKind::SystemRuntime,
+                aster_drive_model::types::BackgroundTaskKind::StoragePolicyTempCleanup,
+                aster_drive_model::types::BackgroundTaskKind::TrashPurgeAll,
+                aster_drive_model::types::BackgroundTaskKind::BlobMaintenance,
             ],
         }
     }
@@ -135,7 +135,7 @@ pub(in crate::services::task) fn task_lane_kinds(lane: TaskLane) -> &'static [Ba
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{StoredTaskPayload, StoredTaskResult};
+    use aster_drive_model::types::{StoredTaskPayload, StoredTaskResult};
     use chrono::{Duration, Utc};
 
     #[test]

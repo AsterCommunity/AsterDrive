@@ -3,8 +3,8 @@
 use sea_orm::{ColumnTrait, Condition, DbErr, SqlErr};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::folder;
 use crate::errors::{AsterError, validation_error_with_code};
+use aster_drive_model::entities::folder;
 
 pub fn duplicate_name_message(name: &str) -> String {
     format!("folder '{name}' already exists in this location")

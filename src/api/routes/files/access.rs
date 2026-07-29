@@ -753,7 +753,7 @@ pub(crate) async fn archive_preview_response(
     req: &HttpRequest,
     scope: WorkspaceStorageScope,
     file_id: i64,
-    filename_encoding: crate::types::ArchiveFilenameEncoding,
+    filename_encoding: aster_drive_model::types::ArchiveFilenameEncoding,
 ) -> Result<HttpResponse> {
     let if_none_match = req
         .headers()
@@ -1062,26 +1062,26 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
-    use crate::entities::{file, file_blob, storage_policy, team, team_member, user};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail::sender, media::processing};
-    use crate::storage::StorageDriver;
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
-        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
-        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
-    };
     use actix_web::body;
     use actix_web::http::{StatusCode, header};
     use actix_web::{App, test, web};
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{file, file_blob, storage_policy, team, team_member, user};
+    use aster_drive_model::types::{
+        BackgroundTaskKind, BackgroundTaskStatus, DriverType, StoredStoragePolicyAllowedTypes,
+        StoredStoragePolicyOptions, TeamMemberRole, UserRole, UserStatus,
+    };
+    use aster_drive_storage::StorageDriver;
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
     use image::codecs::png::PngEncoder;
     use image::{ColorType, ImageEncoder};
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
     use serde_json::Value;
     use std::io::Cursor;
@@ -1115,7 +1115,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("image preview route database should connect");
@@ -1255,7 +1255,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,

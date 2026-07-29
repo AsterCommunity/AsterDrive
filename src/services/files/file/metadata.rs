@@ -4,7 +4,6 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::db::repository::{file_repo, version_repo};
-use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{SharedRuntimeState, StorageChangeRuntimeState};
 use crate::services::{
@@ -13,6 +12,7 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::file;
 use aster_forge_api::NullablePatch;
 
 pub(crate) async fn get_info_in_scope(
@@ -38,7 +38,7 @@ pub(crate) async fn get_info_with_storage_used_in_scope(
     })?;
     let tags = tag::load_entity_tag_map(state, scope.into(), &[file.id], &[])
         .await?
-        .remove(&(crate::types::EntityType::File, file.id))
+        .remove(&(aster_drive_model::types::EntityType::File, file.id))
         .unwrap_or_default();
     Ok(FileInfo::from_model_with_storage_used(file, storage_used).with_tags(tags))
 }

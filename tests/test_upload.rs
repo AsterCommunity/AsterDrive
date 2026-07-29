@@ -8,7 +8,7 @@ use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::db::repository::policy_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
-use aster_drive::types::UploadSessionKind;
+use aster_drive_model::types::UploadSessionKind;
 use serde_json::Value;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::task::JoinSet;
@@ -88,8 +88,8 @@ async fn set_default_local_content_dedup(
         .await
         .unwrap()
         .expect("default policy should exist in test setup");
-    let mut active: aster_drive::entities::storage_policy::ActiveModel = policy.into();
-    active.options = Set(aster_drive::types::StoredStoragePolicyOptions::from(
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
+    active.options = Set(aster_drive_model::types::StoredStoragePolicyOptions::from(
         if enabled {
             r#"{"content_dedup":true}"#
         } else {
@@ -105,8 +105,8 @@ async fn upload_same_content_direct_and_chunked(
     state: &aster_drive::runtime::PrimaryAppState,
     user_id: i64,
 ) -> (
-    aster_drive::entities::file_blob::Model,
-    aster_drive::entities::file_blob::Model,
+    aster_drive_model::entities::file_blob::Model,
+    aster_drive_model::entities::file_blob::Model,
 ) {
     use aster_drive::db::repository::file_repo;
     use aster_drive::services::{files::file, files::upload};
@@ -141,7 +141,7 @@ async fn upload_same_content_direct_and_chunked(
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
     let total_chunks = init.total_chunks.unwrap();
@@ -171,11 +171,11 @@ async fn upload_same_content_direct_and_chunked(
 
 struct UploadSessionSpec<'a> {
     upload_id: &'a str,
-    status: aster_drive::types::UploadSessionStatus,
+    status: aster_drive_model::types::UploadSessionStatus,
     expires_at: chrono::DateTime<chrono::Utc>,
     total_chunks: i32,
     received_count: i32,
-    session_kind: aster_drive::types::UploadSessionKind,
+    session_kind: aster_drive_model::types::UploadSessionKind,
     policy_id: Option<i64>,
     object_temp_key: Option<&'a str>,
     object_multipart_id: Option<&'a str>,
@@ -186,7 +186,7 @@ struct UploadSessionSpec<'a> {
 impl<'a> UploadSessionSpec<'a> {
     fn new(
         upload_id: &'a str,
-        status: aster_drive::types::UploadSessionStatus,
+        status: aster_drive_model::types::UploadSessionStatus,
         expires_at: chrono::DateTime<chrono::Utc>,
         session_kind: UploadSessionKind,
     ) -> Self {
@@ -253,7 +253,7 @@ async fn create_upload_session(
     let now = chrono::Utc::now();
     upload_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::upload_session::ActiveModel {
+        aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(spec.upload_id.to_string()),
             user_id: Set(user_id),
             team_id: Set(None),
@@ -297,7 +297,7 @@ async fn test_upload_session_try_create_reports_id_conflict() {
     let upload_id = new_test_upload_id();
     let now = chrono::Utc::now();
 
-    let build_model = || aster_drive::entities::upload_session::ActiveModel {
+    let build_model = || aster_drive_model::entities::upload_session::ActiveModel {
         id: Set(upload_id.clone()),
         user_id: Set(user.id),
         team_id: Set(None),
@@ -309,8 +309,8 @@ async fn test_upload_session_try_create_reports_id_conflict() {
         received_count: Set(0),
         folder_id: Set(None),
         policy_id: Set(policy.id),
-        status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        session_kind: Set(aster_drive::types::UploadSessionKind::OffsetStaging),
+        status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
+        session_kind: Set(aster_drive_model::types::UploadSessionKind::OffsetStaging),
         object_temp_key: Set(None),
         object_multipart_id: Set(None),
         provider_session_ciphertext: Set(None),
@@ -360,28 +360,29 @@ async fn test_upload_session_try_create_preserves_non_id_unique_conflict() {
     let filename = format!("try-create-unique-{}.bin", new_test_upload_id());
     let now = chrono::Utc::now();
 
-    let build_model = |upload_id: String| aster_drive::entities::upload_session::ActiveModel {
-        id: Set(upload_id),
-        user_id: Set(user.id),
-        team_id: Set(None),
-        frontend_client_id: Set(None),
-        filename: Set(filename.clone()),
-        total_size: Set(1),
-        chunk_size: Set(1),
-        total_chunks: Set(1),
-        received_count: Set(0),
-        folder_id: Set(None),
-        policy_id: Set(policy.id),
-        status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-        session_kind: Set(aster_drive::types::UploadSessionKind::OffsetStaging),
-        object_temp_key: Set(None),
-        object_multipart_id: Set(None),
-        provider_session_ciphertext: Set(None),
-        file_id: Set(None),
-        created_at: Set(now),
-        expires_at: Set(now + chrono::Duration::hours(1)),
-        updated_at: Set(now),
-    };
+    let build_model =
+        |upload_id: String| aster_drive_model::entities::upload_session::ActiveModel {
+            id: Set(upload_id),
+            user_id: Set(user.id),
+            team_id: Set(None),
+            frontend_client_id: Set(None),
+            filename: Set(filename.clone()),
+            total_size: Set(1),
+            chunk_size: Set(1),
+            total_chunks: Set(1),
+            received_count: Set(0),
+            folder_id: Set(None),
+            policy_id: Set(policy.id),
+            status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
+            session_kind: Set(aster_drive_model::types::UploadSessionKind::OffsetStaging),
+            object_temp_key: Set(None),
+            object_multipart_id: Set(None),
+            provider_session_ciphertext: Set(None),
+            file_id: Set(None),
+            created_at: Set(now),
+            expires_at: Set(now + chrono::Duration::hours(1)),
+            updated_at: Set(now),
+        };
 
     assert!(
         upload_session_repo::try_create(state.writer_db(), build_model(new_test_upload_id()))
@@ -413,7 +414,7 @@ async fn provider_relay_progress_only_advances_from_the_expected_chunk() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::ProviderRelayResumable,
         )
@@ -469,7 +470,7 @@ async fn provider_relay_claim_heartbeat_only_touches_active_claims() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::ProviderRelayResumable,
         )
@@ -515,10 +516,10 @@ async fn provider_relay_claim_heartbeat_only_touches_active_claims() {
 
 async fn create_dead_remote_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use aster_drive::db::repository::managed_follower_repo;
-    use aster_drive::entities::{managed_follower, storage_policy};
-    use aster_drive::types::{
+    use aster_drive_model::entities::{managed_follower, storage_policy};
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
     };
     use sea_orm::Set;
@@ -774,24 +775,24 @@ async fn create_s3_policy(
     bucket: &str,
     options: &str,
     chunk_size: i64,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
     use sea_orm::Set;
 
     let now = Utc::now();
     let policy = aster_drive::db::repository::policy_repo::create(
         state.writer_db(),
-        aster_drive::entities::storage_policy::ActiveModel {
+        aster_drive_model::entities::storage_policy::ActiveModel {
             name: Set(name.to_string()),
-            driver_type: Set(aster_drive::types::DriverType::S3),
+            driver_type: Set(aster_drive_model::types::DriverType::S3),
             endpoint: Set(endpoint.to_string()),
             bucket: Set(bucket.to_string()),
             access_key: Set("rustfsadmin".to_string()),
             secret_key: Set("rustfsadmin123".to_string()),
             base_path: Set("uploads".to_string()),
             max_file_size: Set(0),
-            allowed_types: Set(aster_drive::types::StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(aster_drive::types::StoredStoragePolicyOptions::from(
+            allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+            options: Set(aster_drive_model::types::StoredStoragePolicyOptions::from(
                 options.to_string(),
             )),
             is_default: Set(false),
@@ -820,7 +821,7 @@ async fn create_s3_default_policy(
     bucket: &str,
     options: &str,
     chunk_size: i64,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     let policy = create_s3_policy(state, name, endpoint, bucket, options, chunk_size).await;
 
     let group = aster_drive::services::storage_policy::policy::create_group(
@@ -929,7 +930,7 @@ async fn prepare_chunked_upload_for_personal_scope(
     let init = upload::init_upload(state, user_id, filename, total_size, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     let upload_id = init.upload_id.unwrap();
     let chunk = vec![fill; TEST_CHUNK_SIZE];
     for chunk_number in 0..2 {
@@ -954,7 +955,7 @@ async fn prepare_chunked_upload_for_team_scope(
         upload::init_upload_for_team(state, team_id, user_id, filename, total_size, None, None)
             .await
             .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     let upload_id = init.upload_id.unwrap();
     let chunk = vec![fill; TEST_CHUNK_SIZE];
     for chunk_number in 0..2 {
@@ -1589,7 +1590,7 @@ async fn test_file_upload_init_upload_normalizes_nfd_filename_and_rejects_window
     let init = upload::init_upload(&state, user.id, "cafe\u{0301}.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     let upload_id = init
         .upload_id
         .expect("chunked upload should return upload_id");
@@ -1658,7 +1659,7 @@ async fn test_update_storage_used_is_atomic_under_concurrency() {
 #[actix_web::test]
 async fn test_concurrent_quota_overrun_is_rejected_by_cas() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::entities::user;
+    use aster_drive_model::entities::user;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
@@ -1709,7 +1710,7 @@ async fn test_concurrent_quota_overrun_is_rejected_by_cas() {
 #[actix_web::test]
 async fn test_check_quota_rejects_integer_overflow() {
     use aster_drive::db::repository::user_repo;
-    use aster_drive::entities::user;
+    use aster_drive_model::entities::user;
     use sea_orm::{ActiveModelTrait, EntityTrait, IntoActiveModel, Set};
 
     let state = common::setup().await;
@@ -2027,7 +2028,7 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
     let init = upload::init_upload(&state, user.id, "streamed.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
@@ -2275,8 +2276,8 @@ async fn test_retry_overwrites_uncommitted_partial_staging_range() {
 #[actix_web::test]
 async fn test_retry_repairs_staged_chunk_receipt_without_double_counting() {
     use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
-    use aster_drive::entities::upload_session;
     use aster_drive::services::files::upload;
+    use aster_drive_model::entities::upload_session;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -2614,7 +2615,7 @@ async fn test_concurrent_chunked_complete_same_user_commits_all_quota_and_sessio
             .unwrap();
         assert_eq!(
             session.status,
-            aster_drive::types::UploadSessionStatus::Completed
+            aster_drive_model::types::UploadSessionStatus::Completed
         );
         assert!(session.file_id.is_some());
     }
@@ -2623,8 +2624,8 @@ async fn test_concurrent_chunked_complete_same_user_commits_all_quota_and_sessio
 #[actix_web::test]
 async fn test_concurrent_chunked_complete_same_user_quota_boundary_rolls_back_loser() {
     use aster_drive::db::repository::{file_repo, upload_session_repo, user_repo};
-    use aster_drive::entities::user;
     use aster_drive::services::files::upload;
+    use aster_drive_model::entities::user;
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 
     let state = common::setup().await;
@@ -2707,7 +2708,7 @@ async fn test_concurrent_chunked_complete_same_user_quota_boundary_rolls_back_lo
         "quota loser must roll back its file row"
     );
     assert_eq!(
-        aster_drive::entities::file_blob::Entity::find()
+        aster_drive_model::entities::file_blob::Entity::find()
             .count(state.writer_db())
             .await
             .unwrap(),
@@ -2722,11 +2723,11 @@ async fn test_concurrent_chunked_complete_same_user_quota_boundary_rolls_back_lo
             .await
             .unwrap();
         match session.status {
-            aster_drive::types::UploadSessionStatus::Completed => {
+            aster_drive_model::types::UploadSessionStatus::Completed => {
                 completed += 1;
                 assert!(session.file_id.is_some());
             }
-            aster_drive::types::UploadSessionStatus::Failed => {
+            aster_drive_model::types::UploadSessionStatus::Failed => {
                 failed += 1;
                 assert_eq!(session.file_id, None);
             }
@@ -2809,7 +2810,7 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
             .unwrap();
         assert_eq!(
             session.status,
-            aster_drive::types::UploadSessionStatus::Completed
+            aster_drive_model::types::UploadSessionStatus::Completed
         );
         let file_id = session
             .file_id
@@ -2825,8 +2826,8 @@ async fn test_concurrent_chunked_complete_same_team_serializes_team_quota() {
 #[actix_web::test]
 async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_loser() {
     use aster_drive::db::repository::{file_repo, team_repo, upload_session_repo, version_repo};
-    use aster_drive::entities::team as team_entity;
     use aster_drive::services::{files::upload, workspace::team};
+    use aster_drive_model::entities::team as team_entity;
     use sea_orm::{ActiveModelTrait, EntityTrait, PaginatorTrait, Set};
 
     let state = common::setup().await;
@@ -2919,7 +2920,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
     let completed_file = &live_files[0];
     assert!(completed_file.deleted_at.is_none());
     assert_eq!(
-        aster_drive::entities::file_blob::Entity::find()
+        aster_drive_model::entities::file_blob::Entity::find()
             .count(state.writer_db())
             .await
             .unwrap(),
@@ -2938,7 +2939,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
         let session = session.unwrap();
         assert_eq!(session.team_id, Some(team.id));
         match session.status {
-            aster_drive::types::UploadSessionStatus::Completed => {
+            aster_drive_model::types::UploadSessionStatus::Completed => {
                 let file_id = session
                     .file_id
                     .expect("completed session must reference a file");
@@ -2949,7 +2950,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
                 assert!(versions.is_empty());
                 completed += 1;
             }
-            aster_drive::types::UploadSessionStatus::Failed => {
+            aster_drive_model::types::UploadSessionStatus::Failed => {
                 assert!(session.file_id.is_none());
                 failed += 1;
             }
@@ -2958,7 +2959,7 @@ async fn test_concurrent_chunked_complete_same_team_quota_boundary_rolls_back_lo
     }
     assert_eq!((completed, failed), (1, 1));
     assert_eq!(
-        aster_drive::entities::file_version::Entity::find()
+        aster_drive_model::entities::file_version::Entity::find()
             .count(state.writer_db())
             .await
             .unwrap(),
@@ -3116,7 +3117,7 @@ async fn test_init_upload_local_never_presigned() {
 async fn test_chunked_init_persists_explicit_offset_staging_kind() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::{UploadMode, UploadSessionKind};
+    use aster_drive_model::types::{UploadMode, UploadSessionKind};
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "kindinit", "kind-init@test.com", "password123")
@@ -3209,7 +3210,7 @@ async fn test_cluster_chunked_init_rejects_pod_local_staging_before_side_effects
 #[tokio::test]
 async fn test_explicit_session_kind_rejects_incompatible_fields() {
     use aster_drive::services::files::upload;
-    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3245,7 +3246,7 @@ async fn test_explicit_session_kind_rejects_incompatible_fields() {
 #[tokio::test]
 async fn test_relay_kind_rejects_missing_object_temp_key() {
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3283,7 +3284,7 @@ async fn test_relay_kind_rejects_missing_object_temp_key() {
 
 #[actix_web::test]
 async fn test_relay_chunk_endpoint_rejects_missing_object_temp_key() {
-    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3330,7 +3331,7 @@ async fn test_relay_chunk_endpoint_rejects_missing_object_temp_key() {
 async fn test_relay_progress_rejects_zero_and_out_of_range_part_numbers() {
     use aster_drive::db::repository::upload_session_part_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     for (index, part_number) in [0, 3].into_iter().enumerate() {
         let state = common::setup().await;
@@ -3378,7 +3379,7 @@ async fn test_relay_progress_rejects_zero_and_out_of_range_part_numbers() {
 async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
     use aster_drive::db::repository::upload_session_part_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3422,7 +3423,7 @@ async fn test_explicit_staging_kind_does_not_fall_back_when_file_is_missing() {
 async fn test_presigned_session_kind_rejects_server_chunk_put() {
     use actix_web::FromRequest;
     use aster_drive::services::files::upload;
-    use aster_drive::types::{UploadSessionKind, UploadSessionStatus};
+    use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3505,7 +3506,7 @@ async fn test_concurrent_chunk_upload_idempotent() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -3612,7 +3613,7 @@ async fn test_upload_session_part_upsert_updates_existing_row_without_duplicates
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -3662,7 +3663,7 @@ async fn test_upload_chunk_rejects_wrong_chunk_size() {
     let init = upload::init_upload(&state, user.id, "size-check.bin", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
     let err = match upload::upload_chunk(&state, &upload_id, 0, user.id, b"short").await {
@@ -3692,7 +3693,7 @@ async fn test_complete_upload_is_idempotent_after_completion() {
     let init = upload::init_upload(&state, user.id, "idempotent.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     assert_eq!(init.total_chunks, Some(2));
 
     let upload_id = init.upload_id.unwrap();
@@ -3732,7 +3733,7 @@ async fn test_complete_upload_is_idempotent_after_completion() {
         .unwrap();
     assert_eq!(
         session.status,
-        aster_drive::types::UploadSessionStatus::Completed
+        aster_drive_model::types::UploadSessionStatus::Completed
     );
     assert_eq!(session.file_id, Some(first.id));
 }
@@ -3740,9 +3741,9 @@ async fn test_complete_upload_is_idempotent_after_completion() {
 #[actix_web::test]
 async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or_charge_quota() {
     use aster_drive::db::repository::{upload_session_repo, user_repo};
-    use aster_drive::entities::user;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::entities::user;
+    use aster_drive_model::types::UploadSessionStatus;
     use sea_orm::{ActiveModelTrait, Set};
 
     let state = common::setup().await;
@@ -3761,7 +3762,7 @@ async fn test_complete_chunked_upload_quota_failure_does_not_complete_session_or
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     assert_eq!(init.total_chunks, Some(2));
 
     let upload_id = init.upload_id.unwrap();
@@ -3811,7 +3812,7 @@ async fn test_complete_upload_marks_session_failed_after_missing_chunk_receipt()
     let init = upload::init_upload(&state, user.id, "broken.txt", 10_485_760, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
 
     let upload_id = init.upload_id.unwrap();
     let chunk0 = vec![b'A'; TEST_CHUNK_SIZE];
@@ -3838,7 +3839,7 @@ async fn test_complete_upload_marks_session_failed_after_missing_chunk_receipt()
         .unwrap();
     assert_eq!(
         session.status,
-        aster_drive::types::UploadSessionStatus::Failed
+        aster_drive_model::types::UploadSessionStatus::Failed
     );
     assert_eq!(session.file_id, None);
 
@@ -3927,7 +3928,7 @@ async fn test_complete_upload_rejects_truncated_offset_staging_file() {
             .await
             .unwrap()
             .status,
-        aster_drive::types::UploadSessionStatus::Failed
+        aster_drive_model::types::UploadSessionStatus::Failed
     );
 }
 
@@ -3935,7 +3936,7 @@ async fn test_complete_upload_rejects_truncated_offset_staging_file() {
 async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_storage_error() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -3998,7 +3999,7 @@ async fn test_complete_upload_keeps_presigned_multipart_session_retryable_after_
 async fn test_complete_offset_staging_stream_relay_remains_retryable_after_storage_error() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -4084,7 +4085,7 @@ async fn test_file_upload_complete_rejects_assembling_session() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Assembling,
+            aster_drive_model::types::UploadSessionStatus::Assembling,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -4113,7 +4114,7 @@ async fn test_file_upload_complete_completed_without_file_id_returns_refresh_hin
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -4147,7 +4148,7 @@ async fn test_file_upload_complete_presigned_multipart_requires_parts() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Presigned,
+            aster_drive_model::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::ProviderPresignedMultipart,
         )
@@ -4178,7 +4179,7 @@ async fn test_file_upload_get_progress_lists_and_sorts_staging_receipts() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -4211,7 +4212,7 @@ async fn test_file_upload_get_progress_lists_and_sorts_staging_receipts() {
 async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipart_sessions() {
     use aster_drive::db::repository::{upload_session_part_repo, upload_session_repo};
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
     use chrono::Utc;
     use sea_orm::Set;
 
@@ -4244,7 +4245,7 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
         let now = Utc::now();
         upload_session_repo::create(
             state.writer_db(),
-            aster_drive::entities::upload_session::ActiveModel {
+            aster_drive_model::entities::upload_session::ActiveModel {
                 id: Set(upload_id.clone()),
                 user_id: Set(user.id),
                 team_id: Set(None),
@@ -4257,7 +4258,9 @@ async fn test_file_upload_get_progress_uses_db_parts_for_terminal_relay_multipar
                 folder_id: Set(None),
                 policy_id: Set(relay_policy.id),
                 status: Set(status),
-                session_kind: Set(aster_drive::types::UploadSessionKind::ProviderRelayMultipart),
+                session_kind: Set(
+                    aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart,
+                ),
                 object_temp_key: Set(Some(format!("files/{upload_id}"))),
                 object_multipart_id: Set(Some(format!("multipart-{status_name}"))),
                 provider_session_ciphertext: Set(None),
@@ -4318,7 +4321,7 @@ async fn test_sqlite_reader_routes_do_not_wait_for_busy_writer_pool() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::OffsetStaging,
         )
@@ -4376,7 +4379,7 @@ async fn test_file_upload_presign_parts_rejects_non_multipart_session() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Presigned,
+            aster_drive_model::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::ProviderPresignedSingle,
         )
@@ -4410,7 +4413,7 @@ async fn test_file_upload_presign_parts_validates_part_number_batch() {
         user.id,
         UploadSessionSpec::new(
             &upload_id,
-            aster_drive::types::UploadSessionStatus::Presigned,
+            aster_drive_model::types::UploadSessionStatus::Presigned,
             chrono::Utc::now() + chrono::Duration::hours(1),
             UploadSessionKind::ProviderPresignedMultipart,
         )
@@ -4456,7 +4459,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
         user.id,
         UploadSessionSpec::new(
             &expired_id,
-            aster_drive::types::UploadSessionStatus::Uploading,
+            aster_drive_model::types::UploadSessionStatus::Uploading,
             chrono::Utc::now() - chrono::Duration::minutes(5),
             UploadSessionKind::OffsetStaging,
         )
@@ -4470,7 +4473,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
         user.id,
         UploadSessionSpec::new(
             &completed_id,
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             chrono::Utc::now() - chrono::Duration::minutes(5),
             UploadSessionKind::OffsetStaging,
         )
@@ -4485,7 +4488,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
         user.id,
         UploadSessionSpec::new(
             &assembling_id,
-            aster_drive::types::UploadSessionStatus::Assembling,
+            aster_drive_model::types::UploadSessionStatus::Assembling,
             chrono::Utc::now() - chrono::Duration::minutes(5),
             UploadSessionKind::OffsetStaging,
         )
@@ -4542,7 +4545,7 @@ async fn test_file_upload_cleanup_expired_removes_local_sessions_only() {
 async fn test_file_upload_cleanup_expired_keeps_remote_sessions_when_storage_is_unavailable() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user =
@@ -4644,7 +4647,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
     .unwrap();
     assert_eq!(
         init.mode,
-        aster_drive::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadMode::PresignedMultipart
     );
     assert_eq!(init.total_chunks, Some(2));
     let upload_id = init.upload_id.clone().unwrap();
@@ -4660,8 +4663,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .object_multipart_id
         .clone()
         .expect("multipart session should store multipart id");
-    let object_key =
-        aster_drive::storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
+    let object_key = aster_drive_storage::object_key::join_key_prefix(&policy.base_path, &temp_key);
 
     let urls = upload::presign_parts(&state, &upload_id, user.id, vec![1])
         .await
@@ -4686,7 +4688,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
         .unwrap();
     assert_eq!(
         progress.status,
-        aster_drive::types::UploadSessionStatus::Presigned
+        aster_drive_model::types::UploadSessionStatus::Presigned
     );
     assert_eq!(progress.chunks_on_disk, vec![1]);
 
@@ -4737,7 +4739,7 @@ async fn test_cancel_upload_aborts_presigned_multipart_session_on_rustfs() {
 async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavailable() {
     use aster_drive::db::repository::upload_session_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user =
@@ -4796,7 +4798,7 @@ async fn test_cancel_upload_keeps_remote_session_when_object_cleanup_is_unavaila
 async fn test_upload_chunk_returns_session_expired_for_failed_multipart_session() {
     use aster_drive::db::repository::upload_session_part_repo;
     use aster_drive::services::files::upload;
-    use aster_drive::types::UploadSessionStatus;
+    use aster_drive_model::types::UploadSessionStatus;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -4880,7 +4882,7 @@ async fn test_presigned_upload_s3_e2e() {
     let init = upload::init_upload(&state, user.id, "hello.txt", data.len() as i64, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
     assert!(init.presigned_url.is_some());
     assert!(init.upload_id.is_some());
 
@@ -4971,9 +4973,9 @@ async fn test_presigned_upload_s3_e2e() {
 #[tokio::test]
 async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     use aster_drive::db::repository::{background_task_repo, policy_repo, upload_session_repo};
-    use aster_drive::entities::background_task;
     use aster_drive::services::{files::folder, files::upload, storage_policy::policy, task};
-    use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus};
+    use aster_drive_model::entities::background_task;
+    use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus};
     use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, Set};
     use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
@@ -5024,7 +5026,7 @@ async fn test_force_delete_policy_cleans_late_s3_presigned_put_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Presigned);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Presigned);
     let upload_id = init.upload_id.unwrap();
     let presigned_url = init.presigned_url.unwrap();
     let session = upload_session_repo::find_by_id(state.writer_db(), &upload_id)
@@ -5155,7 +5157,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
     .unwrap();
     assert_eq!(
         init.mode,
-        aster_drive::types::UploadMode::PresignedMultipart
+        aster_drive_model::types::UploadMode::PresignedMultipart
     );
     assert_eq!(init.total_chunks, Some(2));
     assert!(init.presigned_url.is_none());
@@ -5202,7 +5204,7 @@ async fn test_presigned_multipart_upload_s3_e2e() {
         .unwrap();
     assert_eq!(
         progress.status,
-        aster_drive::types::UploadSessionStatus::Presigned
+        aster_drive_model::types::UploadSessionStatus::Presigned
     );
     assert_eq!(progress.total_chunks, 2);
     assert_eq!(progress.chunks_on_disk, vec![1, 2]);
@@ -5367,7 +5369,7 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
     let init = upload::init_upload(&state, user.id, "relay.txt", data.len() as i64, None, None)
         .await
         .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
 
     let db = state.writer_db().clone();
     let driver_registry = state.driver_registry.clone();
@@ -5448,8 +5450,8 @@ async fn test_relay_stream_direct_upload_s3_e2e() {
 #[tokio::test]
 async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::entities::{upload_session, upload_session_part};
     use aster_drive::services::files::upload;
+    use aster_drive_model::entities::{upload_session, upload_session_part};
     use sea_orm::{
         ColumnTrait, EntityTrait, JoinType, PaginatorTrait, QueryFilter, QuerySelect, RelationTrait,
     };
@@ -5517,7 +5519,7 @@ async fn test_relay_stream_direct_upload_s3_exact_part_size_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Direct);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Direct);
     assert_eq!(
         upload_session::Entity::find()
             .filter(upload_session::Column::UserId.eq(user.id))
@@ -5647,7 +5649,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     )
     .await
     .unwrap();
-    assert_eq!(init.mode, aster_drive::types::UploadMode::Chunked);
+    assert_eq!(init.mode, aster_drive_model::types::UploadMode::Chunked);
     assert_eq!(init.chunk_size, Some(5_242_880));
     assert_eq!(init.total_chunks, Some(2));
 
@@ -5789,7 +5791,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
     assert_eq!(session.received_count, 2);
     assert_eq!(
         session.status,
-        aster_drive::types::UploadSessionStatus::Uploading
+        aster_drive_model::types::UploadSessionStatus::Uploading
     );
 
     let file = upload::complete_upload(&state, &upload_id, user.id, None)
@@ -5802,7 +5804,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         .unwrap();
     assert_eq!(
         session.status,
-        aster_drive::types::UploadSessionStatus::Completed
+        aster_drive_model::types::UploadSessionStatus::Completed
     );
     assert_eq!(session.file_id, Some(file.id));
 
@@ -5822,7 +5824,7 @@ async fn test_relay_stream_chunked_upload_s3_e2e() {
         .unwrap();
     assert_eq!(
         completed_progress.status,
-        aster_drive::types::UploadSessionStatus::Completed
+        aster_drive_model::types::UploadSessionStatus::Completed
     );
     assert_eq!(completed_progress.chunks_on_disk, vec![0, 1]);
 

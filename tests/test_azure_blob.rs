@@ -3,7 +3,7 @@
 use std::time::Duration;
 
 use aster_drive::storage::drivers::azure_blob::AzureBlobDriver;
-use aster_drive::storage::{
+use aster_drive_storage::{
     ListStorageDriver, MultipartStorageDriver, PresignedDownloadOptions, PresignedStorageDriver,
     StorageDriver, StorageErrorKind, StreamUploadDriver,
 };
@@ -25,13 +25,13 @@ fn azure_policy(
     endpoint: &str,
     container: &str,
     base_path: &str,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
 
-    aster_drive::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 998,
         name: "Test Azure Blob".to_string(),
-        driver_type: aster_drive::types::DriverType::AzureBlob,
+        driver_type: aster_drive_model::types::DriverType::AzureBlob,
         endpoint: endpoint.to_string(),
         bucket: container.to_string(),
         access_key: AZURITE_ACCOUNT.to_string(),
@@ -40,8 +40,8 @@ fn azure_policy(
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 5_242_880,
         created_at: Utc::now(),
@@ -165,10 +165,7 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
         .metadata("docs/missing.txt")
         .await
         .expect_err("missing blob metadata should fail");
-    assert_eq!(
-        missing_meta.storage_error_kind(),
-        Some(StorageErrorKind::NotFound)
-    );
+    assert_eq!(missing_meta.kind(), StorageErrorKind::NotFound);
 
     let meta = driver.metadata("docs/hello.txt").await.unwrap();
     assert_eq!(meta.size, u64::try_from(data.len()).unwrap());
@@ -332,11 +329,11 @@ async fn test_azure_blob_driver_e2e_with_azurite() {
     assert_eq!(
         uploaded_parts,
         vec![
-            aster_drive::storage::UploadedMultipartPart {
+            aster_drive_storage::UploadedMultipartPart {
                 part_number: 1,
                 size: 6,
             },
-            aster_drive::storage::UploadedMultipartPart {
+            aster_drive_storage::UploadedMultipartPart {
                 part_number: 2,
                 size: 5,
             },
@@ -421,10 +418,7 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .put_reader("short.bin", Box::new(tokio::io::empty()), 1)
         .await
         .expect_err("short stream should fail");
-    assert_eq!(
-        short_error.storage_error_kind(),
-        Some(StorageErrorKind::Precondition)
-    );
+    assert_eq!(short_error.kind(), StorageErrorKind::Precondition);
 
     let long_error = driver
         .put_reader(
@@ -436,11 +430,11 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .expect_err("long stream should fail");
     assert!(
         matches!(
-            long_error.storage_error_kind(),
-            Some(StorageErrorKind::Misconfigured | StorageErrorKind::Precondition)
+            long_error.kind(),
+            StorageErrorKind::Misconfigured | StorageErrorKind::Precondition
         ),
         "unexpected long reader error kind: {:?}",
-        long_error.storage_error_kind()
+        long_error.kind()
     );
 
     let upload_id = driver
@@ -459,11 +453,11 @@ async fn test_azure_blob_put_reader_length_boundaries_with_azurite() {
         .expect_err("short multipart reader should fail");
     assert!(
         matches!(
-            part_error.storage_error_kind(),
-            Some(StorageErrorKind::Transient | StorageErrorKind::Misconfigured)
+            part_error.kind(),
+            StorageErrorKind::Transient | StorageErrorKind::Misconfigured
         ),
         "unexpected multipart reader error kind: {:?}",
-        part_error.storage_error_kind()
+        part_error.kind()
     );
 
     let marker = driver

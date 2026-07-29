@@ -10,12 +10,12 @@ use serde::{Deserialize, Serialize};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::db::repository::wopi_session_repo;
-use crate::entities::{file, wopi_session};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     auth::local, preview::apps, workspace::storage, workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::{file, wopi_session};
 
 use super::discovery::{
     ensure_request_proof_valid, ensure_request_source_allowed, parse_wopi_app_config,

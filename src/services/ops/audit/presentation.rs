@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use serde_json::Value;
 
-use crate::types::{AuditAction, AuditEntityType};
+use aster_drive_model::types::{AuditAction, AuditEntityType};
 
 use super::models::{AuditPresentation, AuditPresentationMessage};
 

@@ -11,11 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll};
 use tokio::io::{AsyncRead, ReadBuf};
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::driver::StorageDriver;
-use crate::storage::traits::extensions::StreamUploadDriver;
-use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::traits::driver::StorageDriver;
+use aster_drive_storage::traits::extensions::StreamUploadDriver;
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::{MapStorageErr, StorageErrorKind, storage_driver_error};
 use aster_forge_utils::numbers;
 
 use super::AzureBlobDriver;
@@ -141,7 +140,7 @@ impl SeekableStream for AzureSizedReaderStream {
 
 #[async_trait]
 impl MultipartStorageDriver for AzureBlobDriver {
-    async fn create_multipart_upload(&self, path: &str) -> Result<String> {
+    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         Ok(format!("azure-block:{}", self.full_key(path)))
     }
 
@@ -151,7 +150,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         _upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let mut url = self.block_blob_url(path, "cw", expires)?;
         {
             let mut query = url.query_pairs_mut();
@@ -166,7 +165,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         path: &str,
         _upload_id: &str,
         parts: Vec<(i32, String)>,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         let mut part_numbers: Vec<i32> = parts
             .into_iter()
             .map(|(part_number, _)| part_number)
@@ -175,7 +174,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         let latest = part_numbers
             .into_iter()
             .map(Self::block_id)
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<aster_drive_storage::Result<Vec<_>>>()?;
         let block_list = BlockLookupList {
             latest: Some(latest),
             ..Default::default()
@@ -204,7 +203,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         upload_id: &str,
         part_number: i32,
         data: &[u8],
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.upload_multipart_part_bytes(path, upload_id, part_number, Bytes::copy_from_slice(data))
             .await
     }
@@ -215,7 +214,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         _upload_id: &str,
         part_number: i32,
         data: Bytes,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let client = self.block_blob_client(path, "cw")?;
         let size = u64::try_from(data.len()).map_err(|error| {
             storage_driver_error(
@@ -242,10 +241,11 @@ impl MultipartStorageDriver for AzureBlobDriver {
         part_number: i32,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let client = self.block_blob_client(path, "cw")?;
         let content_length =
-            aster_forge_utils::numbers::i64_to_u64(size, "Azure Blob multipart part size")?;
+            aster_forge_utils::numbers::i64_to_u64(size, "Azure Blob multipart part size")
+                .map_storage_err(StorageErrorKind::Misconfigured)?;
         let body: RequestContent<Bytes, azure_core::http::NoFormat> = Body::SeekableStream(
             Box::new(AzureSizedReaderStream::new(reader, content_length)),
         )
@@ -257,7 +257,11 @@ impl MultipartStorageDriver for AzureBlobDriver {
         Ok(Self::block_id_marker(part_number)?)
     }
 
-    async fn abort_multipart_upload(&self, _path: &str, _upload_id: &str) -> Result<()> {
+    async fn abort_multipart_upload(
+        &self,
+        _path: &str,
+        _upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
         // Azure uncommitted blocks are garbage collected by the service. There is
         // no direct abort operation for a block list that has not been committed.
         Ok(())
@@ -267,7 +271,7 @@ impl MultipartStorageDriver for AzureBlobDriver {
         &self,
         path: &str,
         _upload_id: &str,
-    ) -> Result<Vec<UploadedMultipartPart>> {
+    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
         let client = self.block_blob_client(path, "r")?;
         let list = match client
             .get_block_list(BlockListType::Uncommitted, None)
@@ -311,10 +315,11 @@ impl StreamUploadDriver for AzureBlobDriver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         use tokio::io::AsyncReadExt as _;
 
-        let expected_size = numbers::i64_to_u64(size, "Azure Blob put_reader declared size")?;
+        let expected_size = numbers::i64_to_u64(size, "Azure Blob put_reader declared size")
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
         let chunk_size = self.chunk_size_for_content(expected_size)?;
         let mut remaining = expected_size;
         let mut part_number = 1_i32;
@@ -327,24 +332,24 @@ impl StreamUploadDriver for AzureBlobDriver {
 
         while remaining > 0 {
             let read_limit = numbers::u64_to_usize(
-                remaining.min(numbers::usize_to_u64(
-                    chunk_size,
-                    "Azure Blob put_reader chunk size",
-                )?),
+                remaining.min(
+                    numbers::usize_to_u64(chunk_size, "Azure Blob put_reader chunk size")
+                        .map_storage_err(StorageErrorKind::Misconfigured)?,
+                ),
                 "Azure Blob put_reader next chunk size",
-            )?;
+            )
+            .map_storage_err(StorageErrorKind::Misconfigured)?;
             let mut chunk = vec![0_u8; read_limit];
-            reader
-                .read_exact(&mut chunk)
-                .await
-                .map_aster_err_ctx("read Azure Blob upload chunk", |message| {
-                    storage_driver_error(StorageErrorKind::Precondition, message)
-                })?;
+            reader.read_exact(&mut chunk).await.map_storage_err_ctx(
+                StorageErrorKind::Precondition,
+                "read Azure Blob upload chunk",
+            )?;
             let marker = self
                 .upload_multipart_part_bytes(storage_path, "", part_number, Bytes::from(chunk))
                 .await?;
             parts.push((part_number, marker));
-            remaining -= numbers::usize_to_u64(read_limit, "Azure Blob uploaded chunk size")?;
+            remaining -= numbers::usize_to_u64(read_limit, "Azure Blob uploaded chunk size")
+                .map_storage_err(StorageErrorKind::Misconfigured)?;
             part_number = part_number.checked_add(1).ok_or_else(|| {
                 storage_driver_error(
                     StorageErrorKind::Misconfigured,
@@ -354,12 +359,10 @@ impl StreamUploadDriver for AzureBlobDriver {
         }
 
         let mut extra = [0_u8; 1];
-        let extra_read = reader
-            .read(&mut extra)
-            .await
-            .map_aster_err_ctx("check Azure Blob upload stream length", |message| {
-                storage_driver_error(StorageErrorKind::Precondition, message)
-            })?;
+        let extra_read = reader.read(&mut extra).await.map_storage_err_ctx(
+            StorageErrorKind::Precondition,
+            "check Azure Blob upload stream length",
+        )?;
         if extra_read != 0 {
             return Err(storage_driver_error(
                 StorageErrorKind::Misconfigured,
@@ -372,17 +375,21 @@ impl StreamUploadDriver for AzureBlobDriver {
         Ok(storage_path.to_string())
     }
 
-    async fn put_file(&self, storage_path: &str, local_path: &str) -> Result<String> {
-        let file = tokio::fs::File::open(local_path).await.map_aster_err_ctx(
-            "open Azure Blob upload file",
-            AsterError::storage_driver_error,
-        )?;
-        let metadata = file.metadata().await.map_aster_err_ctx(
-            "stat Azure Blob upload file",
-            AsterError::storage_driver_error,
-        )?;
+    async fn put_file(
+        &self,
+        storage_path: &str,
+        local_path: &str,
+    ) -> aster_drive_storage::Result<String> {
+        let file = tokio::fs::File::open(local_path)
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "open Azure Blob upload file")?;
+        let metadata = file
+            .metadata()
+            .await
+            .map_storage_err_ctx(StorageErrorKind::Transient, "stat Azure Blob upload file")?;
         let size =
-            aster_forge_utils::numbers::u64_to_i64(metadata.len(), "Azure Blob upload file size")?;
+            aster_forge_utils::numbers::u64_to_i64(metadata.len(), "Azure Blob upload file size")
+                .map_storage_err(StorageErrorKind::Misconfigured)?;
         self.put_reader(storage_path, Box::new(file), size).await
     }
 }

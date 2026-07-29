@@ -13,7 +13,7 @@ use super::audio::parse_audio_metadata_from_reader;
 use super::image::parse_image_metadata_with_reader_factory;
 use super::source::PreparedRangeMediaMetadataSource;
 use super::*;
-use crate::storage::{
+use aster_drive_storage::{
     NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
     StorageDriver,
 };
@@ -52,35 +52,41 @@ impl NativeMetadataDriver {
 
 #[async_trait]
 impl StorageDriver for NativeMetadataDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 
-    async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(Cursor::new(Vec::new())))
     }
 
-    async fn delete(&self, _path: &str) -> Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> Result<crate::storage::BlobMetadata> {
-        Ok(crate::storage::BlobMetadata {
+    async fn metadata(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<aster_drive_storage::BlobMetadata> {
+        Ok(aster_drive_storage::BlobMetadata {
             size: 0,
             content_type: None,
         })
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             native_media_metadata: Some(self),
             ..Default::default()
         }
@@ -92,7 +98,7 @@ impl NativeMediaMetadataStorageDriver for NativeMetadataDriver {
     async fn get_native_media_metadata(
         &self,
         request: &NativeMediaMetadataRequest,
-    ) -> Result<Option<NativeMediaMetadataResult>> {
+    ) -> aster_drive_storage::Result<Option<NativeMediaMetadataResult>> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         Ok(Some(NativeMediaMetadataResult {
             kind: request.kind,
@@ -105,15 +111,18 @@ impl NativeMediaMetadataStorageDriver for NativeMetadataDriver {
 
 #[async_trait]
 impl StorageDriver for RangeOnlyDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(self.data.clone())
     }
 
-    async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(Cursor::new(self.data.clone())))
     }
@@ -123,23 +132,26 @@ impl StorageDriver for RangeOnlyDriver {
         _path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.range_calls.fetch_add(1, Ordering::SeqCst);
         if let Some(length) = length {
-            let length = aster_forge_utils::numbers::u64_to_usize(length, "range test length")?;
+            let length = aster_forge_utils::numbers::u64_to_usize(length, "range test length")
+                .expect("range test length should fit usize");
             self.range_bytes_requested
                 .fetch_add(length, Ordering::SeqCst);
         }
-        let start = aster_forge_utils::numbers::u64_to_usize(offset, "range test start")?;
+        let start = aster_forge_utils::numbers::u64_to_usize(offset, "range test start")
+            .expect("range test start should fit usize");
         let end = length
             .map(|length| {
                 offset
                     .checked_add(length)
-                    .ok_or_else(|| AsterError::internal_error("range test end offset overflow"))
+                    .expect("range test end should not overflow")
             })
-            .transpose()?
-            .map(|end| aster_forge_utils::numbers::u64_to_usize(end, "range test end"))
-            .transpose()?
+            .map(|end| {
+                aster_forge_utils::numbers::u64_to_usize(end, "range test end")
+                    .expect("range test end should fit usize")
+            })
             .unwrap_or(self.data.len())
             .min(self.data.len());
         let bytes = if start >= self.data.len() {
@@ -154,17 +166,21 @@ impl StorageDriver for RangeOnlyDriver {
         true
     }
 
-    async fn delete(&self, _path: &str) -> Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> Result<crate::storage::BlobMetadata> {
-        Ok(crate::storage::BlobMetadata {
-            size: aster_forge_utils::numbers::usize_to_u64(self.data.len(), "range test data")?,
+    async fn metadata(
+        &self,
+        _path: &str,
+    ) -> aster_drive_storage::Result<aster_drive_storage::BlobMetadata> {
+        Ok(aster_drive_storage::BlobMetadata {
+            size: aster_forge_utils::numbers::usize_to_u64(self.data.len(), "range test data")
+                .expect("range test data length should fit u64"),
             content_type: None,
         })
     }
@@ -407,7 +423,7 @@ async fn storage_native_media_metadata_extracts_when_policy_suffix_matches() {
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        crate::types::StoragePolicyOptions {
+        aster_drive_model::types::StoragePolicyOptions {
             storage_native_processing_enabled: Some(true),
             storage_native_media_metadata_enabled: Some(true),
             media_metadata_extensions: vec!["mp4".to_string()],
@@ -449,7 +465,7 @@ async fn storage_native_media_metadata_does_not_run_for_unmatched_suffix_or_imag
     )));
     let state = test_state_with_driver_and_options(
         driver.clone(),
-        crate::types::StoragePolicyOptions {
+        aster_drive_model::types::StoragePolicyOptions {
             storage_native_processing_enabled: Some(true),
             storage_native_media_metadata_enabled: Some(true),
             media_metadata_extensions: vec!["mov".to_string(), "png".to_string()],
@@ -499,12 +515,16 @@ fn audio_metadata_does_not_read_embedded_cover_art() {
 }
 
 async fn test_state_with_driver(driver: Arc<dyn StorageDriver>) -> PrimaryAppState {
-    test_state_with_driver_and_options(driver, crate::types::StoragePolicyOptions::default()).await
+    test_state_with_driver_and_options(
+        driver,
+        aster_drive_model::types::StoragePolicyOptions::default(),
+    )
+    .await
 }
 
 async fn test_state_with_driver_and_options(
     driver: Arc<dyn StorageDriver>,
-    options: crate::types::StoragePolicyOptions,
+    options: aster_drive_model::types::StoragePolicyOptions,
 ) -> PrimaryAppState {
     let db = crate::db::connect_with_metrics(
         &crate::config::DatabaseConfig {
@@ -512,19 +532,19 @@ async fn test_state_with_driver_and_options(
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("test database should connect");
-    migration::Migrator::up(&db, None)
+    aster_drive_migration::Migrator::up(&db, None)
         .await
         .expect("test migrations should run");
 
     let now = Utc::now();
-    let policy = crate::entities::storage_policy::ActiveModel {
+    let policy = aster_drive_model::entities::storage_policy::ActiveModel {
         id: Set(1),
         name: Set("Range metadata policy".to_string()),
-        driver_type: Set(crate::types::DriverType::Local),
+        driver_type: Set(aster_drive_model::types::DriverType::Local),
         endpoint: Set(String::new()),
         bucket: Set(String::new()),
         access_key: Set(String::new()),
@@ -533,9 +553,11 @@ async fn test_state_with_driver_and_options(
         remote_node_id: Set(None),
         remote_storage_target_key: Set(None),
         max_file_size: Set(0),
-        allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-        options: Set(crate::types::serialize_storage_policy_options(&options)
-            .expect("test storage policy options should serialize")),
+        allowed_types: Set(aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty()),
+        options: Set(
+            aster_drive_model::types::serialize_storage_policy_options(&options)
+                .expect("test storage policy options should serialize"),
+        ),
         is_default: Set(true),
         chunk_size: Set(5_242_880),
         created_at: Set(now),
@@ -574,7 +596,7 @@ async fn test_state_with_driver_and_options(
         config: Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,

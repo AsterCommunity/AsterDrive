@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 
-use crate::entities::folder;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::PrimaryAppState;
 use crate::services::{
@@ -17,6 +16,7 @@ use crate::services::{
     workspace::storage,
     workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::folder;
 
 #[derive(Debug, Default)]
 struct StagedArchiveTree {

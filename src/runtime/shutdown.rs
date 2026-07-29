@@ -21,7 +21,7 @@ pub async fn record_server_shutdown<S: SharedRuntimeState>(state: &S) {
 mod tests {
     use super::record_server_shutdown;
     use crate::runtime::FollowerAppState;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
     use std::sync::Arc;
 
@@ -32,7 +32,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .unwrap();
@@ -56,7 +56,7 @@ mod tests {
             config: Arc::new(crate::config::Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         };
 
         (state, db)
@@ -64,10 +64,10 @@ mod tests {
 
     async fn audit_action_count(
         db: &sea_orm::DatabaseConnection,
-        action: crate::types::AuditAction,
+        action: aster_drive_model::types::AuditAction,
     ) -> u64 {
-        crate::entities::audit_log::Entity::find()
-            .filter(crate::entities::audit_log::Column::Action.eq(action))
+        aster_drive_model::entities::audit_log::Entity::find()
+            .filter(aster_drive_model::entities::audit_log::Column::Action.eq(action))
             .count(db)
             .await
             .expect("audit log query should succeed")
@@ -80,7 +80,7 @@ mod tests {
         record_server_shutdown(&state).await;
 
         assert_eq!(
-            audit_action_count(&db, crate::types::AuditAction::ServerShutdown).await,
+            audit_action_count(&db, aster_drive_model::types::AuditAction::ServerShutdown).await,
             1
         );
     }

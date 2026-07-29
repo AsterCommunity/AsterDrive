@@ -1,8 +1,8 @@
 use chrono::Utc;
 use sea_orm::{ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter};
 
-use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 
 pub const BLOB_CLEANUP_CLAIMED_REF_COUNT: i32 = -1;
 

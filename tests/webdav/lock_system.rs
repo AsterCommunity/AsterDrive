@@ -314,8 +314,8 @@ async fn test_db_lock_system_uses_one_canonical_path_for_encoded_special_names()
 async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts() {
     use aster_drive::db::repository::{file_repo, lock_repo};
     use aster_drive::services::{files::file, files::lock};
-    use aster_drive::types::EntityType;
     use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_drive_model::types::EntityType;
     use aster_forge_webdav::{DavLockSystem, DavPath};
     use chrono::Duration as ChronoDuration;
 
@@ -445,8 +445,8 @@ async fn test_db_lock_system_replaces_expired_locks_and_rejects_active_conflicts
 async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unlock() {
     use aster_drive::db::repository::{file_repo, lock_repo};
     use aster_drive::services::files::file;
-    use aster_drive::types::EntityType;
     use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_drive_model::types::EntityType;
     use aster_forge_webdav::{DavLockSystem, DavPath};
 
     let state = common::setup().await;

@@ -15,13 +15,13 @@ use super::{
     REMOTE_TUNNEL_CONNECT_WAIT_TIMEOUT, REMOTE_TUNNEL_REQUEST_TIMEOUT,
     REMOTE_TUNNEL_STREAM_CHANNEL_CAPACITY, RemoteTunnelRegistry, reverse_tunnel_offline_error,
 };
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::tunnel::server::response::header_pairs_to_map;
 use crate::storage::remote_protocol::tunnel::server::{
     REMOTE_TUNNEL_STREAM_CHUNK_SIZE, RemoteTunnelStreamFrame, RemoteTunnelStreamFrameKind,
 };
+use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 
 struct PinnedAsyncRead {
     inner: Pin<Box<dyn AsyncRead + Send>>,
@@ -230,7 +230,7 @@ impl RemoteTunnelRegistry {
         };
         if let Err(error) = lane.request_tx.send(request_start).await {
             self.stream_pending.remove(&request_id);
-            let error = storage_driver_error(
+            let error = crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("reverse tunnel streaming lane closed before request start: {error}"),
             );
@@ -262,7 +262,7 @@ impl RemoteTunnelRegistry {
             }
             Ok(Err(error)) => {
                 self.stream_pending.remove(&request_id);
-                let error = storage_driver_error(
+                let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel streaming response channel closed: {error}"),
                 );
@@ -271,7 +271,7 @@ impl RemoteTunnelRegistry {
             }
             Err(_) => {
                 self.stream_pending.remove(&request_id);
-                let error = storage_driver_error(
+                let error = crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming request timed out waiting for follower response",
                 );
@@ -387,7 +387,7 @@ impl RemoteTunnelRegistry {
                 let lane_request_tx = pending._lane_lease.lane.request_tx.clone();
                 let start = PendingStreamStart {
                     status: StatusCode::from_u16(status).map_err(|error| {
-                        storage_driver_error(
+                        crate::errors::storage_driver_error(
                             StorageErrorKind::Misconfigured,
                             format!("reverse tunnel stream returned invalid HTTP status: {error}"),
                         )
@@ -458,7 +458,8 @@ impl RemoteTunnelRegistry {
                 let sender = pending.start_tx.lock().take();
                 let body_tx = pending.body_tx.clone();
                 drop(pending);
-                let error = storage_driver_error(StorageErrorKind::Transient, message);
+                let error =
+                    crate::errors::storage_driver_error(StorageErrorKind::Transient, message);
                 if let Some(sender) = sender {
                     let _ = sender.send(Err(error.clone()));
                 } else {
@@ -485,7 +486,8 @@ impl RemoteTunnelRegistry {
             .collect::<Vec<_>>();
         for request_id in request_ids {
             if let Some((_, pending)) = self.stream_pending.remove(&request_id) {
-                let error = storage_driver_error(StorageErrorKind::Transient, message);
+                let error =
+                    crate::errors::storage_driver_error(StorageErrorKind::Transient, message);
                 if let Some(sender) = pending.start_tx.lock().take() {
                     let _ = sender.send(Err(error));
                 } else {
@@ -545,7 +547,7 @@ async fn send_stream_request_body(
     let mut buffer = vec![0u8; REMOTE_TUNNEL_STREAM_CHUNK_SIZE];
     loop {
         let read = body.read(&mut buffer).await.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read reverse tunnel streaming request body: {error}"),
             )
@@ -567,7 +569,7 @@ async fn send_stream_request_body(
             })
             .await
             .map_err(|error| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     format!("reverse tunnel streaming lane closed while sending body: {error}"),
                 )
@@ -588,7 +590,7 @@ async fn send_stream_request_body(
         })
         .await
         .map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("reverse tunnel streaming lane closed before request end: {error}"),
             )

@@ -1,9 +1,9 @@
-use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::preview::apps;
 use crate::services::preview::wopi::targets::file_extension;
 use crate::services::preview::wopi::types::DiscoveredWopiApp;
+use aster_drive_model::entities::file;
 
 use super::actions::{build_discovered_apps, resolve_discovery_action_url};
 use super::cache::load_discovery;

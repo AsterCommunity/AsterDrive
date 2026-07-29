@@ -14,8 +14,8 @@ use super::scan::build_manifest_from_raw;
 use super::*;
 use crate::config::definitions::CONFIG_CATEGORY_FILE_PROCESSING_ARCHIVE_PREVIEW;
 use crate::services::files::archive::core::test_utils::create_single_file_zip_with_raw_name;
-use crate::storage::BlobMetadata;
-use crate::storage::StorageDriver;
+use aster_drive_storage::BlobMetadata;
+use aster_drive_storage::StorageDriver;
 use aster_forge_config::{ConfigSource, ConfigValueType};
 use aster_forge_db::system_config;
 use aster_forge_tasks::TaskLease;
@@ -38,18 +38,18 @@ impl PreviewMemoryRangeDriver {
 
 #[async_trait]
 impl StorageDriver for PreviewMemoryRangeDriver {
-    async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+    async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok("memory".to_string())
     }
 
-    async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(self.data.clone())
     }
 
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
         self.stream_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(std::io::Cursor::new(self.data.clone())))
     }
@@ -59,21 +59,21 @@ impl StorageDriver for PreviewMemoryRangeDriver {
         _path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
         self.range_calls.fetch_add(1, Ordering::SeqCst);
         let start =
-            aster_forge_utils::numbers::u64_to_usize(offset, "preview memory range start offset")?;
+            aster_forge_utils::numbers::u64_to_usize(offset, "preview memory range start offset")
+                .expect("preview test offset should fit usize");
         let end = length
             .map(|len| {
                 offset
                     .checked_add(len)
-                    .ok_or_else(|| AsterError::internal_error("preview memory range end overflow"))
+                    .expect("preview test range end should not overflow")
             })
-            .transpose()?
             .map(|end| {
                 aster_forge_utils::numbers::u64_to_usize(end, "preview memory range end offset")
+                    .expect("preview test range end should fit usize")
             })
-            .transpose()?
             .unwrap_or(self.data.len())
             .min(self.data.len());
         let bytes = if start >= self.data.len() {
@@ -88,20 +88,21 @@ impl StorageDriver for PreviewMemoryRangeDriver {
         true
     }
 
-    async fn delete(&self, _path: &str) -> Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: aster_forge_utils::numbers::usize_to_u64(
                 self.data.len(),
                 "preview memory driver data length",
-            )?,
+            )
+            .expect("preview test data length should fit u64"),
             content_type: None,
         })
     }

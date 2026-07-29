@@ -315,7 +315,7 @@ async fn test_file_service_get_info() {
 
 #[actix_web::test]
 async fn test_file_active_model_partial_name_update_refreshes_classification() {
-    use aster_drive::entities::file;
+    use aster_drive_model::entities::file;
     use aster_forge_file_classification::FileCategory;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
@@ -351,7 +351,7 @@ async fn test_file_active_model_partial_name_update_refreshes_classification() {
 
 #[actix_web::test]
 async fn test_file_active_model_partial_mime_update_refreshes_classification() {
-    use aster_drive::entities::file;
+    use aster_drive_model::entities::file;
     use aster_forge_file_classification::FileCategory;
     use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 
@@ -690,7 +690,7 @@ async fn test_file_lock_lock_unlock() {
     // 锁定
     let lock = aster_drive::services::files::lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         Some(user.id),
         None,
@@ -709,7 +709,7 @@ async fn test_file_lock_lock_unlock() {
     // 重复锁定应失败
     let err = aster_drive::services::files::lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         Some(user.id),
         None,
@@ -725,7 +725,7 @@ async fn test_file_lock_lock_unlock() {
     // 解锁
     aster_drive::services::files::lock::unlock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         user.id,
     )
@@ -758,7 +758,7 @@ async fn test_file_lock_force_unlock() {
 
     let lock = aster_drive::services::files::lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         Some(user.id),
         None,
@@ -804,7 +804,7 @@ async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
 
     let lock = lock::lock(
         &state,
-        aster_drive::types::EntityType::File,
+        aster_drive_model::types::EntityType::File,
         file.id,
         Some(user.id),
         None,
@@ -853,7 +853,7 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
 
     let expired_lock = lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         expired_folder.id,
         Some(user.id),
         None,
@@ -863,7 +863,7 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
     .unwrap();
     let active_lock = lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         active_folder.id,
         Some(user.id),
         None,
@@ -1570,7 +1570,7 @@ async fn test_folder_copy_quota_failure_does_not_create_descendants() {
     .await;
 
     let storage_before_copy = user_storage_used(&state, user.id).await;
-    let mut user_active: aster_drive::entities::user::ActiveModel =
+    let mut user_active: aster_drive_model::entities::user::ActiveModel =
         aster_drive::db::repository::user_repo::find_by_id(&db, user.id)
             .await
             .unwrap()
@@ -1664,7 +1664,7 @@ async fn test_property_service_dav_readonly() {
     // 普通命名空间 OK
     let prop = aster_drive::services::content::property::set(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         user.id,
         "aster:",
@@ -1678,7 +1678,7 @@ async fn test_property_service_dav_readonly() {
     // DAV: 命名空间被拒绝
     let err = aster_drive::services::content::property::set(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         user.id,
         "DAV:",
@@ -1918,7 +1918,7 @@ async fn test_share_target_check_constraint_rejects_zero_or_multiple_targets() {
         .unwrap();
     let now = chrono::Utc::now();
 
-    let err = aster_drive::entities::share::ActiveModel {
+    let err = aster_drive_model::entities::share::ActiveModel {
         token: Set(uuid::Uuid::new_v4().simple().to_string()),
         user_id: Set(user.id),
         team_id: Set(None),
@@ -1938,7 +1938,7 @@ async fn test_share_target_check_constraint_rejects_zero_or_multiple_targets() {
     .unwrap_err();
     assert_share_target_check_violation(state.writer_db(), &err);
 
-    let err = aster_drive::entities::share::ActiveModel {
+    let err = aster_drive_model::entities::share::ActiveModel {
         token: Set(uuid::Uuid::new_v4().simple().to_string()),
         user_id: Set(user.id),
         team_id: Set(None),
@@ -1976,7 +1976,7 @@ async fn test_share_token_length_constraint_rejects_tokens_longer_than_32_chars(
     let file_id = store_service_file(&state, user.id, None, "token-length.txt", "body").await;
     let now = chrono::Utc::now();
 
-    let err = aster_drive::entities::share::ActiveModel {
+    let err = aster_drive_model::entities::share::ActiveModel {
         token: Set("x".repeat(33)),
         user_id: Set(user.id),
         team_id: Set(None),
@@ -2151,7 +2151,7 @@ async fn test_team_service_degrades_missing_creator_rows() {
         aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
-            role: aster_drive::types::TeamMemberRole::Member,
+            role: aster_drive_model::types::TeamMemberRole::Member,
         },
     )
     .await
@@ -2213,7 +2213,7 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
     let deleted_at = Utc::now() - Duration::days(10);
     let created = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("Team Trash".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
@@ -2274,7 +2274,7 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
         aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
-            role: aster_drive::types::TeamMemberRole::Member,
+            role: aster_drive_model::types::TeamMemberRole::Member,
         },
     )
     .await
@@ -2283,7 +2283,7 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     let now = Utc::now();
     let personal = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("Personal".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
@@ -2302,7 +2302,7 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
     .unwrap();
     let team_folder = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("Team".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
@@ -2344,7 +2344,7 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
     let deleted_at = Utc::now();
     let first = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("first".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
@@ -2363,7 +2363,7 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
     .unwrap();
     let second = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("second".to_string()),
             parent_id: Set(None),
             team_id: Set(None),
@@ -2444,7 +2444,7 @@ async fn test_team_service_list_teams_for_member() {
         aster_drive::services::workspace::team::AddTeamMemberInput {
             user_id: Some(member.id),
             identifier: None,
-            role: aster_drive::types::TeamMemberRole::Member,
+            role: aster_drive_model::types::TeamMemberRole::Member,
         },
     )
     .await
@@ -2455,7 +2455,10 @@ async fn test_team_service_list_teams_for_member() {
         .unwrap();
     assert_eq!(teams.len(), 1);
     assert_eq!(teams[0].id, team.id);
-    assert_eq!(teams[0].my_role, aster_drive::types::TeamMemberRole::Member);
+    assert_eq!(
+        teams[0].my_role,
+        aster_drive_model::types::TeamMemberRole::Member
+    );
 }
 
 #[actix_web::test]
@@ -2507,7 +2510,7 @@ async fn test_team_service_list_user_team_ids_filters_archived_teams() {
             aster_drive::services::workspace::team::AddTeamMemberInput {
                 user_id: Some(member.id),
                 identifier: None,
-                role: aster_drive::types::TeamMemberRole::Member,
+                role: aster_drive_model::types::TeamMemberRole::Member,
             },
         )
         .await
@@ -2569,7 +2572,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     let now = Utc::now();
     let folder = aster_drive::db::repository::folder_repo::create(
         state.writer_db(),
-        aster_drive::entities::folder::ActiveModel {
+        aster_drive_model::entities::folder::ActiveModel {
             name: Set("cleanup-folder".to_string()),
             parent_id: Set(None),
             team_id: Set(Some(team.id)),
@@ -2589,7 +2592,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
 
     let blob = aster_drive::db::repository::file_repo::create_blob(
         state.writer_db(),
-        aster_drive::entities::file_blob::ActiveModel {
+        aster_drive_model::entities::file_blob::ActiveModel {
             hash: Set(format!("cleanup-blob-{}", uuid::Uuid::new_v4())),
             size: Set(12),
             policy_id: Set(default_policy_id),
@@ -2604,7 +2607,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     .unwrap();
     let file = aster_drive::db::repository::file_repo::create(
         state.writer_db(),
-        aster_drive::entities::file::ActiveModel {
+        aster_drive_model::entities::file::ActiveModel {
             name: Set("cleanup.txt".to_string()),
             folder_id: Set(Some(folder.id)),
             team_id: Set(Some(team.id)),
@@ -2626,7 +2629,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
 
     aster_drive::db::repository::property_repo::upsert(
         state.writer_db(),
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         "test",
         "label",
@@ -2637,7 +2640,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
 
     aster_drive::services::files::lock::lock(
         &state,
-        aster_drive::types::EntityType::Folder,
+        aster_drive_model::types::EntityType::Folder,
         folder.id,
         Some(owner.id),
         None,
@@ -2648,7 +2651,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
 
     aster_drive::db::repository::share_repo::create(
         state.writer_db(),
-        aster_drive::entities::share::ActiveModel {
+        aster_drive_model::entities::share::ActiveModel {
             token: Set(uuid::Uuid::new_v4().simple().to_string()),
             user_id: Set(owner.id),
             team_id: Set(Some(team.id)),
@@ -2670,7 +2673,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     let upload_id = uuid::Uuid::new_v4().to_string();
     aster_drive::db::repository::upload_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::upload_session::ActiveModel {
+        aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(upload_id.clone()),
             user_id: Set(owner.id),
             team_id: Set(Some(team.id)),
@@ -2682,8 +2685,8 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             received_count: Set(0),
             folder_id: Set(Some(folder.id)),
             policy_id: Set(default_policy_id),
-            status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-            session_kind: Set(aster_drive::types::UploadSessionKind::ProviderPresignedSingle),
+            status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
+            session_kind: Set(aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle),
             object_temp_key: Set(Some(format!("files/{upload_id}"))),
             object_multipart_id: Set(None),
             provider_session_ciphertext: Set(None),
@@ -2764,7 +2767,7 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
     assert!(
         aster_drive::db::repository::property_repo::find_by_entity(
             state.writer_db(),
-            aster_drive::types::EntityType::Folder,
+            aster_drive_model::types::EntityType::Folder,
             folder.id,
         )
         .await
@@ -2810,7 +2813,7 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
     let now = Utc::now();
     aster_drive::db::repository::upload_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::upload_session::ActiveModel {
+        aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(upload_id.clone()),
             user_id: Set(owner.id),
             team_id: Set(Some(team.id)),
@@ -2822,8 +2825,8 @@ async fn test_team_archive_cleanup_keeps_team_when_upload_temp_delete_fails() {
             received_count: Set(0),
             folder_id: Set(None),
             policy_id: Set(policy.id),
-            status: Set(aster_drive::types::UploadSessionStatus::Uploading),
-            session_kind: Set(aster_drive::types::UploadSessionKind::ProviderPresignedSingle),
+            status: Set(aster_drive_model::types::UploadSessionStatus::Uploading),
+            session_kind: Set(aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle),
             object_temp_key: Set(Some(temp_key.clone())),
             object_multipart_id: Set(None),
             provider_session_ciphertext: Set(None),
@@ -2930,7 +2933,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     let now = Utc::now();
     let blob = aster_drive::db::repository::file_repo::create_blob(
         state.writer_db(),
-        aster_drive::entities::file_blob::ActiveModel {
+        aster_drive_model::entities::file_blob::ActiveModel {
             hash: Set(format!("batch-cleanup-blob-{}", uuid::Uuid::new_v4())),
             size: Set(1),
             policy_id: Set(default_policy_id),
@@ -2948,7 +2951,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     for idx in 0..1001 {
         let file = aster_drive::db::repository::file_repo::create(
             state.writer_db(),
-            aster_drive::entities::file::ActiveModel {
+            aster_drive_model::entities::file::ActiveModel {
                 name: Set(format!("batched-file-{idx:04}.txt")),
                 folder_id: Set(None),
                 team_id: Set(Some(team.id)),
@@ -2976,7 +2979,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
     for idx in 0..1001 {
         let folder = aster_drive::db::repository::folder_repo::create(
             state.writer_db(),
-            aster_drive::entities::folder::ActiveModel {
+            aster_drive_model::entities::folder::ActiveModel {
                 name: Set(format!("batched-folder-{idx:04}")),
                 parent_id: Set(None),
                 team_id: Set(Some(team.id)),
@@ -2996,7 +2999,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         if idx == 0 || idx == 1000 {
             aster_drive::db::repository::property_repo::upsert(
                 state.writer_db(),
-                aster_drive::types::EntityType::Folder,
+                aster_drive_model::types::EntityType::Folder,
                 folder.id,
                 "aster:",
                 "batch",
@@ -3048,7 +3051,7 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
         assert!(
             aster_drive::db::repository::property_repo::find_by_entity(
                 state.writer_db(),
-                aster_drive::types::EntityType::Folder,
+                aster_drive_model::types::EntityType::Folder,
                 folder_id,
             )
             .await

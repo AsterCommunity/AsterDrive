@@ -1,27 +1,27 @@
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{mail::sender, storage_policy::policy};
-use crate::storage::BlobMetadata;
-use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver, StreamUploadDriver};
-use crate::types::{
-    DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
-    UserRole, UserStatus, serialize_storage_policy_options,
-};
+use crate::storage::{DriverRegistry, PolicySnapshot};
 use crate::webdav::backend::AsterDavFs;
 use crate::webdav::handlers::properties::handle_propfind;
 use crate::webdav::handlers::transfer::{handle_get_head, handle_put};
 use actix_web::body::to_bytes;
 use actix_web::http::{StatusCode, header};
 use actix_web::{FromRequest, HttpRequest, web};
+use aster_drive_migration::Migrator;
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
+    DriverType, ObjectStorageUploadStrategy, StoragePolicyOptions, StoredStoragePolicyAllowedTypes,
+    UserRole, UserStatus, serialize_storage_policy_options,
+};
+use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 use aster_forge_webdav::{DavLock, DavLockError, DavLockSystem, LsFuture};
 use aster_forge_webdav::{DavXmlElement as Element, DavXmlNode as XMLNode};
 use async_trait::async_trait;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 use std::collections::HashMap;
 use std::io::{self, Cursor};
@@ -43,7 +43,7 @@ fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead 
 
 async fn build_webdav_test_state(
     driver_type: DriverType,
-    options: crate::types::StoredStoragePolicyOptions,
+    options: aster_drive_model::types::StoredStoragePolicyOptions,
     driver: Arc<dyn StorageDriver>,
 ) -> (PrimaryAppState, user::Model, storage_policy::Model, PathBuf) {
     let temp_root = std::env::temp_dir().join(format!(
@@ -58,7 +58,7 @@ async fn build_webdav_test_state(
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("webdav handler database should connect");
@@ -149,7 +149,7 @@ async fn build_webdav_test_state(
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,
@@ -303,12 +303,13 @@ struct TrailingErrorStreamDriver {
 
 #[async_trait]
 impl StorageDriver for TrailingErrorStreamDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
-        Err(crate::errors::AsterError::storage_driver_error(
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+        Err(aster_drive_storage::StorageError::new(
+            aster_drive_storage::StorageErrorKind::Unsupported,
             "WebDAV direct-stream test should not use get()",
         ))
     }
@@ -316,7 +317,7 @@ impl StorageDriver for TrailingErrorStreamDriver {
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.get_stream_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(OneChunkThenErrorReader {
             yielded_first_chunk: false,
@@ -328,20 +329,20 @@ impl StorageDriver for TrailingErrorStreamDriver {
         _path: &str,
         _offset: u64,
         _length: Option<u64>,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.get_range_calls.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(Cursor::new(b"bc".to_vec())))
     }
 
-    async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: 3,
             content_type: Some("text/plain".to_string()),
@@ -358,7 +359,7 @@ struct CountingDirectUploadDriver {
 
 #[async_trait]
 impl StorageDriver for CountingDirectUploadDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.objects
             .lock()
             .expect("direct upload test driver lock should succeed")
@@ -366,7 +367,7 @@ impl StorageDriver for CountingDirectUploadDriver {
         Ok(path.to_string())
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(self
             .objects
             .lock()
@@ -379,7 +380,7 @@ impl StorageDriver for CountingDirectUploadDriver {
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let payload = self
             .objects
             .lock()
@@ -399,7 +400,7 @@ impl StorageDriver for CountingDirectUploadDriver {
         Ok(Box::new(reader))
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.objects
             .lock()
             .expect("direct upload test driver lock should succeed")
@@ -407,7 +408,7 @@ impl StorageDriver for CountingDirectUploadDriver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         Ok(self
             .objects
             .lock()
@@ -415,7 +416,7 @@ impl StorageDriver for CountingDirectUploadDriver {
             .contains_key(path))
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let size = self
             .objects
             .lock()
@@ -429,8 +430,8 @@ impl StorageDriver for CountingDirectUploadDriver {
         })
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             stream_upload: Some(self),
             ..Default::default()
         }
@@ -443,7 +444,7 @@ impl StreamUploadDriver for CountingDirectUploadDriver {
         &self,
         storage_path: &str,
         local_path: &str,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.put_file_calls.fetch_add(1, Ordering::SeqCst);
         let data = tokio::fs::read(local_path).await.map_err(|error| {
             crate::errors::AsterError::storage_driver_error(format!(
@@ -462,7 +463,7 @@ impl StreamUploadDriver for CountingDirectUploadDriver {
         storage_path: &str,
         mut reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         _size: i64,
-    ) -> crate::errors::Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         self.put_reader_calls.fetch_add(1, Ordering::SeqCst);
         let mut data = Vec::new();
         reader.read_to_end(&mut data).await.map_err(|error| {
@@ -484,7 +485,7 @@ async fn handle_get_returns_response_before_consuming_the_storage_stream() {
     let get_stream_calls = driver.get_stream_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;
@@ -525,7 +526,7 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
     let get_range_calls = driver.get_range_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;
@@ -570,7 +571,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -622,7 +623,7 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -686,7 +687,7 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
     let driver = CountingDirectUploadDriver::default();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         std::sync::Arc::new(driver),
     )
     .await;
@@ -755,7 +756,7 @@ async fn handle_head_does_not_open_the_storage_stream() {
     let get_stream_calls = driver.get_stream_calls.clone();
     let (state, user, policy, temp_root) = build_webdav_test_state(
         DriverType::Local,
-        crate::types::StoredStoragePolicyOptions::empty(),
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         Arc::new(driver),
     )
     .await;

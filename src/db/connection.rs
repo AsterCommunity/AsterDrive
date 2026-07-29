@@ -2,7 +2,7 @@
 
 use crate::config::DatabaseConfig;
 use crate::errors::Result;
-use crate::metrics::SharedMetricsRecorder;
+use aster_drive_metrics::SharedMetricsRecorder;
 use sea_orm::DatabaseConnection;
 
 fn forge_database_config(cfg: &DatabaseConfig) -> aster_forge_db::DatabaseConfig {
@@ -96,7 +96,7 @@ mod tests {
                 pool_size: 10,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("Forge-backed connection should accept Windows-style SQLite URLs");
@@ -113,13 +113,13 @@ mod tests {
             pool_size: 4,
             retry_count: 0,
         };
-        let writer = super::connect_with_metrics(&cfg, crate::metrics::NoopMetrics::arc())
+        let writer = super::connect_with_metrics(&cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("SQLite memory writer should connect");
         let handles = super::connect_reader_for_writer_with_metrics(
             &cfg,
             writer,
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("SQLite memory handles should connect");
@@ -142,13 +142,13 @@ mod tests {
             pool_size: 4,
             retry_count: 0,
         };
-        let writer = super::connect_with_metrics(&cfg, crate::metrics::NoopMetrics::arc())
+        let writer = super::connect_with_metrics(&cfg, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("SQLite writer should connect");
         let handles = super::connect_reader_for_writer_with_metrics(
             &cfg,
             writer,
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("SQLite handles should connect");

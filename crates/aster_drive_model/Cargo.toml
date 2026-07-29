@@ -1,0 +1,37 @@
+[package]
+name = "aster_drive_model"
+version.workspace = true
+description = "AsterDrive shared product models and SeaORM entities."
+authors.workspace = true
+license.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+default = []
+openapi = [
+    "dep:utoipa",
+    "aster_forge_api/openapi",
+    "aster_forge_external_auth/openapi",
+    "aster_forge_file_classification/openapi",
+]
+
+[dependencies]
+aster_forge_api = { workspace = true }
+aster_forge_external_auth = { workspace = true, features = ["sea-orm"] }
+aster_forge_file_classification = { workspace = true, features = ["sea-orm"] }
+aster_forge_tasks = { workspace = true }
+sea-orm = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tracing = { workspace = true }
+utoipa = { workspace = true, optional = true }
+validator = { workspace = true }
+
+[dev-dependencies]
+chrono = { workspace = true }
+
+[lints]
+workspace = true

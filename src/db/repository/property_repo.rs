@@ -5,9 +5,9 @@ use sea_orm::{
     QueryFilter, QueryOrder, QuerySelect, Set, TryInsertResult, sea_query::Expr,
 };
 
-use crate::entities::entity_property::{self, Entity as EntityProperty};
 use crate::errors::{AsterError, Result};
-use crate::types::EntityType;
+use aster_drive_model::entities::entity_property::{self, Entity as EntityProperty};
+use aster_drive_model::types::EntityType;
 
 const ENTITY_PROPERTY_BATCH_CHUNK_SIZE: usize = 500;
 

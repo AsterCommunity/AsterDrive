@@ -6,7 +6,7 @@ use serde::Serialize;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
-use crate::types::UserRole;
+use aster_drive_model::types::UserRole;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(utoipa::ToSchema))]
@@ -125,12 +125,14 @@ pub async fn configured_default_policy_group_id<C: ConnectionTrait>(db: &C) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aster_drive_migration::Migrator;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
-    use crate::entities::{storage_policy, storage_policy_group, storage_policy_group_item, user};
-    use crate::types::{
+    use aster_drive_model::entities::{
+        storage_policy, storage_policy_group, storage_policy_group_item, user,
+    };
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserStatus,
     };
 
@@ -141,7 +143,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("setup state test database should connect");

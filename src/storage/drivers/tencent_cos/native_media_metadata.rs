@@ -4,14 +4,15 @@ use aster_forge_xml::{ElementRef, NodeRef, OwnedDocument, ParseOptions};
 use async_trait::async_trait;
 use chrono::Utc;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::http::read_reqwest_body_limited;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::extensions::{
-    NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
-};
-use crate::types::{
+use crate::errors::{AsterError, MapAsterErr};
+use aster_drive_http::read_reqwest_body_limited;
+use aster_drive_model::types::{
     AudioMediaMetadata, MediaMetadataKind, MediaMetadataPayload, VideoMediaMetadata,
+};
+use aster_drive_storage::Result;
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::extensions::{
+    NativeMediaMetadataRequest, NativeMediaMetadataResult, NativeMediaMetadataStorageDriver,
 };
 
 use super::{MAX_COS_THUMBNAIL_TTL, TencentCosDriver, non_empty_xml_text};
@@ -47,7 +48,7 @@ impl NativeMediaMetadataStorageDriver for TencentCosDriver {
     async fn get_native_media_metadata(
         &self,
         request: &NativeMediaMetadataRequest,
-    ) -> Result<Option<NativeMediaMetadataResult>> {
+    ) -> aster_drive_storage::Result<Option<NativeMediaMetadataResult>> {
         if !is_cos_media_info_candidate(request.kind, &request.source_mime_type) {
             return Ok(None);
         }
@@ -294,7 +295,7 @@ fn child_duration_ms(element: &ElementRef<'_, Arc<[u8]>>, names: &[&str]) -> Opt
 #[cfg(test)]
 mod tests {
     use super::{COS_MEDIA_INFO_XML_MAX_BYTES, child_duration_ms, parse_cos_media_info_xml};
-    use crate::types::{MediaMetadataKind, MediaMetadataPayload};
+    use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
     use aster_forge_xml::{OwnedDocument, ParseOptions};
 
     #[test]

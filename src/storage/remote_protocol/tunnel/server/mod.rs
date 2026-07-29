@@ -1,10 +1,10 @@
 //! Reverse tunnel transport for remote followers.
 
 use crate::db::repository::managed_follower_repo;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 use chrono::Utc;
 use futures::StreamExt as _;
 use serde::Serialize;
@@ -111,7 +111,7 @@ pub async fn complete<S: RemoteProtocolRuntimeState>(
     response: RemoteTunnelResponse,
 ) -> Result<()> {
     if response.body.len() > REMOTE_TUNNEL_BODY_LIMIT {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
             format!(
                 "reverse tunnel response body exceeds {} bytes; use direct transport or a streaming tunnel",
@@ -339,7 +339,7 @@ fn tunnel_owned_by_another_primary_error(
             )
         })
         .unwrap_or_else(|| "another primary".to_string());
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Transient,
         format!("reverse tunnel remote node #{remote_node_id} is owned by {owner}"),
     )

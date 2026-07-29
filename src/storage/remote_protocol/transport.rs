@@ -10,9 +10,9 @@ use tokio::io::{AsyncRead, AsyncReadExt};
 use tokio_util::io::{ReaderStream, StreamReader};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_model::entities::managed_follower;
+use aster_drive_storage::StorageErrorKind;
 
 use super::auth::{normalize_remote_base_url, sign_internal_request};
 use super::errors::{build_remote_status_error_from_parts, map_reqwest_error};
@@ -53,7 +53,7 @@ impl RemoteRequestBody {
         match self {
             Self::Empty => Ok(None),
             Self::Bytes(body) => u64::try_from(body.len()).map(Some).map_err(|_| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Precondition,
                     "remote request body length exceeds u64 range",
                 )
@@ -79,7 +79,7 @@ impl RemoteRequestBody {
                     > u64::try_from(super::tunnel::server::REMOTE_TUNNEL_BODY_LIMIT)
                         .unwrap_or(u64::MAX)
                 {
-                    return Err(storage_driver_error(
+                    return Err(crate::errors::storage_driver_error(
                         StorageErrorKind::Unsupported,
                         format!(
                             "reverse tunnel streaming upload exceeds {} bytes; use direct transport or a streaming tunnel",
@@ -93,19 +93,19 @@ impl RemoteRequestBody {
                 )?;
                 let mut data = Vec::with_capacity(capacity);
                 reader.read_to_end(&mut data).await.map_err(|error| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Transient,
                         format!("read reverse tunnel buffered upload: {error}"),
                     )
                 })?;
                 let actual_len = u64::try_from(data.len()).map_err(|_| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Precondition,
                         "reverse tunnel buffered upload length overflow",
                     )
                 })?;
                 if actual_len != size {
-                    return Err(storage_driver_error(
+                    return Err(crate::errors::storage_driver_error(
                         StorageErrorKind::Precondition,
                         format!(
                             "reverse tunnel buffered upload length mismatch: expected {size}, got {actual_len}"
@@ -159,7 +159,7 @@ pub trait RemoteTransport: Send + Sync {
         _path_and_query: &str,
         _expires: Duration,
     ) -> Result<String> {
-        Err(storage_driver_error(
+        Err(crate::errors::storage_driver_error(
             StorageErrorKind::Unsupported,
             "remote transport does not support presigned URLs",
         ))
@@ -201,13 +201,13 @@ impl DirectHttpTransport {
 
     fn url_for_request(&self, path_and_query: &str) -> Result<reqwest::Url> {
         if !path_and_query.starts_with('/') {
-            return Err(storage_driver_error(
+            return Err(crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 "remote protocol request path must start with '/'",
             ));
         }
         reqwest::Url::parse(&format!("{}{}", self.base_url, path_and_query)).map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Misconfigured,
                 format!("build remote storage url: {error}"),
             )
@@ -292,7 +292,7 @@ impl RemoteTransport for ReverseTunnelTransport {
         let content_length = request.body.content_length()?;
         let method =
             HttpMethod::from_bytes(request.method.as_str().as_bytes()).map_err(|error| {
-                storage_driver_error(
+                crate::errors::storage_driver_error(
                     StorageErrorKind::Misconfigured,
                     format!("convert reverse tunnel method: {error}"),
                 )
@@ -372,7 +372,7 @@ pub async fn ensure_success(response: RemoteTransportResponse, context: &str) ->
                 .read_to_end(&mut body)
                 .await
                 .map_err(|error| {
-                    storage_driver_error(
+                    crate::errors::storage_driver_error(
                         StorageErrorKind::Transient,
                         format!("read reverse tunnel streaming response body: {error}"),
                     )
@@ -500,7 +500,7 @@ async fn read_async_body_limited(
     let mut chunk = [0u8; 8192];
     loop {
         let read = body.read(&mut chunk).await.map_err(|error| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!("read {context} response body: {error}"),
             )
@@ -520,13 +520,13 @@ fn extend_limited_body(
     max_body_bytes: usize,
 ) -> Result<()> {
     let next_len = body.len().checked_add(chunk.len()).ok_or_else(|| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{context} response body size overflow"),
         )
     })?;
     if next_len > max_body_bytes {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{context} response body exceeds {max_body_bytes} bytes limit"),
         ));
@@ -537,7 +537,7 @@ fn extend_limited_body(
 
 fn ensure_body_within_limit(body: &[u8], context: &str, max_body_bytes: usize) -> Result<()> {
     if body.len() > max_body_bytes {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!("{context} response body exceeds {max_body_bytes} bytes limit"),
         ));
@@ -617,21 +617,20 @@ pub fn path_and_query_for_url(url: &reqwest::Url) -> String {
 }
 
 fn remote_http_client() -> Result<reqwest::Client> {
-    REMOTE_HTTP_CLIENT
-        .as_ref()
-        .cloned()
-        .map_err(|message| storage_driver_error(StorageErrorKind::Misconfigured, message.clone()))
+    REMOTE_HTTP_CLIENT.as_ref().cloned().map_err(|message| {
+        crate::errors::storage_driver_error(StorageErrorKind::Misconfigured, message.clone())
+    })
 }
 
 fn presigned_expires_at(expires: Duration) -> Result<i64> {
     let expires_secs = i64::try_from(expires.as_secs()).map_err(|_| {
-        storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Precondition,
             "remote presigned URL expiry exceeds i64 range",
         )
     })?;
     if expires_secs <= 0 {
-        return Err(storage_driver_error(
+        return Err(crate::errors::storage_driver_error(
             StorageErrorKind::Precondition,
             "remote presigned URL expiry must be positive",
         ));
@@ -641,7 +640,7 @@ fn presigned_expires_at(expires: Duration) -> Result<i64> {
         .timestamp()
         .checked_add(expires_secs)
         .ok_or_else(|| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Precondition,
                 "remote presigned URL expiry overflow",
             )
@@ -654,7 +653,7 @@ mod tests {
     use crate::storage::remote_protocol::tunnel::server::{
         REMOTE_TUNNEL_BODY_LIMIT, RemoteTunnelHttpResponse, RemoteTunnelStreamHttpResponse,
     };
-    use crate::types::RemoteNodeTransportMode;
+    use aster_drive_model::types::RemoteNodeTransportMode;
     use async_trait::async_trait;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::{Arc, Mutex};
@@ -727,7 +726,7 @@ mod tests {
         ) -> Result<RemoteTunnelStreamHttpResponse> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             if self.fail_stream_with_lane_closed.load(Ordering::SeqCst) {
-                return Err(storage_driver_error(
+                return Err(crate::errors::storage_driver_error(
                     StorageErrorKind::Transient,
                     "reverse tunnel streaming lane closed",
                 ));

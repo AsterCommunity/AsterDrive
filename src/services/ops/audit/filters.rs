@@ -3,7 +3,7 @@ use serde::Deserialize;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::{IntoParams, ToSchema};
 
-use crate::types::AuditEntityType;
+use aster_drive_model::types::AuditEntityType;
 
 #[derive(Deserialize)]
 #[cfg_attr(

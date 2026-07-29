@@ -8,7 +8,7 @@ use std::time::Instant;
 use zip::HasZipMetadata;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::types::ArchiveFilenameEncoding;
+use aster_drive_model::types::ArchiveFilenameEncoding;
 
 mod encoding;
 mod entry;

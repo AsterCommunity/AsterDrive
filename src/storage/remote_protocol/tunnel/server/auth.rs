@@ -1,7 +1,7 @@
 use crate::db::repository::managed_follower_repo;
-use crate::entities::managed_follower;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::managed_follower;
 
 use hmac::Mac;
 

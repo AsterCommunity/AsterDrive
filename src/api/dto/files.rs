@@ -24,7 +24,7 @@ pub struct ExtractArchiveRequest {
     pub target_folder_id: Option<i64>,
     pub output_folder_name: Option<String>,
     #[serde(default)]
-    pub filename_encoding: crate::types::ArchiveFilenameEncoding,
+    pub filename_encoding: aster_drive_model::types::ArchiveFilenameEncoding,
 }
 
 /// Query parameters for archive preview.
@@ -35,7 +35,7 @@ pub struct ExtractArchiveRequest {
 )]
 pub struct ArchivePreviewQuery {
     #[serde(default)]
-    pub filename_encoding: crate::types::ArchiveFilenameEncoding,
+    pub filename_encoding: aster_drive_model::types::ArchiveFilenameEncoding,
 }
 
 /// Query parameters for file content downloads.

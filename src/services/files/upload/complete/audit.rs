@@ -1,12 +1,12 @@
 use std::time::Instant;
 
-use crate::entities::upload_session;
 use crate::errors::Result;
 use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::models::FileInfo;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::types::UploadSessionStatus;
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::UploadSessionStatus;
 
 use super::complete_upload_impl_with_hints;
 

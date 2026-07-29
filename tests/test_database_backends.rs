@@ -9,9 +9,9 @@ use serde_json::Value;
 use tokio::time::{Duration, timeout};
 
 use aster_drive::db::repository::background_task_repo;
-use aster_drive::entities::background_task;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::types::{
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{
     BackgroundTaskKind, BackgroundTaskStatus, StoredTaskPayload, StoredTaskResult,
 };
 
@@ -39,7 +39,7 @@ async fn wait_for_database(database_url: &str) {
             };
             match aster_drive::db::connect_with_metrics(
                 &cfg,
-                aster_drive::metrics::NoopMetrics::arc(),
+                aster_drive_metrics::NoopMetrics::arc(),
             )
             .await
             {
@@ -305,7 +305,7 @@ async fn test_sqlite_transactions_are_serialized_by_single_connection_pool() {
         pool_size: 8,
         retry_count: 0,
     };
-    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive::metrics::NoopMetrics::arc())
+    let db = aster_drive::db::connect_with_metrics(&cfg, aster_drive_metrics::NoopMetrics::arc())
         .await
         .unwrap();
 
@@ -742,28 +742,34 @@ async fn test_mysql_concurrent_fresh_database_migrations_are_serialized() {
         retry_count: 0,
     };
     let database_a =
-        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("first MySQL migration connection should succeed");
     let database_b =
-        aster_drive::db::connect_with_metrics(&config, aster_drive::metrics::NoopMetrics::arc())
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
             .await
             .expect("second MySQL migration connection should succeed");
 
     let (migration_a, migration_b) = tokio::join!(
-        migration::Migrator::up(&database_a, None),
-        migration::Migrator::up(&database_b, None),
+        aster_drive_migration::Migrator::up(&database_a, None),
+        aster_drive_migration::Migrator::up(&database_b, None),
     );
     migration_a.expect("first concurrent MySQL migration should succeed");
     migration_b.expect("second concurrent MySQL migration should succeed");
 
-    let history = migration::inspect_migration_history(&database_a)
+    let history = aster_drive_migration::inspect_migration_history(&database_a)
         .await
         .expect("concurrent MySQL migration history should be readable");
-    assert_eq!(history.track, migration::MigrationTrack::Current);
+    assert_eq!(
+        history.track,
+        aster_drive_migration::MigrationTrack::Current
+    );
     assert!(history.pending_current.is_empty());
     assert!(history.unknown_applied.is_empty());
-    assert_eq!(history.applied, migration::current_migration_names());
+    assert_eq!(
+        history.applied,
+        aster_drive_migration::current_migration_names()
+    );
 
     database_a
         .close()

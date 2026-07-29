@@ -8,7 +8,7 @@ use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
 };
 use crate::services::workspace::storage::{PolicyUploadTransport, resolve_policy_upload_transport};
-use crate::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
+use aster_drive_model::types::{ObjectStorageUploadStrategy, UploadMode, UploadSessionStatus};
 use aster_forge_utils::numbers;
 
 use super::context::{
@@ -83,7 +83,7 @@ async fn init_presigned_object_storage_upload(
 async fn init_presigned_object_storage_single_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
 ) -> Result<InitUploadResponse> {
     with_unique_upload_id(|upload_id| async {
         let temp_key = format!("files/{upload_id}");
@@ -199,7 +199,7 @@ async fn init_relay_stream_object_storage_upload(
 }
 
 async fn presigned_put_request(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     temp_key: &str,
 ) -> Result<(String, std::collections::BTreeMap<String, String>, bool)> {
     let presigned_driver = driver

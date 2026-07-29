@@ -7,7 +7,6 @@ use chrono::Utc;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::db::repository::file_repo;
-use crate::entities::file;
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -15,6 +14,7 @@ use crate::services::{
     workspace::models::FileInfo,
     workspace::storage::{self, WorkspaceStorageScope, load_scope_actor_username},
 };
+use aster_drive_model::entities::file;
 
 const MAX_COPY_NAME_RETRIES: usize = 32;
 

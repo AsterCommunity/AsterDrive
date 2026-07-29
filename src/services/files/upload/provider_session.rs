@@ -1,9 +1,9 @@
 use serde::{Deserialize, Serialize};
 
-use crate::entities::upload_session;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::storage_policy::credential::crypto;
+use aster_drive_model::entities::upload_session;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct ProviderSessionSecret {

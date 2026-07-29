@@ -6,8 +6,8 @@ use sea_orm::{
     PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set, sea_query::Expr,
 };
 
-use crate::entities::file::{self, Entity as File};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file::{self, Entity as File};
 
 use super::common::{FileScope, map_bulk_name_db_err, map_name_db_err, scope_condition};
 use super::query::find_by_id;

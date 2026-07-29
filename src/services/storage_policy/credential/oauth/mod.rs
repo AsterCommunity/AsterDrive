@@ -14,15 +14,15 @@ use crate::db::repository::{
     policy_repo, storage_connector_application_config_repo, storage_policy_authorization_flow_repo,
     storage_policy_credential_repo,
 };
-use crate::entities::{
-    storage_connector_application_config, storage_policy_authorization_flow,
-    storage_policy_credential,
-};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{AuditContext, AuditRequestInfo};
 use crate::storage::drivers::onedrive::{MicrosoftGraphClient, MicrosoftGraphClientConfig};
-use crate::types::{
+use aster_drive_model::entities::{
+    storage_connector_application_config, storage_policy_authorization_flow,
+    storage_policy_credential,
+};
+use aster_drive_model::types::{
     StorageAuthorizationFlowStatus, StorageCredentialKind, StorageCredentialProvider,
     StorageCredentialStatus, parse_storage_policy_options,
 };
@@ -174,7 +174,7 @@ pub(crate) async fn upsert_microsoft_graph_application_config<C: ConnectionTrait
 
 fn microsoft_graph_application_metadata(
     existing_metadata: Option<&serde_json::Value>,
-    cloud: crate::types::MicrosoftGraphCloud,
+    cloud: aster_drive_model::types::MicrosoftGraphCloud,
 ) -> Result<String> {
     let mut metadata = existing_metadata
         .cloned()
@@ -273,7 +273,7 @@ async fn start_microsoft_graph_authorization(
     state: &impl SharedRuntimeState,
     req: &actix_web::HttpRequest,
     created_by_user_id: i64,
-    policy: crate::entities::storage_policy::Model,
+    policy: aster_drive_model::entities::storage_policy::Model,
     input: Option<MicrosoftGraphAuthorizationInput>,
 ) -> Result<StorageAuthorizationStartResponse> {
     let input = input.unwrap_or_default();
@@ -726,7 +726,7 @@ fn storage_authorization_callback_server_error(
 async fn finish_microsoft_graph_callback(
     encryption_key: &str,
     flow: &storage_policy_authorization_flow::Model,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
     code: &str,
     now: chrono::DateTime<Utc>,
 ) -> std::result::Result<storage_policy_credential::ActiveModel, StorageAuthorizationCallbackError>
@@ -782,7 +782,7 @@ async fn finish_microsoft_graph_callback(
         context.cloud.graph_base_url(),
         token.access_token.clone(),
     ))
-    .map_err(storage_authorization_callback_server_error)?;
+    .map_err(|error| storage_authorization_callback_server_error(error.into()))?;
     let location = resolve_onedrive_location(&graph_client, options)
         .await
         .map_err(|error| {
@@ -858,7 +858,7 @@ async fn finish_microsoft_graph_callback(
 async fn finish_authorization_provider_callback(
     encryption_key: &str,
     flow: &storage_policy_authorization_flow::Model,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
     code: &str,
     now: chrono::DateTime<Utc>,
 ) -> std::result::Result<storage_policy_credential::ActiveModel, StorageAuthorizationCallbackError>

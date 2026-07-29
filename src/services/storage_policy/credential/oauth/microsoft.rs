@@ -5,10 +5,10 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::config::OUTBOUND_HTTP_USER_AGENT;
-use crate::entities::storage_policy_authorization_flow;
-use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::{MicrosoftGraphCloud, StorageCredentialProvider};
+use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error};
+use aster_drive_model::entities::storage_policy_authorization_flow;
+use aster_drive_model::types::{MicrosoftGraphCloud, StorageCredentialProvider};
+use aster_drive_storage::StorageErrorKind;
 
 use super::super::{REDACTED_SECRET, crypto};
 

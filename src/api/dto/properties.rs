@@ -9,7 +9,7 @@ use validator::{Validate, ValidationError};
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
 pub struct EntityPath {
-    pub entity_type: crate::types::EntityType,
+    pub entity_type: aster_drive_model::types::EntityType,
     #[validate(range(min = 1, message = "entity_id must be greater than 0"))]
     pub entity_id: i64,
 }
@@ -18,7 +18,7 @@ pub struct EntityPath {
 #[derive(Deserialize, Validate)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(IntoParams))]
 pub struct PropPath {
-    pub entity_type: crate::types::EntityType,
+    pub entity_type: aster_drive_model::types::EntityType,
     #[validate(range(min = 1, message = "entity_id must be greater than 0"))]
     pub entity_id: i64,
     #[validate(custom(function = "crate::api::dto::validation::validate_property_namespace"))]

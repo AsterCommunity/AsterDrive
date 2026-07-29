@@ -4,8 +4,8 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::file_blob::{self, Entity as FileBlob};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::file_blob::{self, Entity as FileBlob};
 use aster_forge_utils::numbers::usize_to_u64;
 
 pub async fn find_active_blob_by_hash<C: ConnectionTrait>(

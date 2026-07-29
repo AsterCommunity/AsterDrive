@@ -7,7 +7,7 @@ use crate::config::definitions::{
 use crate::config::media_processing;
 use crate::errors::{AsterError, Result};
 use crate::services::preview::apps;
-use crate::types::MediaProcessorKind;
+use aster_drive_model::types::MediaProcessorKind;
 use aster_forge_config::ConfigVisibility;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::system_config::{
@@ -333,7 +333,7 @@ mod tests {
     use crate::config::DatabaseConfig;
     use crate::db;
     use crate::services::preview::apps::PREVIEW_APPS_CONFIG_KEY;
-    use migration::Migrator;
+    use aster_drive_migration::Migrator;
 
     async fn setup_db() -> sea_orm::DatabaseConnection {
         let db = db::connect_with_metrics(
@@ -342,7 +342,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("config repo test DB should connect");

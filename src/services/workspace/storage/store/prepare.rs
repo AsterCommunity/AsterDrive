@@ -6,7 +6,6 @@ use sha2::{Digest, Sha256};
 use super::{DedupTarget, TempBlobPlan};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy};
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::storage::HASH_BUF_SIZE;
@@ -16,7 +15,8 @@ use crate::services::workspace::storage::{
     resolve_policy_for_size, upload_temp_file_to_prepared_blob,
     upload_temp_file_to_prepared_blob_cancellable, verify_file_access,
 };
-use crate::storage::StorageDriver;
+use aster_drive_model::entities::{file, file_blob, storage_policy};
+use aster_drive_storage::StorageDriver;
 
 pub(super) struct PreparedStoreFromTemp {
     pub scope: WorkspaceStorageScope,

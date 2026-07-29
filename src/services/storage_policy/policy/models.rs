@@ -6,8 +6,8 @@ use utoipa::ToSchema;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::response::ApiErrorDiagnostic;
-use crate::entities::storage_policy;
-use crate::types::{
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
     DriverType, StoragePolicyOptions, parse_storage_policy_allowed_types,
     parse_storage_policy_options,
 };
@@ -113,12 +113,12 @@ pub struct StoragePolicyCapacityInfo {
     pub driver_type: DriverType,
     pub blob_count: i64,
     pub blob_total_bytes: i64,
-    pub capacity: crate::storage::StorageCapacityInfo,
+    pub capacity: aster_drive_storage::StorageCapacityInfo,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub diagnostic: Option<StoragePolicyDiagnostic>,
 }
 
-pub type StoragePolicyActionType = crate::storage::StoragePolicyExecutableAction;
+pub type StoragePolicyActionType = aster_drive_storage::StoragePolicyExecutableAction;
 pub type ExecuteSavedStoragePolicyActionInput =
     crate::storage::ExecuteSavedStorageConnectorActionInput;
 pub type ExecuteDraftStoragePolicyActionInput =
@@ -250,15 +250,15 @@ mod tests {
         TencentCosCorsConfigResult,
     };
     use crate::api::api_error_code::ApiErrorCode;
-    use crate::storage::StorageErrorKind;
-    use crate::storage::error::storage_driver_error;
+    use aster_drive_storage::StorageErrorKind;
+    use aster_drive_storage::error::storage_driver_error;
 
     #[test]
     fn storage_policy_diagnostic_sanitizes_admin_storage_details() {
-        let error = storage_driver_error(
+        let error = crate::errors::AsterError::from(storage_driver_error(
             StorageErrorKind::Permission,
             "Azure Blob failed for https://acct.blob.core.windows.net/file?sig=topsecret AccountKey=supersecret;EndpointSuffix=core.windows.net",
-        );
+        ));
 
         let diagnostic =
             StoragePolicyDiagnostic::from_error(&error).expect("storage errors are diagnostic");
@@ -274,7 +274,10 @@ mod tests {
 
     #[test]
     fn storage_policy_diagnostic_marks_retryable_storage_errors() {
-        let error = storage_driver_error(StorageErrorKind::Transient, "provider timed out");
+        let error = crate::errors::AsterError::from(storage_driver_error(
+            StorageErrorKind::Transient,
+            "provider timed out",
+        ));
 
         let diagnostic =
             StoragePolicyDiagnostic::from_error(&error).expect("storage errors are diagnostic");

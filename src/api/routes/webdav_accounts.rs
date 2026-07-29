@@ -452,7 +452,7 @@ fn webdav_created_audit_details(
 }
 
 fn webdav_account_audit_details(
-    account: &crate::entities::webdav_account::Model,
+    account: &aster_drive_model::entities::webdav_account::Model,
 ) -> serde_json::Value {
     json!({
         "username": &account.username,

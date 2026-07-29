@@ -123,7 +123,7 @@ async fn set_default_policy_chunk_size(
         .await
         .unwrap()
         .expect("default policy should exist");
-    let mut active: aster_drive::entities::storage_policy::ActiveModel = policy.into();
+    let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
     active.chunk_size = Set(chunk_size);
     active.update(state.writer_db()).await.unwrap();
     state

@@ -8,7 +8,7 @@ use utoipa::ToSchema;
 
 use chrono::{DateTime, Utc};
 
-use crate::types::{UploadMode, UploadScheduling, UploadSessionStatus};
+use aster_drive_model::types::{UploadMode, UploadScheduling, UploadSessionStatus};
 
 #[derive(Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

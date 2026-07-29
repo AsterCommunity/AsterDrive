@@ -9,7 +9,7 @@ pub mod totp;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::types::{MfaMethod, MfaPersistentFactorMethod};
+use aster_drive_model::types::{MfaMethod, MfaPersistentFactorMethod};
 
 pub use login_flow::{
     MfaChallengeStart, PrimaryLoginCompletion, cleanup_expired_flows,

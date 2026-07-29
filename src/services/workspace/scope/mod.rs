@@ -8,10 +8,10 @@ mod cache;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{file_repo, folder_repo, team_member_repo, team_repo, user_repo};
-use crate::entities::{file, folder};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::{file, folder};
+use aster_drive_model::types::TeamMemberRole;
 use sea_orm::ConnectionTrait;
 use serde::{Deserialize, Serialize};
 
@@ -246,7 +246,7 @@ pub(crate) fn ensure_file_resource_scope(
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_file_scope(file)?;
-            crate::types::ownership::verify_owner(
+            crate::ownership::verify_owner(
                 file.owner_user_id.ok_or_else(|| {
                     auth_forbidden_with_code(
                         ApiErrorCode::WorkspaceScopeDenied,
@@ -300,7 +300,7 @@ pub(crate) fn ensure_folder_resource_scope(
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {
             ensure_personal_folder_scope(folder)?;
-            crate::types::ownership::verify_owner(
+            crate::ownership::verify_owner(
                 folder.owner_user_id.ok_or_else(|| {
                     auth_forbidden_with_code(
                         ApiErrorCode::WorkspaceScopeDenied,
@@ -506,21 +506,21 @@ mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};
     use crate::config::{Config, RuntimeConfig};
     use crate::db::repository::{policy_group_repo, policy_repo, team_member_repo, team_repo};
-    use crate::entities::{
-        storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
-    };
     use crate::runtime::PrimaryAppState;
     use crate::services::workspace::scope::SharedRuntimeState;
     use crate::services::{files::folder, mail::sender};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{
+        storage_policy, storage_policy_group, storage_policy_group_item, team, team_member, user,
+    };
+    use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, TeamMemberRole,
         UserRole, UserStatus,
     };
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
     use std::sync::Arc;
 
@@ -531,7 +531,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("test database should connect");
@@ -562,7 +562,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,
@@ -753,7 +753,7 @@ mod tests {
         let now = Utc::now();
         let parent = crate::db::repository::folder_repo::create(
             state.writer_db(),
-            crate::entities::folder::ActiveModel {
+            aster_drive_model::entities::folder::ActiveModel {
                 name: Set("Parent".to_string()),
                 parent_id: Set(None),
                 team_id: Set(None),
@@ -772,7 +772,7 @@ mod tests {
         .expect("parent folder should insert");
         let child = crate::db::repository::folder_repo::create(
             state.writer_db(),
-            crate::entities::folder::ActiveModel {
+            aster_drive_model::entities::folder::ActiveModel {
                 name: Set("Child".to_string()),
                 parent_id: Set(Some(parent.id)),
                 team_id: Set(None),

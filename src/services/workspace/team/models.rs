@@ -6,7 +6,7 @@ use utoipa::ToSchema;
 
 use crate::api::pagination::AdminTeamMemberSortBy;
 use crate::services::user::account;
-use crate::types::{TeamMemberRole, UserStatus};
+use aster_drive_model::types::{TeamMemberRole, UserStatus};
 use aster_forge_api::SortOrder;
 
 #[derive(Debug, Clone)]

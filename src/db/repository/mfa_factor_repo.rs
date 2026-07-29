@@ -6,9 +6,9 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::mfa_factor::{self, Entity as MfaFactor};
 use crate::errors::{AsterError, Result};
-use crate::types::MfaPersistentFactorMethod;
+use aster_drive_model::entities::mfa_factor::{self, Entity as MfaFactor};
+use aster_drive_model::types::MfaPersistentFactorMethod;
 
 pub async fn create<C: ConnectionTrait>(
     db: &C,

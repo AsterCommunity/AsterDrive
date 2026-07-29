@@ -3,18 +3,17 @@ use sea_orm::ConnectionTrait;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::policy_repo;
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
-use crate::storage::connector_descriptor::{
+use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
+    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, serialize_storage_policy_options,
+};
+use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
     StoragePolicyExecutableAction,
 };
-use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
-use crate::storage::error::storage_driver_error;
-use crate::storage::{StorageDriver, StorageErrorKind};
-use crate::types::{
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, serialize_storage_policy_options,
-};
+use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
 use super::{StorageConnector, StorageConnectorConnectionInput};
 
@@ -172,7 +171,7 @@ pub(super) fn validate_static_secret_credentials(
     validate_connection_secret(&input.secret_key, "secret_key", driver)
 }
 
-fn has_onedrive_options(options: &crate::types::StoragePolicyOptions) -> bool {
+fn has_onedrive_options(options: &aster_drive_model::types::StoragePolicyOptions) -> bool {
     options.provider_resumable_upload_strategy.is_some()
         || options.provider_download_strategy.is_some()
         || options.onedrive_cloud.is_some()
@@ -185,7 +184,7 @@ fn has_onedrive_options(options: &crate::types::StoragePolicyOptions) -> bool {
 }
 
 pub(super) fn ensure_onedrive_options_absent(
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<()> {
     if has_onedrive_options(options) {
         return Err(validation_error_with_code(
@@ -197,7 +196,7 @@ pub(super) fn ensure_onedrive_options_absent(
 }
 
 pub(super) fn ensure_sftp_options_absent(
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<()> {
     if options.sftp_host_key_fingerprint.is_some() {
         return Err(validation_error_with_code(
@@ -209,7 +208,7 @@ pub(super) fn ensure_sftp_options_absent(
 }
 
 pub(super) fn validate_onedrive_options(
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<()> {
     if options.onedrive_account_mode.is_none() {
         return Err(validation_error_with_code(
@@ -217,15 +216,17 @@ pub(super) fn validate_onedrive_options(
             "OneDrive storage policies require onedrive_account_mode",
         ));
     }
-    if options.onedrive_cloud == Some(crate::types::MicrosoftGraphCloud::China)
-        && options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::Personal)
+    if options.onedrive_cloud == Some(aster_drive_model::types::MicrosoftGraphCloud::China)
+        && options.onedrive_account_mode
+            == Some(aster_drive_model::types::OneDriveAccountMode::Personal)
     {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyOneDrivePersonalChinaCloudUnsupported,
             "personal OneDrive accounts must use the global Microsoft Graph cloud",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::SharepointSite)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::SharepointSite)
         && options.onedrive_drive_id.is_none()
         && options.onedrive_site_id.is_none()
     {
@@ -234,7 +235,8 @@ pub(super) fn validate_onedrive_options(
             "OneDrive sharepoint_site policies require onedrive_site_id when onedrive_drive_id is not set",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::SharepointSite)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::SharepointSite)
         && options.onedrive_group_id.is_some()
     {
         return Err(validation_error_with_code(
@@ -242,7 +244,8 @@ pub(super) fn validate_onedrive_options(
             "onedrive_group_id is only valid for OneDrive group_drive policies",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::GroupDrive)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::GroupDrive)
         && options.onedrive_drive_id.is_none()
         && options.onedrive_group_id.is_none()
     {
@@ -251,7 +254,8 @@ pub(super) fn validate_onedrive_options(
             "OneDrive group_drive policies require onedrive_group_id when onedrive_drive_id is not set",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::GroupDrive)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::GroupDrive)
         && options.onedrive_site_id.is_some()
     {
         return Err(validation_error_with_code(
@@ -259,7 +263,8 @@ pub(super) fn validate_onedrive_options(
             "onedrive_site_id is only valid for OneDrive sharepoint_site policies",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::Personal)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::Personal)
         && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
     {
         return Err(validation_error_with_code(
@@ -267,7 +272,8 @@ pub(super) fn validate_onedrive_options(
             "personal OneDrive policies do not accept onedrive_site_id or onedrive_group_id",
         ));
     }
-    if options.onedrive_account_mode == Some(crate::types::OneDriveAccountMode::WorkOrSchool)
+    if options.onedrive_account_mode
+        == Some(aster_drive_model::types::OneDriveAccountMode::WorkOrSchool)
         && (options.onedrive_site_id.is_some() || options.onedrive_group_id.is_some())
     {
         return Err(validation_error_with_code(
@@ -280,7 +286,7 @@ pub(super) fn validate_onedrive_options(
 
 pub(super) fn ensure_storage_native_processing_supported(
     descriptor: StorageConnectorDescriptor,
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<()> {
     if options.uses_storage_native_thumbnail() && !descriptor.capabilities.storage_native_thumbnail
     {
@@ -372,7 +378,7 @@ pub(super) fn unsupported_saved_connection_test_error(
 }
 
 fn serialize_connector_options(
-    options: &crate::types::StoragePolicyOptions,
+    options: &aster_drive_model::types::StoragePolicyOptions,
 ) -> Result<StoredStoragePolicyOptions> {
     serialize_storage_policy_options(options).map_err(|error| {
         AsterError::internal_error(format!("serialize storage policy options: {error}"))
@@ -402,7 +408,7 @@ pub(super) async fn probe_storage_driver(
 }
 
 pub fn unsupported_multipart_error(policy: &storage_policy::Model) -> AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Unsupported,
         format!(
             "storage policy {} (driver: {:?}) does not support multipart upload",

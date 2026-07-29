@@ -15,9 +15,9 @@ use std::path::Path;
 use tokio::io::AsyncSeekExt;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::upload_session;
 use crate::errors::{MapAsterErr, Result, chunk_upload_error_with_code};
 use crate::runtime::SharedRuntimeState;
+use aster_drive_model::entities::upload_session;
 use aster_forge_utils::numbers::i64_to_u64;
 use aster_forge_utils::paths;
 
@@ -93,7 +93,7 @@ pub(crate) fn chunk_receipt_etag() -> &'static str {
 }
 
 pub(crate) fn chunk_receipt_matches(
-    receipt: &crate::entities::upload_session_part::Model,
+    receipt: &aster_drive_model::entities::upload_session_part::Model,
     expected_part_number: i32,
     expected_size: i64,
 ) -> bool {

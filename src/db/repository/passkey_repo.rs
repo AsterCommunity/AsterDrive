@@ -6,9 +6,9 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::passkey::{self, Entity as Passkey};
 use crate::errors::{AsterError, Result};
-use crate::types::StoredPasskeyCredential;
+use aster_drive_model::entities::passkey::{self, Entity as Passkey};
+use aster_drive_model::types::StoredPasskeyCredential;
 
 pub async fn list_for_user(db: &DatabaseConnection, user_id: i64) -> Result<Vec<passkey::Model>> {
     Passkey::find()

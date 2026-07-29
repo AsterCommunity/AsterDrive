@@ -8,9 +8,9 @@ use std::io::{Cursor, Write};
 use actix_web::http::StatusCode;
 use actix_web::test;
 use aster_drive::db::repository::property_repo;
-use aster_drive::entities::background_task;
 use aster_drive::runtime::SharedRuntimeState;
-use aster_drive::types::{BackgroundTaskKind, BackgroundTaskStatus, EntityType};
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::{BackgroundTaskKind, BackgroundTaskStatus, EntityType};
 use serde_json::Value;
 
 fn create_stored_zip_bytes(entries: &[(&str, Option<&[u8]>)]) -> Vec<u8> {

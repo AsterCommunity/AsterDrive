@@ -17,17 +17,17 @@ use super::provider::{
 use super::*;
 use crate::config::DatabaseConfig;
 use crate::db;
-use crate::entities::{audit_log, storage_policy};
 use crate::services::storage_policy::credential::{
     default_microsoft_graph_scopes_for_onedrive_options, normalize_scopes_with_default,
 };
-use crate::storage::StorageErrorKind;
-use crate::storage::error::storage_driver_error;
-use crate::types::{
+use aster_drive_migration::Migrator;
+use aster_drive_model::entities::{audit_log, storage_policy};
+use aster_drive_model::types::{
     AuditAction, AuditEntityType, DriverType, MicrosoftGraphCloud, OneDriveAccountMode,
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, UserRole, UserStatus,
 };
-use migration::Migrator;
+use aster_drive_storage::StorageErrorKind;
+use aster_drive_storage::error::storage_driver_error;
 use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, QueryOrder};
 use secrecy::ExposeSecret;
 use std::collections::VecDeque;
@@ -180,7 +180,7 @@ async fn setup_db() -> sea_orm::DatabaseConnection {
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("storage credential test DB should connect");
@@ -201,7 +201,7 @@ async fn setup_file_db(pool_size: u32) -> (sea_orm::DatabaseConnection, std::pat
             pool_size,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("storage credential test DB should connect");
@@ -244,7 +244,7 @@ async fn build_oauth_test_state(
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,
@@ -306,7 +306,9 @@ async fn create_onedrive_policy_with_options(
             remote_node_id: Set(None),
             max_file_size: Set(0),
             allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-            options: Set(crate::types::serialize_storage_policy_options(&options).unwrap()),
+            options: Set(
+                aster_drive_model::types::serialize_storage_policy_options(&options).unwrap(),
+            ),
             is_default: Set(false),
             chunk_size: Set(5_242_880),
             created_at: Set(now),
@@ -391,7 +393,7 @@ async fn create_microsoft_graph_application_config(
     policy_id: i64,
     client_id: &str,
     client_secret: &str,
-) -> crate::entities::storage_connector_application_config::Model {
+) -> aster_drive_model::entities::storage_connector_application_config::Model {
     upsert_microsoft_graph_application_config(
         db,
         encryption_key,
@@ -474,24 +476,26 @@ async fn create_microsoft_graph_credential_with_metadata(
 
 async fn create_test_user(db: &sea_orm::DatabaseConnection, id: i64) {
     let now = Utc::now();
-    crate::entities::user::Entity::insert(crate::entities::user::ActiveModel {
-        id: Set(id),
-        username: Set(format!("user-{id}")),
-        email: Set(format!("user-{id}@example.test")),
-        password_hash: Set("not-used".to_string()),
-        role: Set(UserRole::Admin),
-        status: Set(UserStatus::Active),
-        must_change_password: Set(false),
-        session_version: Set(0),
-        email_verified_at: Set(Some(now)),
-        pending_email: Set(None),
-        storage_used: Set(0),
-        storage_quota: Set(0),
-        policy_group_id: Set(None),
-        created_at: Set(now),
-        updated_at: Set(now),
-        config: Set(None),
-    })
+    aster_drive_model::entities::user::Entity::insert(
+        aster_drive_model::entities::user::ActiveModel {
+            id: Set(id),
+            username: Set(format!("user-{id}")),
+            email: Set(format!("user-{id}@example.test")),
+            password_hash: Set("not-used".to_string()),
+            role: Set(UserRole::Admin),
+            status: Set(UserStatus::Active),
+            must_change_password: Set(false),
+            session_version: Set(0),
+            email_verified_at: Set(Some(now)),
+            pending_email: Set(None),
+            storage_used: Set(0),
+            storage_quota: Set(0),
+            policy_group_id: Set(None),
+            created_at: Set(now),
+            updated_at: Set(now),
+            config: Set(None),
+        },
+    )
     .exec(db)
     .await
     .expect("test user should insert");
@@ -1985,7 +1989,8 @@ async fn credential_token_provider_transient_refresh_failure_does_not_mark_reaut
         storage_driver_error(
             StorageErrorKind::Transient,
             "temporary Microsoft Graph outage",
-        ),
+        )
+        .into(),
     )]));
     let provider = build_microsoft_graph_credential_token_provider_with_refresher(
         db.clone(),

@@ -1,15 +1,15 @@
 //! 仓储模块：`search_repo`。
 
 use crate::api::pagination::SortBy;
-use crate::entities::{
+use crate::errors::{AsterError, Result};
+use crate::services::content::tag::TAG_PROPERTY_NAMESPACE;
+use aster_drive_model::entities::{
     entity_property::{self, Entity as EntityProperty},
     file::{self, Entity as File},
     file_blob,
     folder::{self, Entity as Folder},
 };
-use crate::errors::{AsterError, Result};
-use crate::services::content::tag::TAG_PROPERTY_NAMESPACE;
-use crate::types::EntityType;
+use aster_drive_model::types::EntityType;
 use aster_forge_api::SortOrder;
 use aster_forge_db::search_query::{
     escape_like_query, lower_like_condition, mysql_boolean_mode_query, sqlite_fts_match_condition,

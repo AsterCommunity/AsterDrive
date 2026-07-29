@@ -5,10 +5,10 @@ use std::collections::{HashMap, HashSet};
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::folder_repo;
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::folder;
 
 use super::{FolderAncestorItem, cache, ensure_folder_model_in_scope};
 

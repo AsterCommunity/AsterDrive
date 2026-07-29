@@ -3,11 +3,11 @@ use std::collections::{HashMap, HashSet};
 
 use crate::api::pagination::{AdminAuditLogSortBy, load_offset_page};
 use crate::db::repository::audit_log_repo;
-use crate::entities::audit_log;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{user::account, user::profile};
-use crate::types::TeamMemberRole;
+use aster_drive_model::entities::audit_log;
+use aster_drive_model::types::TeamMemberRole;
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::filters::AuditLogFilters;
@@ -63,7 +63,8 @@ async fn build_audit_entries(
     let mut items = Vec::with_capacity(entries.len());
 
     for model in entries {
-        let Some(entity_type) = crate::types::AuditEntityType::from_str_name(&model.entity_type)
+        let Some(entity_type) =
+            aster_drive_model::types::AuditEntityType::from_str_name(&model.entity_type)
         else {
             tracing::warn!(
                 audit_log_id = model.id,
@@ -126,7 +127,7 @@ fn build_team_audit_entry(
     entry: audit_log::Model,
     users: &HashMap<i64, account::UserSummary>,
 ) -> TeamAuditEntryInfo {
-    let entity_type = crate::types::AuditEntityType::from_str_name(&entry.entity_type);
+    let entity_type = aster_drive_model::types::AuditEntityType::from_str_name(&entry.entity_type);
     let parsed_details = entry
         .details
         .as_deref()

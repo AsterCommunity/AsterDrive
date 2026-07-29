@@ -1,40 +1,48 @@
 use futures::StreamExt;
 
-use crate::errors::{AsterError, MapAsterErr, Result};
-
-pub(crate) async fn read_reqwest_body_limited(
+/// Reads a reqwest response body while enforcing a strict byte limit.
+///
+/// A declared `Content-Length` above `max_bytes` is rejected before streaming.
+/// The same limit is enforced while reading so missing or incorrect length
+/// headers cannot bypass it. `map_error` keeps this crate independent from the
+/// product error type; it receives the complete diagnostic message.
+pub async fn read_reqwest_body_limited<E>(
     response: reqwest::Response,
     context: &str,
     max_bytes: usize,
-    error: impl Copy + Fn(String) -> AsterError,
-) -> Result<Vec<u8>> {
+    map_error: impl Fn(String) -> E,
+) -> Result<Vec<u8>, E> {
     if response.content_length().is_some_and(|content_length| {
         usize::try_from(content_length).map_or(true, |length| length > max_bytes)
     }) {
-        return Err(error(format!("{context} exceeds {max_bytes} bytes limit")));
+        return Err(map_error(format!(
+            "{context} exceeds {max_bytes} bytes limit"
+        )));
     }
     let mut body = Vec::with_capacity(max_bytes.min(4096));
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
-        let chunk = chunk.map_aster_err_ctx(context, error)?;
-        extend_body_limited(&mut body, &chunk, context, max_bytes, error)?;
+        let chunk = chunk.map_err(|error| map_error(format!("{context}: {error}")))?;
+        extend_body_limited(&mut body, &chunk, context, max_bytes, &map_error)?;
     }
     Ok(body)
 }
 
-fn extend_body_limited(
+fn extend_body_limited<E>(
     body: &mut Vec<u8>,
     chunk: &[u8],
     context: &str,
     max_bytes: usize,
-    error: impl Copy + Fn(String) -> AsterError,
-) -> Result<()> {
+    map_error: &impl Fn(String) -> E,
+) -> Result<(), E> {
     let next_len = body
         .len()
         .checked_add(chunk.len())
-        .ok_or_else(|| error(format!("{context} size overflow")))?;
+        .ok_or_else(|| map_error(format!("{context} size overflow")))?;
     if next_len > max_bytes {
-        return Err(error(format!("{context} exceeds {max_bytes} bytes limit")));
+        return Err(map_error(format!(
+            "{context} exceeds {max_bytes} bytes limit"
+        )));
     }
     body.extend_from_slice(chunk);
     Ok(())
@@ -42,9 +50,11 @@ fn extend_body_limited(
 
 #[cfg(test)]
 mod tests {
-    use crate::errors::AsterError;
-
     use super::{extend_body_limited, read_reqwest_body_limited};
+
+    fn message_error(message: String) -> String {
+        message
+    }
 
     async fn response_with_body(body: &'static [u8], chunked: bool) -> reqwest::Response {
         use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -121,33 +131,15 @@ mod tests {
     #[test]
     fn limited_body_accumulation_accepts_exact_limit_and_rejects_one_byte_over() {
         let mut body = Vec::new();
-        extend_body_limited(
-            &mut body,
-            b"123",
-            "test response body",
-            4,
-            AsterError::validation_error,
-        )
-        .expect("body below limit should be accepted");
-        extend_body_limited(
-            &mut body,
-            b"4",
-            "test response body",
-            4,
-            AsterError::validation_error,
-        )
-        .expect("body at exact limit should be accepted");
-        let error = extend_body_limited(
-            &mut body,
-            b"5",
-            "test response body",
-            4,
-            AsterError::validation_error,
-        )
-        .expect_err("body over limit should be rejected");
+        extend_body_limited(&mut body, b"123", "test response body", 4, &message_error)
+            .expect("body below limit should be accepted");
+        extend_body_limited(&mut body, b"4", "test response body", 4, &message_error)
+            .expect("body at exact limit should be accepted");
+        let error = extend_body_limited(&mut body, b"5", "test response body", 4, &message_error)
+            .expect_err("body over limit should be rejected");
 
         assert_eq!(body, b"1234");
-        assert!(error.message().contains("exceeds 4 bytes limit"));
+        assert!(error.contains("exceeds 4 bytes limit"));
     }
 
     #[tokio::test]
@@ -156,7 +148,7 @@ mod tests {
             response_with_body(b"1234", false).await,
             "test network body",
             4,
-            AsterError::validation_error,
+            message_error,
         )
         .await
         .expect("body at exact network limit should be accepted");
@@ -166,10 +158,10 @@ mod tests {
             response_with_body(b"12345", true).await,
             "test network body",
             4,
-            AsterError::validation_error,
+            message_error,
         )
         .await
         .expect_err("body over network limit should be rejected");
-        assert!(error.message().contains("exceeds 4 bytes limit"));
+        assert!(error.contains("exceeds 4 bytes limit"));
     }
 }

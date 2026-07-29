@@ -9,11 +9,11 @@ use crate::api::pagination::{AdminPolicySortBy, load_offset_page};
 use crate::db::repository::{
     file_repo, policy_group_repo, policy_repo, system_initialization_repo, upload_session_repo,
 };
-use crate::entities::storage_policy;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState, TaskRuntimeState};
 use crate::services::remote::storage_target;
-use crate::types::{DriverType, parse_storage_policy_options};
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{DriverType, parse_storage_policy_options};
 use aster_forge_api::{OffsetPage, SortOrder};
 
 use super::models::{
@@ -68,20 +68,18 @@ pub async fn capacity_info(
 }
 
 pub(crate) async fn capacity_info_or_status(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     driver_type: DriverType,
 ) -> (
-    crate::storage::StorageCapacityInfo,
+    aster_drive_storage::StorageCapacityInfo,
     Option<StoragePolicyDiagnostic>,
 ) {
     match driver.capacity_info().await {
         Ok(capacity) => (capacity, None),
-        Err(error)
-            if error.storage_error_kind()
-                == Some(crate::storage::StorageErrorKind::Unsupported) =>
-        {
+        Err(error) if error.kind() == aster_drive_storage::StorageErrorKind::Unsupported => {
+            let error = AsterError::from(error);
             (
-                crate::storage::StorageCapacityInfo::unsupported(format!(
+                aster_drive_storage::StorageCapacityInfo::unsupported(format!(
                     "{}_driver",
                     driver_type.as_str()
                 )),
@@ -89,6 +87,7 @@ pub(crate) async fn capacity_info_or_status(
             )
         }
         Err(error) => {
+            let error = AsterError::from(error);
             let kind = error
                 .storage_error_kind()
                 .map(|kind| kind.as_str())
@@ -101,7 +100,7 @@ pub(crate) async fn capacity_info_or_status(
                 "storage capacity observability failed"
             );
             (
-                crate::storage::StorageCapacityInfo::unavailable(format!(
+                aster_drive_storage::StorageCapacityInfo::unavailable(format!(
                     "{}_driver",
                     driver_type.as_str()
                 )),
@@ -160,7 +159,7 @@ pub async fn create(
     let options = options.unwrap_or_default().normalized();
     let serialized_options = serialize_options(&options)?;
     let max_file_size =
-        crate::storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
+        aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
     crate::storage::connectors::validate_policy_options(
         state.writer_db(),
@@ -485,7 +484,7 @@ pub async fn update(
     }
     if let Some(v) = max_file_size {
         active.max_file_size =
-            Set(crate::storage::field_contract::normalize_storage_policy_max_file_size(v)?);
+            Set(aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(v)?);
     }
     if let Some(v) = chunk_size {
         active.chunk_size = Set(v);
@@ -811,19 +810,18 @@ mod tests {
     use crate::db::repository::{
         storage_connector_application_config_repo, storage_policy_credential_repo,
     };
-    use crate::errors::Result;
-    use crate::storage::error::storage_driver_error;
-    use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
-    use crate::storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::types::{
         MicrosoftGraphCloud, OneDriveAccountMode, RemoteDownloadStrategy, RemoteUploadStrategy,
         StorageCredentialKind, StorageCredentialProvider, StoragePolicyOptions,
         StoredStoragePolicyAllowedTypes,
     };
+    use aster_drive_storage::error::storage_driver_error;
+    use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
+    use aster_drive_storage::traits::extensions::{StorageCapacityInfo, StorageCapacityStatus};
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
-    use migration::Migrator;
     use sea_orm::ActiveValue::Set;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -847,7 +845,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("policy service test DB should connect");
@@ -879,7 +877,7 @@ mod tests {
             config: Arc::new(config),
             cache,
             config_sync,
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,
@@ -953,7 +951,7 @@ mod tests {
         let now = Utc::now();
         crate::db::repository::managed_follower_repo::create(
             state.writer_db(),
-            crate::entities::managed_follower::ActiveModel {
+            aster_drive_model::entities::managed_follower::ActiveModel {
                 name: Set("Remote Node".to_string()),
                 base_url: Set("http://127.0.0.1:9".to_string()),
                 access_key: Set("remote-ak".to_string()),
@@ -986,36 +984,39 @@ mod tests {
     }
 
     struct CapacityErrorDriver {
-        error: AsterError,
+        error: aster_drive_storage::StorageError,
     }
 
     #[async_trait]
     impl StorageDriver for CapacityErrorDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Err(self.error.clone())
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Err(self.error.clone())
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Err(self.error.clone())
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Err(self.error.clone())
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Err(self.error.clone())
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Err(self.error.clone())
         }
 
-        async fn capacity_info(&self) -> Result<StorageCapacityInfo> {
+        async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
             Err(self.error.clone())
         }
     }
@@ -1024,7 +1025,7 @@ mod tests {
     async fn capacity_info_or_status_maps_unsupported_to_diagnostic_payload() {
         let driver = CapacityErrorDriver {
             error: storage_driver_error(
-                crate::storage::StorageErrorKind::Unsupported,
+                aster_drive_storage::StorageErrorKind::Unsupported,
                 "storage driver does not support capacity observability",
             ),
         };
@@ -1046,7 +1047,7 @@ mod tests {
     async fn capacity_info_or_status_maps_storage_failures_to_unavailable_diagnostic_payload() {
         let driver = CapacityErrorDriver {
             error: storage_driver_error(
-                crate::storage::StorageErrorKind::Transient,
+                aster_drive_storage::StorageErrorKind::Transient,
                 "capacity probe timed out",
             ),
         };
@@ -1334,10 +1335,10 @@ mod tests {
                 remote_node_id: Set(None),
                 max_file_size: Set(0),
                 allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(
-                    crate::types::serialize_storage_policy_options(&onedrive_options())
-                        .expect("options should serialize"),
-                ),
+                options: Set(aster_drive_model::types::serialize_storage_policy_options(
+                    &onedrive_options(),
+                )
+                .expect("options should serialize")),
                 is_default: Set(false),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -1422,7 +1423,7 @@ mod tests {
                 remote_storage_target_key: Set(Some("rst_existing".to_string())),
                 max_file_size: Set(0),
                 allowed_types: Set(StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::serialize_storage_policy_options(
+                options: Set(aster_drive_model::types::serialize_storage_policy_options(
                     &StoragePolicyOptions {
                         remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
                         remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),

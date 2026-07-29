@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use migration::{MigrationHistory, MigrationTrack, inspect_migration_history};
+use aster_drive_migration::{MigrationHistory, MigrationTrack, inspect_migration_history};
 use sea_orm::{ConnectionTrait, DbBackend, Statement};
 use url::Url;
 

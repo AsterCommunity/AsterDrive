@@ -5,24 +5,24 @@ use std::sync::{
 use std::time::Duration;
 
 use actix_web::body;
+use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, Set};
 use tokio::io::{AsyncRead, AsyncWriteExt};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::PrimaryAppState;
 use crate::services::files::file::DownloadDisposition;
 use crate::services::{mail::sender, storage_policy::policy};
-use crate::storage::BlobMetadata;
-use crate::storage::traits::driver::PresignedDownloadOptions;
-use crate::storage::traits::extensions::PresignedStorageDriver;
-use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-use crate::types::{
+use crate::storage::{DriverRegistry, PolicySnapshot};
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
+};
+use aster_drive_storage::{
+    BlobMetadata, PresignedDownloadOptions, PresignedStorageDriver, StorageDriver,
 };
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
@@ -107,13 +107,14 @@ impl CountingStreamDriver {
 
 #[async_trait]
 impl StorageDriver for CountingStreamDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.get_calls.fetch_add(1, Ordering::SeqCst);
-        Err(crate::errors::AsterError::storage_driver_error(
+        Err(aster_drive_storage::StorageError::new(
+            aster_drive_storage::StorageErrorKind::Unsupported,
             "download stream regression: get() should not be used here",
         ))
     }
@@ -121,7 +122,7 @@ impl StorageDriver for CountingStreamDriver {
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.get_stream_calls.fetch_add(1, Ordering::SeqCst);
         let (mut writer, reader) = tokio::io::duplex(self.bytes.len().max(1));
         let payload = self.bytes.as_ref().clone();
@@ -136,15 +137,15 @@ impl StorageDriver for CountingStreamDriver {
         Ok(Box::new(reader))
     }
 
-    async fn delete(&self, _path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
         Ok(())
     }
 
-    async fn exists(&self, _path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
         Ok(true)
     }
 
-    async fn metadata(&self, _path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: self.bytes.len() as u64,
             content_type: Some("text/plain".to_string()),
@@ -176,35 +177,35 @@ struct PresignedCountingStreamDriver {
 
 #[async_trait]
 impl StorageDriver for PresignedCountingStreamDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         self.inner.put(path, data).await
     }
 
-    async fn get(&self, path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         self.inner.get(path).await
     }
 
     async fn get_stream(
         &self,
         path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         self.inner.get_stream(path).await
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.inner.delete(path).await
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         self.inner.exists(path).await
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         self.inner.metadata(path).await
     }
 
-    fn extensions(&self) -> crate::storage::traits::StorageDriverExtensions<'_> {
-        crate::storage::traits::StorageDriverExtensions {
+    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
+        aster_drive_storage::traits::StorageDriverExtensions {
             presigned: Some(self),
             ..Default::default()
         }
@@ -218,7 +219,7 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
         path: &str,
         _expires: Duration,
         options: PresignedDownloadOptions,
-    ) -> crate::errors::Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         if !self.returns_url {
             return Ok(None);
         }
@@ -250,7 +251,7 @@ impl PresignedStorageDriver for PresignedCountingStreamDriver {
         &self,
         path: &str,
         _expires: Duration,
-    ) -> crate::errors::Result<Option<String>> {
+    ) -> aster_drive_storage::Result<Option<String>> {
         Ok(Some(format!(
             "https://objects.example.test/upload?path={path}"
         )))
@@ -298,7 +299,7 @@ where
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("download test database should connect");
@@ -389,7 +390,7 @@ where
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,

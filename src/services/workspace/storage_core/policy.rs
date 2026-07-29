@@ -1,12 +1,12 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::{folder_repo, team_repo, user_repo};
-use crate::entities::folder;
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::workspace::scope::{
     WorkspaceStorageScope, require_team_policy_group_id, verify_folder_access,
 };
-use crate::types::{DriverType, parse_storage_policy_options};
+use aster_drive_model::entities::folder;
+use aster_drive_model::types::{DriverType, parse_storage_policy_options};
 
 pub(crate) async fn load_storage_limits(
     state: &PrimaryAppState,
@@ -24,7 +24,9 @@ pub(crate) async fn load_storage_limits(
     }
 }
 
-pub(crate) fn local_content_dedup_enabled(policy: &crate::entities::storage_policy::Model) -> bool {
+pub(crate) fn local_content_dedup_enabled(
+    policy: &aster_drive_model::entities::storage_policy::Model,
+) -> bool {
     policy.driver_type == DriverType::Local
         && parse_storage_policy_options(policy.options.as_ref())
             .content_dedup
@@ -74,7 +76,7 @@ async fn resolve_scope_policy_for_size(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     file_size: i64,
-) -> Result<crate::entities::storage_policy::Model> {
+) -> Result<aster_drive_model::entities::storage_policy::Model> {
     match scope {
         WorkspaceStorageScope::Personal { user_id } => state
             .policy_snapshot
@@ -97,7 +99,7 @@ pub(crate) async fn resolve_policy_for_size_with_verified_folder(
     scope: WorkspaceStorageScope,
     folder: Option<VerifiedFolderPolicyHint>,
     file_size: i64,
-) -> Result<crate::entities::storage_policy::Model> {
+) -> Result<aster_drive_model::entities::storage_policy::Model> {
     if let Some(folder) = folder
         && let Some(policy_id) = folder.policy_id()
     {
@@ -119,7 +121,7 @@ pub(crate) async fn resolve_verified_folder_policy_hint(
 
 pub(crate) fn ensure_policy_available_for_folder_binding(
     state: &impl SharedRuntimeState,
-    policy: &crate::entities::storage_policy::Model,
+    policy: &aster_drive_model::entities::storage_policy::Model,
 ) -> Result<()> {
     if state
         .policy_snapshot()
@@ -141,7 +143,7 @@ pub(crate) fn ensure_policy_available_for_folder_binding(
 fn resolve_bound_folder_policy(
     state: &PrimaryAppState,
     policy_id: i64,
-) -> Result<crate::entities::storage_policy::Model> {
+) -> Result<aster_drive_model::entities::storage_policy::Model> {
     let policy = state.policy_snapshot().get_policy_or_err(policy_id)?;
     ensure_policy_available_for_folder_binding(state, &policy)?;
     Ok(policy)
@@ -196,7 +198,7 @@ pub(crate) async fn resolve_policy_for_size(
     scope: WorkspaceStorageScope,
     folder_id: Option<i64>,
     file_size: i64,
-) -> Result<crate::entities::storage_policy::Model> {
+) -> Result<aster_drive_model::entities::storage_policy::Model> {
     // 文件夹级策略覆盖优先级最高。
     // 只有目标文件夹没有显式绑定策略时，才回退到个人默认策略 / 团队策略组。
     if let Some(folder_id) = folder_id {

@@ -4,12 +4,12 @@ use utoipa::ToSchema;
 
 use std::sync::Arc;
 
-use crate::storage::StoragePolicyExecutableAction;
 use crate::storage::drivers::onedrive::MicrosoftGraphAccessTokenProvider;
-use crate::types::{
+use aster_drive_model::types::{
     DriverType, MicrosoftGraphCloud, RemoteNodeTransportMode, StorageCredentialKind,
     StorageCredentialProvider,
 };
+use aster_drive_storage::StoragePolicyExecutableAction;
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -43,7 +43,7 @@ pub struct StorageConnectorConnectionInput {
     pub base_path: String,
     pub remote_node_id: Option<i64>,
     pub remote_storage_target_key: Option<String>,
-    pub options: crate::types::StoragePolicyOptions,
+    pub options: aster_drive_model::types::StoragePolicyOptions,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,7 +127,7 @@ pub(crate) struct StoragePolicyCleanupRemoteNodeSnapshot {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub(crate) struct StoragePolicyCleanupOneDriveCredentialSnapshot {
-    pub cloud: crate::types::MicrosoftGraphCloud,
+    pub cloud: aster_drive_model::types::MicrosoftGraphCloud,
     #[serde(default)]
     pub tenant_id: Option<String>,
     #[serde(default)]

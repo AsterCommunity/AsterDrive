@@ -40,7 +40,7 @@ impl Drop for DirModeGuard {
 
 async fn default_policy(
     state: &aster_drive::runtime::PrimaryAppState,
-) -> aster_drive::entities::storage_policy::Model {
+) -> aster_drive_model::entities::storage_policy::Model {
     aster_drive::db::repository::policy_repo::find_default(state.writer_db())
         .await
         .unwrap()
@@ -50,7 +50,7 @@ async fn default_policy(
 struct UploadSessionSpec<'a> {
     team_id: Option<i64>,
     upload_id: &'a str,
-    status: aster_drive::types::UploadSessionStatus,
+    status: aster_drive_model::types::UploadSessionStatus,
     expires_at: chrono::DateTime<chrono::Utc>,
     object_temp_key: Option<&'a str>,
     object_multipart_id: Option<&'a str>,
@@ -60,7 +60,7 @@ struct UploadSessionSpec<'a> {
 impl<'a> UploadSessionSpec<'a> {
     fn new(
         upload_id: &'a str,
-        status: aster_drive::types::UploadSessionStatus,
+        status: aster_drive_model::types::UploadSessionStatus,
         expires_at: chrono::DateTime<chrono::Utc>,
     ) -> Self {
         Self {
@@ -106,7 +106,7 @@ async fn create_upload_session(
     let now = chrono::Utc::now();
     upload_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::upload_session::ActiveModel {
+        aster_drive_model::entities::upload_session::ActiveModel {
             id: Set(spec.upload_id.to_string()),
             user_id: Set(user_id),
             team_id: Set(spec.team_id),
@@ -120,9 +120,13 @@ async fn create_upload_session(
             policy_id: Set(policy.id),
             status: Set(spec.status),
             session_kind: Set(match (spec.object_temp_key, spec.object_multipart_id) {
-                (Some(_), Some(_)) => aster_drive::types::UploadSessionKind::ProviderRelayMultipart,
-                (Some(_), None) => aster_drive::types::UploadSessionKind::ProviderPresignedSingle,
-                (None, None) => aster_drive::types::UploadSessionKind::OffsetStaging,
+                (Some(_), Some(_)) => {
+                    aster_drive_model::types::UploadSessionKind::ProviderRelayMultipart
+                }
+                (Some(_), None) => {
+                    aster_drive_model::types::UploadSessionKind::ProviderPresignedSingle
+                }
+                (None, None) => aster_drive_model::types::UploadSessionKind::OffsetStaging,
                 (None, Some(_)) => panic!("multipart upload fixture requires a temp key"),
             }),
             object_temp_key: Set(spec.object_temp_key.map(str::to_string)),
@@ -191,7 +195,7 @@ async fn create_blob(
     storage_path: &str,
     bytes: &[u8],
     ref_count: i32,
-) -> aster_drive::entities::file_blob::Model {
+) -> aster_drive_model::entities::file_blob::Model {
     use aster_drive::db::repository::file_repo;
 
     let policy = default_policy(state).await;
@@ -201,7 +205,7 @@ async fn create_blob(
     let now = Utc::now();
     file_repo::create_blob(
         state.writer_db(),
-        aster_drive::entities::file_blob::ActiveModel {
+        aster_drive_model::entities::file_blob::ActiveModel {
             hash: Set(hash.to_string()),
             size: Set(bytes.len() as i64),
             policy_id: Set(policy.id),
@@ -227,7 +231,7 @@ async fn create_wopi_session(
 
     wopi_session_repo::create(
         state.writer_db(),
-        aster_drive::entities::wopi_session::ActiveModel {
+        aster_drive_model::entities::wopi_session::ActiveModel {
             token_hash: Set(aster_forge_crypto::sha256_hex(token.as_bytes())),
             actor_user_id: Set(actor_user_id),
             session_version: Set(1),
@@ -262,7 +266,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_temp_obje
         user.id,
         UploadSessionSpec::new(
             "broken-completed",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .object_upload(Some(temp_key), None),
@@ -307,7 +311,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_broken_completed
         user.id,
         UploadSessionSpec::new(
             "broken-completed-multipart",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .object_upload(Some(temp_key), Some("already-completed-upload")),
@@ -349,7 +353,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_session_when_temp_
         user.id,
         UploadSessionSpec::new(
             "broken-completed-delete-fails",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .object_upload(Some(temp_key), None),
@@ -414,7 +418,7 @@ async fn test_cleanup_expired_completed_upload_sessions_keeps_live_blob() {
         user.id,
         UploadSessionSpec::new(
             "completed-with-file",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .object_upload(Some(&blob.storage_path), None)
@@ -470,7 +474,7 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_c
         user.id,
         UploadSessionSpec::new(
             "completed-file-stale-temp",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .object_upload(Some(temp_key), None)
@@ -501,8 +505,8 @@ async fn test_cleanup_expired_completed_upload_sessions_removes_stale_temp_for_c
 #[actix_web::test]
 async fn test_cleanup_expired_wopi_sessions_removes_only_expired_rows() {
     use aster_drive::db::repository::wopi_session_repo;
-    use aster_drive::entities::wopi_session;
     use aster_drive::services::preview::wopi;
+    use aster_drive_model::entities::wopi_session;
 
     let state = common::setup().await;
     let user =
@@ -561,8 +565,8 @@ async fn test_cleanup_expired_wopi_sessions_removes_only_expired_rows() {
 
 #[actix_web::test]
 async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() {
-    use aster_drive::entities::upload_session::Entity as UploadSession;
     use aster_drive::services::ops::maintenance;
+    use aster_drive_model::entities::upload_session::Entity as UploadSession;
 
     let state = common::setup().await;
     let user =
@@ -580,14 +584,14 @@ async fn test_cleanup_expired_completed_upload_sessions_processes_all_batches() 
                 || {
                     UploadSessionSpec::new(
                         &upload_id,
-                        aster_drive::types::UploadSessionStatus::Completed,
+                        aster_drive_model::types::UploadSessionStatus::Completed,
                         Utc::now() - Duration::hours(1),
                     )
                 },
                 |file_id| {
                     UploadSessionSpec::new(
                         &upload_id,
-                        aster_drive::types::UploadSessionStatus::Completed,
+                        aster_drive_model::types::UploadSessionStatus::Completed,
                         Utc::now() - Duration::hours(1),
                     )
                     .file_id(file_id)
@@ -642,7 +646,7 @@ async fn test_cleanup_expired_completed_upload_sessions_cleans_team_sessions() {
         user.id,
         UploadSessionSpec::new(
             "team-broken-completed",
-            aster_drive::types::UploadSessionStatus::Completed,
+            aster_drive_model::types::UploadSessionStatus::Completed,
             Utc::now() - Duration::hours(1),
         )
         .team(team.id)
@@ -680,7 +684,7 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     let live_blob = file_repo::find_blob_by_id(state.writer_db(), live_file.blob_id)
         .await
         .unwrap();
-    let mut live_blob_active: aster_drive::entities::file_blob::ActiveModel =
+    let mut live_blob_active: aster_drive_model::entities::file_blob::ActiveModel =
         live_blob.clone().into();
     live_blob_active.ref_count = Set(7);
     live_blob_active.updated_at = Set(Utc::now());
@@ -697,7 +701,7 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
     .await;
     version_repo::create(
         state.writer_db(),
-        aster_drive::entities::file_version::ActiveModel {
+        aster_drive_model::entities::file_version::ActiveModel {
             file_id: Set(live_file.id),
             blob_id: Set(version_blob.id),
             version: Set(1),
@@ -741,8 +745,8 @@ async fn test_reconcile_blob_state_deletes_orphans_and_fixes_ref_counts() {
 
 #[actix_web::test]
 async fn test_reconcile_blob_state_processes_all_batches_without_skipping() {
-    use aster_drive::entities::file_blob::Entity as FileBlob;
     use aster_drive::services::ops::maintenance;
+    use aster_drive_model::entities::file_blob::Entity as FileBlob;
 
     let state = common::setup().await;
     let policy = default_policy(&state).await;
@@ -812,7 +816,7 @@ async fn test_reconcile_blob_state_recovers_stale_cleanup_claim() {
         file_repo::BLOB_CLEANUP_CLAIMED_REF_COUNT,
     )
     .await;
-    let mut active: aster_drive::entities::file_blob::ActiveModel = blob.clone().into();
+    let mut active: aster_drive_model::entities::file_blob::ActiveModel = blob.clone().into();
     active.updated_at = Set(Utc::now() - Duration::minutes(11));
     active.update(state.writer_db()).await.unwrap();
 
@@ -981,8 +985,8 @@ async fn test_batch_purge_releases_all_versioned_storage_used() {
 #[actix_web::test]
 async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
     use aster_drive::db::repository::{file_repo, folder_repo, user_repo};
-    use aster_drive::entities::{file_blob, folder};
     use aster_drive::services::ops::integrity;
+    use aster_drive_model::entities::{file_blob, folder};
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "audituser1", "audit1@test.com", "password123")
@@ -996,7 +1000,7 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
         .await
         .unwrap();
 
-    let mut user_active: aster_drive::entities::user::ActiveModel =
+    let mut user_active: aster_drive_model::entities::user::ActiveModel =
         user_repo::find_by_id(state.writer_db(), user.id)
             .await
             .unwrap()
@@ -1147,8 +1151,8 @@ async fn test_integrity_audit_detects_storage_and_tree_inconsistencies() {
 #[actix_web::test]
 async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
     use aster_drive::db::repository::{file_repo, user_repo};
-    use aster_drive::entities::file_blob;
     use aster_drive::services::ops::integrity;
+    use aster_drive_model::entities::file_blob;
 
     let state = common::setup().await;
     let user = common::create_test_account(&state, "audituser2", "audit2@test.com", "password123")
@@ -1159,7 +1163,7 @@ async fn test_integrity_fix_repairs_storage_usage_and_blob_ref_counts() {
         .await
         .unwrap();
 
-    let mut user_active: aster_drive::entities::user::ActiveModel =
+    let mut user_active: aster_drive_model::entities::user::ActiveModel =
         user_repo::find_by_id(state.writer_db(), user.id)
             .await
             .unwrap()

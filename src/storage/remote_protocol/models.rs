@@ -1,8 +1,8 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
-use crate::storage::StorageCapacityInfo;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::types::DriverType;
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::StorageCapacityInfo;
+use aster_drive_storage::StorageErrorKind;
 use serde::{Deserialize, Serialize};
 use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
@@ -295,7 +295,7 @@ pub struct RemoteStorageProtocolLimits {
 }
 
 fn protocol_error(context: &str, detail: String) -> crate::errors::AsterError {
-    storage_driver_error(
+    crate::errors::storage_driver_error(
         StorageErrorKind::Misconfigured,
         format!("{context}: remote internal storage protocol incompatible: {detail}"),
     )

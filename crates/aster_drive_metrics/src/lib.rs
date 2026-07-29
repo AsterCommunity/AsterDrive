@@ -1,4 +1,16 @@
-//! Metrics facade backed by AsterForge.
+//! AsterDrive product metrics contracts and AsterForge adapters.
+#![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+#![cfg_attr(
+    not(test),
+    deny(
+        clippy::unwrap_used,
+        clippy::unreachable,
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unimplemented,
+        clippy::todo
+    )
+)]
 
 use std::future::Future;
 use std::pin::Pin;
@@ -10,35 +22,47 @@ use aster_forge_metrics::{DbQueryMetric, SharedMetricsRecorder as SharedForgeMet
 use aster_forge_runtime::{HealthCheckScope, SystemHealthReport};
 use tokio_util::sync::CancellationToken;
 
-/// Drive 应用指标记录接口。
+/// Records AsterDrive product and shared infrastructure metrics.
 ///
-/// 所有方法默认 no-op，方便测试和非 metrics 构建复用同一条业务路径。
-#[allow(unused_variables)]
+/// Every method defaults to a no-op so tests and builds without the `metrics`
+/// feature can execute the same product paths without conditional branches.
+#[expect(
+    unused_variables,
+    reason = "default no-op metric methods intentionally ignore their inputs"
+)]
 pub trait MetricsRecorder: Send + Sync {
-    /// 当前 recorder 是否会真实记录指标。
+    /// Returns whether this recorder performs real metric collection.
     ///
-    /// 用于跳过会额外产生成本的采集逻辑，例如 DB callback 和 HTTP route label。
+    /// Callers may use this to skip collection work that has a measurable cost,
+    /// such as database callbacks or HTTP route-label resolution.
     fn enabled(&self) -> bool {
         false
     }
 
-    /// 返回 Forge 公共指标 recorder，供 Actix middleware、DB callback 等基础设施复用。
+    /// Returns the Forge recorder used by shared middleware and database hooks.
     fn forge_recorder(&self) -> SharedForgeMetricsRecorder {
         aster_forge_metrics::NoopMetrics::arc()
     }
 
+    /// Records one completed HTTP request.
     fn record_http_request(&self, method: &str, route: &str, status: u16, duration_seconds: f64) {}
 
+    /// Records one database query measurement.
     fn record_db_query(&self, metric: &DbQueryMetric) {}
 
+    /// Records an authentication event.
     fn record_auth_event(&self, action: &'static str, status: &'static str, reason: &'static str) {}
 
+    /// Records a file upload attempt.
     fn record_file_upload(&self, mode: &'static str, status: &'static str) {}
 
+    /// Records a file download attempt.
     fn record_file_download(&self, source: &'static str, outcome: &'static str, has_range: bool) {}
 
+    /// Records the creation of an upload session.
     fn record_upload_session(&self, mode: &'static str) {}
 
+    /// Records an upload-session lifecycle transition.
     fn record_upload_session_event(
         &self,
         mode: &'static str,
@@ -47,8 +71,10 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records a background-task status transition.
     fn record_background_task_transition(&self, kind: &'static str, status: &'static str) {}
 
+    /// Records one runtime configuration reload decision.
     fn record_config_reload(
         &self,
         source: &'static str,
@@ -59,6 +85,7 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records one runtime configuration mutation.
     fn record_config_mutation(
         &self,
         source: &'static str,
@@ -68,8 +95,10 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Sets the number of background tasks waiting to run.
     fn set_background_tasks_pending(&self, pending: u64) {}
 
+    /// Records one storage-driver operation and its duration.
     fn record_storage_driver_operation(
         &self,
         driver: &'static str,
@@ -80,10 +109,16 @@ pub trait MetricsRecorder: Send + Sync {
     ) {
     }
 
+    /// Records events emitted by the share-download rollback queue.
     fn record_share_download_rollback_event(&self, event: &'static str, count: u64) {}
 
+    /// Sets the number of pending share-download rollback operations.
     fn set_share_download_rollback_pending(&self, pending: u64) {}
 
+    /// Builds the optional Forge system-metrics updater task.
+    ///
+    /// The returned future owns its cancellation token and is intended to be
+    /// registered with the runtime component lifecycle.
     fn system_metrics_updater_task(
         &self,
         shutdown_token: CancellationToken,
@@ -92,18 +127,21 @@ pub trait MetricsRecorder: Send + Sync {
     }
 }
 
+/// Shared trait object used by AsterDrive runtime and business components.
 pub type SharedMetricsRecorder = Arc<dyn MetricsRecorder>;
 
-/// 非 metrics 构建和测试使用的空实现。
+/// No-op recorder used by tests and builds without metric collection.
 pub struct NoopMetrics;
 
 impl MetricsRecorder for NoopMetrics {}
 
 impl NoopMetrics {
+    /// Creates a no-op metrics recorder.
     pub fn new() -> Self {
         Self
     }
 
+    /// Creates a shared no-op metrics recorder.
     pub fn arc() -> SharedMetricsRecorder {
         Arc::new(Self::new())
     }
@@ -209,7 +247,11 @@ mod product {
     }
 }
 
-/// Creates the runtime metrics recorder for this build.
+/// Creates the runtime metrics recorder for the active crate features.
+///
+/// With the `metrics` feature enabled, this initializes the configured Forge
+/// recorder and attaches Drive product metrics. Otherwise it returns
+/// [`NoopMetrics`].
 pub fn create_metrics_recorder() -> SharedMetricsRecorder {
     #[cfg(feature = "metrics")]
     {
@@ -219,7 +261,7 @@ pub fn create_metrics_recorder() -> SharedMetricsRecorder {
         }
     }
 
-    crate::metrics::NoopMetrics::arc()
+    NoopMetrics::arc()
 }
 
 /// Records one Forge runtime health report when the metrics backend is enabled.
@@ -449,5 +491,31 @@ impl MetricsRecorder for DriveMetricsRecorder {
         shutdown_token: CancellationToken,
     ) -> Option<Pin<Box<dyn Future<Output = ()> + Send + 'static>>> {
         self.forge.system_metrics_updater_task(shutdown_token)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tokio_util::sync::CancellationToken;
+
+    use super::{MetricsRecorder, NoopMetrics};
+
+    #[test]
+    fn noop_recorder_is_disabled_for_drive_and_forge_consumers() {
+        let recorder = NoopMetrics::arc();
+
+        assert!(!recorder.enabled());
+        assert!(!recorder.forge_recorder().enabled());
+    }
+
+    #[test]
+    fn noop_recorder_does_not_create_a_system_metrics_task() {
+        let recorder = NoopMetrics;
+
+        assert!(
+            recorder
+                .system_metrics_updater_task(CancellationToken::new())
+                .is_none()
+        );
     }
 }

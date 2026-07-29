@@ -5,7 +5,8 @@ mod common;
 
 use std::collections::BTreeSet;
 
-use aster_drive::entities::{
+use aster_drive::runtime::SharedRuntimeState;
+use aster_drive_model::entities::{
     audit_log, auth_session, background_task, blob_media_metadata, contact_verification_token,
     entity_property, external_auth_email_verification_flow, external_auth_identity,
     external_auth_login_flow, external_auth_provider, file, file_blob, file_version, folder,
@@ -15,7 +16,6 @@ use aster_drive::entities::{
     storage_policy_group_item, tag, team, team_member, upload_session, upload_session_part, user,
     user_invitation, user_profile, webdav_account, wopi_session,
 };
-use aster_drive::runtime::SharedRuntimeState;
 use sea_orm::{
     ConnectionTrait, DatabaseConnection, DbBackend, EntityName, EntityTrait, IdenStatic, Iterable,
     Statement,

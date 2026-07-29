@@ -21,7 +21,7 @@
 | GitHub / QQ / Google / Microsoft driver | `aster_forge_external_auth` | 专用 endpoint、provider-specific claim / issuer 语义和测试能力 |
 | Drive provider adapter | `src/services/auth/external/providers.rs` | DB model 与 Forge `ExternalAuthProviderConfig` 互转、options 兼容、secret redaction 和管理端响应 |
 
-持久化表来自 `migration/src/m20260517_000001_add_external_auth.rs`：
+持久化表来自 `crates/aster_drive_migration/src/m20260517_000001_add_external_auth.rs`：
 
 - `external_auth_providers`
 - `external_auth_identities`

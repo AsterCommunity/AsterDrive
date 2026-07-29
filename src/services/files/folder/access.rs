@@ -1,10 +1,10 @@
 //! 文件夹服务子模块：`access`。
 
 use crate::db::repository::folder_repo;
-use crate::entities::folder;
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use aster_drive_model::entities::folder;
 
 pub(crate) fn ensure_folder_model_in_scope(
     folder: &folder::Model,
@@ -56,7 +56,7 @@ pub async fn verify_folder_access(
 ) -> Result<()> {
     let folder = folder_repo::find_by_id(state.writer_db(), folder_id).await?;
     ensure_personal_folder_scope(&folder)?;
-    crate::types::ownership::verify_optional_owner(folder.owner_user_id, user_id, "folder")?;
+    crate::ownership::verify_optional_owner(folder.owner_user_id, user_id, "folder")?;
     if folder.deleted_at.is_some() {
         return Err(AsterError::file_not_found(format!(
             "folder #{folder_id} is in trash"

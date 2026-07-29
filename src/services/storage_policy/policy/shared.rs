@@ -5,10 +5,10 @@ use sea_orm::Set;
 use validator::Validate;
 
 use crate::db::repository::{policy_group_repo, policy_repo, user_repo};
-use crate::entities::{storage_policy_group, storage_policy_group_item};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::{
+use aster_drive_model::entities::{storage_policy_group, storage_policy_group_item};
+use aster_drive_model::types::{
     StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
     serialize_storage_policy_allowed_types, serialize_storage_policy_options,
 };

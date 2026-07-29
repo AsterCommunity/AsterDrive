@@ -273,8 +273,8 @@ mod tests {
     use std::sync::atomic::{AtomicU32, Ordering};
     use std::time::Duration;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_config::ConfigSyncConfig;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, Set};
 
     use crate::runtime::SharedRuntimeState;
@@ -287,7 +287,7 @@ mod tests {
         config: Arc<crate::config::Config>,
         cache: Arc<dyn aster_forge_cache::CacheBackend>,
         config_sync: aster_forge_config::ConfigSyncRuntime,
-        metrics: crate::metrics::SharedMetricsRecorder,
+        metrics: aster_drive_metrics::SharedMetricsRecorder,
     }
 
     impl SharedRuntimeState for ReloadTestState {
@@ -323,7 +323,7 @@ mod tests {
             &self.config_sync
         }
 
-        fn metrics(&self) -> &crate::metrics::SharedMetricsRecorder {
+        fn metrics(&self) -> &aster_drive_metrics::SharedMetricsRecorder {
             &self.metrics
         }
     }
@@ -407,7 +407,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("config reload test database should connect");
@@ -420,17 +420,19 @@ mod tests {
         let now = chrono::Utc::now();
         let policy = crate::db::repository::policy_repo::create(
             &db,
-            crate::entities::storage_policy::ActiveModel {
+            aster_drive_model::entities::storage_policy::ActiveModel {
                 name: Set("config reload policy".to_string()),
-                driver_type: Set(crate::types::DriverType::S3),
+                driver_type: Set(aster_drive_model::types::DriverType::S3),
                 endpoint: Set("https://old.example.com".to_string()),
                 bucket: Set("test".to_string()),
                 access_key: Set("access".to_string()),
                 secret_key: Set("secret".to_string()),
                 base_path: Set(String::new()),
                 max_file_size: Set(0),
-                allowed_types: Set(crate::types::StoredStoragePolicyAllowedTypes::empty()),
-                options: Set(crate::types::StoredStoragePolicyOptions::empty()),
+                allowed_types: Set(
+                    aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+                ),
+                options: Set(aster_drive_model::types::StoredStoragePolicyOptions::empty()),
                 is_default: Set(true),
                 chunk_size: Set(5_242_880),
                 created_at: Set(now),
@@ -469,7 +471,7 @@ mod tests {
             cache: aster_forge_cache::create_cache(&aster_forge_cache::CacheConfig::default())
                 .await,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         });
 
         let notifier: aster_forge_config::SharedConfigChangeNotifier =
@@ -521,7 +523,7 @@ mod tests {
         .expect("remote notification should reload runtime config");
 
         let policy_id = policy.id;
-        let mut active: crate::entities::storage_policy::ActiveModel = policy.into();
+        let mut active: aster_drive_model::entities::storage_policy::ActiveModel = policy.into();
         active.max_file_size = Set(1);
         active
             .update(&db)

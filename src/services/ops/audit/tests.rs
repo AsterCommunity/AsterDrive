@@ -7,13 +7,13 @@ use super::context::{
     AuditContext, AuditRequestInfo, MAX_AUDIT_IP_ADDRESS_LEN, MAX_AUDIT_USER_AGENT_LEN,
     bounded_audit_value,
 };
-use crate::entities::audit_log;
+use aster_drive_model::entities::audit_log;
 
 async fn in_memory_db() -> sea_orm::DatabaseConnection {
     let db = sea_orm::Database::connect("sqlite::memory:")
         .await
         .expect("in-memory db should connect");
-    migration::Migrator::up(&db, None)
+    aster_drive_migration::Migrator::up(&db, None)
         .await
         .expect("migrations should run");
     db
@@ -385,7 +385,7 @@ async fn log_writes_synchronously_without_global_manager() {
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,
@@ -438,7 +438,7 @@ async fn follower_state_can_record_allowed_audit_log() {
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
     };
 
     super::log(
@@ -500,7 +500,7 @@ async fn log_with_details_skips_details_when_action_scope_excludes_action() {
         config: std::sync::Arc::new(crate::config::Config::default()),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: aster_forge_mail::memory_sender(),
         storage_change_bus,
         share_download_rollback,

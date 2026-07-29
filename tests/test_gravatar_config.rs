@@ -5,10 +5,10 @@ mod common;
 
 use aster_drive::db::repository::config_repo;
 use aster_drive::db::repository::user_repo;
-use aster_drive::entities::user;
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive::services::user::profile;
-use aster_drive::types::AvatarSource;
+use aster_drive_model::entities::user;
+use aster_drive_model::types::AvatarSource;
 
 async fn load_user_model(state: &PrimaryAppState, user_id: i64) -> user::Model {
     user_repo::find_by_id(state.writer_db(), user_id)

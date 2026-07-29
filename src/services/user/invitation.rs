@@ -10,7 +10,6 @@ use utoipa::ToSchema;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{auth_runtime, branding, local_email_policy::LocalEmailPolicy, site_url};
 use crate::db::repository::{user_invitation_repo, user_repo};
-use crate::entities::{user, user_invitation};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::{MailRuntimeState, SharedRuntimeState};
 use crate::services::{
@@ -18,7 +17,8 @@ use crate::services::{
     mail::outbox,
     mail::template::MailTemplatePayload,
 };
-use crate::types::{UserInvitationStatus, UserRole, UserStatus};
+use aster_drive_model::entities::{user, user_invitation};
+use aster_drive_model::types::{UserInvitationStatus, UserRole, UserStatus};
 use aster_forge_api::OffsetPage;
 use aster_forge_crypto as hash;
 use aster_forge_utils::{id, numbers::u64_to_i64};

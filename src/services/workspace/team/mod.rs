@@ -215,7 +215,7 @@ pub(crate) async fn update_member_role_with_audit(
     team_id: i64,
     actor_user_id: i64,
     member_user_id: i64,
-    role: crate::types::TeamMemberRole,
+    role: aster_drive_model::types::TeamMemberRole,
     audit_ctx: &AuditContext,
 ) -> Result<TeamMemberInfo> {
     let team = get_team(state, team_id, actor_user_id).await?;
@@ -414,7 +414,7 @@ pub(crate) async fn update_admin_member_role_with_audit(
     state: &impl SharedRuntimeState,
     team_id: i64,
     member_user_id: i64,
-    role: crate::types::TeamMemberRole,
+    role: aster_drive_model::types::TeamMemberRole,
     audit_ctx: &AuditContext,
 ) -> Result<TeamMemberInfo> {
     let team = get_admin_team(state, team_id).await?;

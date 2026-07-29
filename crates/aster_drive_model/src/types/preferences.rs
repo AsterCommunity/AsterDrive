@@ -128,7 +128,7 @@ pub struct UserPreferences {
     pub color_preset: Option<ColorPreset>,
     pub view_mode: Option<PrefViewMode>,
     pub browser_open_mode: Option<BrowserOpenMode>,
-    pub sort_by: Option<crate::api::pagination::SortBy>,
+    pub sort_by: Option<super::sort::SortBy>,
     pub sort_order: Option<aster_forge_api::SortOrder>,
     pub language: Option<Language>,
     pub display_time_zone: Option<String>,

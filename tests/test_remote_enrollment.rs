@@ -29,7 +29,7 @@ async fn create_remote_node(state: &PrimaryAppState, name: &str) -> remote_node:
         remote_node::CreateRemoteNodeInput {
             name: name.to_string(),
             base_url: format!("https://{name}.example.com"),
-            transport_mode: aster_drive::types::RemoteNodeTransportMode::Direct,
+            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
             is_enabled: true,
         },
     )
@@ -45,7 +45,7 @@ async fn test_remote_node_enrollment_command_requires_public_site_url_code() {
         remote_node::CreateRemoteNodeInput {
             name: "node-missing-url".to_string(),
             base_url: "https://node-missing-url.example.com".to_string(),
-            transport_mode: aster_drive::types::RemoteNodeTransportMode::Direct,
+            transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
             is_enabled: true,
         },
     )
@@ -293,7 +293,7 @@ async fn assert_concurrent_remote_enrollment_single_winner(database_url: String)
             pool_size: 1,
             retry_count: 0,
         },
-        aster_drive::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("second writer connection should open");

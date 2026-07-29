@@ -254,13 +254,14 @@ mod tests {
         invalidate_webdav_auth_for_username,
     };
     use crate::config::{Config, DatabaseConfig, RateLimitTier, RuntimeConfig};
-    use crate::entities::{user, webdav_account};
     use crate::runtime::{PrimaryAppState, SharedRuntimeState};
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::{UserRole, UserStatus};
     use actix_web::http::header::{self, HeaderValue};
     use actix_web::{HttpRequest, test, web};
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::entities::{user, webdav_account};
+    use aster_drive_model::types::{UserRole, UserStatus};
     use aster_forge_cache as cache;
     use aster_forge_cache::CacheConfig;
     use aster_forge_crypto::{
@@ -269,7 +270,6 @@ mod tests {
     };
     use base64::Engine;
     use chrono::Utc;
-    use migration::Migrator;
     use sea_orm::{ActiveModelTrait, IntoActiveModel, Set};
     use std::num::{NonZeroU32, NonZeroU64};
     use std::sync::Arc;
@@ -289,7 +289,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("webdav auth test database should connect");
@@ -319,7 +319,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,

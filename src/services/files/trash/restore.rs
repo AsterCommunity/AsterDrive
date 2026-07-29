@@ -4,12 +4,12 @@ use aster_forge_db::transaction;
 use sea_orm::{ActiveModelTrait, Set};
 
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::{file, folder};
 use crate::errors::Result;
 use crate::runtime::StorageChangeRuntimeState;
 use crate::services::{
     events::storage_change, files::folder as folder_ops, workspace::storage::WorkspaceStorageScope,
 };
+use aster_drive_model::entities::{file, folder};
 
 use super::common::{
     parent_restore_target_unavailable, verify_file_in_trash_in_scope,

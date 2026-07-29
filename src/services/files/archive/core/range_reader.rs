@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use tokio::io::AsyncReadExt;
 
-use crate::storage::StorageDriver;
+use aster_drive_storage::StorageDriver;
 
 pub(crate) const DEFAULT_RANGE_READER_BLOCK_SIZE: u64 = 256 * 1024;
 
@@ -216,15 +216,14 @@ fn seek_from_base(base: u64, offset: i64) -> io::Result<u64> {
     }
 }
 
-fn storage_error_to_io(error: crate::errors::AsterError) -> io::Error {
+fn storage_error_to_io(error: aster_drive_storage::StorageError) -> io::Error {
     io::Error::other(error)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::Result;
-    use crate::storage::BlobMetadata;
+    use aster_drive_storage::BlobMetadata;
     use async_trait::async_trait;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicUsize, Ordering};
@@ -249,18 +248,18 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for MemoryRangeDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             Ok("memory".to_string())
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             Ok(self.data.clone())
         }
 
         async fn get_stream(
             &self,
             _path: &str,
-        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             self.stream_calls.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(std::io::Cursor::new(self.data.clone())))
         }
@@ -270,23 +269,29 @@ mod tests {
             _path: &str,
             offset: u64,
             length: Option<u64>,
-        ) -> Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
             self.range_calls.fetch_add(1, Ordering::SeqCst);
             self.ranges
                 .lock()
                 .expect("range lock should not be poisoned")
                 .push((offset, length));
             let start =
-                aster_forge_utils::numbers::u64_to_usize(offset, "memory range start offset")?;
+                aster_forge_utils::numbers::u64_to_usize(offset, "memory range start offset")
+                    .expect("test range offset should fit usize");
             let end = length
                 .map(|len| {
                     offset.checked_add(len).ok_or_else(|| {
-                        crate::errors::AsterError::internal_error("memory range end overflow")
+                        aster_drive_storage::StorageError::new(
+                            aster_drive_storage::StorageErrorKind::Misconfigured,
+                            "memory range end overflow",
+                        )
                     })
                 })
                 .transpose()?
-                .map(|end| aster_forge_utils::numbers::u64_to_usize(end, "memory range end offset"))
-                .transpose()?
+                .map(|end| {
+                    aster_forge_utils::numbers::u64_to_usize(end, "memory range end offset")
+                        .expect("test range end should fit usize")
+                })
                 .unwrap_or(self.data.len())
                 .min(self.data.len());
             let bytes = if start >= self.data.len() {
@@ -301,20 +306,21 @@ mod tests {
             true
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             Ok(())
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             Ok(true)
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             Ok(BlobMetadata {
                 size: aster_forge_utils::numbers::usize_to_u64(
                     self.data.len(),
                     "memory driver data length",
-                )?,
+                )
+                .expect("test data length should fit u64"),
                 content_type: None,
             })
         }

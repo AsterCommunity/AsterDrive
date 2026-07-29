@@ -13,6 +13,7 @@ If you are new to the repository, read this page first and then [`module-designs
 - Personal spaces and team spaces share the same file pipeline; route and service layers switch scope through `WorkspaceStorageScope`
 - The backend main path is still:
   `src/api/routes/*` -> `src/services/*` -> `src/db/repository/*` / `src/storage/*`
+- Workspace crates now define explicit foundation boundaries: `aster_drive_model` owns domain types and entities, `aster_drive_migration` owns schema evolution, and `aster_drive_storage` owns storage traits, descriptors, object keys, and structured errors; the root package keeps product behavior and concrete runtime implementations
 - WebDAV is not just another REST branch. It is mounted separately under `src/webdav/`
 - The binary starts HTTP service by default. With the default `cli` feature enabled, the same entry point also exposes operational subcommands such as `doctor`, `config`, `database-migrate`, and `node enroll`
 - Frontend code lives in `frontend-panel/`, and production assets are served directly by the primary node
@@ -32,16 +33,16 @@ If you are new to the repository, read this page first and then [`module-designs
 | How a REST endpoint is implemented | The corresponding `src/api/routes/**` file | Route handlers parse parameters, wrap auth, and adapt responses |
 | Where file, team, share, and upload rules live | `src/services/**` | Business semantics are centralized in the service layer |
 | How data is queried and written | `src/db/repository/**` | Repository code encapsulates database access and cross-database compatibility details |
-| How file content reaches disk, object storage, OneDrive, or remote nodes | `src/storage/**` | Connector descriptors, driver abstractions, concrete drivers, and remote protocol code live here |
+| How file content reaches disk, object storage, OneDrive, or remote nodes | `crates/aster_drive_storage/**`, `src/storage/**` | The crate defines traits, descriptors, and structured errors; the root module implements connectors, concrete drivers, registry, policy snapshots, and the remote protocol runtime |
 | Why WebDAV is different from REST | `src/webdav/**` | This is a separate protocol entry layer |
 | Why team spaces reuse personal-space semantics | `src/services/workspace/scope/`, `src/services/workspace/storage/`, `src/services/workspace/models.rs`, `src/services/workspace/storage_core/`, `src/services/files/folder/`, `src/services/files/file/` | Scope switching, upload orchestration, and the unified storage core all live here |
-| How the schema evolves | `migration/`, `src/entities/**` | Migration files and entities need to be read together |
+| How the schema evolves | `crates/aster_drive_migration/`, `crates/aster_drive_model/src/entities/**` | Migration files and entities need to be read together |
 
 When you are chasing a specific feature, the fastest path is usually:
 
 1. Find the entry point in `src/api/routes/**`
 2. Jump to `src/services/**`
-3. Then inspect `src/db/repository/**`, `src/storage/**`, or `src/webdav/**`
+3. Then inspect `src/db/repository/**`, `crates/aster_drive_storage/**`, `src/storage/**`, or `src/webdav/**`
 
 ## Runtime modes and system boundaries
 
@@ -177,7 +178,7 @@ The practical rule of thumb in this repository remains:
 | `src/runtime/startup/primary.rs` | Build the primary runtime: `RuntimeConfig`, mail sender, SSE broadcaster, share-download rollback queue, and remote protocol runtime |
 | `src/runtime/startup/follower.rs` | Build the follower runtime: keep only the shared state needed by the follower |
 | `src/runtime/tasks.rs` | Register and shut down primary periodic tasks; metrics system tasks are injected through `MetricsRecorder` |
-| `src/metrics.rs` | Drive product metrics trait, `NoopMetrics`, and the `aster_forge_metrics` adapter; the Prometheus recorder is created only with the `metrics` feature |
+| `crates/aster_drive_metrics/` | Drive product metrics trait, `NoopMetrics`, and the `aster_forge_metrics` adapter; the root package does not expose the old metrics path |
 | `src/api/primary.rs` | Primary route registration |
 | `src/api/follower.rs` | Follower route registration |
 | `src/api/routes/auth/mod.rs` | Authentication, sessions, preferences, avatars, SSE |
@@ -189,6 +190,8 @@ The practical rule of thumb in this repository remains:
 | `src/api/routes/internal_storage.rs` | Follower internal object storage protocol |
 | `src/api/routes/remote_tunnel.rs` | Primary-side remote-node reverse tunnel internal entry |
 | `src/services/` | Central business rule layer |
+| `crates/aster_drive_http/` | Bounded reqwest response-body reading independent of product error types; callers own error-code mapping |
+| `crates/aster_drive_storage/` | Storage traits, capability extensions, connector descriptors, object keys, and structured errors; the root package does not expose legacy compatibility paths |
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
 | `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `src/storage/remote_protocol/tunnel/` | Reverse tunnel transport runtime, auth, registry, and streaming responses |
@@ -209,11 +212,11 @@ The rough order in `src/main.rs` is currently:
 6. Clean runtime temp directories
 7. Choose `primary` or `follower` according to `config.server.start_mode`
 
-Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()` creates the product `MetricsRecorder` through `src/metrics.rs`:
+Prometheus metrics are not initialized directly in `main.rs`. `prepare_common()` creates the product `MetricsRecorder` through `aster_drive_metrics`:
 
 - when the `metrics` feature is enabled, Prometheus registry initialization is performed and a Prometheus recorder is injected
 - when it is disabled, `NoopMetrics` is injected
-- business code, storage-driver wrappers, and background tasks depend on `crate::metrics::MetricsRecorder`; Forge middleware and database runtime consumers receive the `aster_forge_metrics::MetricsRecorder` exposed by `forge_recorder()`
+- business code, storage-driver wrappers, and background tasks depend directly on `aster_drive_metrics::MetricsRecorder`; Forge middleware and database runtime consumers receive the `aster_forge_metrics::MetricsRecorder` exposed by `forge_recorder()`
 
 ### `prepare_common()`
 
@@ -406,7 +409,7 @@ Adding a category requires updating the allowed list and frontend zh/en i18n. Un
 | New query, pagination, or filter condition | `src/db/repository/**` |
 | Storage connector descriptors, connection tests, driver actions, upload strategies, and object read/write rules | `src/storage/**` |
 | WebDAV protocol behavior | `src/webdav/**` |
-| Table fields, indexes, defaults | `migration/` + `src/entities/**` |
+| Table fields, indexes, defaults | `crates/aster_drive_migration/` + `crates/aster_drive_model/src/entities/**` |
 | Frontend page, state management, SDK call | `frontend-panel/src/**` |
 
 Complex business logic in the route layer is usually a code smell.

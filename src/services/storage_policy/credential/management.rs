@@ -5,8 +5,8 @@ use serde::Serialize;
 use crate::db::repository::{policy_repo, storage_policy_credential_repo};
 use crate::errors::{AsterError, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::storage::error::StorageErrorKind;
-use crate::types::{StorageCredentialProvider, StorageCredentialStatus};
+use aster_drive_model::types::{StorageCredentialProvider, StorageCredentialStatus};
+use aster_drive_storage::error::StorageErrorKind;
 
 use super::StoragePolicyCredentialInfo;
 

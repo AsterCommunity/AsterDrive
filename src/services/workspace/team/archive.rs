@@ -7,12 +7,12 @@ use sea_orm::ConnectionTrait;
 use crate::db::repository::{
     file_repo, folder_repo, lock_repo, property_repo, share_repo, team_repo, upload_session_repo,
 };
-use crate::entities::{team, upload_session};
 use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::types::EntityType;
+use aster_drive_model::entities::{team, upload_session};
+use aster_drive_model::types::EntityType;
 
 const DEFAULT_TEAM_ARCHIVE_RETENTION_DAYS: i64 = 7;
 const TEAM_ARCHIVE_BATCH_SIZE: u64 = 1_000;
@@ -115,7 +115,7 @@ async fn cleanup_team_upload_sessions(
 }
 
 async fn cleanup_team_temp_object(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     session: &upload_session::Model,
     temp_key: &str,
 ) -> bool {

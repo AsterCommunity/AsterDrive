@@ -5,10 +5,10 @@ use std::path::{Component, Path, PathBuf};
 use tokio::io::AsyncRead;
 
 use super::{StorageOperationContext, create_nondedup_blob_with_key, create_opaque_nondedup_blob};
-use crate::entities::file_blob;
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::storage::StorageConnectorObjectNamingMode;
 use crate::storage::connectors::{StorageConnectorUploadTransport, resolve_policy_object_naming};
+use aster_drive_model::entities::file_blob;
+use aster_drive_storage::StorageConnectorObjectNamingMode;
 
 #[derive(Debug, Clone)]
 pub(crate) enum PreparedNonDedupBlobUpload {
@@ -70,7 +70,7 @@ impl PreparedNonDedupBlobUpload {
 }
 
 pub(crate) fn prepare_non_dedup_blob_upload(
-    policy: &crate::entities::storage_policy::Model,
+    policy: &aster_drive_model::entities::storage_policy::Model,
     size: i64,
     filename: Option<&str>,
 ) -> Result<PreparedNonDedupBlobUpload> {
@@ -108,7 +108,7 @@ pub(crate) fn prepare_non_dedup_blob_upload(
 }
 
 pub(crate) fn nondedup_storage_path_for_policy(
-    policy: &crate::entities::storage_policy::Model,
+    policy: &aster_drive_model::entities::storage_policy::Model,
     upload_id: &str,
     filename: Option<&str>,
 ) -> Result<String> {
@@ -210,7 +210,7 @@ async fn cleanup_empty_local_blob_dirs(prefix_dir: &Path, root_dir: &Path) {
 }
 
 pub(crate) async fn cleanup_preuploaded_blob_upload(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reason: &str,
 ) {
@@ -250,7 +250,7 @@ pub(crate) async fn cleanup_preuploaded_blob_upload(
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
 ) -> Result<()> {
@@ -263,14 +263,14 @@ pub(crate) async fn upload_temp_file_to_prepared_blob(
         .await
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "upload error").await;
-        return Err(error);
+        return Err(error.into());
     }
 
     Ok(())
 }
 
 pub(crate) async fn upload_temp_file_to_prepared_blob_cancellable(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     temp_path: &str,
     operation_context: &StorageOperationContext,
@@ -440,7 +440,7 @@ async fn cleanup_local_prepared_blob(
 }
 
 pub(crate) async fn upload_reader_to_prepared_blob(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,
@@ -454,14 +454,14 @@ pub(crate) async fn upload_reader_to_prepared_blob(
         .await
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "stream upload error").await;
-        return Err(error);
+        return Err(error.into());
     }
 
     Ok(())
 }
 
 async fn upload_reader_to_prepared_blob_with_context(
-    driver: &dyn crate::storage::StorageDriver,
+    driver: &dyn aster_drive_storage::StorageDriver,
     prepared: &PreparedNonDedupBlobUpload,
     reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
     size: i64,
@@ -478,7 +478,7 @@ async fn upload_reader_to_prepared_blob_with_context(
     {
         cleanup_preuploaded_blob_upload(driver, prepared, "stream upload error").await;
         operation_context.checkpoint()?;
-        return Err(error);
+        return Err(error.into());
     }
     if let Err(error) = operation_context.checkpoint() {
         cleanup_preuploaded_blob_upload(driver, prepared, "cancellation after stream upload").await;
@@ -524,13 +524,13 @@ pub(crate) async fn persist_preuploaded_blob<C: ConnectionTrait>(
 #[cfg(test)]
 mod storage_path_tests {
     use super::{nondedup_storage_path_for_policy, original_filename_storage_path};
-    use crate::types::DriverType;
+    use aster_drive_model::types::DriverType;
 
     const UPLOAD_ID: &str = "550e8400-e29b-41d4-a716-446655440000";
 
-    fn policy(driver_type: DriverType) -> crate::entities::storage_policy::Model {
+    fn policy(driver_type: DriverType) -> aster_drive_model::entities::storage_policy::Model {
         let now = chrono::Utc::now();
-        crate::entities::storage_policy::Model {
+        aster_drive_model::entities::storage_policy::Model {
             id: 1,
             name: "test".to_string(),
             driver_type,
@@ -542,8 +542,8 @@ mod storage_path_tests {
             remote_node_id: None,
             remote_storage_target_key: None,
             max_file_size: 0,
-            allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-            options: crate::types::StoredStoragePolicyOptions::empty(),
+            allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+            options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
             is_default: false,
             chunk_size: 5_242_880,
             created_at: now,

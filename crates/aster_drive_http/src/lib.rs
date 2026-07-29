@@ -1,4 +1,4 @@
-//! 数据库迁移二进制入口。
+//! Shared HTTP client utilities for AsterDrive crates.
 #![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #![cfg_attr(
     not(test),
@@ -6,13 +6,12 @@
         clippy::unwrap_used,
         clippy::unreachable,
         clippy::expect_used,
-        clippy::panic
+        clippy::panic,
+        clippy::unimplemented,
+        clippy::todo
     )
 )]
 
-use sea_orm_migration::prelude::*;
+mod response_body;
 
-#[tokio::main]
-async fn main() {
-    cli::run_cli(migration::Migrator).await;
-}
+pub use response_body::read_reqwest_body_limited;

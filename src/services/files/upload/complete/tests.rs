@@ -2,8 +2,8 @@ use super::audit::should_log_upload_completion;
 use super::plan::{CompletionPlan, determine_completion_plan};
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::upload_session;
-use crate::types::{UploadSessionKind, UploadSessionStatus};
+use aster_drive_model::entities::upload_session;
+use aster_drive_model::types::{UploadSessionKind, UploadSessionStatus};
 
 fn mock_session(status: UploadSessionStatus) -> upload_session::Model {
     upload_session::Model {

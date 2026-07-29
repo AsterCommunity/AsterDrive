@@ -13,10 +13,10 @@ use crate::services::{
     auth::local::Claims, files::file, files::folder, files::trash, ops::audit, task,
     workspace::storage::WorkspaceStorageScope,
 };
-use crate::types::EntityType;
 use actix_governor::Governor;
 use actix_web::middleware::Condition;
 use actix_web::{HttpRequest, HttpResponse, web};
+use aster_drive_model::types::EntityType;
 
 pub fn routes(
     rl: &RateLimitConfig,

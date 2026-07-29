@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
-use crate::errors::Result;
-use crate::storage::traits::extensions::ListStorageDriver;
+use aster_drive_storage::traits::extensions::ListStorageDriver;
 
 use super::S3Driver;
 
@@ -11,7 +10,7 @@ use super::S3Driver;
 
 #[async_trait]
 impl ListStorageDriver for S3Driver {
-    async fn list_paths(&self, prefix: Option<&str>) -> Result<Vec<String>> {
+    async fn list_paths(&self, prefix: Option<&str>) -> aster_drive_storage::Result<Vec<String>> {
         let full_prefix = prefix
             .map(|prefix| self.full_key(prefix))
             .unwrap_or_else(|| self.base_path.trim_end_matches('/').to_string());
@@ -55,8 +54,8 @@ impl ListStorageDriver for S3Driver {
     async fn scan_paths(
         &self,
         prefix: Option<&str>,
-        visitor: &mut dyn crate::storage::traits::driver::StoragePathVisitor,
-    ) -> Result<()> {
+        visitor: &mut dyn aster_drive_storage::traits::driver::StoragePathVisitor,
+    ) -> aster_drive_storage::Result<()> {
         let full_prefix = prefix
             .map(|prefix| self.full_key(prefix))
             .unwrap_or_else(|| self.base_path.trim_end_matches('/').to_string());

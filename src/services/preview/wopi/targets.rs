@@ -10,13 +10,13 @@ use base64::{
 use sea_orm::ConnectionTrait;
 
 use crate::db::repository::file_repo;
-use crate::entities::file;
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
     files::file as file_ops,
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::file;
 use aster_forge_utils::numbers::u64_to_i64;
 
 use super::session::{

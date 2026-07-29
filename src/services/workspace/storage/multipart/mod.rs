@@ -8,10 +8,10 @@ mod streaming_direct;
 use actix_multipart::Multipart;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::file;
 use crate::errors::{Result, validation_error_with_code};
 use crate::runtime::PrimaryAppState;
-use crate::types::DriverType;
+use aster_drive_model::entities::file;
+use aster_drive_model::types::DriverType;
 
 use super::{
     WorkspaceStorageScope, ensure_upload_parent_path, parse_relative_upload_path,

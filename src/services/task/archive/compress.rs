@@ -13,7 +13,6 @@ use super::selection::{
 };
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::operations;
-use crate::entities::background_task;
 use crate::errors::{AsterError, MapAsterErr, Result, auth_forbidden_with_code};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -35,6 +34,7 @@ use crate::services::{
     },
     workspace::storage::{self, WorkspaceStorageScope},
 };
+use aster_drive_model::entities::background_task;
 
 const EMIT_ARCHIVE_STORAGE_EVENT: bool = true;
 

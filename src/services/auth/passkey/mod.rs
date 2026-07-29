@@ -16,13 +16,13 @@ use webauthn_rs_proto::{ResidentKeyRequirement, UserVerificationPolicy};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{auth_runtime::RuntimeAuthPolicy, branding, site_url};
 use crate::db::repository::{passkey_repo, user_repo};
-use crate::entities::{passkey, user};
 use crate::errors::{
     AsterError, MapAsterErr, Result, auth_forbidden_with_code, validation_error_with_code,
 };
 use crate::runtime::SharedRuntimeState;
 use crate::services::auth::local::{self, LoginResult, is_email_verified};
-use crate::types::StoredPasskeyCredential;
+use aster_drive_model::entities::{passkey, user};
+use aster_drive_model::types::StoredPasskeyCredential;
 use aster_forge_utils::{
     id,
     net::is_loopback_host,

@@ -180,7 +180,7 @@ async fn test_init_upload_with_relative_path_uses_parent_folder_policy() {
     let body: Value = test::read_body_json(resp).await;
     let folder_id = body["data"]["id"].as_i64().unwrap();
 
-    let mut folder: aster_drive::entities::folder::ActiveModel =
+    let mut folder: aster_drive_model::entities::folder::ActiveModel =
         folder_repo::find_by_id(&db, folder_id)
             .await
             .unwrap()

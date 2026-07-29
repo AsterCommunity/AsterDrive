@@ -143,15 +143,16 @@
 
 对应代码主要在：
 
-- `src/storage/traits/driver.rs`
-- `src/storage/traits/extensions.rs`
-- `src/storage/traits/multipart.rs`
+- `crates/aster_drive_storage/src/traits/driver.rs`
+- `crates/aster_drive_storage/src/traits/extensions.rs`
+- `crates/aster_drive_storage/src/traits/multipart.rs`
+- `crates/aster_drive_storage/src/error.rs`
 - `src/storage/metrics_driver.rs`
 - `src/storage/registry.rs`
 
 ### 这一层管什么、不管什么
 
-`StorageDriver` 只描述“一个已经配置好的存储后端如何读写对象”。endpoint、bucket、凭据、OAuth token 在 driver 构建前就必须由 connector / registry 准备好；管理端表单字段、授权流程、连接测试、前端可见的能力声明也都不属于这一层，它们在 `src/storage/connectors/` 和 connector descriptor 里。
+`StorageDriver` 只描述“一个已经配置好的存储后端如何读写对象”。trait、扩展能力、connector descriptor、对象 key helper 和 `StorageError` 由 `aster_drive_storage` crate 所有；endpoint、bucket、凭据、OAuth token 在 driver 构建前就必须由根包 connector / registry 准备好。管理端表单字段、授权流程、连接测试和具体后端构造仍属于产品实现，不进入共享 contract crate。
 
 判断一项能力放哪儿时，先问一句：它是不是“已配置存储上的运行期对象能力”？是，才放 driver 扩展；否则放 connector / descriptor。这个边界避免了 driver trait 被管理端需求慢慢撑成万能接口。
 
@@ -496,7 +497,7 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 - `src/api/routes/admin/storage_migrations.rs`
 - `src/services/task/storage_migration.rs`
 - `src/db/repository/storage_migration_checkpoint_repo.rs`
-- `src/entities/storage_migration_checkpoint.rs`
+- `crates/aster_drive_model/src/entities/storage_migration_checkpoint.rs`
 
 这不是“把策略配置从 A 改到 B”，而是把 `file_blobs.policy_id = source_policy_id` 的实际对象内容迁到目标策略，并在数据库里把 blob 指向新的策略和存储路径。
 
@@ -567,7 +568,7 @@ archive 和 thumbnail lane 会在单轮 dispatch 里快速继续捞下一批，�
 - `src/cli/doctor/execute.rs`
 - `src/cli/doctor/storage_scan.rs`
 - `src/services/ops/integrity.rs`
-- `src/storage/traits/driver.rs`
+- `crates/aster_drive_storage/src/traits/driver.rs`
 
 ### 设计目标
 

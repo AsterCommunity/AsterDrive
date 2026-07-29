@@ -14,9 +14,9 @@ pub(crate) use selection::{
     stream_archive_download_in_scope, stream_shared_archive_download,
 };
 
-use crate::entities::background_task;
 use crate::errors::{AsterError, Result};
 use crate::runtime::PrimaryAppState;
+use aster_drive_model::entities::background_task;
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::TaskRetryClass;
 

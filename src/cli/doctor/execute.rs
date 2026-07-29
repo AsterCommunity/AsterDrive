@@ -217,7 +217,7 @@ async fn inspect_doctor_migrations(
     db: &DatabaseConnection,
     checks: &mut Vec<DoctorCheck>,
 ) -> Option<DoctorMigrationInspection> {
-    let history = match migration::inspect_migration_history(db).await {
+    let history = match aster_drive_migration::inspect_migration_history(db).await {
         Ok(history) => history,
         Err(err) => {
             checks.push(doctor_check(
@@ -235,7 +235,7 @@ async fn inspect_doctor_migrations(
         }
     };
 
-    if history.track == migration::MigrationTrack::Unknown {
+    if history.track == aster_drive_migration::MigrationTrack::Unknown {
         let details = if !history.unknown_applied.is_empty() {
             history.unknown_applied.clone()
         } else if history.applied.is_empty() {

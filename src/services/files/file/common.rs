@@ -1,8 +1,8 @@
 //! 文件服务子模块：`common`。
 
-use crate::entities::file;
 use crate::errors::Result;
 use crate::services::workspace::storage;
+use aster_drive_model::entities::file;
 use aster_forge_utils::http_validators;
 
 const INLINE_SANDBOX_CSP: &str = "sandbox";

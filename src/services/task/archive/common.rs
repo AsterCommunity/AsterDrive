@@ -8,7 +8,6 @@ use chrono::Utc;
 use sea_orm::{DatabaseConnection, Set};
 
 use crate::db::repository::{file_repo, folder_repo};
-use crate::entities::{file, folder};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{
@@ -16,6 +15,7 @@ use crate::services::{
     workspace::storage::{WorkspaceStorageScope, load_scope_actor_username},
 };
 use crate::storage::{DriverRegistry, PolicySnapshot};
+use aster_drive_model::entities::{file, folder};
 
 use super::selection::ArchiveBuildLimits;
 

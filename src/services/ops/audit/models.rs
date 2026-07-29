@@ -5,7 +5,7 @@ use std::collections::BTreeMap;
 use utoipa::ToSchema;
 
 use crate::services::user::account;
-use crate::types::{AuditAction, AuditEntityType, TeamMemberRole};
+use aster_drive_model::types::{AuditAction, AuditEntityType, TeamMemberRole};
 
 #[derive(Debug, Clone, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]

@@ -1,15 +1,15 @@
 use crate::api::api_error_code::ApiErrorCode;
-use crate::entities::managed_follower;
 use crate::errors::{Result, validation_error_with_code};
 use crate::services::remote::storage_target::{
     RemoteStorageTargetDriverDescriptor, registered_remote_storage_target_driver_types,
     remote_storage_target_driver_descriptor,
 };
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{RemoteStorageCapabilities, RemoteStorageTargetCapabilities};
-use crate::types::{
+use aster_drive_model::entities::managed_follower;
+use aster_drive_model::types::{
     DriverType, RemoteDownloadStrategy, RemoteUploadStrategy, StoragePolicyOptions,
 };
+use aster_drive_storage::StorageErrorKind;
 
 const LEGACY_MANAGED_INGRESS_IMPLICIT_PROTOCOL_VERSION: u16 = 4;
 
@@ -165,7 +165,7 @@ impl RemoteCapabilityResolver {
             return Ok(());
         }
 
-        Err(storage_driver_error(
+        Err(crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!(
                 "{context}: remote internal storage protocol is missing required feature(s): {}; remote declared features: {:?}",
@@ -239,7 +239,7 @@ impl RemoteCapabilityResolver {
             ));
         }
 
-        Err(storage_driver_error(
+        Err(crate::errors::storage_driver_error(
             StorageErrorKind::Misconfigured,
             format!(
                 "{context}: remote internal storage browser CORS contract is incomplete: {}; allowed_headers={:?}; exposed_headers={:?}",

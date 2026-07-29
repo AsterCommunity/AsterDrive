@@ -6,10 +6,10 @@ use sea_orm::{ActiveValue::Set, ConnectionTrait};
 
 use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::db::repository::auth_session_repo;
-use crate::entities::{auth_session, user};
 use crate::errors::{AsterError, MapAsterErr, Result};
 use crate::runtime::SharedRuntimeState;
-use crate::types::TokenType;
+use aster_drive_model::entities::{auth_session, user};
+use aster_drive_model::types::TokenType;
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, u64_to_usize};
 
 use super::session::get_auth_snapshot;
@@ -324,7 +324,7 @@ pub fn verify_token(token: &str, secret: &str) -> Result<Claims> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::TokenType;
+    use aster_drive_model::types::TokenType;
 
     const SECRET: &str = "test_secret_32bytes_xxxxxxxxxxxxxxxxx";
 
@@ -396,8 +396,8 @@ mod tests {
         };
         let snapshot = crate::services::auth::local::AuthSnapshot {
             session_version: 2,
-            status: crate::types::UserStatus::Active,
-            role: crate::types::UserRole::User,
+            status: aster_drive_model::types::UserStatus::Active,
+            role: aster_drive_model::types::UserRole::User,
             must_change_password: false,
         };
         let err = ensure_session_current(&claims, snapshot).unwrap_err();
@@ -417,8 +417,8 @@ mod tests {
         };
         let snapshot = crate::services::auth::local::AuthSnapshot {
             session_version: 1,
-            status: crate::types::UserStatus::Active,
-            role: crate::types::UserRole::User,
+            status: aster_drive_model::types::UserStatus::Active,
+            role: aster_drive_model::types::UserRole::User,
             must_change_password: false,
         };
         assert!(ensure_session_current(&claims, snapshot).is_ok());

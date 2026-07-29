@@ -1,5 +1,5 @@
-use crate::entities::storage_policy;
-use crate::types::{
+use aster_drive_model::entities::storage_policy;
+use aster_drive_model::types::{
     ObjectStorageUploadStrategy, ProviderResumableUploadStrategy, RemoteUploadStrategy, UploadMode,
     effective_object_multipart_chunk_size,
 };

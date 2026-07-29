@@ -4,24 +4,24 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 
+use aster_drive_migration::Migrator;
 use async_trait::async_trait;
 use chrono::Utc;
-use migration::Migrator;
 use sea_orm::{ActiveModelTrait, EntityTrait, Set};
 use tokio::io::{AsyncRead, empty};
 
 use super::*;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
-use crate::entities::{file, file_blob, storage_policy, user};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::mail::sender;
 use crate::services::workspace::storage::WorkspaceStorageScope;
-use crate::storage::BlobMetadata;
-use crate::storage::{DriverRegistry, PolicySnapshot, StorageDriver};
-use crate::types::{
+use crate::storage::{DriverRegistry, PolicySnapshot};
+use aster_drive_model::entities::{file, file_blob, storage_policy, user};
+use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, UserRole, UserStatus,
 };
+use aster_drive_storage::{BlobMetadata, StorageDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
 
@@ -69,23 +69,23 @@ impl TrackingDeleteDriver {
 
 #[async_trait]
 impl StorageDriver for TrackingDeleteDriver {
-    async fn put(&self, path: &str, _data: &[u8]) -> crate::errors::Result<String> {
+    async fn put(&self, path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
         self.insert_object(path);
         Ok(path.to_string())
     }
 
-    async fn get(&self, _path: &str) -> crate::errors::Result<Vec<u8>> {
+    async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         Ok(Vec::new())
     }
 
     async fn get_stream(
         &self,
         _path: &str,
-    ) -> crate::errors::Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         Ok(Box::new(empty()))
     }
 
-    async fn delete(&self, path: &str) -> crate::errors::Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         self.delete_calls.fetch_add(1, Ordering::SeqCst);
         self.delete_attempts
             .lock()
@@ -97,9 +97,10 @@ impl StorageDriver for TrackingDeleteDriver {
             .expect("tracking delete driver lock should succeed")
             .contains(path)
         {
-            return Err(crate::errors::AsterError::storage_driver_error(format!(
-                "forced delete failure for {path}"
-            )));
+            return Err(aster_drive_storage::StorageError::new(
+                aster_drive_storage::StorageErrorKind::Transient,
+                format!("forced delete failure for {path}"),
+            ));
         }
         self.objects
             .lock()
@@ -108,11 +109,11 @@ impl StorageDriver for TrackingDeleteDriver {
         Ok(())
     }
 
-    async fn exists(&self, path: &str) -> crate::errors::Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         Ok(self.contains(path))
     }
 
-    async fn metadata(&self, path: &str) -> crate::errors::Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         Ok(BlobMetadata {
             size: if self.contains(path) { 1 } else { 0 },
             content_type: Some("application/octet-stream".to_string()),
@@ -138,7 +139,7 @@ async fn build_deletion_test_state() -> (
             pool_size: 1,
             retry_count: 0,
         },
-        crate::metrics::NoopMetrics::arc(),
+        aster_drive_metrics::NoopMetrics::arc(),
     )
     .await
     .expect("deletion test DB should connect");
@@ -223,7 +224,7 @@ async fn build_deletion_test_state() -> (
         config: Arc::new(config),
         cache,
         config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-        metrics: crate::metrics::NoopMetrics::arc(),
+        metrics: aster_drive_metrics::NoopMetrics::arc(),
         mail_sender: sender::runtime_sender(runtime_config),
         storage_change_bus,
         share_download_rollback,

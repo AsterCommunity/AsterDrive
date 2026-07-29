@@ -7,10 +7,9 @@ use async_trait::async_trait;
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncRead, ReadBuf};
 
-use crate::errors::{AsterError, Result};
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
-use crate::storage::traits::extensions::ListStorageDriver;
-use crate::storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
+use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
+use aster_drive_storage::traits::extensions::ListStorageDriver;
+use aster_drive_storage::traits::multipart::{MultipartStorageDriver, UploadedMultipartPart};
 
 use super::RemoteDriver;
 
@@ -45,7 +44,7 @@ impl AsyncRead for HashingReader {
 
 #[async_trait]
 impl MultipartStorageDriver for RemoteDriver {
-    async fn create_multipart_upload(&self, _path: &str) -> Result<String> {
+    async fn create_multipart_upload(&self, _path: &str) -> aster_drive_storage::Result<String> {
         Ok(aster_forge_utils::id::new_uuid())
     }
 
@@ -55,7 +54,7 @@ impl MultipartStorageDriver for RemoteDriver {
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         if self.uses_reverse_tunnel {
             return Err(storage_driver_error(
                 StorageErrorKind::Unsupported,
@@ -65,6 +64,7 @@ impl MultipartStorageDriver for RemoteDriver {
         let part_key = Self::multipart_part_key(upload_id, part_number)?;
         self.client
             .presigned_put_url(&self.object_key(&part_key), expires)
+            .map_err(Into::into)
     }
 
     async fn complete_multipart_upload(
@@ -72,9 +72,10 @@ impl MultipartStorageDriver for RemoteDriver {
         path: &str,
         upload_id: &str,
         mut parts: Vec<(i32, String)>,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         if parts.is_empty() {
-            return Err(AsterError::validation_error(
+            return Err(storage_driver_error(
+                StorageErrorKind::Misconfigured,
                 "multipart completion requires at least one part",
             ));
         }
@@ -113,7 +114,7 @@ impl MultipartStorageDriver for RemoteDriver {
         upload_id: &str,
         part_number: i32,
         data: &[u8],
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let part_key = Self::multipart_part_key(upload_id, part_number)?;
         self.client
             .put_bytes(&self.object_key(&part_key), data)
@@ -131,7 +132,7 @@ impl MultipartStorageDriver for RemoteDriver {
         part_number: i32,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let part_key = Self::multipart_part_key(upload_id, part_number)?;
         let size = u64::try_from(size).map_err(|_| {
             storage_driver_error(
@@ -155,7 +156,11 @@ impl MultipartStorageDriver for RemoteDriver {
         Ok(format!("\"{}\"", hex::encode(digest)))
     }
 
-    async fn abort_multipart_upload(&self, _path: &str, upload_id: &str) -> Result<()> {
+    async fn abort_multipart_upload(
+        &self,
+        _path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
         let prefix = Self::multipart_parts_prefix(upload_id);
         let parts = self.list_paths(Some(&prefix)).await?;
         for part_path in parts {
@@ -168,7 +173,7 @@ impl MultipartStorageDriver for RemoteDriver {
         &self,
         _path: &str,
         upload_id: &str,
-    ) -> Result<Vec<UploadedMultipartPart>> {
+    ) -> aster_drive_storage::Result<Vec<UploadedMultipartPart>> {
         let prefix = Self::multipart_parts_prefix(upload_id);
         let mut parts = self
             .list_paths(Some(&prefix))

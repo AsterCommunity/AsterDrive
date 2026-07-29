@@ -6,10 +6,10 @@ use sea_orm::{
     sea_query::Expr,
 };
 
-use crate::entities::external_auth_email_verification_flow::{
+use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::external_auth_email_verification_flow::{
     self, Entity as ExternalAuthEmailVerificationFlow,
 };
-use crate::errors::{AsterError, Result};
 
 pub async fn create(
     db: &DatabaseConnection,

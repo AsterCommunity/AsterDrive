@@ -6,8 +6,8 @@ use sea_orm::{
     QueryFilter, sea_query::Expr,
 };
 
-use crate::entities::mfa_login_flow::{self, Entity as MfaLoginFlow};
 use crate::errors::{AsterError, Result};
+use aster_drive_model::entities::mfa_login_flow::{self, Entity as MfaLoginFlow};
 
 pub async fn create(
     db: &DatabaseConnection,

@@ -1,11 +1,9 @@
 //! StorageDriver metrics decorator.
 
-use super::traits::driver::{BlobMetadata, StorageDriver};
-use super::traits::extensions;
-use super::traits::multipart::MultipartStorageDriver;
-use crate::errors::Result;
-use crate::metrics::SharedMetricsRecorder;
-use crate::types::DriverType;
+use aster_drive_metrics::SharedMetricsRecorder;
+use aster_drive_model::types::DriverType;
+use aster_drive_storage::traits::extensions;
+use aster_drive_storage::{BlobMetadata, MultipartStorageDriver, Result, StorageDriver};
 use async_trait::async_trait;
 use bytes::Bytes;
 use std::pin::Pin;
@@ -84,10 +82,7 @@ fn record_result<T>(
 ) {
     let (status, kind) = match result {
         Ok(_) => ("success", "ok"),
-        Err(error) => match error.storage_error_kind() {
-            Some(kind) => ("failure", kind.as_str()),
-            None => ("failure", "non_storage"),
-        },
+        Err(error) => ("failure", error.kind().as_str()),
     };
     metrics.record_storage_driver_operation(
         driver,
@@ -212,21 +207,24 @@ impl Drop for TimingReader {
 
 #[async_trait]
 impl StorageDriver for MetricsStorageDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> Result<String> {
+    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self.inner.put(path, data).await;
         self.record("put", &result, started_at);
         result
     }
 
-    async fn get(&self, path: &str) -> Result<Vec<u8>> {
+    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
         let started_at = Instant::now();
         let result = self.inner.get(path).await;
         self.record("get", &result, started_at);
         result
     }
 
-    async fn get_stream(&self, path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    async fn get_stream(
+        &self,
+        path: &str,
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let started_at = Instant::now();
         let result = self.inner.get_stream(path).await;
         match result {
@@ -250,7 +248,7 @@ impl StorageDriver for MetricsStorageDriver {
         path: &str,
         offset: u64,
         length: Option<u64>,
-    ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
         let started_at = Instant::now();
         let result = self.inner.get_range(path, offset, length).await;
         match result {
@@ -273,42 +271,46 @@ impl StorageDriver for MetricsStorageDriver {
         self.inner.supports_efficient_range()
     }
 
-    async fn delete(&self, path: &str) -> Result<()> {
+    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
         let started_at = Instant::now();
         let result = self.inner.delete(path).await;
         self.record("delete", &result, started_at);
         result
     }
 
-    async fn exists(&self, path: &str) -> Result<bool> {
+    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
         let started_at = Instant::now();
         let result = self.inner.exists(path).await;
         self.record("exists", &result, started_at);
         result
     }
 
-    async fn metadata(&self, path: &str) -> Result<BlobMetadata> {
+    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
         let started_at = Instant::now();
         let result = self.inner.metadata(path).await;
         self.record("metadata", &result, started_at);
         result
     }
 
-    async fn readiness_check(&self) -> Result<()> {
+    async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
         let started_at = Instant::now();
         let result = self.inner.readiness_check().await;
         self.record("readiness_check", &result, started_at);
         result
     }
 
-    async fn copy_object(&self, src_path: &str, dest_path: &str) -> Result<String> {
+    async fn copy_object(
+        &self,
+        src_path: &str,
+        dest_path: &str,
+    ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self.inner.copy_object(src_path, dest_path).await;
         self.record("copy_object", &result, started_at);
         result
     }
 
-    async fn capacity_info(&self) -> Result<extensions::StorageCapacityInfo> {
+    async fn capacity_info(&self) -> aster_drive_storage::Result<extensions::StorageCapacityInfo> {
         let started_at = Instant::now();
         let result = self.inner.capacity_info().await;
         self.record("capacity_info", &result, started_at);
@@ -326,7 +328,7 @@ impl StorageDriver for MetricsStorageDriver {
 
 #[async_trait]
 impl MultipartStorageDriver for MetricsMultipartStorageDriver {
-    async fn create_multipart_upload(&self, path: &str) -> Result<String> {
+    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self.inner.create_multipart_upload(path).await;
         self.record("create_multipart_upload", &result, started_at);
@@ -339,7 +341,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         upload_id: &str,
         part_number: i32,
         expires: Duration,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self
             .inner
@@ -354,7 +356,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         path: &str,
         upload_id: &str,
         parts: Vec<(i32, String)>,
-    ) -> Result<()> {
+    ) -> aster_drive_storage::Result<()> {
         let started_at = Instant::now();
         let result = self
             .inner
@@ -370,7 +372,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         upload_id: &str,
         part_number: i32,
         data: &[u8],
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self
             .inner
@@ -386,7 +388,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         upload_id: &str,
         part_number: i32,
         data: Bytes,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self
             .inner
@@ -403,7 +405,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         part_number: i32,
         reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
         size: i64,
-    ) -> Result<String> {
+    ) -> aster_drive_storage::Result<String> {
         let started_at = Instant::now();
         let result = self
             .inner
@@ -413,7 +415,11 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         result
     }
 
-    async fn abort_multipart_upload(&self, path: &str, upload_id: &str) -> Result<()> {
+    async fn abort_multipart_upload(
+        &self,
+        path: &str,
+        upload_id: &str,
+    ) -> aster_drive_storage::Result<()> {
         let started_at = Instant::now();
         let result = self.inner.abort_multipart_upload(path, upload_id).await;
         self.record("abort_multipart_upload", &result, started_at);
@@ -424,7 +430,9 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
         &self,
         path: &str,
         upload_id: &str,
-    ) -> Result<Vec<crate::storage::traits::multipart::UploadedMultipartPart>> {
+    ) -> aster_drive_storage::Result<
+        Vec<aster_drive_storage::traits::multipart::UploadedMultipartPart>,
+    > {
         let started_at = Instant::now();
         let result = self.inner.list_uploaded_part_details(path, upload_id).await;
         self.record("list_uploaded_part_details", &result, started_at);
@@ -435,8 +443,7 @@ impl MultipartStorageDriver for MetricsMultipartStorageDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::errors::AsterError;
-    use crate::metrics::MetricsRecorder;
+    use aster_drive_metrics::MetricsRecorder;
     use parking_lot::Mutex;
     use std::io;
     use tokio::io::{AsyncReadExt, ReadBuf};
@@ -469,15 +476,18 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for MemoryDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             panic!("not used")
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(io::Cursor::new(Vec::from("hello"))))
         }
 
@@ -486,24 +496,27 @@ mod tests {
             _path: &str,
             _offset: u64,
             _length: Option<u64>,
-        ) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             Ok(Box::new(ErrorReader))
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             panic!("not used")
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             panic!("not used")
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             panic!("not used")
         }
 
-        async fn readiness_check(&self) -> Result<()> {
-            Err(AsterError::validation_error("not a storage error"))
+        async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
+            Err(aster_drive_storage::StorageError::new(
+                aster_drive_storage::StorageErrorKind::Unknown,
+                "unclassified storage error",
+            ))
         }
     }
 
@@ -511,27 +524,30 @@ mod tests {
 
     #[async_trait]
     impl StorageDriver for ProviderResumableDriver {
-        async fn put(&self, _path: &str, _data: &[u8]) -> Result<String> {
+        async fn put(&self, _path: &str, _data: &[u8]) -> aster_drive_storage::Result<String> {
             panic!("not used")
         }
 
-        async fn get(&self, _path: &str) -> Result<Vec<u8>> {
+        async fn get(&self, _path: &str) -> aster_drive_storage::Result<Vec<u8>> {
             panic!("not used")
         }
 
-        async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
+        async fn get_stream(
+            &self,
+            _path: &str,
+        ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
             panic!("not used")
         }
 
-        async fn delete(&self, _path: &str) -> Result<()> {
+        async fn delete(&self, _path: &str) -> aster_drive_storage::Result<()> {
             panic!("not used")
         }
 
-        async fn exists(&self, _path: &str) -> Result<bool> {
+        async fn exists(&self, _path: &str) -> aster_drive_storage::Result<bool> {
             panic!("not used")
         }
 
-        async fn metadata(&self, _path: &str) -> Result<BlobMetadata> {
+        async fn metadata(&self, _path: &str) -> aster_drive_storage::Result<BlobMetadata> {
             panic!("not used")
         }
 
@@ -685,7 +701,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn non_storage_errors_are_tagged_explicitly() {
+    async fn unknown_storage_errors_are_tagged_explicitly() {
         let metrics = Arc::new(CapturingMetrics::default());
         let driver = MetricsStorageDriver::new(
             Arc::new(MemoryDriver),
@@ -701,7 +717,7 @@ mod tests {
 
         assert_eq!(
             metrics.storage_operations.lock().as_slice(),
-            &[("readiness_check", "failure", "non_storage")]
+            &[("readiness_check", "failure", "unknown")]
         );
     }
 

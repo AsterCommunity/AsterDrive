@@ -6,9 +6,9 @@
 //! 如果是，放在这里并通过 `StorageDriver::extensions()` 暴露；如果是管理端字段、
 //! OAuth、连接测试、策略动作或前端可见能力声明，应该放到 connector/descriptor。
 
-use crate::errors::Result;
-use crate::storage::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
-use crate::types::{MediaMetadataKind, MediaMetadataPayload};
+use crate::error::Result;
+use crate::traits::driver::{PresignedDownloadOptions, StoragePathVisitor};
+use aster_drive_model::types::{MediaMetadataKind, MediaMetadataPayload};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -41,7 +41,7 @@ pub struct StorageDriverExtensions<'a> {
     pub local_path: Option<&'a dyn LocalPathStorageDriver>,
     pub native_thumbnail: Option<&'a dyn NativeThumbnailStorageDriver>,
     pub native_media_metadata: Option<&'a dyn NativeMediaMetadataStorageDriver>,
-    pub multipart: Option<&'a dyn crate::storage::traits::multipart::MultipartStorageDriver>,
+    pub multipart: Option<&'a dyn crate::traits::multipart::MultipartStorageDriver>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,8 +300,7 @@ pub trait NativeMediaMetadataStorageDriver: Send + Sync {
 /// 此模块提供基于临时文件的通用实现，供不支持原生流式上传的驱动使用。
 pub mod fallback {
     use super::*;
-    use crate::errors::AsterError;
-    use crate::storage::MapAsterErr;
+    use crate::error::{MapStorageErr, StorageErrorKind, storage_driver_error};
     use tokio::io::AsyncWriteExt;
 
     /// 基于临时文件的 put_reader 通用实现
@@ -312,7 +311,7 @@ pub mod fallback {
         _size: i64,
     ) -> Result<String>
     where
-        D: crate::storage::traits::driver::StorageDriver + ?Sized,
+        D: crate::traits::driver::StorageDriver + ?Sized,
     {
         // 创建临时文件
         let temp_dir = std::env::temp_dir();
@@ -328,16 +327,16 @@ pub mod fallback {
         // 流式写入临时文件
         let mut file = tokio::fs::File::create(temp_path.path())
             .await
-            .map_aster_err(AsterError::storage_driver_error)?;
+            .map_storage_err(StorageErrorKind::Transient)?;
 
         tokio::io::copy(&mut reader, &mut file)
             .await
-            .map_aster_err_ctx("write temp file", AsterError::storage_driver_error)?;
+            .map_storage_err_ctx(StorageErrorKind::Transient, "write temp file")?;
 
         // 确保数据落盘
         file.flush()
             .await
-            .map_aster_err(AsterError::storage_driver_error)?;
+            .map_storage_err(StorageErrorKind::Transient)?;
         drop(file);
 
         // 使用驱动的 put_file 能力上传（如果驱动实现了 StreamUploadDriver）
@@ -345,14 +344,17 @@ pub mod fallback {
 
         if let Some(stream_driver) = driver.extensions().stream_upload {
             let temp_path_str = temp_path.path().to_str().ok_or_else(|| {
-                AsterError::storage_driver_error("temp upload path is not valid UTF-8")
+                storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    "temp upload path is not valid UTF-8",
+                )
             })?;
             stream_driver.put_file(storage_path, temp_path_str).await
         } else {
             // 终极 fallback：读文件到内存再 put
             let data = tokio::fs::read(temp_path.path())
                 .await
-                .map_aster_err(AsterError::storage_driver_error)?;
+                .map_storage_err(StorageErrorKind::Transient)?;
             driver.put(storage_path, &data).await
         }
     }
@@ -361,8 +363,8 @@ pub mod fallback {
 #[cfg(test)]
 mod tests {
     use super::fallback::put_reader_with_temp_file;
-    use crate::errors::Result;
-    use crate::storage::traits::driver::{BlobMetadata, StorageDriver};
+    use crate::error::Result;
+    use crate::traits::driver::{BlobMetadata, StorageDriver};
     use async_trait::async_trait;
     use std::collections::HashSet;
     use std::path::PathBuf;

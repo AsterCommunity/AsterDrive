@@ -100,3 +100,37 @@ impl Related<super::share::Entity> for Entity {
 }
 
 impl ActiveModelBehavior for ActiveModel {}
+
+impl aster_forge_tasks::TaskRecord<crate::types::BackgroundTaskKind> for Model {
+    fn id(&self) -> i64 {
+        self.id
+    }
+
+    fn kind(&self) -> crate::types::BackgroundTaskKind {
+        self.kind
+    }
+
+    fn payload_json(&self) -> &str {
+        self.payload_json.as_ref()
+    }
+
+    fn result_json(&self) -> Option<&str> {
+        self.result_json.as_ref().map(AsRef::as_ref)
+    }
+}
+
+impl aster_forge_tasks::ClaimableTaskRecord<crate::types::BackgroundTaskKind> for Model {
+    fn processing_token(&self) -> i64 {
+        self.processing_token
+    }
+}
+
+impl aster_forge_tasks::ExecutableTaskRecord<crate::types::BackgroundTaskKind> for Model {
+    fn attempt_count(&self) -> i32 {
+        self.attempt_count
+    }
+
+    fn max_attempts(&self) -> i32 {
+        self.max_attempts
+    }
+}

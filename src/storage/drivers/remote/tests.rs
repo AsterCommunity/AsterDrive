@@ -1,16 +1,16 @@
 use super::*;
-use crate::storage::error::StorageErrorKind;
 use crate::storage::remote_protocol::{
     PRESIGNED_AUTH_ACCESS_KEY_QUERY, PRESIGNED_AUTH_SIGNATURE_QUERY,
     PRESIGNED_RESPONSE_CACHE_CONTROL_QUERY, PRESIGNED_RESPONSE_CONTENT_DISPOSITION_QUERY,
     PRESIGNED_RESPONSE_CONTENT_TYPE_QUERY, RemoteStorageCapabilities,
 };
-use crate::storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
-use crate::storage::traits::extensions::{
+use actix_web::{App, HttpResponse, HttpServer, web};
+use aster_drive_storage::error::StorageErrorKind;
+use aster_drive_storage::traits::driver::{PresignedDownloadOptions, StorageDriver};
+use aster_drive_storage::traits::extensions::{
     ListStorageDriver, PresignedStorageDriver, StreamUploadDriver,
 };
-use crate::storage::traits::multipart::MultipartStorageDriver;
-use actix_web::{App, HttpResponse, HttpServer, web};
+use aster_drive_storage::traits::multipart::MultipartStorageDriver;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -34,7 +34,7 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
     storage_policy::Model {
         id: 1,
         name: "remote".to_string(),
-        driver_type: crate::types::DriverType::Remote,
+        driver_type: aster_drive_model::types::DriverType::Remote,
         endpoint: String::new(),
         bucket: String::new(),
         access_key: String::new(),
@@ -43,8 +43,8 @@ fn build_policy(base_path: &str) -> storage_policy::Model {
         remote_node_id: Some(7),
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: crate::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: crate::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 5_242_880,
         created_at: now,
@@ -72,7 +72,7 @@ fn build_follower_with_capabilities(
         access_key: "access-key".to_string(),
         secret_key: "secret-key".to_string(),
         is_enabled: true,
-        transport_mode: crate::types::RemoteNodeTransportMode::Direct,
+        transport_mode: aster_drive_model::types::RemoteNodeTransportMode::Direct,
         last_capabilities: last_capabilities.to_string(),
         last_error: String::new(),
         last_checked_at: None,
@@ -85,7 +85,7 @@ fn build_follower_with_capabilities(
 
 fn build_reverse_follower_with_capabilities(last_capabilities: &str) -> managed_follower::Model {
     let mut follower = build_follower_with_capabilities("", last_capabilities);
-    follower.transport_mode = crate::types::RemoteNodeTransportMode::ReverseTunnel;
+    follower.transport_mode = aster_drive_model::types::RemoteNodeTransportMode::ReverseTunnel;
     follower
 }
 
@@ -331,30 +331,21 @@ async fn reverse_tunnel_driver_rejects_presigned_browser_urls() {
         )
         .await
         .expect_err("reverse tunnel download presigned URL should be rejected");
-    assert_eq!(
-        download_error.storage_error_kind(),
-        Some(StorageErrorKind::Unsupported)
-    );
+    assert_eq!(download_error.kind(), StorageErrorKind::Unsupported);
     assert!(download_error.message().contains("reverse tunnel"));
 
     let upload_error = driver
         .presigned_put_url("file.txt", Duration::from_secs(60))
         .await
         .expect_err("reverse tunnel upload presigned URL should be rejected");
-    assert_eq!(
-        upload_error.storage_error_kind(),
-        Some(StorageErrorKind::Unsupported)
-    );
+    assert_eq!(upload_error.kind(), StorageErrorKind::Unsupported);
     assert!(upload_error.message().contains("reverse tunnel"));
 
     let part_error = driver
         .presigned_upload_part_url("file.txt", "upload-1", 1, Duration::from_secs(60))
         .await
         .expect_err("reverse tunnel multipart presigned URL should be rejected");
-    assert_eq!(
-        part_error.storage_error_kind(),
-        Some(StorageErrorKind::Unsupported)
-    );
+    assert_eq!(part_error.kind(), StorageErrorKind::Unsupported);
     assert!(part_error.message().contains("reverse tunnel"));
 }
 
@@ -367,10 +358,7 @@ async fn put_reader_rejects_negative_size_before_network_io() {
         .await
         .expect_err("negative size should be rejected locally");
 
-    assert_eq!(
-        error.storage_error_kind(),
-        Some(StorageErrorKind::Precondition)
-    );
+    assert_eq!(error.kind(), StorageErrorKind::Precondition);
     assert!(error.message().contains("must be non-negative"));
 }
 

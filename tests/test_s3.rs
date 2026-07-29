@@ -4,19 +4,20 @@
 mod common;
 
 use aster_drive::storage::drivers::s3::S3Driver;
-use aster_drive::storage::{PresignedDownloadOptions, StorageDriver};
-use aster_drive::storage::{PresignedStorageDriver, StreamUploadDriver};
+use aster_drive_storage::{
+    PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
+};
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 
 const RUSTFS_TEST_IMAGE_TAG: &str = "1.0.0-alpha.90";
 
 /// 创建 S3 测试用的 storage_policy model
-fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive::entities::storage_policy::Model {
+fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive_model::entities::storage_policy::Model {
     use chrono::Utc;
-    aster_drive::entities::storage_policy::Model {
+    aster_drive_model::entities::storage_policy::Model {
         id: 999,
         name: "Test S3".to_string(),
-        driver_type: aster_drive::types::DriverType::S3,
+        driver_type: aster_drive_model::types::DriverType::S3,
         endpoint: endpoint.to_string(),
         bucket: bucket.to_string(),
         access_key: "rustfsadmin".to_string(),
@@ -25,8 +26,8 @@ fn s3_policy(endpoint: &str, bucket: &str) -> aster_drive::entities::storage_pol
         remote_node_id: None,
         remote_storage_target_key: None,
         max_file_size: 0,
-        allowed_types: aster_drive::types::StoredStoragePolicyAllowedTypes::empty(),
-        options: aster_drive::types::StoredStoragePolicyOptions::empty(),
+        allowed_types: aster_drive_model::types::StoredStoragePolicyAllowedTypes::empty(),
+        options: aster_drive_model::types::StoredStoragePolicyOptions::empty(),
         is_default: false,
         chunk_size: 5_242_880,
         created_at: Utc::now(),

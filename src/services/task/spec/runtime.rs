@@ -1,13 +1,13 @@
 use super::TaskProcessFuture;
 use crate::config::RuntimeConfig;
-use crate::entities::background_task;
 use crate::errors::AsterError;
 use crate::runtime::PrimaryAppState;
 use crate::services::task::{
     dispatch::TaskLane,
     types::{RuntimeTaskPayload, RuntimeTaskResult, TaskPayload, TaskResult},
 };
-use crate::types::BackgroundTaskKind;
+use aster_drive_model::entities::background_task;
+use aster_drive_model::types::BackgroundTaskKind;
 use aster_forge_tasks::TaskExecutionContext;
 use aster_forge_tasks::{TaskRetryClass, TaskStepSpec};
 

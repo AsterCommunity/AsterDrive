@@ -3,18 +3,18 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::{AdminRemoteNodeSortBy, load_offset_page};
 use crate::db::repository::{follower_enrollment_session_repo, managed_follower_repo, policy_repo};
-use crate::entities::{follower_enrollment_session, managed_follower};
 use crate::errors::{
     AsterError, Result, precondition_failed_with_code, validation_error_with_code,
 };
 use crate::runtime::RemoteProtocolRuntimeState;
 use crate::services::remote::capability::RemoteCapabilityResolver;
-use crate::storage::error::{StorageErrorKind, storage_driver_error};
 use crate::storage::remote_protocol::{
     RemoteBindingSyncRequest, RemoteStorageCapabilities, RemoteStorageClient,
     normalize_remote_base_url,
 };
-use crate::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::entities::{follower_enrollment_session, managed_follower};
+use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_storage::StorageErrorKind;
 use aster_forge_api::{OffsetPage, SortOrder};
 use chrono::Utc;
 use futures::{StreamExt, stream};
@@ -483,7 +483,7 @@ pub(crate) fn remote_storage_client_for_node<S: RemoteProtocolRuntimeState>(
 async fn policy_requirements_for_node<S: RemoteProtocolRuntimeState>(
     state: &S,
     remote_node_id: i64,
-) -> Result<Vec<(i64, crate::types::StoragePolicyOptions)>> {
+) -> Result<Vec<(i64, aster_drive_model::types::StoragePolicyOptions)>> {
     let policies = policy_repo::find_by_remote_node_id(state.writer_db(), remote_node_id).await?;
     Ok(policies
         .into_iter()
@@ -716,7 +716,7 @@ async fn sync_remote_binding_config_with_timeout<S: RemoteProtocolRuntimeState>(
     tokio::time::timeout(timeout, sync_remote_binding_config(state, node))
         .await
         .map_err(|_| {
-            storage_driver_error(
+            crate::errors::storage_driver_error(
                 StorageErrorKind::Transient,
                 format!(
                     "sync remote binding config timed out after {}s",
@@ -747,10 +747,10 @@ mod tests {
     use crate::db;
     use crate::runtime::SharedRuntimeState;
     use crate::storage::{DriverRegistry, PolicySnapshot};
-    use crate::types::RemoteNodeTransportMode;
+    use aster_drive_migration::Migrator;
+    use aster_drive_model::types::RemoteNodeTransportMode;
     use aster_forge_cache::CacheConfig;
     use async_trait::async_trait;
-    use migration::Migrator;
     use std::sync::Arc;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -788,7 +788,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("remote node service test database should connect");
@@ -818,7 +818,7 @@ mod tests {
             config: Arc::new(Config::default()),
             cache,
             config_sync,
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
             mail_sender: crate::services::mail::sender::runtime_sender(runtime_config),
             storage_change_bus,
             share_download_rollback,

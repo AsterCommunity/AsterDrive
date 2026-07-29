@@ -168,8 +168,8 @@ pub async fn drain_mail_outbox_on_shutdown(
 mod tests {
     use std::sync::Arc;
 
+    use aster_drive_migration::Migrator;
     use aster_forge_runtime::RuntimeComponentBundle;
-    use migration::Migrator;
 
     use super::{MailOutboxRuntimeResources, drain_mail_outbox_on_shutdown};
     use crate::runtime::{FollowerAppState, SharedRuntimeState};
@@ -187,7 +187,7 @@ mod tests {
                 pool_size: 1,
                 retry_count: 0,
             },
-            crate::metrics::NoopMetrics::arc(),
+            aster_drive_metrics::NoopMetrics::arc(),
         )
         .await
         .expect("runtime graph database should connect");
@@ -210,7 +210,7 @@ mod tests {
             config: Arc::new(crate::config::Config::default()),
             cache,
             config_sync: aster_forge_config::ConfigSyncRuntime::disabled_for_test("aster_drive"),
-            metrics: crate::metrics::NoopMetrics::arc(),
+            metrics: aster_drive_metrics::NoopMetrics::arc(),
         }
     }
 
