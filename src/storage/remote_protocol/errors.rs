@@ -11,15 +11,15 @@ struct RemoteErrorEnvelope {
 
 pub(super) fn map_reqwest_error(error: reqwest::Error) -> AsterError {
     if error.is_timeout() {
-        AsterError::from(crate::errors::storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("remote storage request timed out: {error}"),
-        ))
+        )
     } else {
-        AsterError::from(crate::errors::storage_driver_error(
+        crate::errors::storage_driver_error(
             StorageErrorKind::Transient,
             format!("remote storage request failed: {error}"),
-        ))
+        )
     }
 }
 
@@ -73,9 +73,7 @@ pub fn build_remote_status_error_from_parts(
         }
         _ => remote_api_code
             .map(|api_code| storage_driver_error_with_code(kind, api_code, message.clone()))
-            .unwrap_or_else(|| {
-                AsterError::from(crate::errors::storage_driver_error(kind, message))
-            }),
+            .unwrap_or_else(|| crate::errors::storage_driver_error(kind, message)),
     }
 }
 

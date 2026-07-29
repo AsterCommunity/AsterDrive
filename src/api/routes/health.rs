@@ -478,7 +478,7 @@ mod tests {
             .expect("health response body should read");
         let payload: serde_json::Value =
             serde_json::from_slice(&body).expect("health response should be valid json");
-        assert_eq!(payload["code"], "storage.unknown");
+        assert_eq!(payload["code"], "storage.transient");
         assert_eq!(payload["msg"], READY_STORAGE_UNAVAILABLE_MESSAGE);
     }
 

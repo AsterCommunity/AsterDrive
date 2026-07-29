@@ -387,7 +387,7 @@ async fn complete_object_multipart_upload_session(
                     )
                     .await;
                 }
-                return Err(error.into());
+                return Err(error);
             }
 
             // multipart complete 之前要先把 part 列表排序；驱动层依赖有序 part 序列。

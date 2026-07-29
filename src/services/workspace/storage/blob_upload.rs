@@ -346,7 +346,7 @@ async fn upload_temp_file_to_local_prepared_blob_cancellable(
             "cancellable upload error",
         )
         .await;
-        return Err(error.into());
+        return Err(error);
     }
 
     if let Err(error) = operation_context.checkpoint() {
@@ -357,7 +357,7 @@ async fn upload_temp_file_to_local_prepared_blob_cancellable(
             "cancellation after local upload",
         )
         .await;
-        return Err(error.into());
+        return Err(error);
     }
     Ok(())
 }
