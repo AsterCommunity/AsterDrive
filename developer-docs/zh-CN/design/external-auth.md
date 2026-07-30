@@ -301,8 +301,8 @@ Generic OAuth2 默认 scope 也是 `openid email profile`，但不会在更新�
 
 重点测试：
 
-- `cargo test --test test_oauth2`
-- `cargo test --test test_oidc`
+- `cargo test --test auth oauth2::`
+- `cargo test --test auth oidc::`
 - `cargo test --lib oauth2`
 - `cargo test --lib external_auth::providers::github`
 - `cargo test --lib external_auth::providers::google`

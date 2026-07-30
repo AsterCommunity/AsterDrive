@@ -48,7 +48,7 @@ docs: update API endpoint documentation
 # Backend checks
 cargo fmt --all -- --check
 cargo check
-cargo test --test test_auth
+cargo test --test auth auth::
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 # Frontend checks
@@ -57,7 +57,7 @@ bun run check
 bun run build
 ```
 
-Replace `test_auth` with the integration test that covers your change. Prefer a targeted
+Replace `auth auth::` with the integration-test target and module that cover your change. Prefer a targeted
 `cargo test --lib <filter>` or `cargo test --test <name> <filter>` while iterating; run a
 broader suite when the change crosses service, database, storage, or protocol boundaries.
 If an OpenAPI schema changes, also run:

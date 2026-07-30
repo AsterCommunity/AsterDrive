@@ -25,6 +25,19 @@ ASTER_TEST_DATABASE_BACKEND=sqlite
 
 ## 运行方式
 
+集成测试按产品域组织为 Cargo test target：
+
+- `auth`：认证、MFA、外部认证和用户账号
+- `files`：文件、目录、上传、元数据、搜索和回收站
+- `sharing`：分享、团队和公开访问
+- `storage`：存储驱动、策略、远端节点和迁移
+- `operations`：管理、审计、CLI、维护、邮件和任务
+- `platform`：数据库、缓存、中间件、配置和结构契约
+- `webdav` / `wopi`：协议集成测试
+- `multi_primary`：需要 `multi-primary-e2e` feature 的多 Primary E2E
+
+使用 `cargo test --test <target> <module>::` 缩小范围，例如 `cargo test --test files search::`。
+
 默认 SQLite：
 
 ```bash
@@ -46,8 +59,8 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test
 如果你只想复现某一组用例，和平时一样筛测试名即可：
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test test_search test_search_by_name
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_crud
+ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search_by_name
+ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
 ```
 
 ## 现在的行为
@@ -97,7 +110,7 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_c
 
 ## 和现有 smoke tests 的关系
 
-仓库里还有 [tests/test_database_backends.rs](../../../tests/test_database_backends.rs)，它的定位没有变：
+仓库里还有 [tests/platform/database_backends.rs](../../../tests/platform/database_backends.rs)，它的定位没有变：
 
 - 主要负责生产数据库相关的 smoke coverage
 - 会显式验证 PostgreSQL / MySQL 搜索索引、搜索链路和跨库迁移路径
@@ -128,7 +141,7 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_c
 SFTP 驱动有单独的集成测试：
 
 ```bash
-cargo test --test test_sftp
+cargo test --test storage sftp::
 ```
 
 这个测试默认会通过 `testcontainers` 启动 `lscr.io/linuxserver/openssh-server` 容器，完成一次真实上传、下载、range 读取、删除和主机密钥指纹确认流程。它需要本机 Docker / 容器运行时可用。
@@ -136,9 +149,9 @@ cargo test --test test_sftp
 如果当前环境不能跑 Docker，可以显式关闭：
 
 ```bash
-ASTER_SFTP_TEST_DOCKER=0 cargo test --test test_sftp
+ASTER_SFTP_TEST_DOCKER=0 cargo test --test storage sftp::
 ```
 
 关闭后测试会跳过容器 round-trip。不要把这个变量作为默认 CI 行为；SFTP 是真实存储驱动，PR 改到驱动、connector、descriptor 或上传下载链路时应优先保留默认 Docker 测试。
 
-`src/storage/drivers/sftp.rs` 里还有一个手动真实服务器用例，需要 `ASTER_SFTP_TEST_*` 和 `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`。它不替代 `tests/test_sftp.rs` 的默认 Docker 覆盖，主要用于排查特定 SFTP 服务器兼容性。
+`src/storage/drivers/sftp.rs` 里还有一个手动真实服务器用例，需要 `ASTER_SFTP_TEST_*` 和 `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`。它不替代 `tests/storage/sftp.rs` 的默认 Docker 覆盖，主要用于排查特定 SFTP 服务器兼容性。

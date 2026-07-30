@@ -292,9 +292,6 @@ harness = false
 required-features = ["benchmarks"]
 
 [[test]]
-name = "test_multi_primary_e2e"
-required-features = ["multi-primary-e2e"]
-
-[[test]]
-name = "test_multi_primary_storage_events_e2e"
+name = "multi_primary"
+path = "tests/multi_primary/main.rs"
 required-features = ["multi-primary-e2e"]

@@ -6,8 +6,7 @@ on:
     paths:
       - 'src/**'
       - 'crates/**'
-      - 'tests/test_multi_primary_e2e.rs'
-      - 'tests/test_multi_primary_storage_events_e2e.rs'
+      - 'tests/multi_primary/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -17,8 +16,7 @@ on:
     paths:
       - 'src/**'
       - 'crates/**'
-      - 'tests/test_multi_primary_e2e.rs'
-      - 'tests/test_multi_primary_storage_events_e2e.rs'
+      - 'tests/multi_primary/**'
       - 'Cargo.toml'
       - 'Cargo.lock'
       - 'rust-toolchain.toml'
@@ -48,9 +46,9 @@ jobs:
       matrix:
         include:
           - name: Cluster fault injection
-            target: test_multi_primary_e2e
+            filter: cluster::
           - name: Cross-primary storage events
-            target: test_multi_primary_storage_events_e2e
+            filter: storage_events::
     steps:
       - uses: actions/checkout@v6
 
@@ -72,7 +70,8 @@ jobs:
         run: >-
           cargo test
           --features multi-primary-e2e
-          --test ${{ matrix.target }}
+          --test multi_primary
+          ${{ matrix.filter }}
           --
           --ignored
           --test-threads=1

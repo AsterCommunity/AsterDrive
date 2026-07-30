@@ -25,6 +25,19 @@ ASTER_TEST_DATABASE_BACKEND=sqlite
 
 ## How to run
 
+Integration tests are grouped into Cargo test targets by product domain:
+
+- `auth`: authentication, MFA, external auth, and user accounts
+- `files`: files, folders, uploads, metadata, search, and trash
+- `sharing`: shares, teams, and public access
+- `storage`: storage drivers, policies, remote nodes, and migration
+- `operations`: administration, audit, CLI, maintenance, mail, and tasks
+- `platform`: databases, cache, middleware, configuration, and structural contracts
+- `webdav` / `wopi`: protocol integration tests
+- `multi_primary`: multi-Primary E2E tests that require the `multi-primary-e2e` feature
+
+Use `cargo test --test <target> <module>::` to narrow a run, for example `cargo test --test files search::`.
+
 Default SQLite:
 
 ```bash
@@ -46,8 +59,8 @@ ASTER_TEST_DATABASE_BACKEND=mysql cargo test
 If you only want one test group, filter by name as usual:
 
 ```bash
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test test_search test_search_by_name
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_admin test_admin_team_crud
+ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test files search::test_search_by_name
+ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test operations admin::test_admin_team_crud
 ```
 
 ## Current behavior
@@ -97,7 +110,7 @@ Practical guidance:
 
 ## Relation to existing smoke tests
 
-The repository still has [`tests/test_database_backends.rs`](../../../tests/test_database_backends.rs), and its purpose has not changed:
+The repository still has [`tests/platform/database_backends.rs`](../../../tests/platform/database_backends.rs), and its purpose has not changed:
 
 - It mainly covers production-database smoke behavior
 - It explicitly validates PostgreSQL / MySQL search indexes, search flows, and cross-database migration paths
@@ -128,7 +141,7 @@ If you suspect the test did not switch backends as expected, check these three t
 The SFTP driver has a dedicated integration test:
 
 ```bash
-cargo test --test test_sftp
+cargo test --test storage sftp::
 ```
 
 This test starts an `lscr.io/linuxserver/openssh-server` container through `testcontainers` by default and runs a real upload, download, range read, delete, and host-key fingerprint confirmation flow. It requires a local Docker / container runtime.
@@ -136,9 +149,9 @@ This test starts an `lscr.io/linuxserver/openssh-server` container through `test
 If the current environment cannot run Docker, disable it explicitly:
 
 ```bash
-ASTER_SFTP_TEST_DOCKER=0 cargo test --test test_sftp
+ASTER_SFTP_TEST_DOCKER=0 cargo test --test storage sftp::
 ```
 
 With that variable set, the container round trip is skipped. Do not make this the default CI behavior; SFTP is a real storage driver, so PRs touching the driver, connector, descriptor, or upload/download path should keep the default Docker test enabled.
 
-`src/storage/drivers/sftp.rs` also contains a manual real-server test that requires `ASTER_SFTP_TEST_*` and `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`. It does not replace the default Docker coverage in `tests/test_sftp.rs`; it is mainly for debugging compatibility with a specific SFTP server.
+`src/storage/drivers/sftp.rs` also contains a manual real-server test that requires `ASTER_SFTP_TEST_*` and `ASTER_SFTP_TEST_HOST_KEY_FINGERPRINT`. It does not replace the default Docker coverage in `tests/storage/sftp.rs`; it is mainly for debugging compatibility with a specific SFTP server.

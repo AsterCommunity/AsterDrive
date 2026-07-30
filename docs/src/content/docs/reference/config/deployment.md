@@ -53,5 +53,5 @@ ASTER__DEPLOYMENT__PROFILE=cluster
 需要在本地复现双 primary 的 reverse tunnel 路由和接管验收时，显式开启测试 feature：
 
 ```bash
-cargo test --features multi-primary-e2e --test test_multi_primary_e2e reverse_tunnel_ -- --ignored
+cargo test --features multi-primary-e2e --test multi_primary cluster::reverse_tunnel_ -- --ignored
 ```

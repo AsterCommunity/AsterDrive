@@ -61,9 +61,9 @@ cargo test --features openapi --test generate_openapi
 cargo test --features metrics
 
 # 指定集成测试数据库后端
-ASTER_TEST_DATABASE_BACKEND=sqlite cargo test --test test_database_backends
-ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test test_database_backends
-ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test test_database_backends
+ASTER_TEST_DATABASE_BACKEND=sqlite cargo test --test platform database_backends::
+ASTER_TEST_DATABASE_BACKEND=postgres cargo test --test platform database_backends::
+ASTER_TEST_DATABASE_BACKEND=mysql cargo test --test platform database_backends::
 
 # 前端
 cd frontend-panel

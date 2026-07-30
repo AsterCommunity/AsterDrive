@@ -276,8 +276,8 @@ Key tests cover:
 
 Useful commands:
 
-- `cargo test --test test_oauth2`
-- `cargo test --test test_oidc`
+- `cargo test --test auth oauth2::`
+- `cargo test --test auth oidc::`
 - `cargo test --lib external_auth::providers::github`
 - `cargo test --lib external_auth::providers::google`
 - `cargo test --lib external_auth::providers::microsoft`
