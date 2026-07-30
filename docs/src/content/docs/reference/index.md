@@ -10,7 +10,7 @@ title: "参考与项目"
 | 查 `config.toml` 某个字段的含义 | [配置总览](./config/) |
 | 查后台系统设置某个选项的含义和生效时机 | [系统设置](./config/runtime/) |
 | 对比七种存储后端的能力和凭据落库方式 | [存储能力矩阵](./storage-matrix/) |
-| 查 WebDAV 协议方法、属性、锁和 DeltaV 边界 | [WebDAV 协议兼容](./webdav-compat/) |
+| 查 WebDAV 协议方法、属性、锁和版本控制边界 | [WebDAV 协议兼容](./webdav-compat/) |
 | 搞清楚 primary / follower、上传下载数据流怎么跑 | [运行架构](./runtime-architecture/) |
 | 查一个词是什么意思 | [术语表](./glossary/) |
 | 按现象找该看哪页 | [常见问题速查](./faq/) |

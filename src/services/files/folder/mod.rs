@@ -54,8 +54,9 @@ pub(crate) use mutation::{
     get_info_with_storage_used_in_scope, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
-    collect_folder_forest_in_resource_scope, collect_folder_forest_in_scope,
-    collect_folder_tree_in_resource_scope, collect_folder_tree_in_scope,
+    FolderTreeTraversalLimits, collect_folder_forest_in_resource_scope,
+    collect_folder_forest_in_scope, collect_folder_tree_in_resource_scope,
+    collect_folder_tree_in_scope,
 };
 
 // 和其他 service 一样，审计包装留在聚合层，避免核心目录逻辑被日志副作用污染。
@@ -89,7 +90,7 @@ pub(crate) async fn delete_in_scope_with_audit(
 ) -> Result<()> {
     let folder = get_info_in_scope(state, scope, folder_id).await?;
     let details = audit_location_details_for_model(state, scope, &folder).await;
-    delete_in_scope(state, scope, folder_id).await?;
+    delete_in_scope(state, scope, folder_id, None).await?;
     audit::log_with_details(
         state,
         audit_ctx,

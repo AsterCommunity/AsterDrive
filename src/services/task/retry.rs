@@ -66,7 +66,8 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
         | AsterError::UploadAssemblyFailed(_)
         | AsterError::ThumbnailGenerationFailed(_)
         | AsterError::PreconditionFailed(_)
-        | AsterError::UploadAssembling(_) => TaskRetryClass::Never,
+        | AsterError::UploadAssembling(_)
+        | AsterError::OperationResourceLimitExceeded(_) => TaskRetryClass::Never,
     }
 }
 

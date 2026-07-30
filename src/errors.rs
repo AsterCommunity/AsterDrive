@@ -292,6 +292,9 @@ define_errors! {
 
     // ========== E062: Refresh token 安全事件 ==========
     AuthRefreshTokenReuseDetected("E062", "Refresh Token Reuse Detected"),
+
+    // ========== E063: 单次操作资源预算 ==========
+    OperationResourceLimitExceeded("E063", "Operation Resource Limit Exceeded"),
 }
 
 impl AsterError {
@@ -326,6 +329,7 @@ impl AsterError {
             Self::ValidationError(_) => ApiErrorCode::BadRequest,
             Self::RecordNotFound(_) => ApiErrorCode::NotFound,
             Self::RateLimited(_) => ApiErrorCode::RateLimited,
+            Self::OperationResourceLimitExceeded(_) => ApiErrorCode::OperationResourceLimitExceeded,
             Self::MailNotConfigured(_) => ApiErrorCode::MailNotConfigured,
             Self::MailDeliveryFailed(_) => ApiErrorCode::MailDeliveryFailed,
             Self::AuthInvalidCredentials(_) => ApiErrorCode::CredentialsFailed,
@@ -427,6 +431,8 @@ impl AsterError {
             Self::SharePasswordRequired(_) | Self::ShareDownloadLimit(_) => StatusCode::FORBIDDEN,
 
             Self::StorageQuotaExceeded(_) => StatusCode::INSUFFICIENT_STORAGE,
+
+            Self::OperationResourceLimitExceeded(_) => StatusCode::INSUFFICIENT_STORAGE,
 
             Self::RateLimited(_) => StatusCode::TOO_MANY_REQUESTS,
 
@@ -689,6 +695,7 @@ impl AsterError {
         match self {
             // 507 在这里表示用户配额耗尽，属于可预期业务限制，不按服务故障记录。
             Self::StorageQuotaExceeded(_)
+            | Self::OperationResourceLimitExceeded(_)
             | Self::RateLimited(_)
             | Self::MailNotConfigured(_)
             | Self::MailDeliveryFailed(_) => ResponseLogLevel::Warn,

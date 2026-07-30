@@ -2,7 +2,7 @@
 
 WebDAV-related content has three parts: accounts, mount entry, and protocol capabilities.
 
-The protocol layer is currently split under `src/webdav/**`: `mod.rs` handles Actix mounting, runtime switches, audit context, and method dispatch; `auth.rs` handles WebDAV-specific Basic Auth; `protocol.rs` parses `Depth`, `Destination`, `If`, ETag, and related protocol headers; `responses.rs` centralizes HTTP / XML response builders; `props/` handles `PROPFIND` / `PROPPATCH`; `transfer/` handles `GET` / `HEAD` / `PUT`; `resources/` handles `MKCOL` / `DELETE` / `COPY` / `MOVE`; `locks/` handles `LOCK` / `UNLOCK`; `fs/`, `file/`, and `dir_entry.rs` adapt the filesystem; `path_resolver.rs` resolves paths; `db_lock_system.rs` implements locks; and `deltav.rs` contains the minimal DeltaV subset.
+The product adapter lives under `src/webdav/**`: `mod.rs` handles Actix mounting, runtime switches, audit context, and method dispatch; `auth.rs` handles WebDAV-specific Basic Auth; `handlers/` adapts properties, transfers, resource mutations, and locks; and `backend/` implements path resolution, filesystem access, downloads/writes, directory pagination, and lock persistence. AsterForge's `aster_forge_webdav` owns paths, header/body parsing, preconditions, capability advertisement, response grammar, and backend ports.
 
 ## Account API
 
@@ -87,18 +87,9 @@ Common WebDAV methods are supported:
 - `UNLOCK`
 - `OPTIONS`
 
-A minimal DeltaV subset is also implemented:
-
-- `REPORT` with `DAV:version-tree`
-- `VERSION-CONTROL`
-- `OPTIONS` with `DAV: version-control`
-
-This reuses `file_versions`, so clients can read version trees.
-
 Limits:
 
-- `REPORT version-tree` supports files only
-- this is not a full DeltaV server, only the minimal useful subset
+- AsterDrive `file_versions` is product version history, not an RFC 3253 core versioning resource model. The current capability snapshot does not advertise `version-control`; `REPORT` and `VERSION-CONTROL` return resource-aware `405 Method Not Allowed` responses.
 - the `/webdav/` mount root is a virtual entry point, not a persisted folder entity. `PROPFIND /webdav/` may list contents and read live DAV properties, but `PROPPATCH /webdav/` explicitly returns `403 Forbidden`; custom dead properties are supported only on concrete files or folders.
 - missing `Depth` on `PROPFIND` is parsed as `infinity`; when the target is a collection, the server returns `403` with `DAV:propfind-finite-depth` instead of doing unbounded recursion.
 - `COPY` accepts `Depth: 0` or missing / `infinity`, and rejects `Depth: 1`; `COPY Depth: 0` copies only the collection itself and its dead properties, not children.

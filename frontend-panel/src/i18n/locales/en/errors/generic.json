@@ -1,5 +1,6 @@
 {
 	"rate_limited": "Too many requests. Please try again shortly.",
+	"operation_resource_limit_exceeded": "This operation involves too many resources. Reduce its scope and try again.",
 	"mail_not_configured": "Mail delivery is not configured, so verification emails cannot be sent right now.",
 	"mail_delivery_failed": "Failed to send email. Please try again later",
 	"config_public_site_url_required": "Public site URL is required for this feature. Configure it in system settings",

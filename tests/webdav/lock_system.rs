@@ -80,6 +80,9 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
         .check(&child_path, None, false, false, &[])
         .await
         .unwrap_err();
+    let DavLockError::Conflict(conflict) = conflict else {
+        panic!("missing deep-lock token should return the conflicting lock");
+    };
     assert_eq!(conflict.token, lock.token);
 
     lock_system
@@ -93,7 +96,7 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
         .await
         .unwrap();
 
-    let discovered = lock_system.discover(&child_path).await;
+    let discovered = lock_system.discover(&child_path).await.unwrap();
     assert_eq!(discovered.len(), 1);
     assert_eq!(discovered[0].token, lock.token);
     assert_eq!(discovered[0].principal, None);
@@ -134,6 +137,98 @@ async fn test_db_lock_system_deep_lock_supports_check_refresh_discover_and_delet
         .await
         .unwrap();
     assert!(!unlocked_folder.is_locked);
+}
+
+#[actix_web::test]
+async fn test_db_lock_system_checks_parent_and_member_lock_roots_separately() {
+    use aster_drive::services::{files::file, files::folder};
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavLockSystem, DavPath};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "dav-lock-roots",
+        "dav-lock-roots@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let parent = folder::create(&state, user.id, "locked-parent", None)
+        .await
+        .unwrap();
+    let temp_path = write_temp_fixture("member.txt", "member lock content");
+    file::store_from_temp(
+        &state,
+        user.id,
+        file::StoreFromTempRequest::new(
+            Some(parent.id),
+            "member.txt",
+            &temp_path,
+            "member lock content".len() as i64,
+        ),
+    )
+    .await
+    .unwrap();
+
+    let lock_system = DbLockSystem::new(state.writer_db().clone(), user.id, None);
+    let parent_path = DavPath::new("/locked-parent/").unwrap();
+    let member_path = DavPath::new("/locked-parent/member.txt").unwrap();
+    let parent_lock = lock_system
+        .lock(
+            &parent_path,
+            None,
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+    let member_lock = lock_system
+        .lock(
+            &member_path,
+            None,
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            false,
+        )
+        .await
+        .unwrap();
+
+    lock_system
+        .check(
+            &member_path,
+            None,
+            false,
+            false,
+            std::slice::from_ref(&member_lock.token),
+        )
+        .await
+        .unwrap();
+    let error = lock_system
+        .check(
+            &parent_path,
+            None,
+            false,
+            false,
+            std::slice::from_ref(&member_lock.token),
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(
+        error,
+        DavLockError::Conflict(lock) if lock.token == parent_lock.token
+    ));
+
+    let submitted = [parent_lock.token, member_lock.token];
+    for path in [&parent_path, &member_path] {
+        lock_system
+            .check(path, None, false, false, &submitted)
+            .await
+            .unwrap();
+    }
 }
 
 #[actix_web::test]
@@ -257,6 +352,9 @@ async fn test_db_lock_system_uses_one_canonical_path_for_encoded_special_names()
         .check(&file_encoded, None, false, false, &[])
         .await
         .unwrap_err();
+    let DavLockError::Conflict(conflict) = conflict else {
+        panic!("missing encoded-path lock token should return the conflicting lock");
+    };
     assert_eq!(conflict.token, deep_lock.token);
     lock_system
         .check(
@@ -268,7 +366,7 @@ async fn test_db_lock_system_uses_one_canonical_path_for_encoded_special_names()
         )
         .await
         .unwrap();
-    assert_eq!(lock_system.discover(&file_encoded).await.len(), 1);
+    assert_eq!(lock_system.discover(&file_encoded).await.unwrap().len(), 1);
     lock_system
         .refresh(
             &folder_encoded,
@@ -496,10 +594,20 @@ async fn test_db_lock_system_allows_shared_locks_and_keeps_locked_until_last_unl
         .unwrap();
     assert_ne!(first.token, second.token);
 
-    let discovered = lock_system.discover(&file_path).await;
+    let discovered = lock_system.discover(&file_path).await.unwrap();
     assert_eq!(discovered.len(), 2);
     assert!(discovered.iter().any(|lock| lock.token == first.token));
     assert!(discovered.iter().any(|lock| lock.token == second.token));
+    lock_system
+        .check(
+            &file_path,
+            None,
+            false,
+            false,
+            std::slice::from_ref(&first.token),
+        )
+        .await
+        .expect("one valid shared-lock token should satisfy the resource lock root");
 
     let exclusive_conflict = lock_system
         .lock(
@@ -598,4 +706,33 @@ async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
         panic!("exclusive lock should reject shared lock with a conflict");
     };
     assert_eq!(shared_conflict.token, exclusive.token);
+}
+
+#[actix_web::test]
+async fn test_db_lock_system_propagates_backend_failures_from_every_query_port() {
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_forge_webdav::{DavBackendErrorKind, DavLockSystem, DavPath};
+    use sea_orm::Database;
+
+    let db = Database::connect("sqlite::memory:").await.unwrap();
+    let lock_system = DbLockSystem::new(db.clone(), 1, None);
+    db.close().await.unwrap();
+
+    let path = DavPath::new("/backend-failure.txt").unwrap();
+    assert!(matches!(
+        lock_system.check(&path, None, false, false, &[]).await,
+        Err(DavLockError::Backend)
+    ));
+    assert!(matches!(
+        lock_system.discover(&path).await,
+        Err(error) if error.kind == DavBackendErrorKind::Internal
+    ));
+    assert!(matches!(
+        lock_system.discover_many(std::slice::from_ref(&path)).await,
+        Err(error) if error.kind == DavBackendErrorKind::Internal
+    ));
+    assert!(matches!(
+        lock_system.conflicting_locks(&path, false).await,
+        Err(error) if error.kind == DavBackendErrorKind::Internal
+    ));
 }

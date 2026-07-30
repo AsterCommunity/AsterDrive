@@ -46,7 +46,7 @@ jobs:
   litmus:
     name: Litmus 0.18 baseline
     runs-on: ubuntu-24.04
-    timeout-minutes: 60
+    timeout-minutes: 240
     steps:
       - uses: actions/checkout@v6
         with:
@@ -70,6 +70,7 @@ jobs:
             libexpat1-dev \
             libssl-dev \
             libvips-tools \
+            perl \
             pkg-config
           scripts/ci/webdav-compat/install-litmus.sh
 
@@ -107,6 +108,20 @@ jobs:
             --skip security_policy_litmus:: \
             --nocapture --test-threads=1 \
             2>&1 | tee artifacts/litmus-test.log
+
+      - name: Run scheduled Litmus stress and policy suites
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          LITMUS_BIN: ${{ runner.temp }}/webdav-compat-tools/bin/litmus
+          ASTER_WEBDAV_COMPAT_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          set -o pipefail
+          cargo test --test webdav litmus_compliance::resource_litmus:: -- \
+            --ignored --nocapture --test-threads=1 \
+            2>&1 | tee artifacts/litmus-resource-test.log
+          cargo test --test webdav litmus_compliance::security_policy_litmus:: -- \
+            --ignored --nocapture --test-threads=1 \
+            2>&1 | tee artifacts/litmus-security-policy-test.log
 
       - name: Upload Litmus results and request logs
         if: always()

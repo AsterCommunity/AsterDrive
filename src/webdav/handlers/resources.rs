@@ -16,6 +16,7 @@ use aster_forge_webdav::{
     validate_delete_target,
 };
 
+use crate::services::files::folder::FolderTreeTraversalLimits;
 use crate::webdav::{
     backend, child_relative_path, ensure_system_file_name_allowed, fs_error_response, responses,
     system_file,
@@ -32,6 +33,12 @@ const MUTATION_MAXIMUM_VISITED_RESOURCES: usize = 10_000;
 const MUTATION_MAXIMUM_QUEUED_WORK_ITEMS: usize = 10_000;
 const MUTATION_MAXIMUM_FAILURES: usize = 512;
 const MUTATION_MAXIMUM_DEPTH: usize = 128;
+pub(crate) const MUTATION_FOLDER_TREE_LIMITS: FolderTreeTraversalLimits =
+    FolderTreeTraversalLimits::new(
+        MUTATION_MAXIMUM_VISITED_RESOURCES,
+        MUTATION_MAXIMUM_QUEUED_WORK_ITEMS,
+        MUTATION_MAXIMUM_DEPTH,
+    );
 
 struct DavChild {
     path: DavPath,
@@ -64,7 +71,7 @@ impl<'a, C: DavCancellation> MutationTraversal<'a, C> {
         cancellation: &'a C,
         limits: DavTraversalLimits,
     ) -> Result<Self, DavTraversalError> {
-        let mut budget = mutation_traversal_budget(limits)?;
+        let mut budget = DavTraversalBudget::new(limits)?;
         let work = roots.into_iter().collect::<Vec<_>>();
         budget.reserve_work(work.len())?;
         Ok(Self {
@@ -177,12 +184,14 @@ struct PartialMutationNode {
     source_relative: String,
     destination: DavPath,
     destination_relative: String,
+    depth: usize,
 }
 
 #[derive(Clone)]
 struct DestinationMutationNode {
     path: DavPath,
     relative: String,
+    depth: usize,
 }
 
 enum PartialMutationWork {
@@ -362,12 +371,8 @@ pub(crate) async fn handle_delete(
     };
     match result {
         Ok(()) => {
-            if let Err(error) = lock_system.delete(&path).await {
-                tracing::warn!(
-                    path = %path.as_str(),
-                    error = ?error,
-                    "failed to delete WebDAV locks after resource deletion"
-                );
+            if lock_system.delete(&path).await.is_err() {
+                return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
             }
             aster_forge_webdav::actix::into_response(delete_success_response())
         }
@@ -540,7 +545,7 @@ pub(crate) async fn handle_copy_move(
 
     if plan.recursive_collection {
         let source_conflicts = if is_move {
-            aster_forge_webdav::unsubmitted_lock_conflicts(
+            match aster_forge_webdav::unsubmitted_lock_conflicts(
                 lock_system,
                 &source,
                 true,
@@ -550,10 +555,18 @@ pub(crate) async fn handle_copy_move(
                 &request_head.origin.host,
             )
             .await
+            {
+                Ok(conflicts) => conflicts,
+                Err(error) => {
+                    return aster_forge_webdav::actix::into_response(
+                        aster_forge_webdav::backend_error_response(&error),
+                    );
+                }
+            }
         } else {
             Vec::new()
         };
-        let destination_conflicts = aster_forge_webdav::unsubmitted_lock_conflicts(
+        let destination_conflicts = match aster_forge_webdav::unsubmitted_lock_conflicts(
             lock_system,
             &destination,
             true,
@@ -562,7 +575,15 @@ pub(crate) async fn handle_copy_move(
             &request_head.origin.scheme,
             &request_head.origin.host,
         )
-        .await;
+        .await
+        {
+            Ok(conflicts) => conflicts,
+            Err(error) => {
+                return aster_forge_webdav::actix::into_response(
+                    aster_forge_webdav::backend_error_response(&error),
+                );
+            }
+        };
         if !source_conflicts.is_empty() || !destination_conflicts.is_empty() {
             let ctx = PartialMutationContext {
                 dav_fs,
@@ -576,6 +597,7 @@ pub(crate) async fn handle_copy_move(
                 source_relative,
                 destination,
                 destination_relative,
+                depth: 0,
             };
             let outcome = partial_recursive_copy_move(
                 &ctx,
@@ -611,8 +633,8 @@ pub(crate) async fn handle_copy_move(
 
     match result {
         Ok(()) => {
-            if is_move && let Err(error) = lock_system.delete(&source).await {
-                tracing::warn!(path = %source_relative, error = ?error, "failed to delete WebDAV locks after move");
+            if is_move && lock_system.delete(&source).await.is_err() {
+                return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
             }
             aster_forge_webdav::actix::into_response(mutation_success_response(destination_exists))
         }
@@ -627,7 +649,7 @@ async fn locked_multi_status_response(
     prefix: &str,
     request_head: &DavRequestHead,
 ) -> Option<HttpResponse> {
-    let conflicts = aster_forge_webdav::unsubmitted_lock_conflicts(
+    let conflicts = match aster_forge_webdav::unsubmitted_lock_conflicts(
         lock_system,
         path,
         deep,
@@ -636,21 +658,30 @@ async fn locked_multi_status_response(
         &request_head.origin.scheme,
         &request_head.origin.host,
     )
-    .await;
+    .await
+    {
+        Ok(conflicts) => conflicts,
+        Err(error) => {
+            return Some(aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::backend_error_response(&error),
+            ));
+        }
+    };
     if conflicts.is_empty() {
         return None;
     }
 
-    Some(multi_status_locked_response(prefix, &conflicts))
+    Some(multi_status_locked_response(prefix, path, &conflicts))
 }
 
 fn multi_status_locked_response(
     prefix: &str,
+    affected_path: &DavPath,
     locks: &[aster_forge_webdav::DavLock],
 ) -> HttpResponse {
     let failures = locks
         .iter()
-        .map(|lock| DavMutationFailure::locked((*lock.path).clone(), (*lock.path).clone()))
+        .map(|lock| DavMutationFailure::locked(affected_path.clone(), (*lock.path).clone()))
         .collect::<Vec<_>>();
     mutation_failure_response(prefix, &failures)
 }
@@ -662,6 +693,29 @@ async fn partial_recursive_copy_move(
     destination_is_collection: bool,
 ) -> PartialMutationOutcome {
     let mut failures = Vec::new();
+    let mut budget = match DavTraversalBudget::new(mutation_traversal_limits()) {
+        Ok(mut budget) => {
+            if budget.visit(root.depth).is_err() {
+                push_fs_failure(
+                    &mut failures,
+                    &root.destination,
+                    FsError::InsufficientStorage,
+                );
+                return PartialMutationOutcome {
+                    failures,
+                    destination_exists,
+                };
+            }
+            budget
+        }
+        Err(_) => {
+            push_fs_failure(&mut failures, &root.destination, FsError::GeneralFailure);
+            return PartialMutationOutcome {
+                failures,
+                destination_exists,
+            };
+        }
+    };
     if destination_exists && !destination_is_collection {
         let conflicts = collect_lock_failures(ctx, &root.destination, false).await;
         if !conflicts.is_empty() {
@@ -714,14 +768,44 @@ async fn partial_recursive_copy_move(
     }
 
     let mut work = Vec::new();
+    if budget.reserve_work(1).is_err() {
+        push_fs_failure(
+            &mut failures,
+            &root.destination,
+            FsError::InsufficientStorage,
+        );
+        return PartialMutationOutcome {
+            failures,
+            destination_exists,
+        };
+    }
     work.push(PartialMutationWork::FinalizeDirectory(root.clone()));
-    if !push_directory_children(ctx, &root, &mut work, &mut failures).await {
+    if !push_directory_children(ctx, &root, &mut work, &mut failures, &mut budget).await {
+        budget.complete_work();
         work.pop();
     }
 
     while failures.len() < MUTATION_MAXIMUM_FAILURES
         && let Some(work_item) = work.pop()
     {
+        budget.complete_work();
+        let node = match &work_item {
+            PartialMutationWork::VisitDirectory(node) | PartialMutationWork::ProcessFile(node) => {
+                Some((&node.destination, node.depth))
+            }
+            PartialMutationWork::RemoveDestinationFile(node)
+            | PartialMutationWork::VisitDestinationDirectory(node) => {
+                Some((&node.path, node.depth))
+            }
+            PartialMutationWork::FinalizeDirectory(_)
+            | PartialMutationWork::FinalizeDestinationDirectory(_) => None,
+        };
+        if let Some((path, depth)) = node
+            && budget.visit(depth).is_err()
+        {
+            push_fs_failure(&mut failures, path, FsError::InsufficientStorage);
+            break;
+        }
         match work_item {
             PartialMutationWork::ProcessFile(node) => {
                 partial_copy_move_file(ctx, &node, &mut failures).await;
@@ -770,8 +854,18 @@ async fn partial_recursive_copy_move(
                     }
                 }
 
+                if budget.reserve_work(1).is_err() {
+                    push_fs_failure(
+                        &mut failures,
+                        &node.destination,
+                        FsError::InsufficientStorage,
+                    );
+                    continue;
+                }
                 work.push(PartialMutationWork::FinalizeDirectory(node.clone()));
-                if !push_directory_children(ctx, &node, &mut work, &mut failures).await {
+                if !push_directory_children(ctx, &node, &mut work, &mut failures, &mut budget).await
+                {
+                    budget.complete_work();
                     work.pop();
                 }
             }
@@ -794,8 +888,14 @@ async fn partial_recursive_copy_move(
                         push_fs_failure(&mut failures, &node.source, error);
                         continue;
                     }
-                    if let Err(error) = ctx.lock_system.delete(&node.source).await {
-                        tracing::warn!(path = %node.source_relative, error = ?error, "failed to delete WebDAV locks after partial move");
+                    if ctx.lock_system.delete(&node.source).await.is_err() {
+                        extend_unique_failures(
+                            &mut failures,
+                            [DavMutationFailure::status(
+                                node.source.clone(),
+                                StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                            )],
+                        );
                     }
                 }
             }
@@ -811,10 +911,17 @@ async fn partial_recursive_copy_move(
                 }
             }
             PartialMutationWork::VisitDestinationDirectory(node) => {
+                if budget.reserve_work(1).is_err() {
+                    push_fs_failure(&mut failures, &node.path, FsError::InsufficientStorage);
+                    continue;
+                }
                 work.push(PartialMutationWork::FinalizeDestinationDirectory(
                     node.clone(),
                 ));
-                if !push_destination_children(ctx, &node, &mut work, &mut failures).await {
+                if !push_destination_children(ctx, &node, &mut work, &mut failures, &mut budget)
+                    .await
+                {
+                    budget.complete_work();
                     work.pop();
                 }
             }
@@ -837,8 +944,14 @@ async fn partial_recursive_copy_move(
                         push_fs_failure(&mut failures, &node.path, error);
                         continue;
                     }
-                    if let Err(error) = ctx.lock_system.delete(&node.path).await {
-                        tracing::warn!(path = %node.relative, error = ?error, "failed to delete WebDAV locks after destination overwrite");
+                    if ctx.lock_system.delete(&node.path).await.is_err() {
+                        extend_unique_failures(
+                            &mut failures,
+                            [DavMutationFailure::status(
+                                node.path.clone(),
+                                StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                            )],
+                        );
                     }
                 }
             }
@@ -856,6 +969,7 @@ async fn push_directory_children(
     node: &PartialMutationNode,
     work: &mut Vec<PartialMutationWork>,
     failures: &mut Vec<DavMutationFailure>,
+    budget: &mut DavTraversalBudget,
 ) -> bool {
     let children = match collect_children(ctx.dav_fs, &node.source, &node.source_relative).await {
         Ok(children) => children,
@@ -866,6 +980,13 @@ async fn push_directory_children(
     };
     let mut destination_nodes = HashMap::with_capacity(children.len());
     let mut source_work = Vec::with_capacity(children.len());
+    let child_depth = match node.depth.checked_add(1) {
+        Some(depth) => depth,
+        None => {
+            push_fs_failure(failures, &node.source, FsError::InsufficientStorage);
+            return false;
+        }
+    };
     for child in children {
         let dest_relative = aster_forge_webdav::replace_relative_prefix(
             &child.relative,
@@ -884,6 +1005,7 @@ async fn push_directory_children(
             source_relative: child.relative,
             destination: dest_path,
             destination_relative: dest_relative,
+            depth: child_depth,
         };
         destination_nodes.insert(
             resource_identity_path(&child_node.destination_relative),
@@ -895,10 +1017,6 @@ async fn push_directory_children(
             PartialMutationWork::ProcessFile(child_node)
         });
     }
-    for work_item in source_work.into_iter().rev() {
-        work.push(work_item);
-    }
-
     let destination_children =
         match collect_children(ctx.dav_fs, &node.destination, &node.destination_relative).await {
             Ok(children) => children,
@@ -914,12 +1032,20 @@ async fn push_directory_children(
         let node = DestinationMutationNode {
             path: child.path,
             relative: child.relative,
+            depth: child_depth,
         };
-        work.push(if child.is_dir {
+        source_work.push(if child.is_dir {
             PartialMutationWork::VisitDestinationDirectory(node)
         } else {
             PartialMutationWork::RemoveDestinationFile(node)
         });
+    }
+    if budget.reserve_work(source_work.len()).is_err() {
+        push_fs_failure(failures, &node.destination, FsError::InsufficientStorage);
+        return false;
+    }
+    for work_item in source_work.into_iter().rev() {
+        work.push(work_item);
     }
     true
 }
@@ -929,6 +1055,7 @@ async fn push_destination_children(
     node: &DestinationMutationNode,
     work: &mut Vec<PartialMutationWork>,
     failures: &mut Vec<DavMutationFailure>,
+    budget: &mut DavTraversalBudget,
 ) -> bool {
     let children = match collect_children(ctx.dav_fs, &node.path, &node.relative).await {
         Ok(children) => children,
@@ -937,17 +1064,31 @@ async fn push_destination_children(
             return false;
         }
     };
-    for child in children.into_iter().rev() {
+    let child_depth = match node.depth.checked_add(1) {
+        Some(depth) => depth,
+        None => {
+            push_fs_failure(failures, &node.path, FsError::InsufficientStorage);
+            return false;
+        }
+    };
+    let mut child_work = Vec::with_capacity(children.len());
+    for child in children {
         let child_node = DestinationMutationNode {
             path: child.path,
             relative: child.relative,
+            depth: child_depth,
         };
-        work.push(if child.is_dir {
+        child_work.push(if child.is_dir {
             PartialMutationWork::VisitDestinationDirectory(child_node)
         } else {
             PartialMutationWork::RemoveDestinationFile(child_node)
         });
     }
+    if budget.reserve_work(child_work.len()).is_err() {
+        push_fs_failure(failures, &node.path, FsError::InsufficientStorage);
+        return false;
+    }
+    work.extend(child_work.into_iter().rev());
     true
 }
 
@@ -982,8 +1123,14 @@ async fn partial_copy_move_file(
             push_fs_failure(failures, &node.destination, error);
             return;
         }
-        if let Err(error) = ctx.lock_system.delete(&node.source).await {
-            tracing::warn!(path = %node.source.as_str(), error = ?error, "failed to delete WebDAV locks after partial file move");
+        if ctx.lock_system.delete(&node.source).await.is_err() {
+            extend_unique_failures(
+                failures,
+                [DavMutationFailure::status(
+                    node.source.clone(),
+                    StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+                )],
+            );
         }
     } else if let Err(error) = ctx.dav_fs.copy(&node.source, &node.destination).await {
         push_fs_failure(failures, &node.destination, error);
@@ -1026,7 +1173,7 @@ async fn collect_lock_failures(
     path: &DavPath,
     deep: bool,
 ) -> Vec<DavMutationFailure> {
-    aster_forge_webdav::unsubmitted_lock_conflicts(
+    match aster_forge_webdav::unsubmitted_lock_conflicts(
         ctx.lock_system,
         path,
         deep,
@@ -1036,9 +1183,16 @@ async fn collect_lock_failures(
         &ctx.request_head.origin.host,
     )
     .await
-    .into_iter()
-    .map(|lock| DavMutationFailure::locked((*lock.path).clone(), (*lock.path).clone()))
-    .collect()
+    {
+        Ok(conflicts) => conflicts
+            .into_iter()
+            .map(|lock| DavMutationFailure::locked(path.clone(), (*lock.path).clone()))
+            .collect(),
+        Err(_) => vec![DavMutationFailure::status(
+            path.clone(),
+            StatusCode::INTERNAL_SERVER_ERROR.as_u16(),
+        )],
+    }
 }
 
 async fn collect_children(
@@ -1088,12 +1242,6 @@ async fn collect_children_with_cancellation(
         }
     }
     Ok(children)
-}
-
-fn mutation_traversal_budget(
-    limits: DavTraversalLimits,
-) -> Result<DavTraversalBudget, DavTraversalError> {
-    DavTraversalBudget::new(limits)
 }
 
 const fn mutation_traversal_limits() -> DavTraversalLimits {

@@ -17,7 +17,8 @@ use crate::webdav::backend::path_resolver::{self, ResolvedNode};
 use aster_drive_model::entities::resource_lock;
 use aster_drive_model::types::EntityType;
 use aster_forge_webdav::{
-    DavLock, DavLockError, DavLockPreflightError, DavLockSystem, DavPath, LsFuture,
+    DavBackendError, DavBackendErrorKind, DavLock, DavLockError, DavLockPreflightError,
+    DavLockSystem, DavPath, LsFuture,
 };
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
@@ -261,7 +262,7 @@ impl DavLockSystem for DbLockSystem {
                         .timeout_at
                         .is_some_and(|timeout_at| timeout_at < now)
                     {
-                        delete_lock_and_sync_flag(&txn, &existing).await;
+                        delete_lock_and_sync_flag(&txn, &existing).await?;
                         continue;
                     }
 
@@ -475,7 +476,7 @@ impl DavLockSystem for DbLockSystem {
         ignore_principal: bool,
         deep: bool,
         submitted_tokens: &[String],
-    ) -> LsFuture<'_, Result<(), DavLock>> {
+    ) -> LsFuture<'_, Result<(), DavLockError>> {
         let path_str = normalize_path(path);
         let tokens: Vec<String> = submitted_tokens.to_vec();
         let _ = ignore_principal; // 简化：统一用 token 匹配
@@ -487,13 +488,19 @@ impl DavLockSystem for DbLockSystem {
             let ancestor_paths = path_ancestors(&path_str);
             let mut all_locks = lock_repo::find_ancestors(&self.db, &ancestor_paths)
                 .await
-                .unwrap_or_default();
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to query ancestor WebDAV locks");
+                    DavLockError::Backend
+                })?;
 
             // deep check：查后代路径的锁
             if deep {
                 let descendants = lock_repo::find_by_path_prefix(&self.db, &path_str)
                     .await
-                    .unwrap_or_default();
+                    .map_err(|error| {
+                        tracing::warn!(error = %error, path = %path_str, "failed to query descendant WebDAV locks");
+                        DavLockError::Backend
+                    })?;
                 all_locks.extend(descendants);
             }
 
@@ -502,28 +509,35 @@ impl DavLockSystem for DbLockSystem {
 
             all_locks.retain(|lock| lock_paths_overlap(&lock.path, lock.deep, &path_str, deep));
 
-            let holds_any = all_locks.iter().any(|lock| {
-                lock.timeout_at.is_none_or(|t| t >= now) && tokens.contains(&lock.token)
-            });
-
-            if holds_any {
-                return Ok(());
-            }
-
-            // 检查冲突
-            for lock in &all_locks {
-                if lock.timeout_at.is_some_and(|t| t < now) {
+            for (index, lock) in all_locks.iter().enumerate() {
+                if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now) {
                     continue;
                 }
-
-                return Err(model_to_dav_lock(lock));
+                if all_locks[..index].iter().any(|previous| {
+                    previous.path == lock.path
+                        && previous
+                            .timeout_at
+                            .is_none_or(|timeout_at| timeout_at >= now)
+                }) {
+                    continue;
+                }
+                let root_is_satisfied = all_locks.iter().any(|candidate| {
+                    candidate.path == lock.path
+                        && candidate
+                            .timeout_at
+                            .is_none_or(|timeout_at| timeout_at >= now)
+                        && tokens.contains(&candidate.token)
+                });
+                if !root_is_satisfied {
+                    return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock))));
+                }
             }
 
             Ok(())
         })
     }
 
-    fn discover(&self, path: &DavPath) -> LsFuture<'_, Vec<DavLock>> {
+    fn discover(&self, path: &DavPath) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
         let path_str = normalize_path(path);
 
         Box::pin(async move {
@@ -531,20 +545,23 @@ impl DavLockSystem for DbLockSystem {
             let ancestor_paths = path_ancestors(&path_str);
             let locks = lock_repo::find_ancestors(&self.db, &ancestor_paths)
                 .await
-                .unwrap_or_default();
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to discover WebDAV locks");
+                    DavBackendError::new(DavBackendErrorKind::Internal)
+                })?;
 
-            locks
+            Ok(locks
                 .iter()
                 .filter(|l| l.timeout_at.is_none_or(|t| t >= now))
                 .map(model_to_dav_lock)
-                .collect()
+                .collect())
         })
     }
 
     fn discover_many<'a>(
         &'a self,
         paths: &'a [DavPath],
-    ) -> LsFuture<'a, HashMap<DavPath, Vec<DavLock>>> {
+    ) -> LsFuture<'a, Result<HashMap<DavPath, Vec<DavLock>>, DavBackendError>> {
         Box::pin(async move {
             let now = Utc::now();
             let mut normalized_paths = Vec::with_capacity(paths.len());
@@ -560,11 +577,12 @@ impl DavLockSystem for DbLockSystem {
 
             let mut locks = Vec::new();
             for chunk in all_ancestors.chunks(DISCOVER_MANY_ANCESTOR_CHUNK_SIZE) {
-                locks.extend(
-                    lock_repo::find_ancestors(&self.db, chunk)
-                        .await
-                        .unwrap_or_default(),
-                );
+                locks.extend(lock_repo::find_ancestors(&self.db, chunk).await.map_err(
+                    |error| {
+                        tracing::warn!(error = %error, "failed to batch-discover WebDAV locks");
+                        DavBackendError::new(DavBackendErrorKind::Internal)
+                    },
+                )?);
             }
             locks.retain(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now));
             locks.sort_by_key(|lock| lock.id);
@@ -587,29 +605,40 @@ impl DavLockSystem for DbLockSystem {
                 }
                 result.insert(path, discovered);
             }
-            result
+            Ok(result)
         })
     }
 
-    fn conflicting_locks(&self, path: &DavPath, deep: bool) -> LsFuture<'_, Vec<DavLock>> {
+    fn conflicting_locks(
+        &self,
+        path: &DavPath,
+        deep: bool,
+    ) -> LsFuture<'_, Result<Vec<DavLock>, DavBackendError>> {
         let path_str = normalize_path(path);
 
         Box::pin(async move {
             let now = Utc::now();
-            find_overlapping_locks(&self.db, &path_str, deep)
+            Ok(find_overlapping_locks(&self.db, &path_str, deep)
                 .await
-                .unwrap_or_default()
+                .map_err(|error| {
+                    tracing::warn!(error = %error, path = %path_str, "failed to query conflicting WebDAV locks");
+                    DavBackendError::new(DavBackendErrorKind::Internal)
+                })?
                 .iter()
                 .filter(|lock| lock.timeout_at.is_none_or(|timeout_at| timeout_at >= now))
                 .map(model_to_dav_lock)
-                .collect()
+                .collect())
         })
     }
 
     fn delete(&self, path: &DavPath) -> LsFuture<'_, Result<(), DavLockError>> {
         let path_str = normalize_path(path);
         Box::pin(async move {
-            let locks = lock_repo::find_by_path_prefix(&self.db, &path_str)
+            let txn = transaction::begin(&self.db).await.map_err(|error| {
+                tracing::warn!(error = %error, path = %path_str, "failed to begin WebDAV lock deletion transaction");
+                DavLockError::Backend
+            })?;
+            let locks = lock_repo::find_by_path_prefix(&txn, &path_str)
                 .await
                 .map_err(|_| DavLockError::Backend)?;
 
@@ -617,9 +646,13 @@ impl DavLockSystem for DbLockSystem {
                 if !lock_path_is_under(&path_str, &lock.path) {
                     continue;
                 }
-                delete_lock_and_sync_flag(&self.db, &lock).await;
+                delete_lock_and_sync_flag(&txn, &lock).await?;
             }
 
+            transaction::commit(txn).await.map_err(|error| {
+                tracing::warn!(error = %error, path = %path_str, "failed to commit WebDAV lock deletion transaction");
+                DavLockError::Backend
+            })?;
             Ok(())
         })
     }
@@ -704,18 +737,23 @@ async fn find_overlapping_locks<C: ConnectionTrait>(
     Ok(locks)
 }
 
-async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_lock::Model) {
-    if let Err(error) = lock_repo::delete_by_id(db, lock.id).await {
-        tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
-        return;
-    }
-    if let Err(error) = crate::services::files::lock::clear_entity_locked_if_unlocked(
+async fn delete_lock_and_sync_flag<C: ConnectionTrait>(
+    db: &C,
+    lock: &resource_lock::Model,
+) -> Result<(), DavLockError> {
+    lock_repo::delete_by_id(db, lock.id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
+            DavLockError::Backend
+        })?;
+    crate::services::files::lock::clear_entity_locked_if_unlocked(
         db,
         lock.entity_type,
         lock.entity_id,
     )
     .await
-    {
+    .map_err(|error| {
         tracing::warn!(
             lock_id = lock.id,
             entity_type = ?lock.entity_type,
@@ -723,7 +761,9 @@ async fn delete_lock_and_sync_flag<C: ConnectionTrait>(db: &C, lock: &resource_l
             error = %error,
             "failed to sync is_locked after WebDAV lock deletion"
         );
-    }
+        DavLockError::Backend
+    })?;
+    Ok(())
 }
 
 fn lock_paths_overlap(

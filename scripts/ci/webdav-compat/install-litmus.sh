@@ -21,7 +21,7 @@ case $(uname -s) in
     ;;
 esac
 
-for command in aclocal autoconf autoheader curl make pkg-config tar; do
+for command in aclocal autoconf autoheader curl make perl pkg-config tar; do
   if ! command -v "$command" >/dev/null 2>&1; then
     echo "Required build command is missing: $command" >&2
     exit 1
@@ -55,6 +55,27 @@ download_and_verify() {
   verify_sha256 "$destination" "$expected_sha256"
 }
 
+apply_lockbomb_session_initialization_patch() {
+  local source_dir=$1
+  local common_c="$source_dir/src/common.c"
+  local common_h="$source_dir/src/common.h"
+  local lockbomb_c="$source_dir/src/lockbomb.c"
+
+  # Litmus 0.18 creates a fresh neon session per lockbomb worker, but only
+  # initializes the two suite-global sessions. Reuse its existing initializer
+  # so worker requests retain the configured auth, TLS, proxy, and User-Agent.
+  perl -0pi -e 's/static int init_session\(ne_session \*sess\)/int init_session(ne_session *sess)/' "$common_c"
+  perl -0pi -e 's/(TF\(options\); TF\(finish\);\n)/$1\nint init_session(ne_session *sess);\n/' "$common_h"
+  perl -0pi -e 's/(sess = ne_session_create\(i_origin\.scheme, i_origin\.host, i_origin\.port\);\n)/$1\n    if (init_session(sess) != OK) {\n        ne_session_destroy(sess);\n        return "failed to initialize lockbomb HTTP session";\n    }\n/' "$lockbomb_c"
+
+  if ! grep -Fq 'int init_session(ne_session *sess)' "$common_c" \
+    || ! grep -Fq 'int init_session(ne_session *sess);' "$common_h" \
+    || [[ $(grep -Fc 'if (init_session(sess) != OK)' "$lockbomb_c") -ne 1 ]]; then
+    echo "Failed to apply the Litmus 0.18 lockbomb session initialization patch" >&2
+    exit 1
+  fi
+}
+
 litmus_archive="$work_dir/litmus.tar.gz"
 neon_archive="$work_dir/neon.tar.gz"
 source_dir="$work_dir/litmus"
@@ -73,6 +94,7 @@ tar -xzf "$litmus_archive" --strip-components=1 -C "$source_dir"
 rm -rf "$source_dir/neon"
 mkdir -p "$source_dir/neon"
 tar -xzf "$neon_archive" --strip-components=1 -C "$source_dir/neon"
+apply_lockbomb_session_initialization_patch "$source_dir"
 
 jobs=$(getconf _NPROCESSORS_ONLN 2>/dev/null || true)
 if [[ -z $jobs ]] && command -v sysctl >/dev/null 2>&1; then
@@ -101,7 +123,7 @@ if ! (
   exit 1
 fi
 
-version=$($bin_dir/litmus --version)
+version=$("$bin_dir"/litmus --version)
 if [[ $version != "litmus ${LITMUS_VERSION}" ]]; then
   echo "Unexpected Litmus version: $version" >&2
   exit 1

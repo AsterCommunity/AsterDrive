@@ -343,6 +343,7 @@ async fn cleanup_created_extract_root(
         scope,
         root_folder_id,
         true,
+        None,
     )
     .await
     {

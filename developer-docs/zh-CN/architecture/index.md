@@ -124,7 +124,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 3. 做 WebDAV 专用 Basic Auth 认证
 4. 为请求构造带用户上下文的 `AsterDavFs`
 5. 使用数据库锁系统和版本能力
-6. 进入自研 WebDAV / DeltaV handler
+6. 进入 WebDAV handler
 
 ## 分层结构
 
@@ -134,7 +134,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 │  - React 前端 / 公开分享页                   │
 │  - REST API (primary)                       │
 │  - Internal Storage API (follower)          │
-│  - WebDAV / DeltaV                          │
+│  - WebDAV                                   │
 ├─────────────────────────────────────────────┤
 │ 应用层                                      │
 │  - 路由、DTO、统一响应、错误码               │
@@ -197,7 +197,7 @@ WebDAV 不走 `src/api/routes/**`，而是：
 | `src/storage/connectors/` | 存储 connector：descriptor、字段、action、连接测试、上传工作流和凭据需求 |
 | `src/storage/drivers/` | 本地、S3-compatible、SFTP、Azure Blob、Tencent COS、OneDrive 和远端驱动 |
 | `src/storage/remote_protocol/tunnel/` | reverse tunnel 传输运行时、鉴权、注册表和流式响应 |
-| `src/webdav/` | WebDAV 文件系统、认证、锁与 DeltaV 支持 |
+| `src/webdav/` | WebDAV 产品适配、认证、锁持久化与文件系统接入 |
 | `frontend-panel/` | React 19 + Vite 前端，构建产物由后端服务 |
 
 ## 启动流程

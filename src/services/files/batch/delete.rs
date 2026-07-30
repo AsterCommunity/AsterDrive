@@ -113,6 +113,7 @@ pub(crate) async fn batch_delete_in_scope(
             scope,
             &root_folder_ids_to_delete,
             false,
+            None,
         )
         .await?;
         file_ids_to_delete.extend(tree_files.into_iter().map(|file| file.id));

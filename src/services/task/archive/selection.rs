@@ -519,6 +519,7 @@ async fn collect_archive_entries_from_shared_selection(
             scope,
             folder_id,
             false,
+            None,
         )
         .await?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
@@ -606,9 +607,14 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
         storage::ensure_active_folder_scope(folder, scope)?;
         let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
-        let (tree_files, tree_folder_ids) =
-            folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, folder_id, false)
-                .await?;
+        let (tree_files, tree_folder_ids) = folder_ops::collect_folder_tree_in_scope(
+            state.writer_db(),
+            scope,
+            folder_id,
+            false,
+            None,
+        )
+        .await?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
         let root_path = folder_paths
             .get(&folder_id)

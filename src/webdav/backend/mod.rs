@@ -19,7 +19,6 @@ use crate::services::{
     events::storage_change,
     files::{file as file_ops, folder},
     ops::audit::{self, AuditContext},
-    webdav::tree,
     workspace::storage::WorkspaceStorageScope,
 };
 use crate::webdav::backend::dir_entry::AsterDavDirEntry;
@@ -29,6 +28,7 @@ use crate::webdav::backend::download_audit::{
 use crate::webdav::backend::file::AsterDavWriteHandle;
 use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
+use crate::webdav::handlers::resources::MUTATION_FOLDER_TREE_LIMITS;
 use aster_drive_model::entities::{file as file_entity, file_blob};
 use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
@@ -261,6 +261,7 @@ impl AsterDavFs {
             dest_parent_id,
             &dest_name,
             &self.audit_ctx,
+            Some(MUTATION_FOLDER_TREE_LIMITS),
         )
         .await?;
 
@@ -626,7 +627,10 @@ impl DavWriteSystem for AsterDavFs {
             self.root_folder_id,
         )
         .await
-        .map_err(DavBackendError::from)?;
+        .map_err(|error| match error {
+            FsError::NotFound => DavBackendError::new(DavBackendErrorKind::Conflict),
+            error => DavBackendError::from(error),
+        })?;
         let existing_file =
             find_file_by_name_in_scope(&self.state, self.scope, parent_id, &filename)
                 .await
@@ -733,9 +737,14 @@ impl DavFileSystem for AsterDavFs {
             let state = self.app_state();
             let details =
                 folder::audit_location_details_for_model(&state, self.scope, &folder).await;
-            tree::recursive_soft_delete_in_scope(&state, self.scope, folder.id)
-                .await
-                .map_err(to_fs_error)?;
+            folder::delete_in_scope(
+                &state,
+                self.scope,
+                folder.id,
+                Some(MUTATION_FOLDER_TREE_LIMITS),
+            )
+            .await
+            .map_err(to_fs_error)?;
             audit::log_with_details(
                 &state,
                 &self.audit_ctx,
@@ -799,6 +808,7 @@ impl DavFileSystem for AsterDavFs {
                 dest_parent_id,
                 &dest_name,
                 &self.audit_ctx,
+                Some(MUTATION_FOLDER_TREE_LIMITS),
             )
             .await?;
 
@@ -859,6 +869,7 @@ impl DavFileSystem for AsterDavFs {
                 dest_parent_id,
                 &dest_name,
                 &self.audit_ctx,
+                Some(MUTATION_FOLDER_TREE_LIMITS),
             )
             .await?;
 
@@ -911,15 +922,27 @@ impl DavFileSystem for AsterDavFs {
                     .await;
                 }
                 ResolvedNode::Folder(f) => {
-                    let copied = tree::copy_folder_tree_in_scope(
+                    let (copied, storage_delta) = folder::copy_folder_tree_in_scope(
                         &state,
                         self.scope,
                         f.id,
                         dest_parent_id,
                         &dest_name,
+                        Some(MUTATION_FOLDER_TREE_LIMITS),
                     )
                     .await
                     .map_err(to_fs_error)?;
+                    storage_change::publish(
+                        &state,
+                        storage_change::StorageChangeEvent::new(
+                            storage_change::StorageChangeKind::FolderCreated,
+                            self.scope(),
+                            vec![],
+                            vec![copied.id],
+                            vec![copied.parent_id],
+                        )
+                        .with_storage_delta(storage_delta),
+                    );
                     copy_visible_properties_for_copied_tree(&state, self.scope(), f.id, copied.id)
                         .await?;
                     let details = folder::audit_transfer_details_for_models(
@@ -1405,6 +1428,7 @@ async fn delete_existing_destination_for_overwrite(
     parent_id: Option<i64>,
     name: &str,
     audit_ctx: &AuditContext,
+    traversal_limits: Option<folder::FolderTreeTraversalLimits>,
 ) -> Result<(), FsError> {
     if let Some(existing) = find_file_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = file_ops::audit_location_details_for_model(state, scope, &existing).await;
@@ -1435,7 +1459,7 @@ async fn delete_existing_destination_for_overwrite(
 
     if let Some(existing) = find_folder_by_name_in_scope(state, scope, parent_id, name).await? {
         let details = folder::audit_location_details_for_model(state, scope, &existing).await;
-        tree::recursive_soft_delete_in_scope(state, scope, existing.id)
+        folder::delete_in_scope(state, scope, existing.id, traversal_limits)
             .await
             .map_err(to_fs_error)?;
         audit::log_with_details(
@@ -1462,7 +1486,10 @@ fn to_fs_error(err: crate::errors::AsterError) -> FsError {
 
         crate::errors::AsterError::AuthForbidden(_) => FsError::Forbidden,
 
-        crate::errors::AsterError::StorageQuotaExceeded(_) => FsError::InsufficientStorage,
+        crate::errors::AsterError::StorageQuotaExceeded(_)
+        | crate::errors::AsterError::OperationResourceLimitExceeded(_) => {
+            FsError::InsufficientStorage
+        }
 
         crate::errors::AsterError::FileTooLarge(_) => FsError::TooLarge,
 

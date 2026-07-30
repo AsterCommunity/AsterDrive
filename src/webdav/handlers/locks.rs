@@ -63,12 +63,20 @@ pub(crate) async fn handle_lock(
             {
                 return resp;
             }
-            if lock_system
+            match lock_system
                 .check(&path, None, false, false, std::slice::from_ref(&token))
                 .await
-                .is_err()
             {
-                return responses::precondition_failed();
+                Ok(()) => {}
+                Err(DavLockError::Conflict(_) | DavLockError::TokenMismatch) => {
+                    return responses::precondition_failed();
+                }
+                Err(DavLockError::LimitExceeded) => {
+                    return aster_forge_webdav::actix::into_response(lock_limit_response());
+                }
+                Err(DavLockError::Backend) => {
+                    return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
+                }
             }
             let lock = match lock_system.refresh(&path, &token, Some(timeout)).await {
                 Ok(lock) => lock,

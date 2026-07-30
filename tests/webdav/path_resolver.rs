@@ -787,7 +787,7 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
                 write_open_options(false),
             )
             .await,
-        Err(error) if error.kind == DavBackendErrorKind::NotFound
+        Err(error) if error.kind == DavBackendErrorKind::Conflict
     ));
 
     let parent_names = [projects.name, docs.name, reports.name];

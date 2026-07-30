@@ -83,7 +83,7 @@ Litmus 0.18 安装后还包含两类不进入普通 PR 门禁的可选套件。
 
 - `protected`：检查服务器保留元数据路径，固定使用 `TEST_PROTECTED=.DAV`，共 25 个用例。
 
-`largefile` 和锁压力套件应放在定时或手动 job 中，并使用独立的超时与资源配额。`protected` 针对 Apache `mod_dav_fs` 等会把可信属性数据库放在 WebDAV 路径附近的实现，不属于 RFC 4918 合规组。AsterDrive 的 dead properties 存在数据库中，当前也没有服务器专用 `.DAV` 命名空间，因此这组测试作为显式的安全策略探针运行，其结果不进入默认合规 baseline。
+兼容性 workflow 的定时和手动触发会串行运行 `largefile`、两组锁压力套件和 `protected`，每个分组仍使用自己的超时；它们不进入普通 PR 门禁。`protected` 针对 Apache `mod_dav_fs` 等会把可信属性数据库放在 WebDAV 路径附近的实现，不属于 RFC 4918 合规组。AsterDrive 的 dead properties 存在数据库中，当前也没有服务器专用 `.DAV` 命名空间，因此这组测试作为显式的安全策略探针运行，其结果不进入默认合规 baseline。
 
 > **AsterDrive 适用性说明：** AsterDrive 的 dead properties 存放在数据库 `entity_properties` 表中，并通过解析后的 file/folder `entity_type + entity_id` 关联；它没有把 `.DAV` 或其他目录名映射为内部属性数据库，也没有通过 WebDAV 文件路径暴露 property records。产品语义上，`.DAV` 是合法的普通用户目录，AsterDrive 不需要为了这组 Litmus 用例保留或封禁该名称。用户创建、读取、移动或删除 `.DAV` 只会操作普通 file/folder entity，不会触达属性表、锁表或其他可信内部元数据。因此，`protected` 报告的 15 项差异是与 Apache 文件式属性数据库模型的预期差异，本身不代表 dead-property storage 暴露或产品安全漏洞。
 
@@ -92,6 +92,11 @@ Litmus 0.18 安装后还包含两类不进入普通 PR 门禁的可选套件。
 ## 安装固定的 Litmus 0.18
 
 安装脚本、客户端安装脚本和版本清单集中放在 `scripts/ci/webdav-compat/`，不要把下载源码或构建产物放进仓库。脚本会把 Litmus 和 neon 下载到临时目录，校验 SHA-256，从固定提交构建，并安装到 `WEBDAV_COMPAT_TOOLS_DIR`。
+
+固定的 Litmus 0.18 源码会为每个 `lockbomb` worker 新建 neon session，却没有调用其已有的
+session 初始化器。归档校验完成后，安装脚本会在临时兼容工具源码中做构建期变换，让这些 worker
+复用初始化器并继承配置好的 Basic 认证、TLS、代理和 User-Agent。该变换只作用于临时工具源码，
+不会改变 AsterDrive 的 WebDAV 认证行为。
 
 macOS 先安装构建依赖：
 
@@ -108,7 +113,7 @@ WEBDAV_COMPAT_TOOLS_DIR="$HOME/.local/webdav-compat" \
 "$HOME/.local/webdav-compat/bin/litmus" --version
 ```
 
-Linux 需要 `autoconf`、`automake`、C 编译工具链、`curl`、`libexpat` 开发文件、OpenSSL 开发文件和 `pkg-config`。安装脚本在 Linux 和 macOS 上共用，CI 也调用同一个入口。
+Linux 需要 `autoconf`、`automake`、C 编译工具链、`curl`、`perl`、`libexpat` 开发文件、OpenSSL 开发文件和 `pkg-config`。安装脚本在 Linux 和 macOS 上共用，CI 也调用同一个入口。
 
 Ubuntu 24.04 的 `apt` 仓库提供的是 Litmus 0.13，可用于临时手工探测，但不符合当前 0.18 固定基线。CI 因此不安装 `litmus` apt 包，而是调用上述脚本从已校验的固定源码提交构建。
 
@@ -204,7 +209,7 @@ cargo test --test webdav \
 3. 在 `127.0.0.1` 的随机端口启动真实 Actix HTTP 服务；
 4. 将挂载地址设为该服务的 `/webdav/`；
 5. 通过 `TESTS=<group>` 每次只运行一个 Litmus 分组；
-6. 单个分组最多运行 120 秒，超时后终止整个 Litmus 进程组；
+6. 按分组执行固定超时：默认组和策略组为 120 秒，`largefile` 为 30 分钟，`lockbomb` 为 2 小时，`lockbomb-single` 为 1 小时；超时后终止整个 Litmus 进程组；
 7. 停止 HTTP 服务，解析 Litmus 输出并与 committed baseline 比较；
 8. 写入结构化报告，并对落盘日志中的用户名、密码和 Basic Auth 值做脱敏。
 
@@ -331,8 +336,8 @@ TESTS=locks litmus \
 
 真实客户端测试覆盖 Litmus 之外的实际工作流：
 
-- rclone：列目录、上传、下载、同步、递归复制和移动、特殊文件名、Range 读取；
-- curl：WebDAV 方法、Range、COPY/MOVE、LOCK/UNLOCK 和响应头；
+- rclone：列目录、上传、下载、同步删除、递归复制和移动、特殊文件名、Range 读取；
+- curl：空文件、Content-Length/chunked PUT、特殊文件名、条件 PUT 失败清理、single/multi-range、COPY/MOVE、LOCK 创建/刷新/UNLOCK 和响应头；
 - cadaver：交互式客户端的创建目录、上传、下载、移动和清理流程。
 
 CI 使用 `scripts/ci/webdav-compat/install-clients.sh` 安装固定版本。这个安装脚本面向 Linux CI；版本和 SHA-256 同样记录在 `scripts/ci/webdav-compat/versions.env`。
@@ -367,7 +372,8 @@ cargo test --test webdav client_e2e::webdav_cadaver -- \
 
 - 在 WebDAV 相关路径的 PR、`master` push、定时任务和手动触发中运行；
 - 从固定 Litmus/neon 提交和 SHA-256 构建 Litmus 0.18；
-- 串行执行默认五个 ignored Litmus 分组；
+- 在 PR 和 push 中串行执行默认五个 ignored Litmus 分组；
+- 在定时和手动触发中额外串行执行 `largefile`、`lockbomb`、`lockbomb-single` 和 `protected` probe；
 - 保存工具版本、测试总日志、分组 `result.json` 和请求日志；
 - 产物默认保留 30 天。
 
@@ -378,7 +384,7 @@ cargo test --test webdav client_e2e::webdav_cadaver -- \
 - 执行 `tests/webdav/client_e2e.rs` 中的 ignored 测试；
 - 保存工具版本和完整客户端测试日志。
 
-PR 上 Litmus job 负责快速守住协议基线；真实客户端矩阵更慢，放在定时和手动检查中。
+PR 上 Litmus job 负责快速守住协议基线；定时和手动触发会执行全部 15 个 ignored 兼容性测试，即 9 个 Litmus 套件和 6 个固定版本真实客户端测试。
 
 ## 修改类型与建议矩阵
 
@@ -407,7 +413,7 @@ PR 上 Litmus job 负责快速守住协议基线；真实客户端矩阵更慢�
 7. 更新 `.github/workflows/webdav-compatibility.yml` 的安装来源和工具版本记录；
 8. 先手动运行完整 workflow，再合并版本升级。
 
-`largefile`、`lockbomb` 和 `lockbomb-single` 已作为 ignored 资源测试落在 `tests/webdav/litmus/resource.rs`；`protected` 则作为 ignored 安全策略探针单独放在 `tests/webdav/litmus/security_policy.rs`。它们都不进入普通 PR 门禁。未来把任一可选套件接入 CI 时，要分别设计触发方式、超时、资源消耗、架构适用性和结果基线，尤其不要把大文件或锁压力测试混入普通 PR 快速检查。
+`largefile`、`lockbomb` 和 `lockbomb-single` 是 `tests/webdav/litmus/resource.rs` 中的 ignored 资源测试；`protected` 则是 `tests/webdav/litmus/security_policy.rs` 中的 ignored 安全策略探针。workflow 仅在定时和手动触发执行它们，Litmus job 上限为四小时，同时继续把它们排除在普通 PR 快速检查之外。
 
 ## 失败定位速查
 

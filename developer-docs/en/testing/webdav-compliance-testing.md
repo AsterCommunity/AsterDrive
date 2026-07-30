@@ -83,7 +83,7 @@ Implementation-specific security-policy suite:
 
 - `protected`: checks a server-reserved metadata path, pinned to `TEST_PROTECTED=.DAV`, with 25 cases.
 
-Run `largefile` and the lock-stress suites through scheduled or manual jobs with separate timeouts and resource limits. `protected` targets implementations such as Apache `mod_dav_fs` that place a trusted property database near the WebDAV namespace; it is not an RFC 4918 conformance group. AsterDrive stores dead properties in its database and does not currently reserve `.DAV`, so this suite runs as an explicit security-policy probe and stays outside the default conformance baseline.
+The scheduled and manual compatibility workflow runs `largefile`, both lock-stress suites, and `protected` serially with their own per-suite timeouts. They remain outside the ordinary pull-request gate. `protected` targets implementations such as Apache `mod_dav_fs` that place a trusted property database near the WebDAV namespace; it is not an RFC 4918 conformance group. AsterDrive stores dead properties in its database and does not currently reserve `.DAV`, so this suite runs as an explicit security-policy probe and stays outside the default conformance baseline.
 
 > **AsterDrive applicability note:** AsterDrive stores dead properties in the database `entity_properties` table, associated with resolved file/folder `entity_type + entity_id` values. It does not map `.DAV` or any other directory name to the internal property database, and it does not expose property records through WebDAV file paths. Under the product contract, `.DAV` is a valid ordinary user directory; AsterDrive has no reason to reserve or block that name merely to satisfy this Litmus suite. Creating, reading, moving, or deleting `.DAV` only operates on ordinary file/folder entities and does not reach property tables, lock tables, or other trusted internal metadata. The 15 `protected` differences are therefore expected differences from Apache's file-backed property-database model, not evidence of dead-property storage exposure or a product security vulnerability.
 
@@ -92,6 +92,14 @@ Run `largefile` and the lock-stress suites through scheduled or manual jobs with
 ## Install the pinned Litmus 0.18
 
 The Litmus installer, client installer, and version manifest live together under `scripts/ci/webdav-compat/`. Do not place downloaded source trees or build products in the repository. The installer downloads Litmus and neon into a temporary directory, verifies SHA-256 checksums, builds the pinned commits, and installs into `WEBDAV_COMPAT_TOOLS_DIR`.
+
+The pinned Litmus 0.18 source creates a fresh neon session for each
+`lockbomb` worker without invoking its existing session initializer. After
+archive verification, the installer applies a build-only transformation so
+those worker sessions reuse that initializer and retain the configured Basic
+authentication, TLS, proxy, and User-Agent settings. The transformation only
+touches the temporary compatibility-tool source; it does not change
+AsterDrive's WebDAV authentication behavior.
 
 Install the macOS build dependencies first:
 
@@ -108,7 +116,7 @@ WEBDAV_COMPAT_TOOLS_DIR="$HOME/.local/webdav-compat" \
 "$HOME/.local/webdav-compat/bin/litmus" --version
 ```
 
-On Linux, install `autoconf`, `automake`, a C build toolchain, `curl`, the `libexpat` development files, the OpenSSL development files, and `pkg-config`. Linux, macOS, and CI use the same installer entry point.
+On Linux, install `autoconf`, `automake`, a C build toolchain, `curl`, `perl`, the `libexpat` development files, the OpenSSL development files, and `pkg-config`. Linux, macOS, and CI use the same installer entry point.
 
 Ubuntu 24.04 provides Litmus 0.13 through `apt`. That package remains useful for ad hoc probing but does not satisfy the current pinned 0.18 baseline. CI therefore builds the verified source commits through the installer above instead of installing the `litmus` apt package.
 
@@ -204,7 +212,7 @@ When `LITMUS_BIN` is unset, the harness searches `PATH` for `litmus`. An explici
 3. starts a real Actix HTTP server on a random `127.0.0.1` port;
 4. uses that server's `/webdav/` mount URL;
 5. runs one Litmus group at a time through `TESTS=<group>`;
-6. enforces a 120-second timeout per group and terminates the whole Litmus process group on timeout;
+6. enforces the configured per-group timeout: 120 seconds for the default and policy groups, 30 minutes for `largefile`, two hours for `lockbomb`, and one hour for `lockbomb-single`; a timeout terminates the whole Litmus process group;
 7. stops the HTTP server, parses the Litmus output, and compares it with the committed baseline;
 8. writes a structured report and redacts generated usernames, passwords, and Basic Auth values from persisted logs.
 
@@ -331,8 +339,8 @@ Apply these boundaries before running it:
 
 The real-client tests cover practical workflows outside Litmus:
 
-- rclone: listing, upload, download, sync, recursive copy and move, special filenames, and range reads;
-- curl: WebDAV methods, ranges, COPY/MOVE, LOCK/UNLOCK, and response headers;
+- rclone: listing, upload, download, sync deletion, recursive copy and move, special filenames, and range reads;
+- curl: empty-file and Content-Length/chunked PUT, special filenames, conditional PUT failure cleanup, single/multi-range responses, COPY/MOVE, LOCK creation/refresh/UNLOCK, and response headers;
 - cadaver: interactive-client directory creation, upload, download, move, and cleanup.
 
 CI installs pinned releases through `scripts/ci/webdav-compat/install-clients.sh`. That installer targets Linux CI. Versions and SHA-256 checksums are recorded in `scripts/ci/webdav-compat/versions.env`.
@@ -367,7 +375,8 @@ When local versions differ from the CI-pinned versions, use local results for fa
 
 - runs for WebDAV-related paths on pull requests, `master` pushes, scheduled runs, and manual dispatch;
 - builds Litmus 0.18 from pinned Litmus/neon commits and SHA-256 checksums;
-- runs the five default ignored Litmus groups serially;
+- runs the five default ignored Litmus groups serially on pull requests and pushes;
+- additionally runs `largefile`, `lockbomb`, `lockbomb-single`, and the `protected` probe serially on scheduled and manual dispatches;
 - preserves tool versions, the combined test log, per-group `result.json`, and request logs;
 - retains artifacts for 30 days by default.
 
@@ -378,7 +387,7 @@ When local versions differ from the CI-pinned versions, use local results for fa
 - runs the ignored tests in `tests/webdav/client_e2e.rs`;
 - preserves tool versions and the complete client-test log.
 
-The Litmus job provides the faster protocol baseline on pull requests. The slower real-client matrix remains scheduled and manually runnable.
+The Litmus job provides the faster protocol baseline on pull requests. Scheduled and manual dispatches execute all 15 ignored compatibility tests: nine Litmus suites and six pinned real-client tests.
 
 ## Recommended matrix by change type
 
@@ -407,7 +416,7 @@ Treat an upgrade to a later release as an independent change:
 7. update the installation source and tool-version recording in `.github/workflows/webdav-compatibility.yml`;
 8. run the complete workflow manually before merging the version bump.
 
-`largefile`, `lockbomb`, and `lockbomb-single` now exist as ignored resource tests in `tests/webdav/litmus/resource.rs`; `protected` is an ignored security-policy probe in `tests/webdav/litmus/security_policy.rs`. All remain outside the ordinary pull-request gate. Connecting an optional suite to CI requires separate trigger, timeout, resource-use, architectural-applicability, and baseline design. In particular, keep large-file and lock-stress tests out of the ordinary fast pull-request check.
+`largefile`, `lockbomb`, and `lockbomb-single` are ignored resource tests in `tests/webdav/litmus/resource.rs`; `protected` is an ignored security-policy probe in `tests/webdav/litmus/security_policy.rs`. The workflow runs them only for scheduled and manual dispatches, with a four-hour Litmus job limit, while keeping them out of the ordinary fast pull-request check.
 
 ## Failure-location quick reference
 

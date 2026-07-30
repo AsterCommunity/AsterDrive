@@ -2,7 +2,7 @@
 
 WebDAV 相关内容可以分成三块：账号、挂载入口、协议能力。
 
-当前协议层已经拆在 `src/webdav/**` 下：`mod.rs` 负责 Actix 挂载、运行时开关、审计上下文和方法分派；`auth.rs` 负责 WebDAV 专用 Basic Auth；`protocol.rs` 负责 `Depth`、`Destination`、`If`、ETag 等协议头；`responses.rs` 集中构造 HTTP / XML 响应；`props/` 处理 `PROPFIND` / `PROPPATCH`；`transfer/` 处理 `GET` / `HEAD` / `PUT`；`resources/` 处理 `MKCOL` / `DELETE` / `COPY` / `MOVE`；`locks/` 处理 `LOCK` / `UNLOCK`；`fs/`、`file/`、`dir_entry.rs` 适配文件系统；`path_resolver.rs` 解析路径；`db_lock_system.rs` 实现锁系统；`deltav.rs` 提供最小 DeltaV 子集。
+当前产品适配层位于 `src/webdav/**`：`mod.rs` 负责 Actix 挂载、运行时开关、审计上下文和方法分派；`auth.rs` 负责 WebDAV 专用 Basic Auth；`handlers/` 适配属性、传输、资源 mutation 和锁；`backend/` 实现路径解析、文件系统、下载/写入、目录分页和锁持久化。路径、header/body parsing、preconditions、能力声明、响应 grammar 和 backend ports 由 AsterForge 的 `aster_forge_webdav` 提供。
 
 ## 账号接口
 
@@ -87,18 +87,9 @@ http://localhost:3000/webdav
 - `UNLOCK`
 - `OPTIONS`
 
-另外还补了最小 DeltaV 子集：
-
-- `REPORT` 的 `DAV:version-tree`
-- `VERSION-CONTROL`
-- `OPTIONS` 的 `DAV: version-control`
-
-这部分直接复用 `file_versions`，所以客户端可以读取历史版本树。
-
 限制也很直接：
 
-- `REPORT version-tree` 只支持文件
-- 当前不是完整 DeltaV 服务器，只是最小可用子集
+- AsterDrive 的 `file_versions` 是产品版本历史，不构成 RFC 3253 core versioning resource model。当前 capability snapshot 不声明 `version-control`，`REPORT` / `VERSION-CONTROL` 返回资源级 `405 Method Not Allowed`。
 - `/webdav/` 挂载根只是一个虚拟入口，不是持久化的文件夹实体。`PROPFIND /webdav/` 可以列目录和读取 live DAV 属性，但 `PROPPATCH /webdav/` 明确返回 `403 Forbidden`；自定义 dead properties 只支持具体文件或文件夹。
 - `PROPFIND` 的 `Depth` 缺省按 `infinity` 解析；如果目标是目录，会返回 `403` 和 `DAV:propfind-finite-depth`，不会做无界递归。
 - `COPY` 接受 `Depth: 0` 或缺省 / `infinity`，明确拒绝 `Depth: 1`；`COPY Depth: 0` 只复制目录自身和 dead properties，不复制子项。

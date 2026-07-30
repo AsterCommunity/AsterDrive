@@ -203,7 +203,7 @@
 - 团队管理与团队工作空间：见 [团队与团队空间](./teams.md)
 - 公开分享、预览链接和流式播放 session：见 [分享](./shares.md)
 - Office / WOPI 预览与回调：见 [WOPI](./wopi.md)
-- WebDAV 协议、账号与 DeltaV：见 [WebDAV](./webdav.md)
+- WebDAV 协议、账号与版本控制边界：见 [WebDAV](./webdav.md)
 - 登录页、匿名页、缩略图 / 媒体数据能力与远端节点注册握手：见 [公共接口](./public.md)
 - 主从节点内部对象协议和 reverse tunnel 内部入口：见 [内部存储协议（follower）](./internal-storage.md)
 - 后台策略、远端节点、存储迁移、文件 / Blob 可观测、外部认证 provider、锁、运行时配置与审计：见 [管理](./admin.md)

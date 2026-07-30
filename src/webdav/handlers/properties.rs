@@ -1,21 +1,22 @@
 //! WebDAV PROPFIND / PROPPATCH handlers.
 
 use std::collections::HashMap;
-use std::time::{Instant, SystemTime};
+use std::future::Future;
+use std::time::{Duration, Instant, SystemTime};
 
 use actix_web::HttpResponse;
 use actix_web::http::StatusCode;
 use aster_forge_webdav::{
-    DavBackendError, DavBackendErrorKind, DavCapabilitySnapshot, DavDirectoryEntry,
-    DavDirectoryPageLimits, DavDirectoryPageState, DavDirectoryReadError, DavFileSystem,
-    DavLivePropertyMetadata, DavLivePropertyRequirements, DavLivePropertyValueSnapshot, DavLock,
-    DavLockSystem, DavLockXml, DavMetaData, DavMultiStatusItem, DavMultiStatusLimits,
-    DavMultiStatusSourceError, DavNeverCancelled, DavPath, DavProp, DavPropfindRequest,
-    DavQuotaSnapshot, DavRequestHead, DavResourceState, DavXmlElement, Depth, FsError,
-    build_live_propfind_item, build_proppatch_item, dav_dead_property_element,
-    live_property_requirements, multistatus_stream_response, property_multistatus_response,
-    propfind_finite_depth_response, propfind_request_label, propfind_xml_error_response,
-    proppatch_xml_error_response, read_next_directory_page,
+    DavBackendError, DavBackendErrorKind, DavCancellationToken, DavCapabilitySnapshot,
+    DavDirectoryEntry, DavDirectoryPageLimits, DavDirectoryPageState, DavDirectoryReadError,
+    DavFileSystem, DavLivePropertyMetadata, DavLivePropertyRequirements,
+    DavLivePropertyValueSnapshot, DavLock, DavLockSystem, DavLockXml, DavMetaData,
+    DavMultiStatusItem, DavMultiStatusLimits, DavMultiStatusSourceError, DavPath, DavProp,
+    DavPropfindRequest, DavQuotaSnapshot, DavRequestHead, DavResourceState, DavXmlElement, Depth,
+    FsError, build_live_propfind_item, build_proppatch_item, dav_dead_property_element,
+    live_property_requirements, multistatus_stream_response_with_cancellation,
+    property_multistatus_response, propfind_finite_depth_response, propfind_request_label,
+    propfind_xml_error_response, proppatch_xml_error_response, read_next_directory_page,
 };
 use futures::Stream;
 
@@ -36,6 +37,47 @@ const PROPFIND_MAXIMUM_RESOURCES: usize = 10_000;
 const PROPFIND_MAXIMUM_OUTPUT_BYTES: usize = 16 * 1024 * 1024;
 const PROPFIND_MAXIMUM_PROPERTIES_PER_RESOURCE: usize = 512;
 const PROPFIND_CHUNK_BYTES: usize = 16 * 1024;
+pub(crate) const PROPFIND_MAXIMUM_DURATION: Duration = Duration::from_secs(30);
+
+#[derive(Clone)]
+struct PropfindDeadline {
+    cancellation: DavCancellationToken,
+    deadline: tokio::time::Instant,
+}
+
+impl PropfindDeadline {
+    fn new(maximum_duration: Duration) -> Self {
+        let cancellation = DavCancellationToken::new();
+        if maximum_duration.is_zero() {
+            cancellation.cancel();
+        }
+        Self {
+            cancellation,
+            deadline: tokio::time::Instant::now() + maximum_duration,
+        }
+    }
+
+    async fn run<F: Future>(&self, future: F) -> Result<F::Output, PropfindCancelled> {
+        if self.cancellation.is_cancelled() {
+            return Err(PropfindCancelled);
+        }
+        tokio::time::timeout_at(self.deadline, future)
+            .await
+            .map_err(|_| {
+                self.cancellation.cancel();
+                PropfindCancelled
+            })
+    }
+}
+
+#[derive(Debug)]
+struct PropfindCancelled;
+
+enum PropfindPreloadError {
+    Cancelled,
+    FileSystem(FsError),
+    Backend(DavBackendError),
+}
 
 #[derive(Default)]
 struct PropfindPreload {
@@ -99,23 +141,28 @@ pub(crate) async fn handle_propfind<L>(
     prefix: &str,
     body: &[u8],
     capability_snapshot: &DavCapabilitySnapshot,
+    maximum_duration: Duration,
 ) -> HttpResponse
 where
     L: DavLockSystem + Clone + Send + Sync + 'static,
 {
+    let deadline = PropfindDeadline::new(maximum_duration);
     let path = request_head.target.clone();
-    if let Err(response) = aster_forge_webdav::actix::enforce_if_header_with_backends(
-        request_head.if_header.as_ref(),
-        dav_fs,
-        lock_system,
-        &path,
-        prefix,
-        &request_head.origin.scheme,
-        &request_head.origin.host,
-    )
-    .await
+    match deadline
+        .run(aster_forge_webdav::actix::enforce_if_header_with_backends(
+            request_head.if_header.as_ref(),
+            dav_fs,
+            lock_system,
+            &path,
+            prefix,
+            &request_head.origin.scheme,
+            &request_head.origin.host,
+        ))
+        .await
     {
-        return response;
+        Ok(Ok(())) => {}
+        Ok(Err(response)) => return response,
+        Err(_) => return propfind_deadline_response(maximum_duration),
     }
     let Some(depth) = request_head.depth else {
         return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
@@ -127,9 +174,10 @@ where
 
     let request_started_at = Instant::now();
     let metadata_started_at = Instant::now();
-    let root_meta = match dav_fs.metadata(&path).await {
-        Ok(meta) => meta,
-        Err(error) => return fs_error_response(error),
+    let root_meta = match deadline.run(dav_fs.metadata(&path)).await {
+        Ok(Ok(meta)) => meta,
+        Ok(Err(error)) => return fs_error_response(error),
+        Err(_) => return propfind_deadline_response(maximum_duration),
     };
     let metadata_elapsed_ms = metadata_started_at.elapsed().as_millis();
     if depth == Depth::Infinity && root_meta.is_dir() {
@@ -138,9 +186,17 @@ where
 
     let relative = path.as_str().to_owned();
     let requirements = live_property_requirements(capability_snapshot, &request_kind);
-    let quota = match load_quota(dav_fs, requirements).await {
+    let quota = match load_quota(dav_fs, requirements, &deadline).await {
         Ok(quota) => quota,
-        Err(error) => return fs_error_response(error),
+        Err(PropfindPreloadError::FileSystem(error)) => return fs_error_response(error),
+        Err(PropfindPreloadError::Backend(error)) => {
+            return aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::backend_error_response(&error),
+            );
+        }
+        Err(PropfindPreloadError::Cancelled) => {
+            return propfind_deadline_response(maximum_duration);
+        }
     };
     let preload_started_at = Instant::now();
     let mut root_preload = match preload_property_values(
@@ -150,11 +206,20 @@ where
         std::slice::from_ref(&path),
         requirements,
         !matches!(request_kind, DavPropfindRequest::PropName),
+        &deadline,
     )
     .await
     {
         Ok(preload) => preload,
-        Err(error) => return fs_error_response(error),
+        Err(PropfindPreloadError::FileSystem(error)) => return fs_error_response(error),
+        Err(PropfindPreloadError::Backend(error)) => {
+            return aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::backend_error_response(&error),
+            );
+        }
+        Err(PropfindPreloadError::Cancelled) => {
+            return propfind_deadline_response(maximum_duration);
+        }
     };
     let root_is_dir = root_meta.is_dir();
     let root_metadata = match propfind_metadata(&relative, root_meta.as_ref()) {
@@ -196,8 +261,9 @@ where
         request_kind,
         requirements,
         quota,
+        deadline.clone(),
     );
-    forge_response(multistatus_stream_response(
+    forge_response(multistatus_stream_response_with_cancellation(
         source,
         DavMultiStatusLimits::new(
             PROPFIND_MAXIMUM_OUTPUT_BYTES,
@@ -205,6 +271,7 @@ where
             PROPFIND_MAXIMUM_PROPERTIES_PER_RESOURCE,
             PROPFIND_CHUNK_BYTES,
         ),
+        deadline.cancellation,
     ))
 }
 
@@ -279,6 +346,7 @@ fn propfind_item_stream<L>(
     request_kind: DavPropfindRequest,
     requirements: DavLivePropertyRequirements,
     quota: Option<DavQuotaSnapshot>,
+    deadline: PropfindDeadline,
 ) -> impl Stream<Item = Result<DavMultiStatusItem, DavMultiStatusSourceError>> + Send + 'static
 where
     L: DavLockSystem + Clone + Send + Sync + 'static,
@@ -290,31 +358,32 @@ where
         }
 
         let mut state = DavDirectoryPageState::new();
-        let cancellation = DavNeverCancelled;
         let mut resource_count = 1usize;
 
         loop {
-            let page = match read_next_directory_page(
-                &dav_fs,
-                &root_path,
-                &mut state,
-                PROPFIND_PAGE_ENTRIES,
-                PROPFIND_DIRECTORY_LIMITS,
-                &cancellation,
-            )
-            .await
-            {
-                Ok(Some(page)) => page,
-                Ok(None) => break,
-                Err(DavDirectoryReadError::Cancelled) => {
+            let page = match deadline.run(read_next_directory_page(
+                    &dav_fs,
+                    &root_path,
+                    &mut state,
+                    PROPFIND_PAGE_ENTRIES,
+                    PROPFIND_DIRECTORY_LIMITS,
+                    &deadline.cancellation,
+                )).await {
+                Err(_) => {
                     yield Err(DavMultiStatusSourceError::Cancelled);
                     break;
                 }
-                Err(DavDirectoryReadError::Backend(error)) => {
+                Ok(Ok(Some(page))) => page,
+                Ok(Ok(None)) => break,
+                Ok(Err(DavDirectoryReadError::Cancelled)) => {
+                    yield Err(DavMultiStatusSourceError::Cancelled);
+                    break;
+                }
+                Ok(Err(DavDirectoryReadError::Backend(error))) => {
                     yield Err(DavMultiStatusSourceError::Backend(error));
                     break;
                 }
-                Err(error) => {
+                Ok(Err(error)) => {
                     tracing::warn!(error = %error, "bounded WebDAV directory enumeration failed");
                     yield Err(DavMultiStatusSourceError::Backend(DavBackendError::new(
                         DavBackendErrorKind::Internal,
@@ -391,17 +460,30 @@ where
                 &paths,
                 requirements,
                 !matches!(request_kind, DavPropfindRequest::PropName),
+                &deadline,
             )
             .await
             {
                 Ok(preload) => preload,
-                Err(error) => {
+                Err(PropfindPreloadError::Cancelled) => {
+                    yield Err(DavMultiStatusSourceError::Cancelled);
+                    break;
+                }
+                Err(PropfindPreloadError::FileSystem(error)) => {
                     yield Err(DavMultiStatusSourceError::Backend(DavBackendError::from(error)));
+                    break;
+                }
+                Err(PropfindPreloadError::Backend(error)) => {
+                    yield Err(DavMultiStatusSourceError::Backend(error));
                     break;
                 }
             };
 
             for resource in resources {
+                if deadline.cancellation.is_cancelled() {
+                    yield Err(DavMultiStatusSourceError::Cancelled);
+                    return;
+                }
                 resource_count = match resource_count.checked_add(1) {
                     Some(count) if count <= PROPFIND_MAXIMUM_RESOURCES => count,
                     _ => {
@@ -443,18 +525,23 @@ async fn preload_property_values<L: DavLockSystem>(
     paths: &[DavPath],
     requirements: DavLivePropertyRequirements,
     include_property_content: bool,
-) -> Result<PropfindPreload, FsError> {
+    deadline: &PropfindDeadline,
+) -> Result<PropfindPreload, PropfindPreloadError> {
     let dead_properties = if requirements.dead_properties {
-        dav_fs
-            .get_props_many(paths, include_property_content)
-            .await?
+        deadline
+            .run(dav_fs.get_props_many(paths, include_property_content))
+            .await
+            .map_err(|_| PropfindPreloadError::Cancelled)?
+            .map_err(PropfindPreloadError::FileSystem)?
     } else {
         HashMap::new()
     };
     let locks = if requirements.locks && include_property_content {
-        lock_system
-            .discover_many(paths)
+        deadline
+            .run(lock_system.discover_many(paths))
             .await
+            .map_err(|_| PropfindPreloadError::Cancelled)?
+            .map_err(PropfindPreloadError::Backend)?
             .into_iter()
             .map(|(path, locks)| {
                 let locks = locks.iter().map(|lock| lock_xml(lock, prefix)).collect();
@@ -473,15 +560,28 @@ async fn preload_property_values<L: DavLockSystem>(
 async fn load_quota(
     dav_fs: &AsterDavFs,
     requirements: DavLivePropertyRequirements,
-) -> Result<Option<DavQuotaSnapshot>, FsError> {
+    deadline: &PropfindDeadline,
+) -> Result<Option<DavQuotaSnapshot>, PropfindPreloadError> {
     if !requirements.quota {
         return Ok(None);
     }
-    let (used_bytes, total_bytes) = dav_fs.get_quota().await?;
+    let (used_bytes, total_bytes) = deadline
+        .run(dav_fs.get_quota())
+        .await
+        .map_err(|_| PropfindPreloadError::Cancelled)?
+        .map_err(PropfindPreloadError::FileSystem)?;
     Ok(Some(DavQuotaSnapshot {
         used_bytes,
         available_bytes: total_bytes.map(|total| total.saturating_sub(used_bytes)),
     }))
+}
+
+fn propfind_deadline_response(maximum_duration: Duration) -> HttpResponse {
+    tracing::warn!(
+        maximum_duration_ms = maximum_duration.as_millis(),
+        "WebDAV PROPFIND execution deadline exceeded before response streaming started"
+    );
+    responses::empty(StatusCode::SERVICE_UNAVAILABLE)
 }
 
 fn propfind_metadata(

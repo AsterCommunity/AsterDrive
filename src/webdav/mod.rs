@@ -185,6 +185,7 @@ pub async fn webdav_handler(
                 &webdav.prefix,
                 request_body.xml(),
                 &capability_snapshot,
+                handlers::properties::PROPFIND_MAXIMUM_DURATION,
             )
             .await
         }

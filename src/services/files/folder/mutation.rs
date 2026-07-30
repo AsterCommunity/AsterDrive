@@ -252,6 +252,7 @@ pub(crate) async fn delete_in_scope(
     state: &impl StorageChangeRuntimeState,
     scope: WorkspaceStorageScope,
     folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, folder_id, "soft deleting folder tree");
     let now = Utc::now();
@@ -267,7 +268,8 @@ pub(crate) async fn delete_in_scope(
             }
 
             let (files, folder_ids) =
-                collect_locked_folder_tree_in_scope(txn, scope, folder_id).await?;
+                collect_locked_folder_tree_in_scope(txn, scope, folder_id, traversal_limits)
+                    .await?;
             let file_count = files.len();
             let folder_count = folder_ids.len();
             let file_ids: Vec<i64> = files.into_iter().map(|f| f.id).collect();
@@ -300,7 +302,7 @@ pub(crate) async fn delete_in_scope(
 
 /// 删除文件夹（软删除 → 回收站，递归标记子项）
 pub async fn delete(state: &impl StorageChangeRuntimeState, id: i64, user_id: i64) -> Result<()> {
-    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id).await
+    delete_in_scope(state, WorkspaceStorageScope::Personal { user_id }, id, None).await
 }
 
 pub(crate) async fn get_info_in_scope(
@@ -529,6 +531,7 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
 ) -> Result<(Vec<file::Model>, Vec<i64>)> {
     const MAX_STABILIZATION_ATTEMPTS: usize = 8;
 
@@ -536,11 +539,11 @@ async fn collect_locked_folder_tree_in_scope<C: ConnectionTrait>(
     // 重新来一轮。这样软删除不会漏掉并发插入/移动进来的子目录。
     for _ in 0..MAX_STABILIZATION_ATTEMPTS {
         let (_files, folder_ids) =
-            collect_folder_tree_in_scope(db, scope, folder_id, false).await?;
+            collect_folder_tree_in_scope(db, scope, folder_id, false, traversal_limits).await?;
         lock_folder_ids_in_order(db, &folder_ids).await?;
 
         let (confirmed_files, confirmed_folder_ids) =
-            collect_folder_tree_in_scope(db, scope, folder_id, false).await?;
+            collect_folder_tree_in_scope(db, scope, folder_id, false, traversal_limits).await?;
         let locked_ids: BTreeSet<i64> = folder_ids.iter().copied().collect();
         let confirmed_ids: BTreeSet<i64> = confirmed_folder_ids.iter().copied().collect();
         if locked_ids == confirmed_ids {

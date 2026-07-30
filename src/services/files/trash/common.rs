@@ -250,6 +250,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
         scope,
         folder_ids,
         true,
+        None,
     )
     .await?;
     let file_count = all_files.len();

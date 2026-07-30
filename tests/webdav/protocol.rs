@@ -2328,6 +2328,34 @@ async fn test_webdav_put_existing_collection_returns_method_not_allowed() {
 }
 
 #[actix_web::test]
+async fn test_webdav_put_below_missing_parent_returns_conflict() {
+    let app = setup_with_webdav!();
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let uri = "/webdav/missing-put-parent/child.txt";
+
+    let req = test::TestRequest::put()
+        .uri(uri)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("must not be stored")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        409,
+        "PUT below a missing parent collection should return Conflict"
+    );
+
+    let req = test::TestRequest::get()
+        .uri(uri)
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 404, "failed PUT must not create a resource");
+}
+
+#[actix_web::test]
 async fn test_webdav_get_and_head_do_not_create_runtime_temp_files() {
     let state = common::setup().await;
     let runtime_temp_dir =
