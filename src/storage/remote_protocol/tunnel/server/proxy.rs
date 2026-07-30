@@ -71,7 +71,10 @@ impl ClusterRemoteTunnelBroker {
         self.directory.current_owner(remote_node_id).await
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "proxy streaming keeps the authenticated owner, target, request metadata, and body explicit at the transport boundary"
+    )]
     async fn send_proxy_stream(
         &self,
         owner: &super::RemoteTunnelOwnerLease,

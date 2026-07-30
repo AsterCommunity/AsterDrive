@@ -1,4 +1,8 @@
-#![allow(dead_code, unused_imports)]
+#![expect(
+    dead_code,
+    unused_imports,
+    reason = "OAuth2 and OIDC test binaries reuse different subsets of this shared support module"
+)]
 
 use actix_web::{body::MessageBody, dev::ServiceResponse};
 use std::collections::HashMap;

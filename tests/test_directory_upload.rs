@@ -6,6 +6,7 @@ mod common;
 use actix_web::test;
 use aster_drive::db::repository::folder_repo;
 use aster_drive::runtime::SharedRuntimeState;
+use aster_forge_utils::numbers::i64_to_usize;
 use serde_json::Value;
 
 #[actix_web::test]
@@ -255,11 +256,16 @@ async fn test_chunked_upload_with_relative_path_and_auto_rename() {
 
         for i in 0..total_chunks {
             let expected_chunk_size = if i == total_chunks - 1 {
-                (total_size - chunk_size * (total_chunks - 1)) as usize
+                i64_to_usize(
+                    total_size - chunk_size * (total_chunks - 1),
+                    "final directory upload chunk size",
+                )
+                .expect("final directory upload chunk size should fit usize")
             } else {
-                chunk_size as usize
+                i64_to_usize(chunk_size, "directory upload chunk size")
+                    .expect("directory upload chunk size should fit usize")
             };
-            let chunk_data = vec![b'A' + i as u8; expected_chunk_size];
+            let chunk_data = vec![b'A'; expected_chunk_size];
             let req = test::TestRequest::put()
                 .uri(&format!("/api/v1/files/upload/{upload_id}/{i}"))
                 .insert_header(("Cookie", common::access_cookie_header(&token)))

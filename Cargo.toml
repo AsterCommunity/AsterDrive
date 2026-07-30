@@ -58,10 +58,17 @@ tracing = { version = "0.1.44", default-features = false }
 utoipa = { version = "5.5.0", features = ["chrono", "repr"] }
 validator = { version = "0.21", features = ["derive"] }
 
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "deny"
+
 [workspace.lints.clippy]
 # Suppressions must remain observable: `expect` reports when its justification goes stale.
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
+cast_possible_truncation = "deny"
+cast_sign_loss = "deny"
+multiple_unsafe_ops_per_block = "deny"
+undocumented_unsafe_blocks = "deny"
 
 [package]
 name = "aster_drive"
@@ -73,6 +80,9 @@ license.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 publish.workspace = true
+
+[lints]
+workspace = true
 
 # 开发构建优先缩短「改代码 -> 编译/测试」的反馈时间。
 # 工作区代码保持 O0 以避免每次修改后重做优化；第三方依赖单独使用 O1，

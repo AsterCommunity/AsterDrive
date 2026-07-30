@@ -1,4 +1,8 @@
 //! 集成测试公共 helper。
+#![expect(
+    dead_code,
+    reason = "shared integration-test support exposes helpers used by different test binaries"
+)]
 
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use fs2::FileExt;
@@ -32,7 +36,6 @@ fn lock_csrf_registry() -> std::sync::MutexGuard<'static, HashMap<String, String
 const TEST_DATABASE_BACKEND_ENV: &str = "ASTER_TEST_DATABASE_BACKEND";
 const SHARED_TEST_CONTAINER_STATE_DIR: &str = "/tmp/asterdrive-testcontainers";
 // Keep the year within MySQL TIMESTAMP's supported range.
-#[allow(dead_code)]
 pub const TEST_FUTURE_SHARE_EXPIRY_RFC3339: &str = "2099-12-31T23:59:59Z";
 
 fn init_test_process_state() {
@@ -59,7 +62,6 @@ pub async fn set_foreign_key_checks(
     db.execute_unprepared(sql).await.map(|_| ())
 }
 
-#[allow(dead_code)]
 pub async fn bind_policy_to_folder(
     state: &aster_drive::runtime::PrimaryAppState,
     folder_id: i64,
@@ -416,7 +418,6 @@ async fn ensure_mysql_test_user_access(admin_database_url: &str, username: &str)
         .expect("mysql test user grant should succeed");
 }
 
-#[allow(dead_code)]
 pub fn remember_csrf_token(session_token: &str, csrf_token: &str) {
     if session_token.is_empty() || csrf_token.is_empty() {
         return;
@@ -431,14 +432,12 @@ pub fn remember_csrf_token(session_token: &str, csrf_token: &str) {
     lock_csrf_registry().insert(session_token.to_string(), csrf_token.to_string());
 }
 
-#[allow(dead_code)]
 pub fn seed_csrf_token(session_token: &str) -> String {
     let csrf_token = aster_forge_actix_middleware::csrf::build_csrf_token();
     remember_csrf_token(session_token, &csrf_token);
     csrf_token
 }
 
-#[allow(dead_code)]
 #[track_caller]
 pub fn expect_authenticated_login(
     completion: aster_drive::services::auth::mfa::PrimaryLoginCompletion,
@@ -451,7 +450,6 @@ pub fn expect_authenticated_login(
     }
 }
 
-#[allow(dead_code)]
 pub fn csrf_token_for(session_token: impl AsRef<str>) -> String {
     let session_token = session_token.as_ref();
     if let Some(token) = CSRF_LOOKUP_CACHE.with(|cache| cache.borrow().get(session_token).cloned())
@@ -472,7 +470,6 @@ pub fn csrf_token_for(session_token: impl AsRef<str>) -> String {
         .unwrap_or_else(|| panic!("missing csrf token for session token: {session_token}"))
 }
 
-#[allow(dead_code)]
 pub fn access_cookie_header(access_token: impl AsRef<str>) -> String {
     let access_token = access_token.as_ref();
     format!(
@@ -481,7 +478,6 @@ pub fn access_cookie_header(access_token: impl AsRef<str>) -> String {
     )
 }
 
-#[allow(dead_code)]
 pub fn refresh_cookie_header(refresh_token: impl AsRef<str>) -> String {
     let refresh_token = refresh_token.as_ref();
     format!(
@@ -490,7 +486,6 @@ pub fn refresh_cookie_header(refresh_token: impl AsRef<str>) -> String {
     )
 }
 
-#[allow(dead_code)]
 pub fn access_and_refresh_cookie_header(
     access_token: impl AsRef<str>,
     refresh_token: impl AsRef<str>,
@@ -503,7 +498,6 @@ pub fn access_and_refresh_cookie_header(
     )
 }
 
-#[allow(dead_code)]
 pub fn csrf_header_for(session_token: impl AsRef<str>) -> (&'static str, String) {
     ("X-CSRF-Token", csrf_token_for(session_token))
 }
@@ -853,12 +847,10 @@ async fn resolve_test_database_url() -> String {
     resolve_test_database_url_for(configured_test_database_backend()).await
 }
 
-#[allow(dead_code)]
 pub async fn postgres_test_database_url() -> String {
     resolve_test_database_url_for(TestDatabaseBackend::Postgres).await
 }
 
-#[allow(dead_code)]
 pub async fn mysql_test_database_url() -> String {
     resolve_test_database_url_for(TestDatabaseBackend::MySql).await
 }
@@ -867,7 +859,6 @@ pub async fn mysql_test_database_url() -> String {
 ///
 /// 默认使用内存 SQLite。若设置 `ASTER_TEST_DATABASE_BACKEND=postgres|mysql`，
 /// 会自动启动一个共享 testcontainers 容器，并为当前测试实例分配独立数据库。
-#[allow(dead_code)]
 pub async fn setup() -> PrimaryAppState {
     init_test_process_state();
     let database_url = resolve_test_database_url().await;
@@ -875,7 +866,6 @@ pub async fn setup() -> PrimaryAppState {
 }
 
 /// 构建使用内存缓存的测试 PrimaryAppState。
-#[allow(dead_code)]
 pub async fn setup_with_memory_cache() -> PrimaryAppState {
     let base = setup().await;
     let cache_config = aster_forge_cache::CacheConfig {
@@ -902,7 +892,6 @@ pub async fn setup_with_memory_cache() -> PrimaryAppState {
     }
 }
 
-#[allow(dead_code)]
 pub fn test_password_hash_policy(memory_kib: u32) -> aster_forge_crypto::PasswordHashPolicy {
     aster_forge_crypto::PasswordHashPolicy::new(
         aster_forge_crypto::PasswordHashWorkFactor::new(memory_kib, 1, 1, 32).unwrap(),
@@ -911,12 +900,10 @@ pub fn test_password_hash_policy(memory_kib: u32) -> aster_forge_crypto::Passwor
     .unwrap()
 }
 
-#[allow(dead_code)]
 pub async fn configure_test_password_hash_policy(state: &mut PrimaryAppState, memory_kib: u32) {
     configure_test_password_hash_runtime(state, memory_kib, 1).await;
 }
 
-#[allow(dead_code)]
 pub async fn configure_test_password_hash_runtime(
     state: &mut PrimaryAppState,
     memory_kib: u32,
@@ -938,7 +925,6 @@ pub async fn configure_test_password_hash_runtime(
 /// The first fixture account goes through `setup`; later fixture accounts use ordinary
 /// registration. Tests that exercise setup/register behavior directly should call those service
 /// functions themselves instead of this convenience helper.
-#[allow(dead_code)]
 pub async fn create_test_account(
     state: &PrimaryAppState,
     username: &str,
@@ -1000,7 +986,6 @@ where
 }
 
 /// Creates the initial administrator through the public setup endpoint.
-#[allow(dead_code)]
 pub async fn setup_test_account_via_api<S, B, E>(
     app: &S,
     username: &str,
@@ -1022,7 +1007,6 @@ where
 
 /// Creates an account through the production setup/register lifecycle and confirms registration
 /// email when that policy is enabled.
-#[allow(dead_code)]
 pub async fn create_test_account_via_api<S, B, E>(
     app: &S,
     db: &sea_orm::DatabaseConnection,
@@ -1354,12 +1338,10 @@ pub async fn setup_with_database_url(database_url: &str) -> PrimaryAppState {
     }
 }
 
-#[allow(dead_code)]
 pub async fn flush_mail_outbox(state: &PrimaryAppState) {
     flush_mail_outbox_with(state.writer_db(), &state.runtime_config, &state.mail_sender).await;
 }
 
-#[allow(dead_code)]
 pub async fn flush_mail_outbox_with(
     db: &sea_orm::DatabaseConnection,
     runtime_config: &std::sync::Arc<aster_drive::config::RuntimeConfig>,
@@ -1390,7 +1372,6 @@ pub async fn flush_mail_outbox_with(
 }
 
 /// 从 Set-Cookie header 提取指定 cookie 的值
-#[allow(dead_code)]
 pub fn extract_cookie<B>(resp: &actix_web::dev::ServiceResponse<B>, name: &str) -> Option<String> {
     let value = resp
         .response()
@@ -1411,7 +1392,6 @@ pub fn extract_cookie<B>(resp: &actix_web::dev::ServiceResponse<B>, name: &str) 
     Some(value)
 }
 
-#[allow(dead_code)]
 fn extract_token_from_content(content: &str, marker: &str) -> Option<String> {
     let (_, suffix) = content.split_once(marker)?;
     let encoded: String = suffix
@@ -1427,7 +1407,6 @@ fn extract_token_from_content(content: &str, marker: &str) -> Option<String> {
         .map(|value| value.into_owned())
 }
 
-#[allow(dead_code)]
 pub fn extract_token_from_mail_message(
     message: &aster_forge_mail::MailMessage,
     marker: &str,
@@ -1436,7 +1415,6 @@ pub fn extract_token_from_mail_message(
         .or_else(|| extract_token_from_content(&message.html_body, marker))
 }
 
-#[allow(dead_code)]
 pub fn extract_verification_token_from_mail_sender(
     sender: &Arc<dyn aster_forge_mail::MailSender>,
 ) -> Option<String> {
@@ -1446,7 +1424,6 @@ pub fn extract_verification_token_from_mail_sender(
     extract_token_from_mail_message(&message, "/api/v1/auth/contact-verification/confirm?token=")
 }
 
-#[allow(dead_code)]
 pub async fn extract_verification_token_from_mail_sender_or_outbox(
     db: &sea_orm::DatabaseConnection,
     sender: &Arc<dyn aster_forge_mail::MailSender>,
@@ -1474,7 +1451,6 @@ pub async fn extract_verification_token_from_mail_sender_or_outbox(
         .map(str::to_string)
 }
 
-#[allow(dead_code)]
 pub fn system_config_model(key: &str, value: &str) -> aster_forge_db::system_config::Model {
     aster_forge_db::system_config::Model {
         id: 0,

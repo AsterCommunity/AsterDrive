@@ -9,6 +9,7 @@ use aster_drive::db::repository::policy_repo;
 use aster_drive::runtime::SharedRuntimeState;
 use aster_drive::services::auth::local;
 use aster_drive_model::types::UploadSessionKind;
+use aster_forge_utils::numbers::{i32_to_usize, i64_to_usize, usize_to_i32};
 use serde_json::Value;
 use testcontainers::{GenericImage, ImageExt, runners::AsyncRunner};
 use tokio::task::JoinSet;
@@ -145,10 +146,13 @@ async fn upload_same_content_direct_and_chunked(
 
     let upload_id = init.upload_id.unwrap();
     let total_chunks = init.total_chunks.unwrap();
-    let chunk_size = init.chunk_size.unwrap() as usize;
+    let chunk_size = i64_to_usize(init.chunk_size.unwrap(), "negotiated chunk size")
+        .expect("negotiated chunk size should fit usize");
     for chunk_number in 0..total_chunks {
-        let start = chunk_number as usize * chunk_size;
-        let end = ((chunk_number as usize + 1) * chunk_size).min(content.len());
+        let chunk_index = i32_to_usize(chunk_number, "chunk number")
+            .expect("chunk number should be non-negative");
+        let start = chunk_index * chunk_size;
+        let end = ((chunk_index + 1) * chunk_size).min(content.len());
         let chunk = &content[start..end];
         upload::upload_chunk(state, &upload_id, chunk_number, user_id, chunk)
             .await
@@ -2057,7 +2061,9 @@ async fn test_chunked_upload_offset_staging_preserves_content() {
         .unwrap();
     assert_eq!(receipts.len(), 2);
     assert!(receipts.iter().enumerate().all(|(index, receipt)| {
-        receipt.part_number == index as i32 + 1
+        let expected_part_number =
+            usize_to_i32(index, "receipt index").expect("receipt index should fit i32") + 1;
+        receipt.part_number == expected_part_number
             && receipt.etag == upload::test_support::offset_staging_receipt_etag()
             && receipt.size == TEST_CHUNK_SIZE as i64
     }));
@@ -2502,10 +2508,13 @@ async fn test_concurrent_chunked_dedup_complete_reuses_blob_without_overwrite() 
             .unwrap();
         let upload_id = init.upload_id.unwrap();
         let total_chunks = init.total_chunks.unwrap();
-        let chunk_size = init.chunk_size.unwrap() as usize;
+        let chunk_size = i64_to_usize(init.chunk_size.unwrap(), "negotiated chunk size")
+            .expect("negotiated chunk size should fit usize");
         for chunk_number in 0..total_chunks {
-            let start = chunk_number as usize * chunk_size;
-            let end = ((chunk_number as usize + 1) * chunk_size).min(content.len());
+            let chunk_index = i32_to_usize(chunk_number, "chunk number")
+                .expect("chunk number should be non-negative");
+            let start = chunk_index * chunk_size;
+            let end = ((chunk_index + 1) * chunk_size).min(content.len());
             upload::upload_chunk(
                 &state,
                 &upload_id,

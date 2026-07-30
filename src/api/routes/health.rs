@@ -142,7 +142,6 @@ fn ready_storage_error(error: crate::errors::AsterError) -> HttpResponse {
     ))
 }
 
-#[cfg_attr(not(all(debug_assertions, feature = "openapi")), allow(dead_code))]
 pub async fn ready(state: web::Data<PrimaryAppState>) -> HttpResponse {
     primary_ready(state).await
 }

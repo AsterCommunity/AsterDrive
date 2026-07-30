@@ -265,7 +265,17 @@ mod tests {
     };
     use crate::config::{Config, DeploymentProfile, node_mode::NodeRuntimeMode};
     use std::path::{Path, PathBuf};
-    use std::sync::{Mutex, OnceLock};
+    use std::process::Command;
+
+    const ISOLATED_ENV_CHILD: &str = "ASTER_CONFIG_LOADER_ISOLATED_ENV_CHILD";
+    const AUTH_SECRET_ENV_NAMES: [&str; 6] = [
+        "ASTER__AUTH__JWT_SECRET",
+        "ASTER__AUTH__SHARE_COOKIE_SECRET",
+        "ASTER__AUTH__DIRECT_LINK_SECRET",
+        "ASTER__AUTH__MFA_SECRET_KEY",
+        "ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY",
+        "ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET",
+    ];
 
     fn make_temp_dir(test_name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
@@ -283,88 +293,32 @@ mod tests {
         std::fs::write(path, content).unwrap();
     }
 
-    fn env_lock() -> &'static Mutex<()> {
-        static LOCK: OnceLock<Mutex<()>> = OnceLock::new();
-        LOCK.get_or_init(|| Mutex::new(()))
+    fn is_isolated_environment_child() -> bool {
+        std::env::var_os(ISOLATED_ENV_CHILD).is_some()
     }
 
-    struct EnvVarGuard {
-        name: &'static str,
-        old: Option<std::ffi::OsString>,
-    }
-
-    impl Drop for EnvVarGuard {
-        fn drop(&mut self) {
-            unsafe {
-                match &self.old {
-                    Some(old) => std::env::set_var(self.name, old),
-                    None => std::env::remove_var(self.name),
-                }
-            }
+    fn run_in_isolated_environment(test_name: &str, removed: &[&str], values: &[(&str, &str)]) {
+        let mut command = Command::new(
+            std::env::current_exe().expect("current config loader test executable should resolve"),
+        );
+        command
+            .args(["--exact", test_name, "--nocapture"])
+            .env(ISOLATED_ENV_CHILD, "1");
+        for name in removed {
+            command.env_remove(name);
         }
-    }
-
-    fn with_env_var<T>(name: &'static str, value: &str, run: impl FnOnce() -> T) -> T {
-        let _lock = env_lock()
-            .lock()
-            .expect("config loader env test lock should not be poisoned");
-        let _env = EnvVarGuard {
-            name,
-            old: std::env::var_os(name),
-        };
-        unsafe {
-            std::env::set_var(name, value);
+        for (name, value) in values {
+            command.env(name, value);
         }
-        run()
-    }
-
-    fn with_env_vars<T>(values: &[(&'static str, &str)], run: impl FnOnce() -> T) -> T {
-        let _lock = env_lock()
-            .lock()
-            .expect("config loader env test lock should not be poisoned");
-        let guards: Vec<_> = values
-            .iter()
-            .map(|(name, value)| {
-                let guard = EnvVarGuard {
-                    name,
-                    old: std::env::var_os(name),
-                };
-                unsafe {
-                    std::env::set_var(name, value);
-                }
-                guard
-            })
-            .collect();
-        let result = run();
-        drop(guards);
-        result
-    }
-
-    fn clear_auth_secret_env_vars<T>(run: impl FnOnce() -> T) -> T {
-        let names = [
-            "ASTER__AUTH__JWT_SECRET",
-            "ASTER__AUTH__SHARE_COOKIE_SECRET",
-            "ASTER__AUTH__DIRECT_LINK_SECRET",
-            "ASTER__AUTH__MFA_SECRET_KEY",
-            "ASTER__AUTH__STORAGE_CREDENTIAL_SECRET_KEY",
-            "ASTER__AUTH__WEBDAV_AUTH_CACHE_SECRET",
-        ];
-        let guards: Vec<_> = names
-            .into_iter()
-            .map(|name| {
-                let guard = EnvVarGuard {
-                    name,
-                    old: std::env::var_os(name),
-                };
-                unsafe {
-                    std::env::remove_var(name);
-                }
-                guard
-            })
-            .collect();
-        let result = run();
-        drop(guards);
-        result
+        let output = command
+            .output()
+            .expect("isolated config loader test process should start");
+        assert!(
+            output.status.success(),
+            "isolated config loader test failed\nstdout:\n{}\nstderr:\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     #[test]
@@ -435,106 +389,117 @@ mod tests {
 
     #[test]
     fn load_backfills_missing_auth_secrets_without_reusing_existing_jwt_secret() {
-        let _lock = env_lock()
-            .lock()
-            .expect("config loader env test lock should not be poisoned");
-        clear_auth_secret_env_vars(|| {
-            let dir = make_temp_dir("backfill-auth-secrets");
-            let legacy_jwt_secret = "legacy-jwt-secret";
-            write(
-                &dir.join(DEFAULT_CONFIG_PATH),
-                format!(
-                    r#"[auth]
+        if !is_isolated_environment_child() {
+            run_in_isolated_environment(
+                "config::loader::tests::load_backfills_missing_auth_secrets_without_reusing_existing_jwt_secret",
+                &AUTH_SECRET_ENV_NAMES,
+                &[],
+            );
+            return;
+        }
+
+        let dir = make_temp_dir("backfill-auth-secrets");
+        let legacy_jwt_secret = "legacy-jwt-secret";
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            format!(
+                r#"[auth]
 jwt_secret = "{legacy_jwt_secret}"
 "#
-                )
-                .as_bytes(),
-            );
+            )
+            .as_bytes(),
+        );
 
-            let cfg = load_from_dir(&dir, None, false).unwrap().config;
-            let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
+        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
-            assert_eq!(cfg.auth.jwt_secret, legacy_jwt_secret);
-            assert!(!cfg.auth.share_cookie_secret.is_empty());
-            assert!(!cfg.auth.direct_link_secret.is_empty());
-            assert!(!cfg.auth.mfa_secret_key.is_empty());
-            assert!(!cfg.auth.storage_credential_secret_key.is_empty());
-            assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
-            assert_ne!(cfg.auth.share_cookie_secret, legacy_jwt_secret);
-            assert_ne!(cfg.auth.direct_link_secret, legacy_jwt_secret);
-            assert_ne!(cfg.auth.mfa_secret_key, legacy_jwt_secret);
-            assert_ne!(cfg.auth.storage_credential_secret_key, legacy_jwt_secret);
-            assert_ne!(cfg.auth.webdav_auth_cache_secret, legacy_jwt_secret);
-            assert!(updated.contains("share_cookie_secret"));
-            assert!(updated.contains("direct_link_secret"));
-            assert!(updated.contains("mfa_secret_key"));
-            assert!(updated.contains("storage_credential_secret_key"));
-            assert!(updated.contains("webdav_auth_cache_secret"));
+        assert_eq!(cfg.auth.jwt_secret, legacy_jwt_secret);
+        assert!(!cfg.auth.share_cookie_secret.is_empty());
+        assert!(!cfg.auth.direct_link_secret.is_empty());
+        assert!(!cfg.auth.mfa_secret_key.is_empty());
+        assert!(!cfg.auth.storage_credential_secret_key.is_empty());
+        assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
+        assert_ne!(cfg.auth.share_cookie_secret, legacy_jwt_secret);
+        assert_ne!(cfg.auth.direct_link_secret, legacy_jwt_secret);
+        assert_ne!(cfg.auth.mfa_secret_key, legacy_jwt_secret);
+        assert_ne!(cfg.auth.storage_credential_secret_key, legacy_jwt_secret);
+        assert_ne!(cfg.auth.webdav_auth_cache_secret, legacy_jwt_secret);
+        assert!(updated.contains("share_cookie_secret"));
+        assert!(updated.contains("direct_link_secret"));
+        assert!(updated.contains("mfa_secret_key"));
+        assert!(updated.contains("storage_credential_secret_key"));
+        assert!(updated.contains("webdav_auth_cache_secret"));
 
-            let _ = std::fs::remove_dir_all(dir);
-        });
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn load_backfills_jwt_secret_when_auth_table_is_missing() {
-        let _lock = env_lock()
-            .lock()
-            .expect("config loader env test lock should not be poisoned");
-        clear_auth_secret_env_vars(|| {
-            let dir = make_temp_dir("backfill-missing-auth-table");
-            write(
-                &dir.join(DEFAULT_CONFIG_PATH),
-                br#"[database]
+        if !is_isolated_environment_child() {
+            run_in_isolated_environment(
+                "config::loader::tests::load_backfills_jwt_secret_when_auth_table_is_missing",
+                &AUTH_SECRET_ENV_NAMES,
+                &[],
+            );
+            return;
+        }
+
+        let dir = make_temp_dir("backfill-missing-auth-table");
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            br#"[database]
 url = "sqlite://asterdrive.db?mode=rwc"
 "#,
-            );
+        );
 
-            let cfg = load_from_dir(&dir, None, false).unwrap().config;
-            let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
+        let cfg = load_from_dir(&dir, None, false).unwrap().config;
+        let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
 
-            assert!(!cfg.auth.jwt_secret.is_empty());
-            assert!(!cfg.auth.share_cookie_secret.is_empty());
-            assert!(!cfg.auth.direct_link_secret.is_empty());
-            assert!(!cfg.auth.mfa_secret_key.is_empty());
-            assert!(!cfg.auth.storage_credential_secret_key.is_empty());
-            assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
-            assert!(updated.contains("[auth]"));
-            assert!(updated.contains("jwt_secret"));
-            assert!(updated.contains("share_cookie_secret"));
-            assert!(updated.contains("direct_link_secret"));
-            assert!(updated.contains("mfa_secret_key"));
-            assert!(updated.contains("storage_credential_secret_key"));
-            assert!(updated.contains("webdav_auth_cache_secret"));
+        assert!(!cfg.auth.jwt_secret.is_empty());
+        assert!(!cfg.auth.share_cookie_secret.is_empty());
+        assert!(!cfg.auth.direct_link_secret.is_empty());
+        assert!(!cfg.auth.mfa_secret_key.is_empty());
+        assert!(!cfg.auth.storage_credential_secret_key.is_empty());
+        assert!(!cfg.auth.webdav_auth_cache_secret.is_empty());
+        assert!(updated.contains("[auth]"));
+        assert!(updated.contains("jwt_secret"));
+        assert!(updated.contains("share_cookie_secret"));
+        assert!(updated.contains("direct_link_secret"));
+        assert!(updated.contains("mfa_secret_key"));
+        assert!(updated.contains("storage_credential_secret_key"));
+        assert!(updated.contains("webdav_auth_cache_secret"));
 
-            let _ = std::fs::remove_dir_all(dir);
-        });
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
     fn load_does_not_backfill_secret_supplied_by_environment() {
-        with_env_var(
-            "ASTER__AUTH__DIRECT_LINK_SECRET",
-            "env-direct-link-secret",
-            || {
-                let dir = make_temp_dir("skip-env-auth-secret-backfill");
-                write(
-                    &dir.join(DEFAULT_CONFIG_PATH),
-                    br#"[auth]
+        if !is_isolated_environment_child() {
+            run_in_isolated_environment(
+                "config::loader::tests::load_does_not_backfill_secret_supplied_by_environment",
+                &AUTH_SECRET_ENV_NAMES,
+                &[("ASTER__AUTH__DIRECT_LINK_SECRET", "env-direct-link-secret")],
+            );
+            return;
+        }
+
+        let dir = make_temp_dir("skip-env-auth-secret-backfill");
+        write(
+            &dir.join(DEFAULT_CONFIG_PATH),
+            br#"[auth]
 jwt_secret = "file-jwt-secret"
 share_cookie_secret = "file-share-secret"
 mfa_secret_key = "file-mfa-secret"
 "#,
-                );
-
-                let cfg = load_from_dir(&dir, None, true).unwrap().config;
-                let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
-
-                assert_eq!(cfg.auth.direct_link_secret, "env-direct-link-secret");
-                assert!(!updated.contains("direct_link_secret"));
-
-                let _ = std::fs::remove_dir_all(dir);
-            },
         );
+
+        let cfg = load_from_dir(&dir, None, true).unwrap().config;
+        let updated = std::fs::read_to_string(dir.join(DEFAULT_CONFIG_PATH)).unwrap();
+
+        assert_eq!(cfg.auth.direct_link_secret, "env-direct-link-secret");
+        assert!(!updated.contains("direct_link_secret"));
+
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]
@@ -717,63 +682,69 @@ topic = "aster_drive.config_reload"
 
     #[test]
     fn load_accepts_structured_infrastructure_credentials_from_environment() {
-        let dir = make_temp_dir("structured-infrastructure-env");
         let raw_username = "env user";
         let raw_password = "env#[]{}^+=*@:/?%secret";
-        with_env_vars(
-            &[
-                (
-                    "ASTER__DATABASE__URL__BASE_URL",
-                    "postgres://database.internal:5432/asterdrive",
-                ),
-                ("ASTER__DATABASE__URL__USERNAME", raw_username),
-                ("ASTER__DATABASE__URL__PASSWORD", raw_password),
-                ("ASTER__CACHE__BACKEND", "redis"),
-                (
-                    "ASTER__CACHE__ENDPOINT__BASE_URL",
-                    "redis://cache.internal:6379/0",
-                ),
-                ("ASTER__CACHE__ENDPOINT__USERNAME", raw_username),
-                ("ASTER__CACHE__ENDPOINT__PASSWORD", raw_password),
-                ("ASTER__CONFIG_SYNC__BACKEND", "redis"),
-                (
-                    "ASTER__CONFIG_SYNC__ENDPOINT__BASE_URL",
-                    "redis://events.internal:6379/0",
-                ),
-                ("ASTER__CONFIG_SYNC__ENDPOINT__USERNAME", raw_username),
-                ("ASTER__CONFIG_SYNC__ENDPOINT__PASSWORD", raw_password),
-            ],
-            || {
-                let cfg = load_from_dir(&dir, None, true).unwrap().config;
-                assert_eq!(
-                    cfg.database.url,
-                    aster_forge_db::DatabaseUrl::credentials(
-                        "postgres://database.internal:5432/asterdrive",
-                        Some(raw_username.to_string()),
-                        Some(raw_password.to_string()),
-                    )
-                );
-                assert_eq!(
-                    cfg.cache.endpoint,
-                    aster_forge_cache::CacheEndpoint::credentials(
-                        "redis://cache.internal:6379/0",
-                        Some(raw_username.to_string()),
-                        Some(raw_password.to_string()),
-                    )
-                );
-                assert_eq!(
-                    cfg.config_sync.endpoint,
-                    aster_forge_config::ConfigSyncEndpoint::credentials(
-                        "redis://events.internal:6379/0",
-                        Some(raw_username.to_string()),
-                        Some(raw_password.to_string()),
-                    )
-                );
-                let debug = format!("{cfg:?}");
-                assert!(!debug.contains(raw_username));
-                assert!(!debug.contains(raw_password));
-            },
+        let values = [
+            (
+                "ASTER__DATABASE__URL__BASE_URL",
+                "postgres://database.internal:5432/asterdrive",
+            ),
+            ("ASTER__DATABASE__URL__USERNAME", raw_username),
+            ("ASTER__DATABASE__URL__PASSWORD", raw_password),
+            ("ASTER__CACHE__BACKEND", "redis"),
+            (
+                "ASTER__CACHE__ENDPOINT__BASE_URL",
+                "redis://cache.internal:6379/0",
+            ),
+            ("ASTER__CACHE__ENDPOINT__USERNAME", raw_username),
+            ("ASTER__CACHE__ENDPOINT__PASSWORD", raw_password),
+            ("ASTER__CONFIG_SYNC__BACKEND", "redis"),
+            (
+                "ASTER__CONFIG_SYNC__ENDPOINT__BASE_URL",
+                "redis://events.internal:6379/0",
+            ),
+            ("ASTER__CONFIG_SYNC__ENDPOINT__USERNAME", raw_username),
+            ("ASTER__CONFIG_SYNC__ENDPOINT__PASSWORD", raw_password),
+        ];
+        if !is_isolated_environment_child() {
+            let removed: Vec<_> = values.iter().map(|(name, _)| *name).collect();
+            run_in_isolated_environment(
+                "config::loader::tests::load_accepts_structured_infrastructure_credentials_from_environment",
+                &removed,
+                &values,
+            );
+            return;
+        }
+
+        let dir = make_temp_dir("structured-infrastructure-env");
+        let cfg = load_from_dir(&dir, None, true).unwrap().config;
+        assert_eq!(
+            cfg.database.url,
+            aster_forge_db::DatabaseUrl::credentials(
+                "postgres://database.internal:5432/asterdrive",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
         );
+        assert_eq!(
+            cfg.cache.endpoint,
+            aster_forge_cache::CacheEndpoint::credentials(
+                "redis://cache.internal:6379/0",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+        assert_eq!(
+            cfg.config_sync.endpoint,
+            aster_forge_config::ConfigSyncEndpoint::credentials(
+                "redis://events.internal:6379/0",
+                Some(raw_username.to_string()),
+                Some(raw_password.to_string()),
+            )
+        );
+        let debug = format!("{cfg:?}");
+        assert!(!debug.contains(raw_username));
+        assert!(!debug.contains(raw_password));
 
         let _ = std::fs::remove_dir_all(dir);
     }

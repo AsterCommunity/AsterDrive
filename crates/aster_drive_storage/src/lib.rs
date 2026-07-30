@@ -1,5 +1,4 @@
 //! AsterDrive storage contracts, descriptors, and structured errors.
-#![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #![cfg_attr(
     not(test),
     deny(

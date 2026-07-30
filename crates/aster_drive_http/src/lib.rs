@@ -1,5 +1,4 @@
 //! Shared HTTP client utilities for AsterDrive crates.
-#![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #![cfg_attr(
     not(test),
     deny(

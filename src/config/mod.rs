@@ -55,7 +55,10 @@ pub fn load_config_read_only() -> crate::errors::Result<Config> {
     loader::load_read_only()
 }
 
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "runtime entry points initialize CONFIG before accessing the required global snapshot"
+)]
 pub fn get_config() -> Arc<Config> {
     CONFIG
         .get()

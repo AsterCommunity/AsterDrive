@@ -1,5 +1,4 @@
 //! Shared AsterDrive product models and SeaORM entities.
-#![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #![cfg_attr(
     not(test),
     deny(

@@ -49,7 +49,10 @@ pub fn sign_internal_request(
     hex::encode(digest)
 }
 
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "HMAC-SHA256 accepts keys of every length, so construction with secret bytes is infallible"
+)]
 pub(crate) fn internal_request_mac(
     secret_key: &str,
     method: &str,
@@ -74,7 +77,10 @@ pub(crate) fn internal_request_mac(
     mac
 }
 
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "HMAC-SHA256 accepts keys of every length, so construction with secret bytes is infallible"
+)]
 pub fn sign_presigned_request(
     secret_key: &str,
     method: &str,

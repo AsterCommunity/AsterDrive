@@ -220,7 +220,10 @@ fn ip_subnet(ip: IpAddr) -> String {
     }
 }
 
-#[allow(clippy::expect_used)]
+#[expect(
+    clippy::expect_used,
+    reason = "HMAC-SHA256 accepts keys of every length, so construction with secret bytes is infallible"
+)]
 fn share_cookie_mac(
     token: &str,
     binding: &ShareCookieBinding,

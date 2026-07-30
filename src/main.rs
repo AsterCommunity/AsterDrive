@@ -1,5 +1,4 @@
 //! AsterDrive 服务端与 CLI 启动入口。
-#![deny(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 #![cfg_attr(
     not(test),
     deny(
@@ -21,21 +20,29 @@ use std::io;
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 #[cfg(all(feature = "jemalloc", not(target_env = "msvc"), target_os = "linux"))]
-#[allow(non_upper_case_globals)]
+#[expect(
+    non_upper_case_globals,
+    reason = "jemalloc discovers this externally named allocator configuration symbol by ABI name"
+)]
 #[unsafe(export_name = "_rjem_malloc_conf")]
-pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(unsafe {
-    union Conf {
-        bytes: &'static u8,
-        ptr: &'static std::ffi::c_char,
-    }
+pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
+    // SAFETY: `Conf` is initialized through `bytes` and read through a pointer field with the
+    // same representation and alignment; the referenced static byte string is NUL-terminated.
+    unsafe {
+        union Conf {
+            bytes: &'static u8,
+            ptr: &'static std::ffi::c_char,
+        }
 
-    // `narenas:1` lowers idle memory for the self-hosted default profile, but
-    // can become allocator contention under high concurrency.
-    Conf {
-        bytes: &b"narenas:1,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true\0"[0],
-    }
-    .ptr
-});
+        // `narenas:1` lowers idle memory for the self-hosted default profile, but
+        // can become allocator contention under high concurrency.
+        Conf {
+            bytes: &b"narenas:1,dirty_decay_ms:1000,muzzy_decay_ms:1000,background_thread:true\0"
+                [0],
+        }
+        .ptr
+    },
+);
 
 #[cfg(all(
     feature = "jemalloc",
@@ -47,19 +54,26 @@ pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(unsafe {
         target_os = "openbsd"
     )
 ))]
-#[allow(non_upper_case_globals)]
+#[expect(
+    non_upper_case_globals,
+    reason = "jemalloc discovers this externally named allocator configuration symbol by ABI name"
+)]
 #[unsafe(export_name = "_rjem_malloc_conf")]
-pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(unsafe {
-    union Conf {
-        bytes: &'static u8,
-        ptr: &'static std::ffi::c_char,
-    }
+pub static malloc_conf: Option<&'static std::ffi::c_char> = Some(
+    // SAFETY: `Conf` is initialized through `bytes` and read through a pointer field with the
+    // same representation and alignment; the referenced static byte string is NUL-terminated.
+    unsafe {
+        union Conf {
+            bytes: &'static u8,
+            ptr: &'static std::ffi::c_char,
+        }
 
-    Conf {
-        bytes: &b"narenas:1,dirty_decay_ms:1000,muzzy_decay_ms:1000\0"[0],
-    }
-    .ptr
-});
+        Conf {
+            bytes: &b"narenas:1,dirty_decay_ms:1000,muzzy_decay_ms:1000\0"[0],
+        }
+        .ptr
+    },
+);
 
 #[cfg(all(debug_assertions, not(feature = "jemalloc")))]
 #[global_allocator]
