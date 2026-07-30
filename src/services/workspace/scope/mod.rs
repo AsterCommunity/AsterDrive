@@ -486,21 +486,6 @@ pub(crate) async fn list_files_in_folder(
     }
 }
 
-pub(crate) async fn list_folders_in_parent(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    parent_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_children(state.reader_db(), user_id, parent_id).await
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_children(state.reader_db(), team_id, parent_id).await
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::{WorkspaceStorageScope, require_team_access, require_team_policy_group_id};

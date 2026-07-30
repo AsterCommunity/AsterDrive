@@ -5,23 +5,124 @@ use std::collections::HashMap;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
 use aster_forge_webdav::{
-    DavCopyMoveMethod, DavMutationFailure, DavMutationPlanError, DavRequestHead, DavResourceKind,
-    Depth, collection_created_response, delete_success_response, mutation_multistatus_response,
+    DavBackendErrorKind, DavCancellation, DavConditionalOutcome, DavConditionalResource,
+    DavCopyMoveMethod, DavDirectoryEntry, DavDirectoryPageLimits, DavDirectoryPageState,
+    DavDirectoryReadError, DavMetaData, DavMethod, DavMutationFailure, DavMutationPlanError,
+    DavNeverCancelled, DavRequestHead, DavResourceKind, DavResponse, DavTraversalBudget,
+    DavTraversalError, DavTraversalErrorKind, DavTraversalLimits, Depth,
+    collection_created_response, delete_success_response, mutation_multistatus_response,
     mutation_plan_error_response, mutation_success_response, plan_copy_move_request,
-    resource_identity_path, validate_collection_create_target, validate_delete_target,
+    read_next_directory_page, resource_identity_path, validate_collection_create_target,
+    validate_delete_target,
 };
-use futures::{StreamExt, pin_mut};
 
 use crate::webdav::{
     backend, child_relative_path, ensure_system_file_name_allowed, fs_error_response, responses,
     system_file,
 };
-use aster_forge_webdav::{DavFileSystem, DavLockSystem, DavPath, FsError, ReadDirMeta};
+use aster_forge_webdav::{DavFileSystem, DavLockSystem, DavPath, FsError};
+
+const MUTATION_DIRECTORY_PAGE_ENTRIES: usize = 256;
+const MUTATION_DIRECTORY_MAXIMUM_PAGES: usize = 40;
+const MUTATION_DIRECTORY_LIMITS: DavDirectoryPageLimits = DavDirectoryPageLimits {
+    maximum_entries: MUTATION_DIRECTORY_PAGE_ENTRIES,
+    maximum_pages: MUTATION_DIRECTORY_MAXIMUM_PAGES,
+};
+const MUTATION_MAXIMUM_VISITED_RESOURCES: usize = 10_000;
+const MUTATION_MAXIMUM_QUEUED_WORK_ITEMS: usize = 10_000;
+const MUTATION_MAXIMUM_FAILURES: usize = 512;
+const MUTATION_MAXIMUM_DEPTH: usize = 128;
 
 struct DavChild {
     path: DavPath,
     relative: String,
     is_dir: bool,
+}
+
+#[derive(Debug)]
+struct MutationTraversalNode {
+    path: DavPath,
+    relative: String,
+    is_dir: bool,
+    depth: usize,
+}
+
+enum MutationTraversalFailure {
+    Traversal(DavTraversalError),
+    FileSystem(FsError),
+}
+
+struct MutationTraversal<'a, C: DavCancellation> {
+    budget: DavTraversalBudget,
+    cancellation: &'a C,
+    work: Vec<MutationTraversalNode>,
+}
+
+impl<'a, C: DavCancellation> MutationTraversal<'a, C> {
+    fn new(
+        roots: impl IntoIterator<Item = MutationTraversalNode>,
+        cancellation: &'a C,
+        limits: DavTraversalLimits,
+    ) -> Result<Self, DavTraversalError> {
+        let mut budget = mutation_traversal_budget(limits)?;
+        let work = roots.into_iter().collect::<Vec<_>>();
+        budget.reserve_work(work.len())?;
+        Ok(Self {
+            budget,
+            cancellation,
+            work,
+        })
+    }
+
+    fn next(&mut self) -> Result<Option<MutationTraversalNode>, DavTraversalError> {
+        self.budget.checkpoint(self.cancellation)?;
+        let Some(node) = self.work.pop() else {
+            return Ok(None);
+        };
+        self.budget.complete_work();
+        self.budget.visit(node.depth)?;
+        Ok(Some(node))
+    }
+
+    fn checkpoint(&self) -> Result<(), DavTraversalError> {
+        self.budget.checkpoint(self.cancellation)
+    }
+
+    fn push_children(
+        &mut self,
+        parent_depth: usize,
+        children: impl IntoIterator<Item = DavChild>,
+    ) -> Result<(), DavTraversalError> {
+        self.budget.checkpoint(self.cancellation)?;
+        let child_depth = parent_depth
+            .checked_add(1)
+            .ok_or_else(|| DavTraversalError {
+                kind: DavTraversalErrorKind::DepthLimitExceeded,
+                progress: self.budget.progress(),
+            })?;
+        let children = children
+            .into_iter()
+            .map(|child| MutationTraversalNode {
+                path: child.path,
+                relative: child.relative,
+                is_dir: child.is_dir,
+                depth: child_depth,
+            })
+            .collect::<Vec<_>>();
+        self.budget.reserve_work(children.len())?;
+        self.work.extend(children.into_iter().rev());
+        Ok(())
+    }
+
+    #[cfg(test)]
+    fn record_failure(&mut self) -> Result<(), DavTraversalError> {
+        self.budget.record_failure()
+    }
+
+    #[cfg(test)]
+    fn record_completed_mutation(&mut self) {
+        self.budget.record_completed_mutation();
+    }
 }
 
 struct PartialMutationOutcome {
@@ -35,6 +136,39 @@ struct PartialMutationContext<'a> {
     request_head: &'a DavRequestHead,
     prefix: &'a str,
     is_move: bool,
+}
+
+fn enforce_http_conditionals(
+    headers: &actix_web::http::header::HeaderMap,
+    method: DavMethod,
+    metadata: &dyn DavMetaData,
+) -> Result<(), HttpResponse> {
+    let last_modified = metadata.modified().ok();
+    let etag = metadata.etag();
+    let plan = aster_forge_webdav::actix::plan_http_conditionals(
+        headers,
+        method,
+        DavConditionalResource {
+            exists: true,
+            etag: etag.as_deref(),
+            last_modified,
+        },
+    )?;
+    if plan.outcome == DavConditionalOutcome::Proceed {
+        return Ok(());
+    }
+    let status = match plan.outcome {
+        DavConditionalOutcome::Proceed => http::StatusCode::OK,
+        DavConditionalOutcome::NotModified => http::StatusCode::NOT_MODIFIED,
+        DavConditionalOutcome::PreconditionFailed => http::StatusCode::PRECONDITION_FAILED,
+    };
+    let mut response = DavResponse::empty(status);
+    response.headers.insert(
+        http::header::CACHE_CONTROL,
+        http::HeaderValue::from_static("no-store"),
+    );
+    plan.apply_response_headers(status, &mut response.headers);
+    Err(aster_forge_webdav::actix::into_response(response))
 }
 
 #[derive(Clone)]
@@ -147,7 +281,7 @@ pub(crate) async fn handle_delete(
     };
     let path = request_head.target.clone();
 
-    let meta = match dav_fs.metadata(&path).await {
+    let meta = match dav_fs.metadata_for_write(&path).await {
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
@@ -159,12 +293,7 @@ pub(crate) async fn handle_delete(
     if let Err(error) = validate_delete_target(resource_kind, depth) {
         return aster_forge_webdav::actix::into_response(mutation_plan_error_response(error));
     }
-    if let Err(resp) = aster_forge_webdav::actix::evaluate_http_etag_preconditions(
-        req.headers(),
-        true,
-        meta.etag().as_deref(),
-        false,
-    ) {
+    if let Err(resp) = enforce_http_conditionals(req.headers(), DavMethod::Delete, &meta) {
         return resp;
     }
     let request_scheme = request_head.origin.scheme.as_str();
@@ -212,6 +341,18 @@ pub(crate) async fn handle_delete(
     .await
     {
         return resp;
+    }
+
+    if meta.is_dir()
+        && let Err(error) = preflight_recursive_mutation(
+            dav_fs,
+            [(path.clone(), path.as_str().to_owned())],
+            &DavNeverCancelled,
+            mutation_traversal_limits(),
+        )
+        .await
+    {
+        return mutation_traversal_failure_response(error);
     }
 
     let result = if meta.is_dir() {
@@ -264,16 +405,11 @@ pub(crate) async fn handle_copy_move(
         return aster_forge_webdav::actix::into_response(response);
     }
 
-    let source_meta = match dav_fs.metadata(&source).await {
+    let source_meta = match dav_fs.metadata_for_write(&source).await {
         Ok(meta) => meta,
         Err(err) => return fs_error_response(err),
     };
-    if let Err(resp) = aster_forge_webdav::actix::evaluate_http_etag_preconditions(
-        req.headers(),
-        true,
-        source_meta.etag().as_deref(),
-        false,
-    ) {
+    if let Err(resp) = enforce_http_conditionals(req.headers(), request_head.method, &source_meta) {
         return resp;
     }
     if let Err(resp) = aster_forge_webdav::actix::enforce_if_header_with_backends(
@@ -317,7 +453,7 @@ pub(crate) async fn handle_copy_move(
         return resp;
     }
 
-    let destination_meta = match dav_fs.metadata(&destination).await {
+    let destination_meta = match dav_fs.metadata_for_write(&destination).await {
         Ok(meta) => Some(meta),
         Err(FsError::NotFound) => None,
         Err(err) => return fs_error_response(err),
@@ -383,6 +519,23 @@ pub(crate) async fn handle_copy_move(
     .await
     {
         return resp;
+    }
+
+    if plan.recursive_collection {
+        let mut roots = vec![(source.clone(), source_relative.clone())];
+        if destination_is_collection {
+            roots.push((destination.clone(), destination_relative.clone()));
+        }
+        if let Err(error) = preflight_recursive_mutation(
+            dav_fs,
+            roots,
+            &DavNeverCancelled,
+            mutation_traversal_limits(),
+        )
+        .await
+        {
+            return mutation_traversal_failure_response(error);
+        }
     }
 
     if plan.recursive_collection {
@@ -566,13 +719,15 @@ async fn partial_recursive_copy_move(
         work.pop();
     }
 
-    while let Some(work_item) = work.pop() {
+    while failures.len() < MUTATION_MAXIMUM_FAILURES
+        && let Some(work_item) = work.pop()
+    {
         match work_item {
             PartialMutationWork::ProcessFile(node) => {
                 partial_copy_move_file(ctx, &node, &mut failures).await;
             }
             PartialMutationWork::VisitDirectory(node) => {
-                let dest_meta = match ctx.dav_fs.metadata(&node.destination).await {
+                let dest_meta = match ctx.dav_fs.metadata_for_write(&node.destination).await {
                     Ok(meta) => Some(meta),
                     Err(FsError::NotFound) => None,
                     Err(error) => {
@@ -808,7 +963,7 @@ async fn partial_copy_move_file(
             return;
         }
     }
-    let destination_is_collection = match ctx.dav_fs.metadata(&node.destination).await {
+    let destination_is_collection = match ctx.dav_fs.metadata_for_write(&node.destination).await {
         Ok(meta) => meta.is_dir(),
         Err(FsError::NotFound) => false,
         Err(error) => {
@@ -856,6 +1011,9 @@ fn extend_unique_failures(
     additions: impl IntoIterator<Item = DavMutationFailure>,
 ) {
     for failure in additions {
+        if failures.len() >= MUTATION_MAXIMUM_FAILURES {
+            break;
+        }
         if failures.contains(&failure) {
             continue;
         }
@@ -888,22 +1046,149 @@ async fn collect_children(
     path: &DavPath,
     relative: &str,
 ) -> Result<Vec<DavChild>, FsError> {
-    let entries = dav_fs.read_dir(path, ReadDirMeta::Data).await?;
-    pin_mut!(entries);
+    collect_children_with_cancellation(dav_fs, path, relative, &DavNeverCancelled).await
+}
+
+async fn collect_children_with_cancellation(
+    dav_fs: &backend::AsterDavFs,
+    path: &DavPath,
+    relative: &str,
+    cancellation: &impl DavCancellation,
+) -> Result<Vec<DavChild>, FsError> {
+    let mut state = DavDirectoryPageState::new();
+    let enumerator = dav_fs.write_directory_enumerator();
     let mut children = Vec::new();
-    while let Some(entry) = entries.next().await {
-        let entry = entry?;
-        let meta = entry.metadata().await?;
-        let child_relative = child_relative_path(relative, &entry.name(), meta.is_dir())
-            .map_err(|_| FsError::GeneralFailure)?;
-        let child_path = DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?;
-        children.push(DavChild {
-            path: child_path,
-            relative: child_relative,
-            is_dir: meta.is_dir(),
-        });
+    loop {
+        let page = read_next_directory_page(
+            &enumerator,
+            path,
+            &mut state,
+            MUTATION_DIRECTORY_PAGE_ENTRIES,
+            MUTATION_DIRECTORY_LIMITS,
+            cancellation,
+        )
+        .await
+        .map_err(directory_read_error_to_fs)?;
+        let Some(page) = page else {
+            break;
+        };
+        for entry in page.entries {
+            let is_dir = entry.metadata().is_dir();
+            let child_relative = child_relative_path(relative, entry.name(), is_dir)
+                .map_err(|_| FsError::GeneralFailure)?;
+            let child_path = DavPath::new(&child_relative).map_err(|_| FsError::GeneralFailure)?;
+            children.push(DavChild {
+                path: child_path,
+                relative: child_relative,
+                is_dir,
+            });
+        }
+        if !page.has_more {
+            break;
+        }
     }
     Ok(children)
+}
+
+fn mutation_traversal_budget(
+    limits: DavTraversalLimits,
+) -> Result<DavTraversalBudget, DavTraversalError> {
+    DavTraversalBudget::new(limits)
+}
+
+const fn mutation_traversal_limits() -> DavTraversalLimits {
+    DavTraversalLimits::new(
+        MUTATION_MAXIMUM_VISITED_RESOURCES,
+        MUTATION_MAXIMUM_QUEUED_WORK_ITEMS,
+        MUTATION_MAXIMUM_FAILURES,
+        Some(MUTATION_MAXIMUM_DEPTH),
+    )
+}
+
+async fn preflight_recursive_mutation(
+    dav_fs: &backend::AsterDavFs,
+    roots: impl IntoIterator<Item = (DavPath, String)>,
+    cancellation: &impl DavCancellation,
+    limits: DavTraversalLimits,
+) -> Result<(), MutationTraversalFailure> {
+    let roots = roots
+        .into_iter()
+        .map(|(path, relative)| MutationTraversalNode {
+            path,
+            relative,
+            is_dir: true,
+            depth: 0,
+        })
+        .collect::<Vec<_>>();
+    let mut traversal = MutationTraversal::new(roots, cancellation, limits)
+        .map_err(MutationTraversalFailure::Traversal)?;
+
+    while let Some(node) = traversal
+        .next()
+        .map_err(MutationTraversalFailure::Traversal)?
+    {
+        if !node.is_dir {
+            continue;
+        }
+
+        let children = match collect_children_with_cancellation(
+            dav_fs,
+            &node.path,
+            &node.relative,
+            cancellation,
+        )
+        .await
+        {
+            Ok(children) => children,
+            Err(error) => {
+                traversal
+                    .checkpoint()
+                    .map_err(MutationTraversalFailure::Traversal)?;
+                return Err(MutationTraversalFailure::FileSystem(error));
+            }
+        };
+        traversal
+            .push_children(node.depth, children)
+            .map_err(MutationTraversalFailure::Traversal)?;
+    }
+    Ok(())
+}
+
+fn mutation_traversal_failure_response(error: MutationTraversalFailure) -> HttpResponse {
+    match error {
+        MutationTraversalFailure::FileSystem(error) => fs_error_response(error),
+        MutationTraversalFailure::Traversal(error) => {
+            let status = match error.kind {
+                DavTraversalErrorKind::InvalidLimits => StatusCode::INTERNAL_SERVER_ERROR,
+                DavTraversalErrorKind::Cancelled => StatusCode::SERVICE_UNAVAILABLE,
+                DavTraversalErrorKind::VisitedResourceLimitExceeded
+                | DavTraversalErrorKind::QueuedWorkLimitExceeded
+                | DavTraversalErrorKind::FailureLimitExceeded
+                | DavTraversalErrorKind::DepthLimitExceeded => StatusCode::INSUFFICIENT_STORAGE,
+            };
+            responses::empty(status)
+        }
+    }
+}
+
+fn directory_read_error_to_fs(error: DavDirectoryReadError) -> FsError {
+    match error {
+        DavDirectoryReadError::PageLimitExceeded => FsError::InsufficientStorage,
+        DavDirectoryReadError::Backend(error) => match error.kind {
+            DavBackendErrorKind::NotFound => FsError::NotFound,
+            DavBackendErrorKind::Forbidden | DavBackendErrorKind::Locked => FsError::Forbidden,
+            DavBackendErrorKind::Conflict | DavBackendErrorKind::AlreadyExists => FsError::Exists,
+            DavBackendErrorKind::InsufficientStorage => FsError::InsufficientStorage,
+            DavBackendErrorKind::PayloadTooLarge => FsError::TooLarge,
+            DavBackendErrorKind::InvalidInput => FsError::BadRequest,
+            DavBackendErrorKind::Unsupported | DavBackendErrorKind::Internal => {
+                FsError::GeneralFailure
+            }
+        },
+        DavDirectoryReadError::InvalidLimit
+        | DavDirectoryReadError::Cancelled
+        | DavDirectoryReadError::InvalidPage(_) => FsError::GeneralFailure,
+    }
 }
 
 fn mutation_failure_response(prefix: &str, failures: &[DavMutationFailure]) -> HttpResponse {
@@ -915,9 +1200,48 @@ fn mutation_failure_response(prefix: &str, failures: &[DavMutationFailure]) -> H
 
 #[cfg(test)]
 mod tests {
-    use super::push_fs_failure;
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    use super::{
+        DavChild, MUTATION_MAXIMUM_FAILURES, MutationTraversal, MutationTraversalNode,
+        directory_read_error_to_fs, extend_unique_failures, push_fs_failure,
+    };
     use actix_web::http::StatusCode;
-    use aster_forge_webdav::{DavMutationFailure, DavPath, FsError};
+    use aster_forge_webdav::{
+        DavCancellation, DavMutationFailure, DavPath, DavTraversalErrorKind, DavTraversalLimits,
+        FsError,
+    };
+
+    struct TestCancellation(AtomicBool);
+
+    impl TestCancellation {
+        const fn new() -> Self {
+            Self(AtomicBool::new(false))
+        }
+    }
+
+    impl DavCancellation for TestCancellation {
+        fn is_cancelled(&self) -> bool {
+            self.0.load(Ordering::SeqCst)
+        }
+    }
+
+    fn traversal_node(path: &str, depth: usize) -> MutationTraversalNode {
+        MutationTraversalNode {
+            path: DavPath::new(path).unwrap(),
+            relative: path.to_owned(),
+            is_dir: true,
+            depth,
+        }
+    }
+
+    fn child(path: &str, is_dir: bool) -> DavChild {
+        DavChild {
+            path: DavPath::new(path).unwrap(),
+            relative: path.to_owned(),
+            is_dir,
+        }
+    }
 
     #[test]
     fn recursive_mutation_fs_errors_keep_resource_statuses() {
@@ -943,5 +1267,128 @@ mod tests {
                 vec![DavMutationFailure::status(path.clone(), status.as_u16())]
             );
         }
+    }
+
+    #[test]
+    fn recursive_mutation_directory_page_limit_maps_to_insufficient_storage() {
+        assert_eq!(
+            directory_read_error_to_fs(
+                aster_forge_webdav::DavDirectoryReadError::PageLimitExceeded,
+            ),
+            FsError::InsufficientStorage
+        );
+    }
+
+    #[test]
+    fn recursive_mutation_traversal_enforces_exact_limits() {
+        let cancellation = TestCancellation::new();
+        let mut traversal = MutationTraversal::new(
+            [traversal_node("/root/", 0)],
+            &cancellation,
+            DavTraversalLimits::new(2, 2, 1, Some(1)),
+        )
+        .unwrap();
+        let root = traversal.next().unwrap().unwrap();
+        traversal
+            .push_children(
+                root.depth,
+                [child("/root/a/", true), child("/root/b", false)],
+            )
+            .expect("two children exactly fill the queue limit");
+        assert_eq!(traversal.next().unwrap().unwrap().path.as_str(), "/root/a/");
+        assert_eq!(
+            traversal
+                .next()
+                .expect_err("root plus two children exceeds visit limit")
+                .kind,
+            DavTraversalErrorKind::VisitedResourceLimitExceeded
+        );
+
+        let mut queue_limited = MutationTraversal::new(
+            [traversal_node("/root/", 0)],
+            &cancellation,
+            DavTraversalLimits::new(8, 2, 1, Some(8)),
+        )
+        .unwrap();
+        let root = queue_limited.next().unwrap().unwrap();
+        queue_limited
+            .push_children(
+                root.depth,
+                [child("/root/a", false), child("/root/b", false)],
+            )
+            .expect("exact queue limit");
+        assert_eq!(
+            queue_limited
+                .push_children(root.depth, [child("/root/c", false)])
+                .expect_err("limit plus one queued item")
+                .kind,
+            DavTraversalErrorKind::QueuedWorkLimitExceeded
+        );
+
+        let mut depth_limited = MutationTraversal::new(
+            [traversal_node("/root/", 1)],
+            &cancellation,
+            DavTraversalLimits::new(2, 2, 1, Some(1)),
+        )
+        .unwrap();
+        let root = depth_limited.next().unwrap().unwrap();
+        depth_limited
+            .push_children(root.depth, [child("/root/deep/", true)])
+            .unwrap();
+        assert_eq!(
+            depth_limited.next().expect_err("depth limit plus one").kind,
+            DavTraversalErrorKind::DepthLimitExceeded
+        );
+
+        traversal.record_failure().expect("exact failure limit");
+        assert_eq!(
+            traversal
+                .record_failure()
+                .expect_err("failure limit plus one")
+                .kind,
+            DavTraversalErrorKind::FailureLimitExceeded
+        );
+    }
+
+    #[test]
+    fn recursive_mutation_cancellation_keeps_partial_execution_progress() {
+        let cancellation = TestCancellation::new();
+        let mut traversal = MutationTraversal::new(
+            [traversal_node("/root/", 0)],
+            &cancellation,
+            DavTraversalLimits::new(2, 2, 1, Some(1)),
+        )
+        .unwrap();
+        traversal.next().unwrap().unwrap();
+        traversal.record_completed_mutation();
+        cancellation.0.store(true, Ordering::SeqCst);
+
+        let error = traversal.next().expect_err("cancelled traversal");
+        assert_eq!(error.kind, DavTraversalErrorKind::Cancelled);
+        assert!(error.partial_execution());
+        assert_eq!(error.progress.completed_mutations, 1);
+        assert_eq!(error.progress.visited_resources, 1);
+    }
+
+    #[test]
+    fn recursive_mutation_failure_collection_has_a_hard_limit() {
+        let mut failures = Vec::new();
+        extend_unique_failures(
+            &mut failures,
+            (0..=MUTATION_MAXIMUM_FAILURES).map(|index| {
+                DavMutationFailure::status(
+                    DavPath::new(&format!("/failure-{index}")).unwrap(),
+                    StatusCode::LOCKED.as_u16(),
+                )
+            }),
+        );
+        assert_eq!(failures.len(), MUTATION_MAXIMUM_FAILURES);
+        assert_eq!(
+            failures.last(),
+            Some(&DavMutationFailure::status(
+                DavPath::new(&format!("/failure-{}", MUTATION_MAXIMUM_FAILURES - 1)).unwrap(),
+                StatusCode::LOCKED.as_u16(),
+            ))
+        );
     }
 }

@@ -8,10 +8,9 @@ mod metadata;
 pub mod path_resolver;
 
 use aster_forge_db::transaction;
-use std::{collections::HashMap, pin::Pin, time::Instant};
+use std::{collections::HashMap, pin::Pin};
 
-use futures::stream;
-use tokio::io::AsyncRead;
+use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -27,17 +26,19 @@ use crate::webdav::backend::dir_entry::AsterDavDirEntry;
 use crate::webdav::backend::download_audit::{
     WebdavDownloadAuditIdentity, WebdavDownloadRequestKind, record_download,
 };
-use crate::webdav::backend::file::AsterDavFile;
+use crate::webdav::backend::file::AsterDavWriteHandle;
 use crate::webdav::backend::metadata::AsterDavMeta;
 use crate::webdav::backend::path_resolver::ResolvedNode;
 use aster_drive_model::entities::{file as file_entity, file_blob};
 use aster_drive_model::types::EntityType;
 use aster_forge_api::NullablePatch;
-use aster_forge_utils::numbers::i64_to_u64;
+use aster_forge_utils::http_range::HttpByteRange;
+use aster_forge_utils::numbers::{i64_to_u64, usize_to_u64};
 use aster_forge_webdav::plan_atomic_proppatch;
 use aster_forge_webdav::{
-    DavDirEntry, DavFile, DavFileSystem, DavMetaData, DavPath, DavProp, FsError, FsFuture,
-    FsStream, OpenOptions, ReadDirMeta,
+    DavBackendError, DavBackendErrorKind, DavContentStream, DavDirectoryEnumerator,
+    DavDirectoryPage, DavDirectoryPageRequest, DavDownloadSource, DavFileSystem, DavMetaData,
+    DavOpenedDownload, DavPath, DavProp, DavWriteOptions, DavWriteSystem, FsError, FsFuture,
 };
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
@@ -55,6 +56,16 @@ pub(crate) struct AsterDavDownloadFile {
     pub(crate) file: file_entity::Model,
     pub(crate) blob: file_blob::Model,
     pub(crate) meta: AsterDavMeta,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum AsterDavDirectoryCursor {
+    Folders(i64),
+    Files(i64),
+}
+
+pub(crate) struct AsterDavWriteDirectoryEnumerator<'a> {
+    dav_fs: &'a AsterDavFs,
 }
 
 impl std::fmt::Debug for AsterDavFs {
@@ -130,6 +141,46 @@ impl AsterDavFs {
         let meta = AsterDavMeta::from_file(&file, &blob);
 
         Ok(Some(AsterDavDownloadFile { file, blob, meta }))
+    }
+
+    pub(crate) async fn capability_resource_state(
+        &self,
+        path: &DavPath,
+    ) -> Result<aster_forge_webdav::DavResourceState, DavBackendError> {
+        match path_resolver::resolve_path_cached_for_read_in_scope(
+            &self.state,
+            self.scope,
+            path,
+            self.root_folder_id,
+        )
+        .await
+        {
+            Ok(ResolvedNode::Root) => Ok(aster_forge_webdav::DavResourceState::MountRoot),
+            Ok(ResolvedNode::Folder(_)) => Ok(aster_forge_webdav::DavResourceState::Collection),
+            Ok(ResolvedNode::File(_)) => Ok(aster_forge_webdav::DavResourceState::File),
+            Err(FsError::NotFound) => Ok(aster_forge_webdav::DavResourceState::Unmapped),
+            Err(error) => Err(error.into()),
+        }
+    }
+
+    pub(crate) async fn metadata_for_write(&self, path: &DavPath) -> Result<AsterDavMeta, FsError> {
+        let node = path_resolver::resolve_path_cached_in_scope(
+            &self.state,
+            self.scope,
+            path,
+            self.root_folder_id,
+        )
+        .await?;
+        match node {
+            ResolvedNode::Root => Ok(AsterDavMeta::root()),
+            ResolvedNode::Folder(folder) => Ok(AsterDavMeta::from_folder(&folder)),
+            ResolvedNode::File(file) => {
+                let blob = file_repo::find_blob_by_id(self.state.writer_db(), file.blob_id)
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                Ok(AsterDavMeta::from_file(&file, &blob))
+            }
+        }
     }
 
     pub(crate) async fn open_download_stream_for_file(
@@ -253,133 +304,355 @@ impl AsterDavFs {
 
         Ok(())
     }
-}
 
-impl DavFileSystem for AsterDavFs {
-    fn open<'a>(
-        &'a self,
-        path: &'a DavPath,
-        options: OpenOptions,
-    ) -> FsFuture<'a, Box<dyn DavFile>> {
-        Box::pin(async move {
-            if options.write {
-                // 写模式
-                let (parent_id, filename) = path_resolver::resolve_parent_cached_in_scope(
-                    &self.state,
-                    self.scope,
-                    path,
-                    self.root_folder_id,
-                )
-                .await?;
-
-                let existing_file =
-                    find_file_by_name_in_scope(&self.state, self.scope, parent_id, &filename)
-                        .await?;
-
-                // WebDAV handler 会在入口处做 lock token 校验，
-                // 这里不要再用 is_locked 把合法持锁写入挡掉。
-
-                let existing_file_id = existing_file.map(|f| f.id);
-
-                if options.create_new && existing_file_id.is_some() {
-                    return Err(FsError::Exists);
-                }
-                if !options.create && !options.create_new && existing_file_id.is_none() {
-                    return Err(FsError::NotFound);
-                }
-
-                let dav_file = AsterDavFile::for_write_with_audit(
-                    self.app_state(),
-                    self.scope,
-                    parent_id,
-                    filename,
-                    existing_file_id,
-                    options.size,
-                    self.audit_ctx.clone(),
-                )
-                .await?;
-
-                Ok(Box::new(dav_file) as Box<dyn DavFile>)
-            } else {
-                let _ = path;
-                // 读路径只允许 GET/HEAD 通过专用下载目标访问，避免回退到临时文件兜底。
-                Err(FsError::Forbidden)
-            }
-        })
+    pub(crate) fn write_directory_enumerator(&self) -> AsterDavWriteDirectoryEnumerator<'_> {
+        AsterDavWriteDirectoryEnumerator { dav_fs: self }
     }
 
-    fn read_dir<'a>(
-        &'a self,
-        path: &'a DavPath,
-        _meta: ReadDirMeta,
-    ) -> FsFuture<'a, FsStream<Box<dyn DavDirEntry>>> {
-        Box::pin(async move {
-            let started_at = Instant::now();
-            let resolve_started_at = Instant::now();
-            let folder_id = match path_resolver::resolve_path_cached_for_read_in_scope(
+    async fn resolve_directory_id(
+        &self,
+        path: &DavPath,
+        writer_authoritative: bool,
+    ) -> Result<Option<i64>, DavBackendError> {
+        let resolved = if writer_authoritative {
+            path_resolver::resolve_path_cached_in_scope(
                 &self.state,
                 self.scope,
                 path,
                 self.root_folder_id,
             )
-            .await?
-            {
-                ResolvedNode::Root => self.root_folder_id,
-                ResolvedNode::Folder(f) => Some(f.id),
-                ResolvedNode::File(_) => return Err(FsError::Forbidden),
-            };
-            let resolve_elapsed_ms = resolve_started_at.elapsed().as_millis();
-
-            let folders_started_at = Instant::now();
-            let folders = crate::services::workspace::storage::list_folders_in_parent(
+            .await
+        } else {
+            path_resolver::resolve_path_cached_for_read_in_scope(
                 &self.state,
                 self.scope,
-                folder_id,
+                path,
+                self.root_folder_id,
             )
             .await
-            .map_err(|_| FsError::GeneralFailure)?;
-            let folders_elapsed_ms = folders_started_at.elapsed().as_millis();
+        }
+        .map_err(DavBackendError::from)?;
+        match resolved {
+            ResolvedNode::Root => Ok(self.root_folder_id),
+            ResolvedNode::Folder(folder) => Ok(Some(folder.id)),
+            ResolvedNode::File(_) => Err(DavBackendError::new(DavBackendErrorKind::Forbidden)),
+        }
+    }
 
-            let files_started_at = Instant::now();
-            let files = crate::services::workspace::storage::list_files_in_folder(
-                &self.state,
-                self.scope,
-                folder_id,
-            )
-            .await
-            .map_err(|_| FsError::GeneralFailure)?;
-            let files_elapsed_ms = files_started_at.elapsed().as_millis();
-
-            let mut entries: Vec<Box<dyn DavDirEntry>> = Vec::new();
-
-            let entry_started_at = Instant::now();
-            for folder in &folders {
-                entries.push(Box::new(AsterDavDirEntry::from_folder(folder)));
+    async fn folder_page(
+        &self,
+        parent_id: Option<i64>,
+        after_id: Option<i64>,
+        limit: u64,
+        writer_authoritative: bool,
+    ) -> Result<Vec<aster_drive_model::entities::folder::Model>, DavBackendError> {
+        let db = if writer_authoritative {
+            self.state.writer_db()
+        } else {
+            self.state.reader_db()
+        };
+        match self.scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                folder_repo::find_children_after_id(db, user_id, parent_id, after_id, limit).await
             }
-
-            for file in &files {
-                entries.push(Box::new(AsterDavDirEntry::from_file_record(file)));
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                folder_repo::find_team_children_after_id(db, team_id, parent_id, after_id, limit)
+                    .await
             }
-            let entry_elapsed_ms = entry_started_at.elapsed().as_millis();
-
-            tracing::debug!(
-                folder_id,
-                folder_count = folders.len(),
-                file_count = files.len(),
-                entry_count = entries.len(),
-                resolve_elapsed_ms,
-                folders_elapsed_ms,
-                files_elapsed_ms,
-                entry_elapsed_ms,
-                total_elapsed_ms = started_at.elapsed().as_millis(),
-                "WebDAV read_dir completed"
-            );
-
-            Ok(Box::pin(stream::iter(entries.into_iter().map(Ok)))
-                as FsStream<Box<dyn DavDirEntry>>)
+        }
+        .map_err(|error| {
+            tracing::warn!(error = %error, "WebDAV directory folder page query failed");
+            DavBackendError::new(DavBackendErrorKind::Internal)
         })
     }
 
+    async fn file_page(
+        &self,
+        folder_id: Option<i64>,
+        after_id: Option<i64>,
+        limit: u64,
+        writer_authoritative: bool,
+    ) -> Result<Vec<file_entity::Model>, DavBackendError> {
+        let db = if writer_authoritative {
+            self.state.writer_db()
+        } else {
+            self.state.reader_db()
+        };
+        match self.scope {
+            WorkspaceStorageScope::Personal { user_id } => {
+                file_repo::find_by_folder_after_id(db, user_id, folder_id, after_id, limit).await
+            }
+            WorkspaceStorageScope::Team { team_id, .. } => {
+                file_repo::find_by_team_folder_after_id(db, team_id, folder_id, after_id, limit)
+                    .await
+            }
+        }
+        .map_err(|error| {
+            tracing::warn!(error = %error, "WebDAV directory file page query failed");
+            DavBackendError::new(DavBackendErrorKind::Internal)
+        })
+    }
+
+    async fn read_directory_page_with_consistency(
+        &self,
+        request: DavDirectoryPageRequest<'_, AsterDavDirectoryCursor>,
+        writer_authoritative: bool,
+    ) -> Result<DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor>, DavBackendError> {
+        let folder_id = self
+            .resolve_directory_id(request.path, writer_authoritative)
+            .await?;
+        let fetch_size = request
+            .maximum_entries
+            .checked_add(1)
+            .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::InvalidInput))?;
+        let fetch_size = usize_to_u64(fetch_size, "WebDAV directory page fetch size")
+            .map_err(|_| DavBackendError::new(DavBackendErrorKind::InvalidInput))?;
+
+        let (folder_after, file_after) = match request.cursor {
+            None => (None, None),
+            Some(AsterDavDirectoryCursor::Folders(id)) => (Some(*id), None),
+            Some(AsterDavDirectoryCursor::Files(id)) => {
+                let files = self
+                    .file_page(folder_id, Some(*id), fetch_size, writer_authoritative)
+                    .await?;
+                return Ok(file_only_page(files, request.maximum_entries));
+            }
+        };
+
+        let folders = self
+            .folder_page(folder_id, folder_after, fetch_size, writer_authoritative)
+            .await?;
+        if folders.len() > request.maximum_entries {
+            let returned = folders
+                .into_iter()
+                .take(request.maximum_entries)
+                .collect::<Vec<_>>();
+            let next_cursor = returned
+                .last()
+                .map(|folder| AsterDavDirectoryCursor::Folders(folder.id));
+            let entries = returned
+                .iter()
+                .map(AsterDavDirEntry::from_folder)
+                .collect::<Vec<_>>();
+            return Ok(DavDirectoryPage {
+                entries,
+                next_cursor,
+            });
+        }
+
+        let mut entries = folders
+            .iter()
+            .map(AsterDavDirEntry::from_folder)
+            .collect::<Vec<_>>();
+        let remaining = request.maximum_entries.saturating_sub(entries.len());
+        if remaining == 0 {
+            let last_id = folders.last().map(|folder| folder.id);
+            let has_more_files = !self
+                .file_page(folder_id, None, 1, writer_authoritative)
+                .await?
+                .is_empty();
+            return Ok(DavDirectoryPage {
+                entries,
+                next_cursor: has_more_files
+                    .then(|| AsterDavDirectoryCursor::Folders(last_id.unwrap_or_default())),
+            });
+        }
+
+        let file_fetch_size = remaining
+            .checked_add(1)
+            .and_then(|value| usize_to_u64(value, "WebDAV file page fetch size").ok())
+            .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::InvalidInput))?;
+        let files = self
+            .file_page(folder_id, file_after, file_fetch_size, writer_authoritative)
+            .await?;
+        let has_more_files = files.len() > remaining;
+        let returned_files = files.into_iter().take(remaining).collect::<Vec<_>>();
+        let last_file_id = returned_files.last().map(|file| file.id);
+        entries.extend(
+            returned_files
+                .iter()
+                .map(AsterDavDirEntry::from_file_record),
+        );
+        Ok(DavDirectoryPage {
+            entries,
+            next_cursor: has_more_files
+                .then(|| AsterDavDirectoryCursor::Files(last_file_id.unwrap_or_default())),
+        })
+    }
+}
+
+impl DavDirectoryEnumerator for AsterDavFs {
+    type Cursor = AsterDavDirectoryCursor;
+    type Entry = AsterDavDirEntry;
+
+    async fn read_directory_page<'a>(
+        &'a self,
+        request: DavDirectoryPageRequest<'a, Self::Cursor>,
+    ) -> Result<DavDirectoryPage<Self::Entry, Self::Cursor>, DavBackendError> {
+        self.read_directory_page_with_consistency(request, false)
+            .await
+    }
+}
+
+impl DavDirectoryEnumerator for AsterDavWriteDirectoryEnumerator<'_> {
+    type Cursor = AsterDavDirectoryCursor;
+    type Entry = AsterDavDirEntry;
+
+    async fn read_directory_page<'a>(
+        &'a self,
+        request: DavDirectoryPageRequest<'a, Self::Cursor>,
+    ) -> Result<DavDirectoryPage<Self::Entry, Self::Cursor>, DavBackendError> {
+        self.dav_fs
+            .read_directory_page_with_consistency(request, true)
+            .await
+    }
+}
+
+fn file_only_page(
+    files: Vec<file_entity::Model>,
+    maximum_entries: usize,
+) -> DavDirectoryPage<AsterDavDirEntry, AsterDavDirectoryCursor> {
+    let has_more = files.len() > maximum_entries;
+    let returned = files.into_iter().take(maximum_entries).collect::<Vec<_>>();
+    let next_cursor =
+        has_more.then(|| AsterDavDirectoryCursor::Files(returned.last().map_or(0, |file| file.id)));
+    DavDirectoryPage {
+        entries: returned
+            .iter()
+            .map(AsterDavDirEntry::from_file_record)
+            .collect(),
+        next_cursor,
+    }
+}
+
+impl DavDownloadSource for AsterDavFs {
+    type Metadata = AsterDavMeta;
+
+    async fn metadata<'a>(&'a self, path: &'a DavPath) -> Result<Self::Metadata, DavBackendError> {
+        self.resolve_download_target(path)
+            .await
+            .map_err(DavBackendError::from)?
+            .map(|target| target.meta)
+            .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::Unsupported))
+    }
+
+    async fn open_full<'a>(
+        &'a self,
+        path: &'a DavPath,
+    ) -> Result<DavOpenedDownload, DavBackendError> {
+        self.open_download(path, None).await
+    }
+
+    async fn open_range<'a>(
+        &'a self,
+        path: &'a DavPath,
+        range: HttpByteRange,
+    ) -> Result<DavOpenedDownload, DavBackendError> {
+        self.open_download(path, Some(range)).await
+    }
+}
+
+impl AsterDavFs {
+    async fn open_download(
+        &self,
+        path: &DavPath,
+        range: Option<HttpByteRange>,
+    ) -> Result<DavOpenedDownload, DavBackendError> {
+        let target = self
+            .resolve_download_target(path)
+            .await
+            .map_err(DavBackendError::from)?
+            .ok_or_else(|| DavBackendError::new(DavBackendErrorKind::Unsupported))?;
+        let expected_length = range.map_or_else(|| target.meta.len(), |range| range.length());
+        let (offset, length) = range.map_or((None, None), |range| {
+            (Some(range.start()), Some(range.length()))
+        });
+        let reader = self
+            .open_download_stream_for_file(&target.file, &target.blob, offset, length)
+            .await
+            .map_err(DavBackendError::from)?;
+        let stream = exact_length_stream(reader, expected_length);
+        Ok(DavOpenedDownload::new(stream, expected_length))
+    }
+}
+
+fn exact_length_stream(
+    mut reader: Box<dyn AsyncRead + Unpin + Send>,
+    expected_length: u64,
+) -> DavContentStream {
+    Box::pin(async_stream::stream! {
+        let mut remaining = expected_length;
+        let mut buffer = vec![0_u8; 64 * 1024];
+        while remaining != 0 {
+            let maximum = usize::try_from(remaining)
+                .unwrap_or(usize::MAX)
+                .min(buffer.len());
+            match reader.read(&mut buffer[..maximum]).await {
+                Ok(0) => {
+                    tracing::warn!(expected_length, remaining, "WebDAV download stream ended early");
+                    yield Err(DavBackendError::new(DavBackendErrorKind::Internal));
+                    return;
+                }
+                Ok(read) => {
+                    let Ok(read_u64) = usize_to_u64(read, "WebDAV download chunk length") else {
+                        yield Err(DavBackendError::new(DavBackendErrorKind::Internal));
+                        return;
+                    };
+                    remaining -= read_u64;
+                    yield Ok(bytes::Bytes::copy_from_slice(&buffer[..read]));
+                }
+                Err(error) => {
+                    tracing::warn!(error = %error, expected_length, remaining, "WebDAV download stream failed");
+                    yield Err(DavBackendError::new(DavBackendErrorKind::Internal));
+                    return;
+                }
+            }
+        }
+    })
+}
+
+impl DavWriteSystem for AsterDavFs {
+    type Handle = AsterDavWriteHandle;
+
+    async fn open_write<'a>(
+        &'a self,
+        path: &'a DavPath,
+        options: DavWriteOptions,
+    ) -> Result<Self::Handle, DavBackendError> {
+        let (parent_id, filename) = path_resolver::resolve_parent_cached_in_scope(
+            &self.state,
+            self.scope,
+            path,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(DavBackendError::from)?;
+        let existing_file =
+            find_file_by_name_in_scope(&self.state, self.scope, parent_id, &filename)
+                .await
+                .map_err(DavBackendError::from)?;
+        let existing_file_id = existing_file.map(|file| file.id);
+        if options.create_new && existing_file_id.is_some() {
+            return Err(DavBackendError::new(DavBackendErrorKind::AlreadyExists));
+        }
+        if !options.create && !options.create_new && existing_file_id.is_none() {
+            return Err(DavBackendError::new(DavBackendErrorKind::NotFound));
+        }
+        AsterDavWriteHandle::for_write_with_audit(
+            self.app_state(),
+            self.scope,
+            parent_id,
+            filename,
+            existing_file_id,
+            options.expected_length,
+            self.audit_ctx.clone(),
+        )
+        .await
+        .map_err(DavBackendError::from)
+    }
+}
+
+impl DavFileSystem for AsterDavFs {
     fn metadata<'a>(&'a self, path: &'a DavPath) -> FsFuture<'a, Box<dyn DavMetaData>> {
         Box::pin(async move {
             let node = path_resolver::resolve_path_cached_for_read_in_scope(

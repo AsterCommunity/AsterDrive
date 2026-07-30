@@ -113,6 +113,57 @@ fn proppatch_statuses_by_property(xml: &str) -> Vec<(String, String)> {
     statuses
 }
 
+fn propfind_statuses_by_property(xml: &str) -> Vec<(String, String)> {
+    proppatch_statuses_by_property(xml)
+}
+
+fn propfind_dav_property_text(xml: &str, property_name: &str) -> Option<String> {
+    let multistatus = Element::parse_reader(Cursor::new(xml.as_bytes()))
+        .expect("PROPFIND Multi-Status XML should parse");
+
+    multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+        .flat_map(|response| {
+            response
+                .child_elements()
+                .filter(|element| element.name == "propstat")
+        })
+        .filter(|propstat| {
+            propstat
+                .child_elements()
+                .find(|element| element.name == "status")
+                .and_then(Element::text)
+                .as_deref()
+                == Some("HTTP/1.1 200 OK")
+        })
+        .filter_map(|propstat| {
+            propstat
+                .child_elements()
+                .find(|element| element.name == "prop")
+        })
+        .flat_map(Element::child_elements)
+        .find(|property| {
+            property.name == property_name && property.namespace.as_deref() == Some("DAV:")
+        })
+        .and_then(Element::text)
+}
+
+fn multistatus_hrefs(xml: &str) -> Vec<String> {
+    let multistatus = Element::parse_reader(Cursor::new(xml.as_bytes()))
+        .expect("WebDAV Multi-Status XML should parse");
+    multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+        .filter_map(|response| {
+            response
+                .child_elements()
+                .find(|element| element.name == "href")
+                .and_then(Element::text)
+        })
+        .collect()
+}
+
 #[actix_web::test]
 async fn dav_event_failures_include_routine_client_responses() {
     assert!(matches!(
@@ -632,14 +683,17 @@ async fn test_webdav_proppatch_root_is_explicitly_unsupported() {
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            actix_web::http::StatusCode::FORBIDDEN,
+            actix_web::http::StatusCode::METHOD_NOT_ALLOWED,
             "PROPPATCH on the WebDAV mount root is intentionally unsupported for {uri}"
         );
-        let body = test::read_body(resp).await;
-        let text = String::from_utf8_lossy(&body);
+        let allow = resp
+            .headers()
+            .get("Allow")
+            .and_then(|value| value.to_str().ok())
+            .expect("405 must advertise the root capability set");
         assert!(
-            text.contains("mount root"),
-            "root PROPPATCH rejection should explain the unsupported target for {uri}: {text}"
+            !allow.split(',').any(|method| method.trim() == "PROPPATCH"),
+            "root Allow must not advertise PROPPATCH for {uri}: {allow}"
         );
     }
 }
@@ -985,8 +1039,22 @@ async fn test_webdav_xml_methods_reject_body_over_limit() {
     let auth = create_webdav_basic_auth!(app, token);
     let over_limit_xml = "<?xml version=\"1.0\"?><D:x xmlns:D=\"DAV:\">too-large</D:x>";
 
-    for method in ["REPORT", "PROPFIND", "PROPPATCH", "LOCK", "VERSION-CONTROL"] {
-        let req = test::TestRequest::with_uri("/webdav/")
+    let req = test::TestRequest::put()
+        .uri("/webdav/xml-limit.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("content")
+        .to_request();
+    assert_eq!(
+        test::call_service(&app, req).await.status(),
+        actix_web::http::StatusCode::CREATED
+    );
+
+    for (method, uri) in [
+        ("PROPFIND", "/webdav/"),
+        ("PROPPATCH", "/webdav/xml-limit.txt"),
+        ("LOCK", "/webdav/xml-limit.txt"),
+    ] {
+        let req = test::TestRequest::with_uri(uri)
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
             .insert_header(("Depth", "0"))
@@ -998,6 +1066,20 @@ async fn test_webdav_xml_methods_reject_body_over_limit() {
             resp.status(),
             actix_web::http::StatusCode::PAYLOAD_TOO_LARGE,
             "{method} should reject XML bodies over webdav.xml_payload_limit"
+        );
+    }
+
+    for method in ["REPORT", "VERSION-CONTROL"] {
+        let req = test::TestRequest::with_uri("/webdav/")
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(over_limit_xml)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::METHOD_NOT_ALLOWED
         );
     }
 }
@@ -1036,18 +1118,6 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
             "<D:propertyupdate xmlns:D=\"DAV:\" xmlns:A=\"urn:a\"><D:set><D:prop><A:x>y</A:x></D:prop></D:set></D:propertyupdate>",
             actix_web::http::StatusCode::MULTI_STATUS,
         ),
-        (
-            "REPORT",
-            "/webdav/xml-limit-small.txt",
-            "<D:version-tree xmlns:D=\"DAV:\"/>",
-            actix_web::http::StatusCode::MULTI_STATUS,
-        ),
-        (
-            "VERSION-CONTROL",
-            "/webdav/xml-limit-small.txt",
-            "<D:version-control xmlns:D=\"DAV:\"/>",
-            actix_web::http::StatusCode::OK,
-        ),
     ];
 
     for (method, uri, payload, expected_status) in cases {
@@ -1063,6 +1133,20 @@ async fn test_webdav_small_xml_methods_still_reach_handlers() {
             resp.status(),
             expected_status,
             "{method} should accept XML bodies within webdav.xml_payload_limit"
+        );
+    }
+
+    for method in ["REPORT", "VERSION-CONTROL"] {
+        let req = test::TestRequest::with_uri("/webdav/xml-limit-small.txt")
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload("<D:x xmlns:D=\"DAV:\"/>")
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::METHOD_NOT_ALLOWED
         );
     }
 
@@ -1191,7 +1275,7 @@ async fn test_webdav_get_supports_binary_range_requests() {
         "GET 416 must report the current representation length"
     );
 
-    for ignored_range in ["items=0-1", "bytes=0-1,3-4"] {
+    for ignored_range in ["items=0-1"] {
         let req = test::TestRequest::get()
             .uri("/webdav/range-image.bin")
             .insert_header(("Authorization", auth.clone()))
@@ -1207,6 +1291,32 @@ async fn test_webdav_get_supports_binary_range_requests() {
         let body = test::read_body(resp).await;
         assert_eq!(body.as_ref(), data.as_slice());
     }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/range-image.bin")
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Range", "bytes=0-1,100-101"))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), actix_web::http::StatusCode::PARTIAL_CONTENT);
+    assert!(
+        resp.headers().get("Content-Range").is_none(),
+        "RFC 9110 multipart responses must not carry a top-level Content-Range"
+    );
+    let content_type = resp
+        .headers()
+        .get("Content-Type")
+        .and_then(|value| value.to_str().ok())
+        .unwrap_or_default()
+        .to_owned();
+    assert!(content_type.starts_with("multipart/byteranges; boundary="));
+    let body = test::read_body(resp).await;
+    let multipart = String::from_utf8_lossy(&body);
+    assert!(multipart.contains("Content-Range: bytes 0-1/4099"));
+    assert!(multipart.contains("Content-Range: bytes 100-101/4099"));
+    assert!(multipart.contains("Content-Type: application/octet-stream"));
+    assert!(multipart.contains(String::from_utf8_lossy(&data[0..=1]).as_ref()));
+    assert!(multipart.contains(String::from_utf8_lossy(&data[100..=101]).as_ref()));
 
     let req = test::TestRequest::get()
         .uri("/webdav/range-image.bin")
@@ -1498,10 +1608,28 @@ async fn test_webdav_propfind_lockdiscovery_chunks_large_depth_one_directories()
     assert_eq!(resp.status(), actix_web::http::StatusCode::MULTI_STATUS);
     let body = test::read_body(resp).await;
     let xml = String::from_utf8_lossy(&body);
-    assert!(
-        xml.contains("/webdav/large-lockdiscovery/child-0519/"),
-        "Depth:1 PROPFIND should include the last seeded child: {xml}"
+    let hrefs = multistatus_hrefs(&xml);
+    let unique_hrefs = hrefs
+        .iter()
+        .cloned()
+        .collect::<std::collections::BTreeSet<_>>();
+    assert_eq!(hrefs.len(), 521, "root plus every child must be returned");
+    assert_eq!(
+        unique_hrefs.len(),
+        hrefs.len(),
+        "paged PROPFIND must not duplicate hrefs"
     );
+    assert_eq!(
+        hrefs.first().map(String::as_str),
+        Some("/webdav/large-lockdiscovery/")
+    );
+    for index in 0..520 {
+        let expected = format!("/webdav/large-lockdiscovery/child-{index:04}/");
+        assert!(
+            unique_hrefs.contains(&expected),
+            "paged PROPFIND omitted {expected}"
+        );
+    }
 }
 
 #[actix_web::test]
@@ -4195,6 +4323,175 @@ async fn test_webdav_propfind_allprop_honors_include() {
         "include should not duplicate properties already returned by allprop: {xml}"
     );
     Element::parse_reader(Cursor::new(xml.as_bytes())).expect("PROPFIND response XML should parse");
+}
+
+#[actix_web::test]
+async fn test_webdav_quota_live_properties_follow_rfc_4331_boundaries() {
+    let state = common::setup().await;
+    let db1 = state.writer_db().clone();
+    let db2 = state.writer_db().clone();
+    let app = test::init_service(
+        App::new()
+            .wrap(aster_forge_actix_middleware::security_headers::default_headers())
+            .app_data(web::PayloadConfig::new(
+                aster_drive::api::extractors::DEFAULT_PAYLOAD_LIMIT,
+            ))
+            .app_data(web::JsonConfig::default().limit(1024 * 1024))
+            .app_data(web::Data::new(state.clone()))
+            .configure(move |cfg| {
+                aster_drive::webdav::configure(cfg, &WebDavConfig::default(), &db2);
+                aster_drive::api::configure_primary(cfg, &db1);
+            }),
+    )
+    .await;
+
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let req = test::TestRequest::put()
+        .uri("/webdav/quota-file.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("1234567")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+    let req = test::TestRequest::default()
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .uri("/webdav/quota-collection/")
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+
+    let owner = user::Entity::find()
+        .filter(user::Column::Username.eq("testuser"))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let owner_id = owner.id;
+    let mut owner_active: aster_drive_model::entities::user::ActiveModel = owner.into();
+    owner_active.storage_quota = Set(5);
+    owner_active.update(state.writer_db()).await.unwrap();
+
+    let explicit_quota = r#"<D:propfind xmlns:D="DAV:"><D:prop><D:quota-used-bytes/><D:quota-available-bytes/></D:prop></D:propfind>"#;
+    for uri in ["/webdav/", "/webdav/quota-collection/"] {
+        let req = test::TestRequest::with_uri(uri)
+            .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Depth", "0"))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(explicit_quota)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 207);
+        let body = test::read_body(resp).await;
+        let xml = String::from_utf8_lossy(&body);
+        let statuses = propfind_statuses_by_property(&xml);
+        assert!(statuses.contains(&(
+            "quota-used-bytes".to_string(),
+            "HTTP/1.1 200 OK".to_string()
+        )));
+        assert!(statuses.contains(&(
+            "quota-available-bytes".to_string(),
+            "HTTP/1.1 200 OK".to_string()
+        )));
+        assert_eq!(
+            propfind_dav_property_text(&xml, "quota-used-bytes").as_deref(),
+            Some("7"),
+            "{xml}"
+        );
+        assert_eq!(
+            propfind_dav_property_text(&xml, "quota-available-bytes").as_deref(),
+            Some("0"),
+            "used > total must saturate available bytes to zero: {xml}"
+        );
+    }
+
+    let req = test::TestRequest::with_uri("/webdav/quota-file.txt")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(explicit_quota)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let statuses = propfind_statuses_by_property(&String::from_utf8_lossy(&body));
+    for property in ["quota-used-bytes", "quota-available-bytes"] {
+        assert!(statuses.contains(&(property.to_string(), "HTTP/1.1 404 Not Found".to_string())));
+    }
+
+    let allprop = r#"<D:propfind xmlns:D="DAV:"><D:allprop/></D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/quota-collection/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(allprop)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(!xml.contains("quota-used-bytes"));
+    assert!(!xml.contains("quota-available-bytes"));
+
+    let include = r#"<D:propfind xmlns:D="DAV:"><D:allprop/><D:include><D:quota-used-bytes/><D:quota-available-bytes/></D:include></D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/quota-collection/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(include)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(xml.contains("quota-used-bytes"));
+    assert!(xml.contains("quota-available-bytes"));
+
+    let mut owner_active: aster_drive_model::entities::user::ActiveModel =
+        user::Entity::find_by_id(owner_id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+    owner_active.storage_quota = Set(0);
+    owner_active.update(state.writer_db()).await.unwrap();
+
+    let propname = r#"<D:propfind xmlns:D="DAV:"><D:propname/></D:propfind>"#;
+    let req = test::TestRequest::with_uri("/webdav/quota-collection/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(propname)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(xml.contains("quota-used-bytes"));
+    assert!(
+        !xml.contains("quota-available-bytes"),
+        "infinite quota must leave available bytes undefined in propname: {xml}"
+    );
+
+    let req = test::TestRequest::with_uri("/webdav/quota-collection/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Depth", "0"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(explicit_quota)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    let body = test::read_body(resp).await;
+    let statuses = propfind_statuses_by_property(&String::from_utf8_lossy(&body));
+    assert!(statuses.contains(&(
+        "quota-used-bytes".to_string(),
+        "HTTP/1.1 200 OK".to_string()
+    )));
+    assert!(statuses.contains(&(
+        "quota-available-bytes".to_string(),
+        "HTTP/1.1 404 Not Found".to_string()
+    )));
 }
 
 #[actix_web::test]
@@ -7926,7 +8223,7 @@ async fn test_webdav_xml_entrypoints_reject_probe_depth_without_crashing_process
     body.push_str("</D:propfind>");
     assert!(body.len() < 1_048_576);
 
-    for method in ["PROPFIND", "PROPPATCH", "LOCK", "REPORT", "VERSION-CONTROL"] {
+    for method in ["PROPFIND", "PROPPATCH", "LOCK"] {
         let req = test::TestRequest::with_uri("/webdav/deep-xml-target.txt")
             .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
             .insert_header(("Authorization", auth.clone()))
@@ -7938,6 +8235,21 @@ async fn test_webdav_xml_entrypoints_reject_probe_depth_without_crashing_process
             resp.status(),
             400,
             "{method} must reject XML deeper than the WebDAV parser limit"
+        );
+    }
+
+    for method in ["REPORT", "VERSION-CONTROL"] {
+        let req = test::TestRequest::with_uri("/webdav/deep-xml-target.txt")
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .set_payload(body.clone())
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            405,
+            "{method} is outside the declared capability set"
         );
     }
 

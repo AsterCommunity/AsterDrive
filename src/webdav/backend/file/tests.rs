@@ -1,6 +1,6 @@
 //! Tests for WebDAV file write handling.
 
-use super::AsterDavFile;
+use super::AsterDavWriteHandle;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::file_repo;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
@@ -12,7 +12,7 @@ use aster_drive_model::types::{DriverType, UserRole, UserStatus};
 use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
-use aster_forge_webdav::DavFile;
+use aster_forge_webdav::DavWriteHandle;
 use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::Utc;
@@ -289,7 +289,7 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
     let before = snapshot_dir_tree(Path::new(&runtime_temp_dir)).unwrap();
     let payload = b"stream direct to s3";
 
-    let mut dav_file = AsterDavFile::for_write(
+    let mut dav_file = AsterDavWriteHandle::for_write(
         state.clone(),
         user.id,
         None,
@@ -304,9 +304,9 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
         .await
         .expect("S3 direct WebDAV write should succeed");
     dav_file
-        .flush()
+        .finish()
         .await
-        .expect("S3 direct WebDAV flush should succeed");
+        .expect("S3 direct WebDAV finish should succeed");
 
     let after = snapshot_dir_tree(Path::new(&runtime_temp_dir)).unwrap();
     assert_eq!(

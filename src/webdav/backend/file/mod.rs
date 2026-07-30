@@ -1,47 +1,45 @@
 //! WebDAV 子模块：`file`。
 
-use std::io::SeekFrom;
 use std::sync::Arc;
 
 use bytes::Bytes;
 use sha2::{Digest, Sha256};
-use tokio::io::{AsyncSeekExt, AsyncWriteExt};
+use tokio::io::AsyncWriteExt;
 
 use crate::db::repository::file_repo;
 use crate::errors::Result as AsterResult;
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
-use crate::webdav::backend::metadata::AsterDavMeta;
 use aster_drive_storage::StorageDriver;
 use aster_forge_utils::numbers::{i64_to_u64, u64_to_i64, usize_to_u64};
-use aster_forge_webdav::{DavFile, DavMetaData, FsError, FsFuture};
+use aster_forge_webdav::{DavBackendError, DavWriteHandle, FsError};
 
 const RELAY_DIRECT_BUFFER_SIZE: usize = 64 * 1024;
 
-/// DavFile 实现，按后端能力选择临时文件或直连流写入
-pub struct AsterDavFile {
-    mode: FileMode,
+/// WebDAV 顺序写句柄，按后端能力选择临时文件或直连流写入。
+pub struct AsterDavWriteHandle {
+    mode: WriteMode,
 }
 
-impl std::fmt::Debug for AsterDavFile {
+impl std::fmt::Debug for AsterDavWriteHandle {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match &self.mode {
-            FileMode::Write {
+            WriteMode::Write {
                 filename,
                 temp_path,
                 ..
             } => f
-                .debug_struct("AsterDavFile::Write")
+                .debug_struct("AsterDavWriteHandle::Write")
                 .field("filename", filename)
                 .field("temp_path", temp_path)
                 .finish(),
-            FileMode::WriteDirect {
+            WriteMode::WriteDirect {
                 filename,
                 prepared_upload,
                 ..
             } => f
-                .debug_struct("AsterDavFile::WriteDirect")
+                .debug_struct("AsterDavWriteHandle::WriteDirect")
                 .field("filename", filename)
                 .field(
                     "storage_path",
@@ -54,7 +52,7 @@ impl std::fmt::Debug for AsterDavFile {
     }
 }
 
-enum FileMode {
+enum WriteMode {
     Write {
         state: PrimaryAppState,
         scope: WorkspaceStorageScope,
@@ -64,11 +62,10 @@ enum FileMode {
         audit_ctx: AuditContext,
         declared_size: Option<i64>,
         resolved_policy: Option<aster_drive_model::entities::storage_policy::Model>,
-        file: tokio::fs::File,
+        file: Option<tokio::fs::File>,
         temp_path: String,
         hasher: Option<Sha256>,
         written: u64,
-        meta: AsterDavMeta,
     },
     WriteDirect {
         state: PrimaryAppState,
@@ -84,11 +81,10 @@ enum FileMode {
         writer: Option<tokio::io::DuplexStream>,
         upload_task: Option<tokio::task::JoinHandle<AsterResult<String>>>,
         written: u64,
-        meta: AsterDavMeta,
     },
 }
 
-impl AsterDavFile {
+impl AsterDavWriteHandle {
     /// 创建写模式文件（持有临时文件句柄）
     pub async fn for_write(
         state: PrimaryAppState,
@@ -209,7 +205,7 @@ impl AsterDavFile {
                 });
 
                 return Ok(Self {
-                    mode: FileMode::WriteDirect {
+                    mode: WriteMode::WriteDirect {
                         state,
                         scope,
                         folder_id,
@@ -223,7 +219,6 @@ impl AsterDavFile {
                         writer: Some(writer),
                         upload_task: Some(upload_task),
                         written: 0,
-                        meta: AsterDavMeta::root(),
                     },
                 });
             } else {
@@ -236,7 +231,7 @@ impl AsterDavFile {
         };
 
         Ok(Self {
-            mode: FileMode::Write {
+            mode: WriteMode::Write {
                 state,
                 scope,
                 folder_id,
@@ -245,11 +240,10 @@ impl AsterDavFile {
                 audit_ctx,
                 declared_size,
                 resolved_policy,
-                file,
+                file: Some(file),
                 temp_path,
                 hasher,
                 written: 0,
-                meta: AsterDavMeta::root(),
             },
         })
     }
@@ -298,17 +292,17 @@ fn written_size_i64(value: u64) -> Result<i64, FsError> {
     u64_to_i64(value, "webdav written bytes").map_err(|_| FsError::GeneralFailure)
 }
 
-impl Drop for AsterDavFile {
+impl Drop for AsterDavWriteHandle {
     fn drop(&mut self) {
         let temp_path = match &self.mode {
-            FileMode::Write { temp_path, .. } => temp_path.clone(),
-            FileMode::WriteDirect { .. } => String::new(),
+            WriteMode::Write { temp_path, .. } => temp_path.clone(),
+            WriteMode::WriteDirect { .. } => String::new(),
         };
         if !temp_path.is_empty() {
             Self::cleanup_temp(&temp_path);
         }
 
-        if let FileMode::WriteDirect {
+        if let WriteMode::WriteDirect {
             writer,
             upload_task,
             prepared_upload,
@@ -335,312 +329,265 @@ impl Drop for AsterDavFile {
     }
 }
 
-impl DavFile for AsterDavFile {
-    fn metadata<'a>(&'a mut self) -> FsFuture<'a, Box<dyn DavMetaData>> {
-        let meta: Box<dyn DavMetaData> = match &self.mode {
-            FileMode::Write { meta, .. } => Box::new(meta.clone()),
-            FileMode::WriteDirect { meta, .. } => Box::new(meta.clone()),
+impl DavWriteHandle for AsterDavWriteHandle {
+    async fn write_bytes(&mut self, buf: Bytes) -> Result<(), DavBackendError> {
+        let result: Result<(), FsError> = match &mut self.mode {
+            WriteMode::Write {
+                file,
+                written,
+                hasher,
+                ..
+            } => {
+                if let Some(hasher) = hasher.as_mut() {
+                    hasher.update(&buf);
+                }
+                file.as_mut()
+                    .ok_or(FsError::GeneralFailure)?
+                    .write_all(&buf)
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                add_written_bytes(written, buf.len())?;
+                Ok(())
+            }
+            WriteMode::WriteDirect {
+                writer,
+                written,
+                declared_size,
+                ..
+            } => {
+                let chunk_len = usize_to_u64(buf.len(), "webdav direct write chunk")
+                    .map_err(|_| FsError::GeneralFailure)?;
+                let next_written = written
+                    .checked_add(chunk_len)
+                    .ok_or(FsError::GeneralFailure)?;
+                if next_written > declared_size_u64(*declared_size)? {
+                    return Err(FsError::BadRequest.into());
+                }
+                writer
+                    .as_mut()
+                    .ok_or(FsError::GeneralFailure)?
+                    .write_all(&buf)
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                *written = next_written;
+                Ok(())
+            }
         };
-        Box::pin(async move { Ok(meta) })
+        result.map_err(Into::into)
     }
 
-    fn read_bytes(&mut self, count: usize) -> FsFuture<'_, Bytes> {
-        let _ = count;
-        Box::pin(async move {
-            match &mut self.mode {
-                FileMode::Write { .. } | FileMode::WriteDirect { .. } => Err(FsError::Forbidden),
-            }
-        })
-    }
-
-    fn write_bytes(&mut self, buf: Bytes) -> FsFuture<'_, ()> {
-        Box::pin(async move {
-            match &mut self.mode {
-                FileMode::Write {
-                    file,
-                    written,
-                    hasher,
-                    ..
-                } => {
-                    if let Some(hasher) = hasher.as_mut() {
-                        hasher.update(&buf);
-                    }
-                    file.write_all(&buf)
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    add_written_bytes(written, buf.len())?;
-                    Ok(())
-                }
-                FileMode::WriteDirect {
-                    writer,
-                    written,
-                    declared_size,
-                    ..
-                } => {
-                    let chunk_len = usize_to_u64(buf.len(), "webdav direct write chunk")
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    let next_written = written
-                        .checked_add(chunk_len)
-                        .ok_or(FsError::GeneralFailure)?;
-                    if next_written > declared_size_u64(*declared_size)? {
-                        return Err(FsError::BadRequest);
-                    }
-                    writer
-                        .as_mut()
-                        .ok_or(FsError::GeneralFailure)?
-                        .write_all(&buf)
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    *written = next_written;
-                    Ok(())
-                }
-            }
-        })
-    }
-
-    fn write_buf(&mut self, mut buf: Box<dyn bytes::Buf + Send>) -> FsFuture<'_, ()> {
-        Box::pin(async move {
-            match &mut self.mode {
-                FileMode::Write {
-                    file,
-                    written,
-                    hasher,
-                    ..
-                } => {
-                    while buf.has_remaining() {
-                        let chunk = buf.chunk();
-                        if let Some(hasher) = hasher.as_mut() {
-                            hasher.update(chunk);
-                        }
-                        file.write_all(chunk)
-                            .await
-                            .map_err(|_| FsError::GeneralFailure)?;
-                        add_written_bytes(written, chunk.len())?;
-                        let len = chunk.len();
-                        buf.advance(len);
-                    }
-                    Ok(())
-                }
-                FileMode::WriteDirect {
-                    writer,
-                    written,
-                    declared_size,
-                    ..
-                } => {
-                    while buf.has_remaining() {
-                        let chunk = buf.chunk();
-                        let chunk_len = usize_to_u64(chunk.len(), "webdav direct write chunk")
-                            .map_err(|_| FsError::GeneralFailure)?;
-                        let next_written = written
-                            .checked_add(chunk_len)
-                            .ok_or(FsError::GeneralFailure)?;
-                        if next_written > declared_size_u64(*declared_size)? {
-                            return Err(FsError::BadRequest);
-                        }
-                        writer
-                            .as_mut()
-                            .ok_or(FsError::GeneralFailure)?
-                            .write_all(chunk)
-                            .await
-                            .map_err(|_| FsError::GeneralFailure)?;
-                        *written = next_written;
-                        let len = chunk.len();
-                        buf.advance(len);
-                    }
-                    Ok(())
-                }
-            }
-        })
-    }
-
-    fn seek(&mut self, pos: SeekFrom) -> FsFuture<'_, u64> {
-        Box::pin(async move {
-            match &mut self.mode {
-                FileMode::Write { file, .. } => {
-                    file.seek(pos).await.map_err(|_| FsError::GeneralFailure)
-                }
-                FileMode::WriteDirect { written, .. } => match pos {
-                    SeekFrom::Current(0) => Ok(*written),
-                    _ => Err(FsError::GeneralFailure),
-                },
-            }
-        })
-    }
-
-    fn flush(&mut self) -> FsFuture<'_, ()> {
-        Box::pin(async move {
-            match &mut self.mode {
-                FileMode::Write {
-                    state,
-                    scope,
-                    folder_id,
-                    filename,
-                    existing_file_id,
-                    audit_ctx,
-                    declared_size,
-                    resolved_policy,
-                    file,
-                    temp_path,
-                    hasher,
-                    written,
-                    ..
-                } => {
-                    file.flush().await.map_err(|_| FsError::GeneralFailure)?;
-
-                    let written_size = written_size_i64(*written)?;
-                    if let Some(expected_size) = declared_size
-                        && *expected_size != written_size
-                    {
-                        tracing::warn!(
-                            expected_size,
-                            written_size,
-                            filename,
-                            "WebDAV upload size mismatch"
-                        );
-                        return Err(FsError::BadRequest);
-                    }
-                    let precomputed_hash = hasher
-                        .take()
-                        .map(|hasher| aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize()));
-                    let resolved_policy_hint = resolved_policy
-                        .clone()
-                        .filter(|_| declared_size == &Some(written_size));
-
-                    let audit_action = if existing_file_id.is_some() {
-                        audit::AuditAction::FileEdit
-                    } else {
-                        audit::AuditAction::FileUpload
-                    };
-                    let stored = storage::store_from_temp_with_hints(
-                        state,
-                        storage::StoreFromTempParams {
-                            scope: *scope,
-                            folder_id: *folder_id,
-                            filename,
-                            temp_path,
-                            size: written_size,
-                            existing_file_id: *existing_file_id,
-                            skip_lock_check: true, // WebDAV: handler 已验证 lock token
-                        },
-                        storage::StoreFromTempHints {
-                            resolved_policy: resolved_policy_hint,
-                            precomputed_hash: precomputed_hash.as_deref(),
-                            actor_username: None,
-                            ..Default::default()
-                        },
-                    )
+    async fn finish(mut self) -> Result<(), DavBackendError> {
+        let result: Result<(), FsError> = match &mut self.mode {
+            WriteMode::Write {
+                state,
+                scope,
+                folder_id,
+                filename,
+                existing_file_id,
+                audit_ctx,
+                declared_size,
+                resolved_policy,
+                file,
+                temp_path,
+                hasher,
+                written,
+                ..
+            } => {
+                file.as_mut()
+                    .ok_or(FsError::GeneralFailure)?
+                    .flush()
                     .await
-                    .map_err(map_store_error)?;
-                    let details = crate::services::files::file::audit_location_details_for_model(
-                        state, *scope, &stored,
-                    )
-                    .await;
-                    audit::log_with_details(
-                        state,
-                        audit_ctx,
-                        audit_action,
-                        crate::services::ops::audit::AuditEntityType::File,
-                        Some(stored.id),
-                        Some(&stored.name),
-                        || details.clone(),
-                    )
-                    .await;
+                    .map_err(|_| FsError::GeneralFailure)?;
+                drop(file.take());
 
-                    Ok(())
+                let written_size = written_size_i64(*written)?;
+                if let Some(expected_size) = declared_size
+                    && *expected_size != written_size
+                {
+                    tracing::warn!(
+                        expected_size,
+                        written_size,
+                        filename,
+                        "WebDAV upload size mismatch"
+                    );
+                    return Err(FsError::BadRequest.into());
                 }
-                FileMode::WriteDirect {
+                let precomputed_hash = hasher
+                    .take()
+                    .map(|hasher| aster_forge_crypto::sha256_digest_to_hex(&hasher.finalize()));
+                let resolved_policy_hint = resolved_policy
+                    .clone()
+                    .filter(|_| declared_size == &Some(written_size));
+
+                let audit_action = if existing_file_id.is_some() {
+                    audit::AuditAction::FileEdit
+                } else {
+                    audit::AuditAction::FileUpload
+                };
+                let stored = storage::store_from_temp_with_hints(
                     state,
-                    scope,
-                    folder_id,
-                    filename,
-                    existing_file_id,
+                    storage::StoreFromTempParams {
+                        scope: *scope,
+                        folder_id: *folder_id,
+                        filename,
+                        temp_path,
+                        size: written_size,
+                        existing_file_id: *existing_file_id,
+                        skip_lock_check: true, // WebDAV: handler 已验证 lock token
+                    },
+                    storage::StoreFromTempHints {
+                        resolved_policy: resolved_policy_hint,
+                        precomputed_hash: precomputed_hash.as_deref(),
+                        actor_username: None,
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(map_store_error)?;
+                let details = crate::services::files::file::audit_location_details_for_model(
+                    state, *scope, &stored,
+                )
+                .await;
+                audit::log_with_details(
+                    state,
                     audit_ctx,
-                    declared_size,
-                    policy,
-                    driver,
-                    prepared_upload,
-                    writer,
-                    upload_task,
-                    written,
-                    ..
-                } => {
-                    writer
-                        .take()
-                        .ok_or(FsError::GeneralFailure)?
-                        .shutdown()
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
+                    audit_action,
+                    crate::services::ops::audit::AuditEntityType::File,
+                    Some(stored.id),
+                    Some(&stored.name),
+                    || details.clone(),
+                )
+                .await;
+                temp_path.clear();
 
-                    let upload_result = upload_task
-                        .take()
-                        .ok_or(FsError::GeneralFailure)?
-                        .await
-                        .map_err(|_| FsError::GeneralFailure)?;
-                    if let Err(error) = upload_result {
-                        if let Some(prepared_upload) = prepared_upload.take() {
-                            storage::cleanup_preuploaded_blob_upload(
-                                driver.as_ref(),
-                                &prepared_upload,
-                                "WebDAV direct upload error",
-                            )
-                            .await;
-                        }
-                        return Err(map_store_error(error));
-                    }
-
-                    if *written != declared_size_u64(*declared_size)? {
-                        if let Some(prepared_upload) = prepared_upload.take() {
-                            storage::cleanup_preuploaded_blob_upload(
-                                driver.as_ref(),
-                                &prepared_upload,
-                                "WebDAV direct upload size mismatch",
-                            )
-                            .await;
-                        }
-                        return Err(FsError::BadRequest);
-                    }
-
-                    let prepared_upload = prepared_upload.take().ok_or(FsError::GeneralFailure)?;
-                    let audit_action = if existing_file_id.is_some() {
-                        audit::AuditAction::FileEdit
-                    } else {
-                        audit::AuditAction::FileUpload
-                    };
-                    let stored = storage::store_preuploaded_nondedup(
-                        state,
-                        storage::StorePreuploadedNondedupParams {
-                            scope: *scope,
-                            folder_id: *folder_id,
-                            filename,
-                            size: *declared_size,
-                            existing_file_id: *existing_file_id,
-                            skip_lock_check: true,
-                            policy,
-                            preuploaded_blob: prepared_upload,
-                            actor_username: None,
-                        },
-                    )
+                Ok(())
+            }
+            WriteMode::WriteDirect {
+                state,
+                scope,
+                folder_id,
+                filename,
+                existing_file_id,
+                audit_ctx,
+                declared_size,
+                policy,
+                driver,
+                prepared_upload,
+                writer,
+                upload_task,
+                written,
+                ..
+            } => {
+                writer
+                    .take()
+                    .ok_or(FsError::GeneralFailure)?
+                    .shutdown()
                     .await
-                    .map_err(map_store_error)?;
-                    let details = crate::services::files::file::audit_location_details_for_model(
-                        state, *scope, &stored,
-                    )
-                    .await;
-                    audit::log_with_details(
-                        state,
-                        audit_ctx,
-                        audit_action,
-                        crate::services::ops::audit::AuditEntityType::File,
-                        Some(stored.id),
-                        Some(&stored.name),
-                        || details.clone(),
-                    )
-                    .await;
+                    .map_err(|_| FsError::GeneralFailure)?;
 
-                    Ok(())
+                let upload_result = upload_task
+                    .take()
+                    .ok_or(FsError::GeneralFailure)?
+                    .await
+                    .map_err(|_| FsError::GeneralFailure)?;
+                if let Err(error) = upload_result {
+                    if let Some(prepared_upload) = prepared_upload.take() {
+                        storage::cleanup_preuploaded_blob_upload(
+                            driver.as_ref(),
+                            &prepared_upload,
+                            "WebDAV direct upload error",
+                        )
+                        .await;
+                    }
+                    return Err(map_store_error(error).into());
+                }
+
+                if *written != declared_size_u64(*declared_size)? {
+                    if let Some(prepared_upload) = prepared_upload.take() {
+                        storage::cleanup_preuploaded_blob_upload(
+                            driver.as_ref(),
+                            &prepared_upload,
+                            "WebDAV direct upload size mismatch",
+                        )
+                        .await;
+                    }
+                    return Err(FsError::BadRequest.into());
+                }
+
+                let prepared_upload = prepared_upload.take().ok_or(FsError::GeneralFailure)?;
+                let audit_action = if existing_file_id.is_some() {
+                    audit::AuditAction::FileEdit
+                } else {
+                    audit::AuditAction::FileUpload
+                };
+                let stored = storage::store_preuploaded_nondedup(
+                    state,
+                    storage::StorePreuploadedNondedupParams {
+                        scope: *scope,
+                        folder_id: *folder_id,
+                        filename,
+                        size: *declared_size,
+                        existing_file_id: *existing_file_id,
+                        skip_lock_check: true,
+                        policy,
+                        preuploaded_blob: prepared_upload,
+                        actor_username: None,
+                    },
+                )
+                .await
+                .map_err(map_store_error)?;
+                let details = crate::services::files::file::audit_location_details_for_model(
+                    state, *scope, &stored,
+                )
+                .await;
+                audit::log_with_details(
+                    state,
+                    audit_ctx,
+                    audit_action,
+                    crate::services::ops::audit::AuditEntityType::File,
+                    Some(stored.id),
+                    Some(&stored.name),
+                    || details.clone(),
+                )
+                .await;
+
+                Ok(())
+            }
+        };
+        result.map_err(Into::into)
+    }
+
+    async fn abort(mut self) -> Result<(), DavBackendError> {
+        match &mut self.mode {
+            WriteMode::Write {
+                file, temp_path, ..
+            } => {
+                drop(file.take());
+                aster_forge_utils::fs::cleanup_temp_file(&*temp_path).await;
+                temp_path.clear();
+            }
+            WriteMode::WriteDirect {
+                writer,
+                upload_task,
+                prepared_upload,
+                driver,
+                ..
+            } => {
+                drop(writer.take());
+                if let Some(upload_task) = upload_task.take() {
+                    let _ = upload_task.await;
+                }
+                if let Some(prepared_upload) = prepared_upload.take() {
+                    storage::cleanup_preuploaded_blob_upload(
+                        driver.as_ref(),
+                        &prepared_upload,
+                        "aborted WebDAV direct upload",
+                    )
+                    .await;
                 }
             }
-        })
+        }
+        Ok(())
     }
 }
 

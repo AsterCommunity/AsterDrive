@@ -2,10 +2,8 @@
 
 use crate::common;
 
-use std::io::SeekFrom;
-
 use aster_drive::runtime::SharedRuntimeState;
-use aster_forge_webdav::{DavFile, DavFileSystem, FsError, OpenOptions};
+use aster_forge_webdav::{DavDownloadSource, DavWriteHandle, FsError};
 use bytes::Bytes;
 
 fn write_temp_fixture(name: &str, contents: &str) -> String {
@@ -54,7 +52,7 @@ fn snapshot_dir_tree(
 #[actix_web::test]
 async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
     use aster_drive::db::repository::file_repo;
-    use aster_drive::webdav::backend::file::AsterDavFile;
+    use aster_drive::webdav::backend::file::AsterDavWriteHandle;
 
     let state = common::setup().await;
     let user = common::create_test_account(
@@ -66,7 +64,7 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
     .await
     .unwrap();
 
-    let mut empty_file = AsterDavFile::for_write(
+    let empty_file = AsterDavWriteHandle::for_write(
         state.clone(),
         user.id,
         None,
@@ -77,13 +75,7 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
     .await
     .unwrap();
 
-    empty_file.metadata().await.unwrap();
-    assert!(matches!(
-        empty_file.read_bytes(1).await,
-        Err(FsError::Forbidden)
-    ));
-    assert_eq!(empty_file.seek(SeekFrom::Start(0)).await.unwrap(), 0);
-    empty_file.flush().await.unwrap();
+    empty_file.finish().await.unwrap();
 
     let empty_stored =
         file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "empty-dav-file.txt")
@@ -92,7 +84,7 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
             .expect("empty WebDAV flush should create a zero-byte file record");
     assert_eq!(empty_stored.size, 0);
 
-    let mut written_file = AsterDavFile::for_write(
+    let mut written_file = AsterDavWriteHandle::for_write(
         state.clone(),
         user.id,
         None,
@@ -107,12 +99,11 @@ async fn test_aster_dav_file_write_mode_persists_empty_and_written_content() {
         .write_bytes(Bytes::from_static(b"hello "))
         .await
         .unwrap();
-    assert_eq!(written_file.seek(SeekFrom::Current(0)).await.unwrap(), 6);
     written_file
-        .write_buf(Box::new(Bytes::from_static(b"world")))
+        .write_bytes(Bytes::from_static(b"world"))
         .await
         .unwrap();
-    written_file.flush().await.unwrap();
+    written_file.finish().await.unwrap();
 
     let stored = file_repo::find_by_name_in_folder(
         state.writer_db(),
@@ -269,7 +260,7 @@ async fn test_aster_dav_fs_reports_quota_and_roundtrips_custom_props() {
 }
 
 #[actix_web::test]
-async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
+async fn test_aster_dav_fs_download_port_opens_without_temp_files() {
     use aster_drive::services::files::file;
     use aster_drive::webdav::backend::AsterDavFs;
     use aster_forge_webdav::DavPath;
@@ -301,19 +292,15 @@ async fn test_aster_dav_fs_open_read_is_rejected_without_temp_files() {
     let snapshot_before = snapshot_dir_tree(runtime_path).unwrap();
 
     let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
-    assert!(matches!(
-        dav_fs
-            .open(
-                &DavPath::new("/read-fallback.txt").unwrap(),
-                OpenOptions::read(),
-            )
-            .await,
-        Err(FsError::Forbidden)
-    ));
+    let opened = dav_fs
+        .open_full(&DavPath::new("/read-fallback.txt").unwrap())
+        .await
+        .unwrap();
+    drop(opened);
 
     let snapshot_after = snapshot_dir_tree(runtime_path).unwrap();
     assert_eq!(
         snapshot_after, snapshot_before,
-        "rejecting WebDAV open(read) should not create runtime temp files"
+        "opening the WebDAV download stream should not create runtime temp files"
     );
 }

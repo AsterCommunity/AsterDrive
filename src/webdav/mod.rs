@@ -5,6 +5,7 @@ use std::time::Instant;
 
 pub mod auth;
 pub mod backend;
+mod capability;
 mod handlers;
 mod responses;
 pub mod system_file;
@@ -35,7 +36,7 @@ pub struct WebDavState {
 struct TracingDavEventSink;
 
 impl DavEventSink for TracingDavEventSink {
-    fn publish(&self, event: &DavEvent) {
+    fn publish(&self, event: &DavEvent) -> Result<(), aster_forge_webdav::DavObservationError> {
         let destination = event
             .destination
             .as_ref()
@@ -63,6 +64,7 @@ impl DavEventSink for TracingDavEventSink {
                 "WebDAV operation failed"
             ),
         }
+        Ok(())
     }
 }
 
@@ -88,16 +90,6 @@ pub async fn webdav_handler(
         }
         Err(auth::WebdavAuthError::Rejected) => return responses::unauthorized(),
     };
-    let request_head = match aster_forge_webdav::actix::request_head(&req, &webdav.prefix) {
-        Ok(Some(request_head)) => request_head,
-        Ok(None) => {
-            return aster_forge_webdav::actix::into_response(
-                aster_forge_webdav::method_not_allowed_response(),
-            );
-        }
-        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
-    };
-
     let audit_info = audit::AuditRequestInfo::from_request(&req);
     let audit_ctx = audit_info.to_context(auth_result.scope.actor_user_id());
 
@@ -114,52 +106,77 @@ pub async fn webdav_handler(
         auth_result.root_folder_id,
         audit_ctx,
     );
-
-    let operation_started_at = Instant::now();
-    let request_body = match aster_forge_webdav::actix::prepare_request_body(
-        request_head.method,
-        &mut payload,
-        webdav.xml_payload_limit,
+    let request_target = match aster_forge_webdav::actix::request_target(&req, &webdav.prefix) {
+        Ok(target) => target,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
+    };
+    let capability_target = aster_forge_webdav::DavCapabilityTarget::new(
+        request_target.target.clone(),
+        request_target.target.as_str() == "/",
+    );
+    let capability_context = aster_forge_webdav::DavCapabilityContext {
+        principal: Some(auth_result.scope.actor_user_id().to_string()),
+    };
+    let capability_provider = capability::DriveDavCapabilityProvider::new(&dav_fs);
+    let capability_snapshot = match aster_forge_webdav::actix::capability_snapshot(
+        &capability_provider,
+        &capability_target,
+        &capability_context,
     )
     .await
     {
-        Ok(body) => body,
-        Err(error) => {
-            let response = aster_forge_webdav::actix::into_response(
-                aster_forge_webdav::body_error_response(error),
+        Ok(snapshot) => snapshot,
+        Err(response) => return response,
+    };
+    let method = match aster_forge_webdav::actix::gate_request_method(&req, &capability_snapshot) {
+        Ok(method) => method,
+        Err(response) => return response,
+    };
+    let request_headers = match aster_forge_webdav::actix::converted_headers(req.headers()) {
+        Ok(headers) => headers,
+        Err(response) => return response,
+    };
+    let request_head = match aster_forge_webdav::DavRequestHead::parse_known_method(
+        method,
+        &request_target,
+        &request_headers,
+    ) {
+        Ok(request_head) => request_head,
+        Err(error) => return aster_forge_webdav::actix::protocol_error_response(error),
+    };
+    let body_policy = match capability_snapshot.body_policy(method, webdav.xml_payload_limit) {
+        Ok(Some(policy)) => policy,
+        Ok(None) | Err(_) => {
+            return aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::method_not_allowed_response(&capability_snapshot),
             );
-            webdav.event_sink.publish(&DavEvent::completed(
-                &request_head,
-                response.status().as_u16(),
-                operation_started_at.elapsed(),
-                None,
-            ));
-            return response;
         }
     };
+
+    let operation_started_at = Instant::now();
+    let request_body =
+        match aster_forge_webdav::actix::prepare_request_body(body_policy, &mut payload).await {
+            Ok(body) => body,
+            Err(error) => {
+                let response = aster_forge_webdav::actix::into_response(
+                    aster_forge_webdav::body_error_response(error),
+                );
+                aster_forge_webdav::publish_non_authoritative(
+                    Some(webdav.event_sink.as_ref()),
+                    &DavEvent::completed(
+                        &request_head,
+                        response.status().as_u16(),
+                        operation_started_at.elapsed(),
+                        None,
+                    ),
+                );
+                return response;
+            }
+        };
     let response = match request_head.method {
-        DavMethod::Options => {
-            aster_forge_webdav::actix::into_response(aster_forge_webdav::options_response())
-        }
-        DavMethod::Report => {
-            handlers::deltav::handle_report(
-                &request_head,
-                request_body.xml(),
-                state.get_ref().reader_db(),
-                &auth_result,
-                &webdav.prefix,
-            )
-            .await
-        }
-        DavMethod::VersionControl => {
-            handlers::deltav::handle_version_control(
-                &request_head,
-                request_body.xml(),
-                state.get_ref().reader_db(),
-                &auth_result,
-            )
-            .await
-        }
+        DavMethod::Options => aster_forge_webdav::actix::into_response(
+            aster_forge_webdav::options_response(&capability_snapshot),
+        ),
         DavMethod::Propfind => {
             handlers::properties::handle_propfind(
                 &request_head,
@@ -167,6 +184,7 @@ pub async fn webdav_handler(
                 lock_system.as_ref(),
                 &webdav.prefix,
                 request_body.xml(),
+                &capability_snapshot,
             )
             .await
         }
@@ -188,6 +206,7 @@ pub async fn webdav_handler(
                 lock_system.as_ref(),
                 &webdav.prefix,
                 false,
+                &capability_snapshot,
             )
             .await
         }
@@ -199,6 +218,7 @@ pub async fn webdav_handler(
                 lock_system.as_ref(),
                 &webdav.prefix,
                 true,
+                &capability_snapshot,
             )
             .await
         }
@@ -214,6 +234,7 @@ pub async fn webdav_handler(
                 &webdav.prefix,
                 &system_file_policy,
                 &mut payload,
+                &capability_snapshot,
             )
             .await
         }
@@ -269,13 +290,39 @@ pub async fn webdav_handler(
         DavMethod::Unlock => {
             handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
         }
+        DavMethod::Report
+        | DavMethod::VersionControl
+        | DavMethod::Patch
+        | DavMethod::Acl
+        | DavMethod::Checkout
+        | DavMethod::Checkin
+        | DavMethod::Uncheckout
+        | DavMethod::Mkworkspace
+        | DavMethod::Update
+        | DavMethod::Label
+        | DavMethod::Merge
+        | DavMethod::BaselineControl
+        | DavMethod::Mkactivity
+        | DavMethod::Search
+        | DavMethod::Orderpatch
+        | DavMethod::Mkredirectref
+        | DavMethod::Updateredirectref
+        | DavMethod::Bind
+        | DavMethod::Unbind
+        | DavMethod::Rebind
+        | DavMethod::Post => aster_forge_webdav::actix::into_response(
+            aster_forge_webdav::method_not_allowed_response(&capability_snapshot),
+        ),
     };
-    webdav.event_sink.publish(&DavEvent::completed(
-        &request_head,
-        response.status().as_u16(),
-        operation_started_at.elapsed(),
-        None,
-    ));
+    aster_forge_webdav::publish_non_authoritative(
+        Some(webdav.event_sink.as_ref()),
+        &DavEvent::completed(
+            &request_head,
+            response.status().as_u16(),
+            operation_started_at.elapsed(),
+            None,
+        ),
+    );
     response
 }
 

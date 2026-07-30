@@ -290,9 +290,9 @@ dependencies = [
 
 [[package]]
 name = "aes"
-version = "0.9.1"
+version = "0.9.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f1fc76eaeac4c9164506c466d4ffdd8ec9d0c5bf57ee97177c4d8eceb3a0e138"
+checksum = "f8eb277bec05f56a0e0591f155a484cbd0f4f07ff2905051a48c72f004f7ed58"
 dependencies = [
  "cipher 0.5.2",
  "cpubits",
@@ -321,7 +321,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fdf011db2e21ce0d575593d749db5554b47fed37aff429e4dc50bc91ac93a028"
 dependencies = [
  "aead 0.6.1",
- "aes 0.9.1",
+ "aes 0.9.2",
  "cipher 0.5.2",
  "ctr 0.10.1",
  "ghash 0.6.0",
@@ -815,7 +815,7 @@ dependencies = [
  "hex",
  "hkdf 0.13.0",
  "hmac 0.13.0",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "image",
  "jsonwebtoken",
@@ -932,7 +932,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_middleware"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "actix-governor",
  "actix-web",
@@ -952,7 +952,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_actix_observability"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "actix-web",
  "aster_forge_metrics",
@@ -962,7 +962,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_alloc"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "tikv-jemalloc-ctl",
  "tracing",
@@ -971,7 +971,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "chrono",
  "serde",
@@ -982,7 +982,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_api_docs_macros"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -992,7 +992,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_audit"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_db",
  "aster_forge_mail",
@@ -1004,7 +1004,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_cache"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_utils",
@@ -1022,7 +1022,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_config"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_events",
  "aster_forge_utils",
@@ -1042,7 +1042,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_crypto"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "argon2 0.5.3",
  "hmac 0.13.0",
@@ -1054,7 +1054,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_api",
  "aster_forge_config",
@@ -1075,7 +1075,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_db_migration"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "sea-orm-migration",
  "tracing",
@@ -1084,7 +1084,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_events"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1099,7 +1099,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_external_auth"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_crypto",
  "aster_forge_utils",
@@ -1122,7 +1122,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_file_classification"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "sea-orm",
  "serde",
@@ -1133,7 +1133,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_logging"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "serde",
  "tracing-appender",
@@ -1143,7 +1143,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_mail"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_tasks",
@@ -1161,7 +1161,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_metrics"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_alloc",
  "aster_forge_runtime",
@@ -1176,7 +1176,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_panic"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "chrono",
 ]
@@ -1184,7 +1184,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_runtime"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_utils",
  "async-trait",
@@ -1201,7 +1201,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_tasks"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_runtime",
  "aster_forge_utils",
@@ -1221,7 +1221,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_test"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_utils",
  "fs2",
@@ -1237,9 +1237,10 @@ dependencies = [
 [[package]]
 name = "aster_forge_utils"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
- "http 1.4.2",
+ "headers",
+ "http 1.5.0",
  "httpdate",
  "ipnet",
  "md-5",
@@ -1255,7 +1256,7 @@ dependencies = [
 [[package]]
 name = "aster_forge_validation"
 version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "thiserror 2.0.19",
  "unicode-normalization",
@@ -1263,8 +1264,8 @@ dependencies = [
 
 [[package]]
 name = "aster_forge_webdav"
-version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+version = "0.1.0-beta.1"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "actix-web",
  "aster_forge_utils",
@@ -1273,15 +1274,16 @@ dependencies = [
  "bytes",
  "chrono",
  "futures",
- "http 1.4.2",
+ "headers",
+ "http 1.5.0",
  "percent-encoding",
  "thiserror 2.0.19",
 ]
 
 [[package]]
 name = "aster_forge_xml"
-version = "0.1.0"
-source = "git+https://github.com/AsterCommunity/AsterForge#0b9ca96485a57053f1e132ffc20388a0a240baff"
+version = "0.1.0-beta.1"
+source = "git+https://github.com/AsterCommunity/AsterForge#6da8b507f81ac5244bcbb77d802b11bf8330f7ce"
 dependencies = [
  "aster_forge_utils",
  "quick-xml",
@@ -1423,7 +1425,7 @@ dependencies = [
  "bytes-utils",
  "fastrand",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 0.4.6",
  "http-body 1.1.0",
  "percent-encoding",
@@ -1459,7 +1461,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "lru",
  "percent-encoding",
@@ -1486,7 +1488,7 @@ dependencies = [
  "hex",
  "hmac 0.13.0",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "p256 0.13.2",
  "percent-encoding",
  "sha2 0.11.0",
@@ -1518,7 +1520,7 @@ dependencies = [
  "bytes",
  "crc-fast",
  "hex",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "md-5",
@@ -1552,7 +1554,7 @@ dependencies = [
  "bytes-utils",
  "futures-core",
  "futures-util",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "percent-encoding",
@@ -1573,7 +1575,7 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "h2 0.4.15",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "hyper",
  "hyper-rustls",
@@ -1646,7 +1648,7 @@ dependencies = [
  "bytes",
  "fastrand",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 0.4.6",
  "http-body 1.1.0",
  "http-body-util",
@@ -1667,7 +1669,7 @@ dependencies = [
  "aws-smithy-types",
  "bytes",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "pin-project-lite",
  "tokio",
  "tracing",
@@ -1693,7 +1695,7 @@ checksum = "7d56e0a4e53127a632224e43633b0fe045fa9e1e3cfc68b9830f1115e103f910"
 dependencies = [
  "aws-smithy-runtime-api",
  "aws-smithy-types",
- "http 1.4.2",
+ "http 1.5.0",
 ]
 
 [[package]]
@@ -1707,7 +1709,7 @@ dependencies = [
  "bytes-utils",
  "futures-core",
  "http 0.2.12",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 0.4.6",
  "http-body 1.1.0",
  "http-body-util",
@@ -1758,7 +1760,7 @@ dependencies = [
  "axum-core",
  "bytes",
  "futures-util",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "itoa",
@@ -1782,7 +1784,7 @@ checksum = "08c78f31d7b1291f7ee735c1c6780ccde7785daae9a9206026862dab7d8792d1"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "mime",
@@ -2040,7 +2042,7 @@ dependencies = [
  "futures-util",
  "hex",
  "home",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body-util",
  "hyper",
  "hyper-named-pipe",
@@ -2461,15 +2463,6 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tokio-util",
-]
-
-[[package]]
-name = "concurrent-queue"
-version = "2.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
-dependencies = [
- "crossbeam-utils",
 ]
 
 [[package]]
@@ -3148,13 +3141,13 @@ dependencies = [
 
 [[package]]
 name = "displaydoc"
-version = "0.2.6"
+version = "0.2.7"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1ac70aa55017e108007fbaf5aa0f54b021c98f92ff8af59d42eda9da96e3dd4f"
+checksum = "c6232dd377dcc64799954cbd3a9bb882e9cdc1308ccd87b1c098f1fb2eaf82a8"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -3319,11 +3312,11 @@ dependencies = [
 
 [[package]]
 name = "email-encoding"
-version = "0.4.1"
+version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9298e6504d9b9e780ed3f7dfd43a61be8cd0e09eb07f7706a945b0072b6670b6"
+checksum = "420b9da095f052ea597503e39073b5b3c522f7db933fbac202d91d24492693fd"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.0",
  "memchr",
 ]
 
@@ -3382,11 +3375,10 @@ dependencies = [
 
 [[package]]
 name = "event-listener"
-version = "5.4.1"
+version = "5.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e13b66accf52311f30a0db42147dadea9850cb48cd070028831ae5f5d4b856ab"
+checksum = "5a23add41df1562121a9393cb065eab5146a1242410f23a644851e90cfd669d2"
 dependencies = [
- "concurrent-queue",
  "parking",
  "pin-project-lite",
 ]
@@ -3860,7 +3852,7 @@ dependencies = [
  "fnv",
  "futures-core",
  "futures-sink",
- "http 1.4.2",
+ "http 1.5.0",
  "indexmap 2.14.0",
  "slab",
  "tokio",
@@ -3919,6 +3911,30 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "824e001ac4f3012dd16a264bec811403a67ca9deb6c102fc5049b32c4574b35f"
 dependencies = [
  "hashbrown 0.16.1",
+]
+
+[[package]]
+name = "headers"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b3314d5adb5d94bcdf56771f2e50dbbc80bb4bdf88967526706205ac9eff24eb"
+dependencies = [
+ "base64 0.22.1",
+ "bytes",
+ "headers-core",
+ "http 1.5.0",
+ "httpdate",
+ "mime",
+ "sha1 0.10.7",
+]
+
+[[package]]
+name = "headers-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "54b4a22553d4242c49fddb9ba998a99962b5cc6f22cb5a3482bec22522403ce4"
+dependencies = [
+ "http 1.5.0",
 ]
 
 [[package]]
@@ -4009,9 +4025,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "1.4.2"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6970f50e31d6fc17d3fa27329444bfa74e196cf62e95052a3f6fee181dba6425"
+checksum = "918d3568bebf352712bc2ef3d46a8bcf1a75b373be6539de198e9105cbbf9ce0"
 dependencies = [
  "bytes",
  "itoa",
@@ -4035,7 +4051,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ca2a8f2913ee65f60facd6a5905613afaa448497a0230cc41ce022d93290bc2c"
 dependencies = [
  "bytes",
- "http 1.4.2",
+ "http 1.5.0",
 ]
 
 [[package]]
@@ -4046,7 +4062,7 @@ checksum = "e9f41fd6a08e4d4ec69df65976da761afd5ad5e58a9d4acb46bd1c953a9e3ff2"
 dependencies = [
  "bytes",
  "futures-core",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "pin-project-lite",
 ]
@@ -4065,9 +4081,9 @@ checksum = "df3b46402a9d5adb4c86a0cf463f42e19994e3ee891101b1841f30a545cb49a9"
 
 [[package]]
 name = "hybrid-array"
-version = "0.4.13"
+version = "0.4.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "818356c5132c1fede50f837ca96afbe78ff42413047f4abb886217845e1b6c8c"
+checksum = "707114b52a152fa7bdb290cd7cd5912d9467273b6d74e21b8d81aca1f8533f6b"
 dependencies = [
  "ctutils",
  "serde",
@@ -4087,7 +4103,7 @@ dependencies = [
  "futures-channel",
  "futures-core",
  "h2 0.4.15",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "httparse",
  "httpdate",
@@ -4118,7 +4134,7 @@ version = "0.27.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "33ca68d021ef39cf6463ab54c1d0f5daf03377b70561305bb89a8f83aab66e0f"
 dependencies = [
- "http 1.4.2",
+ "http 1.5.0",
  "hyper",
  "hyper-util",
  "rustls",
@@ -4152,7 +4168,7 @@ dependencies = [
  "bytes",
  "futures-channel",
  "futures-util",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "hyper",
  "ipnet",
@@ -5012,9 +5028,9 @@ dependencies = [
 
 [[package]]
 name = "nom-exif"
-version = "3.6.1"
+version = "3.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "55d41fe63e6184159b55a57cc73651ec8dc60e5ce2d647cd16f373a27b82ff33"
+checksum = "b7626860345adaf20c0d82b185ec8fc6285707c9fad9b4299c5ffa1581f6b009"
 dependencies = [
  "bytes",
  "chrono",
@@ -5175,7 +5191,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "getrandom 0.2.17",
- "http 1.4.2",
+ "http 1.5.0",
  "rand 0.8.7",
  "reqwest 0.12.28",
  "serde",
@@ -5267,7 +5283,7 @@ dependencies = [
  "dyn-clone",
  "ed25519-dalek 2.2.0",
  "hmac 0.12.1",
- "http 1.4.2",
+ "http 1.5.0",
  "itertools 0.10.5",
  "log",
  "oauth2",
@@ -5725,7 +5741,7 @@ version = "0.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "63d440a804ec8d6fafbb6b84471e013286658d373248927692ab3366686220ca"
 dependencies = [
- "aes 0.9.1",
+ "aes 0.9.2",
  "aes-gcm 0.11.0",
  "cbc 0.2.1",
  "der 0.8.1",
@@ -6327,9 +6343,9 @@ checksum = "03251193000f4bd3b042892be858ee50e8b3719f2b08e5833ac4353724632430"
 
 [[package]]
 name = "redis"
-version = "1.4.1"
+version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b0b9503711b03773e43b31668c7b5bd279ee7cd9b7d18cff7c23a42cc1d08e5a"
+checksum = "3257df217f7eab0044627a268c9cc6cdb60c0c421c88f83ac41c4e31520b6b84"
 dependencies = [
  "arc-swap",
  "arcstr",
@@ -6449,7 +6465,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "futures-core",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "hyper",
@@ -6490,7 +6506,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2 0.4.15",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "hyper",
@@ -6639,7 +6655,7 @@ version = "0.62.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b8b67b5a0d8068c89dcbe9d95df986af7a851d1f3c604525274c37468e60464f"
 dependencies = [
- "aes 0.9.1",
+ "aes 0.9.2",
  "aws-lc-rs",
  "bitflags 2.13.1",
  "block-padding 0.4.2",
@@ -6841,9 +6857,9 @@ dependencies = [
 
 [[package]]
 name = "rustls"
-version = "0.23.42"
+version = "0.23.43"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "3c54fcab019b409d04215d3a17cb438fd7fbf192ee61461f20f4fe18704bc138"
+checksum = "0283386ce02abc0151e1761d08802dfe86c173b0b494af5cbc086574e453da06"
 dependencies = [
  "aws-lc-rs",
  "log",
@@ -6979,9 +6995,9 @@ dependencies = [
 
 [[package]]
 name = "schemars"
-version = "1.2.1"
+version = "1.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2b42f36aa1cd011945615b92222f6bf73c599a102a300334cd7f8dbeec726cc"
+checksum = "687274d293b6cdc6e73e0fee520bf2049650090d7164f87672d212a3c530cf4a"
 dependencies = [
  "dyn-clone",
  "ref-cast",
@@ -7411,7 +7427,7 @@ dependencies = [
  "indexmap 1.9.3",
  "indexmap 2.14.0",
  "schemars 0.9.0",
- "schemars 1.2.1",
+ "schemars 1.2.2",
  "serde_core",
  "serde_json",
  "serde_with_macros",
@@ -7884,7 +7900,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d801accda99469cde6d73da741422610fdf6508a72d9a69d1b55cb241c720597"
 dependencies = [
  "aead 0.6.1",
- "aes 0.9.1",
+ "aes 0.9.2",
  "aes-gcm 0.11.0",
  "chacha20",
  "cipher 0.5.2",
@@ -8113,7 +8129,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "32497e9a4c7b38532efcdebeef879707aa9f794296a4f0244f6f69e9bc8574bd"
 dependencies = [
  "fastrand",
- "getrandom 0.3.4",
+ "getrandom 0.4.3",
  "once_cell",
  "rustix",
  "windows-sys 0.61.2",
@@ -8134,7 +8150,7 @@ dependencies = [
  "etcetera",
  "ferroid",
  "futures",
- "http 1.4.2",
+ "http 1.5.0",
  "itertools 0.14.0",
  "log",
  "memchr",
@@ -8358,13 +8374,13 @@ dependencies = [
 
 [[package]]
 name = "tokio-macros"
-version = "2.7.1"
+version = "2.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6328af13490e73a9b4694030fafd93f8c8c6a9dede33e821c3fc63eddf8042ba"
+checksum = "78773a2a397f451582ce068015985c33193cf6dea8b74d2a639fe457b2f07b0e"
 dependencies = [
  "proc-macro2",
  "quote",
- "syn 2.0.119",
+ "syn 3.0.3",
 ]
 
 [[package]]
@@ -8422,9 +8438,9 @@ dependencies = [
 
 [[package]]
 name = "toml"
-version = "1.1.3+spec-1.1.0"
+version = "1.1.4+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53c96ecdfa941c8fc4fcaed14f99ada8ebed502eef533015095a07e3301d4c3c"
+checksum = "3aace63f4bbcdfc2c965b059de67119c89c4017a70d633be6c104910f67056f5"
 dependencies = [
  "indexmap 2.14.0",
  "serde_core",
@@ -8459,9 +8475,9 @@ dependencies = [
 
 [[package]]
 name = "toml_parser"
-version = "1.1.2+spec-1.1.0"
+version = "1.1.3+spec-1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a2abe9b86193656635d2411dc43050282ca48aa31c2451210f4202550afb7526"
+checksum = "1d38ac1cf9b95face32296c0a3ede1fdc270627c9d9c02a7274dd6d960dc4d56"
 dependencies = [
  "winnow",
 ]
@@ -8483,7 +8499,7 @@ dependencies = [
  "base64 0.22.1",
  "bytes",
  "h2 0.4.15",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "http-body-util",
  "hyper",
@@ -8540,7 +8556,7 @@ dependencies = [
  "bitflags 2.13.1",
  "bytes",
  "futures-util",
- "http 1.4.2",
+ "http 1.5.0",
  "http-body 1.1.0",
  "pin-project-lite",
  "tower",
@@ -8663,7 +8679,7 @@ checksum = "e48ac77174b19c110a50ab2128b24215ac9cb40e0e12e093fb602d175c569d22"
 dependencies = [
  "bytes",
  "data-encoding",
- "http 1.4.2",
+ "http 1.5.0",
  "httparse",
  "log",
  "rand 0.10.2",
@@ -8836,7 +8852,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e994ba84b0bd1b1b0cf92878b7ef898a5c1760108fe7b6010327e274917a808c"
 dependencies = [
  "base64 0.22.1",
- "http 1.4.2",
+ "http 1.5.0",
  "httparse",
  "log",
 ]

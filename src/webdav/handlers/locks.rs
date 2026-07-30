@@ -11,7 +11,7 @@ use aster_forge_webdav::{
     unlock_token_mismatch_response,
 };
 
-use crate::webdav::{backend, fs_error_response, responses};
+use crate::webdav::{backend, responses};
 use aster_forge_webdav::{DavLockError, DavLockPreflightError, DavLockSystem};
 
 const MAX_LOCK_DURATION_SECS: u64 = 604_800;
@@ -102,9 +102,13 @@ pub(crate) async fn handle_lock(
             }
 
             let resource_existed =
-                match aster_forge_webdav::ensure_lock_target_exists(dav_fs, &path).await {
+                match aster_forge_webdav::ensure_lock_target_exists(dav_fs, dav_fs, &path).await {
                     Ok(resource_existed) => resource_existed,
-                    Err(err) => return fs_error_response(err),
+                    Err(error) => {
+                        return aster_forge_webdav::actix::into_response(
+                            aster_forge_webdav::backend_error_response(&error),
+                        );
+                    }
                 };
 
             let lock = match lock_system
