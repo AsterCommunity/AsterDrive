@@ -18,7 +18,7 @@ use aster_drive_model::entities::resource_lock;
 use aster_drive_model::types::EntityType;
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavLock, DavLockError, DavLockPreflightError,
-    DavLockSystem, DavPath, LsFuture,
+    DavLockSystem, DavPath, IfHeader, LsFuture, href_for_dav_path, submitted_lock_tokens,
 };
 
 const DISCOVER_MANY_ANCESTOR_CHUNK_SIZE: usize = 500;
@@ -735,6 +735,167 @@ async fn find_overlapping_locks<C: ConnectionTrait>(
     locks.dedup_by_key(|lock| lock.id);
     locks.retain(|lock| lock_paths_overlap(&lock.path, lock.deep, path, deep));
     Ok(locks)
+}
+
+/// Revalidates all current locks that overlap one mutation target on the caller's transaction.
+///
+/// Lock roots sharing the same path are satisfied when any active shared-lock token for that root
+/// was submitted. Backend lookup errors remain typed and fail closed.
+pub(crate) async fn revalidate_mutation_locks<C: ConnectionTrait>(
+    db: &C,
+    path: &DavPath,
+    deep: bool,
+    prefix: &str,
+    if_header: Option<&IfHeader>,
+    request_scheme: &str,
+    request_host: &str,
+) -> Result<(), DavLockError> {
+    let path_str = normalize_path(path);
+    let now = Utc::now();
+    let conflicts = find_overlapping_locks(db, &path_str, deep)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, path = %path_str, "failed to revalidate WebDAV mutation locks");
+            DavLockError::Backend
+        })?;
+    for (index, lock) in conflicts.iter().enumerate() {
+        if lock.timeout_at.is_some_and(|timeout_at| timeout_at < now)
+            || conflicts[..index].iter().any(|previous| {
+                previous.path == lock.path
+                    && previous
+                        .timeout_at
+                        .is_none_or(|timeout_at| timeout_at >= now)
+            })
+        {
+            continue;
+        }
+        let lock_href = href_for_dav_path(prefix, &DavPath::new(&lock.path).map_err(|_| {
+            tracing::warn!(lock_id = lock.id, path = %lock.path, "stored WebDAV lock path is invalid");
+            DavLockError::Backend
+        })?);
+        let submitted = if_header.map_or_else(Vec::new, |header| {
+            submitted_lock_tokens(header, &lock_href, request_scheme, request_host)
+        });
+        let satisfied = conflicts.iter().any(|candidate| {
+            candidate.path == lock.path
+                && candidate
+                    .timeout_at
+                    .is_none_or(|timeout_at| timeout_at >= now)
+                && submitted.iter().any(|token| token == &candidate.token)
+        });
+        if !satisfied {
+            return Err(DavLockError::Conflict(Box::new(model_to_dav_lock(lock))));
+        }
+    }
+    Ok(())
+}
+
+/// Serializes mutation preconditions with LOCK acquisition on the target and every materialized
+/// ancestor lock root.
+pub(crate) async fn lock_mutation_ancestor_entities<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    root_folder_id: Option<i64>,
+    path: &DavPath,
+) -> Result<(), DavLockError> {
+    let target = normalize_path(path);
+    for ancestor in path_ancestors(&target) {
+        match resolve_path_to_entity(db, scope, root_folder_id, &ancestor).await {
+            Ok((entity_type, entity_id)) => {
+                lock_target_entity(db, entity_type, entity_id)
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(error = %error, path = %ancestor, "failed to lock WebDAV mutation ancestor");
+                        DavLockError::Backend
+                    })?;
+            }
+            Err(())
+                if ancestor.trim_end_matches('/') == target.trim_end_matches('/')
+                    || ancestor == "/" && root_folder_id.is_none() => {}
+            Err(()) => {
+                tracing::warn!(path = %ancestor, "failed to resolve WebDAV mutation ancestor");
+                return Err(DavLockError::Backend);
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Destroys every rooted lock under `path` and synchronizes entity lock flags on the caller's
+/// transaction.
+pub(crate) async fn delete_rooted_locks_on<C: ConnectionTrait>(
+    db: &C,
+    path: &DavPath,
+) -> Result<(), DavLockError> {
+    let path_str = normalize_path(path);
+    let locks = lock_repo::find_by_path_prefix(db, &path_str)
+        .await
+        .map_err(|error| {
+            tracing::warn!(error = %error, path = %path_str, "failed to query rooted WebDAV locks");
+            DavLockError::Backend
+        })?;
+    for lock in locks {
+        if lock_path_is_under(&path_str, &lock.path) {
+            delete_lock_and_sync_flag(db, &lock).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Deletes descendant-rooted locks while retaining locks rooted exactly on `path` for destination
+/// overwrite rebinding.
+pub(crate) async fn delete_descendant_rooted_locks_on<C: ConnectionTrait>(
+    db: &C,
+    path: &DavPath,
+) -> Result<(), DavLockError> {
+    let path_str = normalize_path(path);
+    let locks = lock_repo::find_by_path_prefix(db, &path_str)
+        .await
+        .map_err(|_| DavLockError::Backend)?;
+    for lock in locks {
+        if lock.path != path_str && lock_path_is_under(&path_str, &lock.path) {
+            delete_lock_and_sync_flag(db, &lock).await?;
+        }
+    }
+    Ok(())
+}
+
+/// Rebinds locks rooted at a destination path to the replacement entity and synchronizes both
+/// sides of the denormalized lock flag.
+pub(crate) async fn rebind_destination_root_locks_on<C: ConnectionTrait>(
+    db: &C,
+    path: &DavPath,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> Result<(), DavLockError> {
+    let path_str = normalize_path(path);
+    let previous = lock_repo::find_by_path(db, &path_str)
+        .await
+        .map_err(|_| DavLockError::Backend)?;
+    lock_repo::rebind_path(db, &path_str, entity_type, entity_id)
+        .await
+        .map_err(|_| DavLockError::Backend)?;
+    for lock in previous {
+        if lock.entity_type != entity_type || lock.entity_id != entity_id {
+            crate::services::files::lock::clear_entity_locked_if_unlocked(
+                db,
+                lock.entity_type,
+                lock.entity_id,
+            )
+            .await
+            .map_err(|_| DavLockError::Backend)?;
+        }
+    }
+    if lock_repo::find_by_path(db, &path_str)
+        .await
+        .map_err(|_| DavLockError::Backend)?
+        .is_empty()
+    {
+        return Ok(());
+    }
+    crate::services::files::lock::set_entity_locked(db, entity_type, entity_id, true)
+        .await
+        .map_err(|_| DavLockError::Backend)
 }
 
 async fn delete_lock_and_sync_flag<C: ConnectionTrait>(

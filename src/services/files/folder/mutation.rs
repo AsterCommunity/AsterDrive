@@ -259,25 +259,15 @@ pub(crate) async fn delete_in_scope(
 
     // 删除整棵树时先锁目录树，再确认树结构没有变化；否则并发移动/创建子目录
     // 可能导致只删除到遍历时看到的一部分节点。
-    let (folder, file_count, folder_count) =
-        transaction::with_transaction(state.writer_db(), async |txn| {
-            let folder = folder_repo::lock_by_id(txn, folder_id).await?;
-            ensure_folder_model_in_scope(&folder, scope)?;
-            if folder.is_locked {
-                return Err(AsterError::resource_locked("folder is locked"));
-            }
-
-            let (files, folder_ids) =
-                collect_locked_folder_tree_in_scope(txn, scope, folder_id, traversal_limits)
-                    .await?;
-            let file_count = files.len();
-            let folder_count = folder_ids.len();
-            let file_ids: Vec<i64> = files.into_iter().map(|f| f.id).collect();
-            file_repo::soft_delete_many(txn, &file_ids, now).await?;
-            folder_repo::soft_delete_many(txn, &folder_ids, now).await?;
-            Ok((folder, file_count, folder_count))
-        })
-        .await?;
+    let outcome = transaction::with_transaction(state.writer_db(), async |txn| {
+        delete_tree_in_scope_on(txn, scope, folder_id, traversal_limits, now, false).await
+    })
+    .await?;
+    let FolderTreeDeletion {
+        folder,
+        file_count,
+        folder_count,
+    } = outcome;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(
@@ -298,6 +288,76 @@ pub(crate) async fn delete_in_scope(
         "soft deleted folder tree"
     );
     Ok(())
+}
+
+/// Authoritative result of a folder-tree soft deletion.
+pub(crate) struct FolderTreeDeletion {
+    pub(crate) folder: folder::Model,
+    pub(crate) file_count: usize,
+    pub(crate) folder_count: usize,
+}
+
+/// Locked folder-tree snapshot used by protocol adapters that must validate another persistence
+/// invariant before applying the deletion on the same transaction.
+pub(crate) struct LockedFolderTreeDeletion {
+    pub(crate) folder: folder::Model,
+    pub(crate) file_ids: Vec<i64>,
+    pub(crate) folder_ids: Vec<i64>,
+}
+
+pub(crate) async fn lock_tree_for_deletion_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    allow_locked_root: bool,
+) -> Result<LockedFolderTreeDeletion> {
+    let folder = folder_repo::lock_by_id(db, folder_id).await?;
+    ensure_folder_model_in_scope(&folder, scope)?;
+    if folder.is_locked && !allow_locked_root {
+        return Err(AsterError::resource_locked("folder is locked"));
+    }
+    let (files, folder_ids) =
+        collect_locked_folder_tree_in_scope(db, scope, folder_id, traversal_limits).await?;
+    Ok(LockedFolderTreeDeletion {
+        folder,
+        file_ids: files.into_iter().map(|file| file.id).collect(),
+        folder_ids,
+    })
+}
+
+pub(crate) async fn apply_locked_tree_deletion_on<C: ConnectionTrait>(
+    db: &C,
+    locked: LockedFolderTreeDeletion,
+    now: chrono::DateTime<Utc>,
+) -> Result<FolderTreeDeletion> {
+    let file_count = locked.file_ids.len();
+    let folder_count = locked.folder_ids.len();
+    file_repo::soft_delete_many(db, &locked.file_ids, now).await?;
+    folder_repo::soft_delete_many(db, &locked.folder_ids, now).await?;
+    Ok(FolderTreeDeletion {
+        folder: locked.folder,
+        file_count,
+        folder_count,
+    })
+}
+
+/// Soft-deletes a locked folder snapshot on the caller's transaction.
+///
+/// `allow_locked_root` is reserved for protocol adapters that revalidate the current lock rows in
+/// the same transaction. Ordinary product flows keep the existing `is_locked` guard.
+pub(crate) async fn delete_tree_in_scope_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+    traversal_limits: Option<super::FolderTreeTraversalLimits>,
+    now: chrono::DateTime<Utc>,
+    allow_locked_root: bool,
+) -> Result<FolderTreeDeletion> {
+    let locked =
+        lock_tree_for_deletion_on(db, scope, folder_id, traversal_limits, allow_locked_root)
+            .await?;
+    apply_locked_tree_deletion_on(db, locked, now).await
 }
 
 /// 删除文件夹（软删除 → 回收站，递归标记子项）

@@ -196,6 +196,34 @@ pub async fn find_by_path_prefix<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn find_by_path<C: ConnectionTrait>(
+    db: &C,
+    path: &str,
+) -> Result<Vec<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::Path.eq(path))
+        .order_by_asc(resource_lock::Column::Id)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn rebind_path<C: ConnectionTrait>(
+    db: &C,
+    path: &str,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> Result<u64> {
+    let result = ResourceLock::update_many()
+        .col_expr(resource_lock::Column::EntityType, Expr::value(entity_type))
+        .col_expr(resource_lock::Column::EntityId, Expr::value(entity_id))
+        .filter(resource_lock::Column::Path.eq(path))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
+}
+
 /// 祖先路径查询（WebDAV check 用）
 pub async fn find_ancestors<C: ConnectionTrait>(
     db: &C,

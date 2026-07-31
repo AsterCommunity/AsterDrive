@@ -39,7 +39,7 @@ pub(crate) use content::{
 pub(crate) use deletion::{
     BatchPurgeSummary, batch_purge_in_resource_scope, batch_purge_in_resource_scope_silent,
     batch_purge_in_scope, cleanup_unreferenced_blob, cleanup_unreferenced_blob_with_driver,
-    delete_in_scope, ensure_blob_cleanup_if_unreferenced,
+    delete_in_scope, delete_in_scope_on, ensure_blob_cleanup_if_unreferenced,
 };
 pub use deletion::{batch_purge, delete, purge};
 pub use download::range::ResolvedDownloadRange;
@@ -68,7 +68,7 @@ pub(crate) use transfer::{
     BatchDuplicateFileRecordSpec, BatchDuplicateFileRecordTargetSpec,
     batch_duplicate_file_records_to_mixed_folders_in_scope,
     batch_duplicate_file_records_with_specs_in_scope, copy_file_in_scope,
-    duplicate_file_record_in_scope,
+    duplicate_file_record_in_scope, duplicate_file_record_in_scope_on,
 };
 pub use transfer::{batch_duplicate_file_records, copy_file, duplicate_file_record};
 

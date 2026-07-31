@@ -12,8 +12,8 @@ use aster_drive_model::types::EntityType;
 const ENTITY_PROPERTY_BATCH_CHUNK_SIZE: usize = 500;
 
 /// 查询实体的所有属性
-pub async fn find_by_entity(
-    db: &DatabaseConnection,
+pub async fn find_by_entity<C: ConnectionTrait>(
+    db: &C,
     entity_type: EntityType,
     entity_id: i64,
 ) -> Result<Vec<entity_property::Model>> {

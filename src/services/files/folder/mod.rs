@@ -50,8 +50,9 @@ pub(crate) use hierarchy::{
 };
 pub(crate) use listing::list_in_scope;
 pub(crate) use mutation::{
-    admin_set_policy, create_in_scope, delete_in_scope, get_info_in_scope,
-    get_info_with_storage_used_in_scope, set_lock_in_scope, update_in_scope,
+    FolderTreeDeletion, admin_set_policy, apply_locked_tree_deletion_on, create_in_scope,
+    delete_in_scope, get_info_in_scope, get_info_with_storage_used_in_scope,
+    lock_tree_for_deletion_on, set_lock_in_scope, update_in_scope,
 };
 pub(crate) use tree::{
     FolderTreeTraversalLimits, collect_folder_forest_in_resource_scope,

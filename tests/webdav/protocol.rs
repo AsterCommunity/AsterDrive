@@ -5,7 +5,7 @@ use crate::common;
 use actix_web::test;
 use actix_web::{App, HttpServer, web};
 use aster_drive::config::{RateLimitConfig, RateLimitTier, WebDavConfig};
-use aster_drive::db::repository::{file_repo, property_repo};
+use aster_drive::db::repository::{file_repo, lock_repo, property_repo};
 use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
 use aster_drive_model::entities::{audit_log, folder, team, team_member, user, webdav_account};
 use aster_drive_model::types::{AuditAction, EntityType, TeamMemberRole, UserRole, UserStatus};
@@ -14,7 +14,9 @@ use aster_forge_db::system_config;
 use aster_forge_webdav::{DavEventOutcome, DavXmlElement as Element};
 use base64::Engine;
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter, Set};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, EntityTrait, PaginatorTrait, QueryFilter, Set,
+};
 use std::io::Cursor;
 use std::num::{NonZeroU32, NonZeroU64};
 use tokio::task::JoinHandle;
@@ -5687,6 +5689,551 @@ async fn test_webdav_copy_locked_destination_accepts_tagged_destination_lock_tok
     assert_eq!(resp.status(), 200);
     let body = test::read_body(resp).await;
     assert_eq!(String::from_utf8_lossy(&body), "source replacement");
+
+    let req = test::TestRequest::with_uri("/webdav/copy-locked-dest-token-target.txt")
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Lock-Token", lock_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "the destination-root token must remain bound to the replacement file"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_delete_rolls_back_when_rooted_lock_cleanup_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let path = "/webdav/atomic-delete-lock.txt";
+
+    let req = test::TestRequest::put()
+        .uri(path)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("delete rollback content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri(path)
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_delete_lock_failure \
+             BEFORE DELETE ON resource_locks BEGIN \
+             SELECT RAISE(ABORT, 'injected lock cleanup failure'); END;",
+        )
+        .await
+        .expect("SQLite lock cleanup trigger should install");
+    let req = test::TestRequest::with_uri(path)
+        .method(actix_web::http::Method::from_bytes(b"DELETE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("If", format!("({lock_token})")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_delete_lock_failure")
+        .await
+        .expect("SQLite lock cleanup trigger should be removed");
+
+    let account = webdav_account::Entity::find()
+        .filter(webdav_account::Column::Username.eq(username))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let file = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        account.user_id,
+        None,
+        "atomic-delete-lock.txt",
+    )
+    .await
+    .unwrap()
+    .expect("resource mutation must roll back with lock cleanup");
+    assert!(file.is_locked);
+    assert_eq!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-delete-lock.txt")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+
+    let req = test::TestRequest::get()
+        .uri(path)
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(test::read_body(resp).await, "delete rollback content");
+}
+
+#[actix_web::test]
+async fn test_webdav_move_rolls_back_when_source_lock_cleanup_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let source = "/webdav/atomic-move-source.txt";
+    let destination = "/webdav/atomic-move-target.txt";
+
+    let req = test::TestRequest::put()
+        .uri(source)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("move rollback content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_string();
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_move_lock_failure \
+             BEFORE DELETE ON resource_locks BEGIN \
+             SELECT RAISE(ABORT, 'injected source lock cleanup failure'); END;",
+        )
+        .await
+        .unwrap();
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", destination))
+        .insert_header(("If", format!("({lock_token})")))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_move_lock_failure")
+        .await
+        .unwrap();
+
+    for (uri, status) in [(source, 200), (destination, 404)] {
+        let req = test::TestRequest::get()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status().as_u16(), status, "unexpected state for {uri}");
+    }
+    assert_eq!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-move-source.txt")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_recursive_delete_keeps_namespace_when_child_lock_cleanup_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let root = "/webdav/atomic-folder-delete/";
+    let child = "/webdav/atomic-folder-delete/child.txt";
+
+    let req = test::TestRequest::with_uri(root)
+        .method(actix_web::http::Method::from_bytes(b"MKCOL").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let req = test::TestRequest::put()
+        .uri(child)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("child rollback content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri(child)
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_string();
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_child_lock_failure \
+             BEFORE DELETE ON resource_locks BEGIN \
+             SELECT RAISE(ABORT, 'injected child lock cleanup failure'); END;",
+        )
+        .await
+        .unwrap();
+    let req = test::TestRequest::with_uri(root)
+        .method(actix_web::http::Method::from_bytes(b"DELETE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header((
+            "If",
+            format!("</webdav/atomic-folder-delete/child.txt> ({lock_token})"),
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        207,
+        "a child commit failure must be reported as an internal resource failure"
+    );
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert!(
+        xml.contains("/webdav/atomic-folder-delete/child.txt"),
+        "{xml}"
+    );
+    assert!(xml.contains("500 Internal Server Error"), "{xml}");
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_child_lock_failure")
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(child)
+        .insert_header(("Authorization", auth))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "the failed child and its collection ancestor must both remain addressable"
+    );
+    assert_eq!(test::read_body(resp).await, "child rollback content");
+    assert_eq!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-folder-delete/child.txt")
+            .await
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_copy_rolls_back_when_destination_lock_rebind_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let source = "/webdav/atomic-copy-source.txt";
+    let destination = "/webdav/atomic-copy-target.txt";
+
+    for (uri, body) in [
+        (source, "new copy content"),
+        (destination, "old target content"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri(destination)
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .unwrap()
+        .to_string();
+    let old_lock = lock_repo::find_by_path(state.writer_db(), "/atomic-copy-target.txt")
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_rebind_lock_failure \
+             BEFORE UPDATE OF entity_id ON resource_locks \
+             WHEN OLD.path = '/atomic-copy-target.txt' BEGIN \
+             SELECT RAISE(ABORT, 'injected destination lock rebind failure'); END;",
+        )
+        .await
+        .unwrap();
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", destination))
+        .insert_header((
+            "If",
+            format!("</webdav/atomic-copy-target.txt> ({lock_token})"),
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 500);
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_rebind_lock_failure")
+        .await
+        .unwrap();
+
+    let req = test::TestRequest::get()
+        .uri(destination)
+        .insert_header(("Authorization", auth.clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    assert_eq!(test::read_body(resp).await, "old target content");
+    let current_lock = lock_repo::find_by_path(state.writer_db(), "/atomic-copy-target.txt")
+        .await
+        .unwrap()
+        .pop()
+        .unwrap();
+    assert_eq!(current_lock.entity_id, old_lock.entity_id);
+    assert_eq!(current_lock.entity_type, old_lock.entity_type);
+    let original = file_repo::find_by_id(state.writer_db(), old_lock.entity_id)
+        .await
+        .unwrap();
+    assert!(original.is_locked);
+}
+
+#[actix_web::test]
+async fn test_webdav_move_preserves_destination_lock_and_destroys_source_lock() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let source = "/webdav/move-lock-source.txt";
+    let destination = "/webdav/move-lock-target.txt";
+
+    for (uri, body) in [(source, "moved content"), (destination, "replaced content")] {
+        let req = test::TestRequest::put()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let mut lock_tokens = Vec::new();
+    for path in [source, destination] {
+        let req = test::TestRequest::with_uri(path)
+            .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .insert_header(("Depth", "0"))
+            .set_payload(lock_body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        lock_tokens.push(
+            resp.headers()
+                .get("Lock-Token")
+                .and_then(|value| value.to_str().ok())
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"MOVE").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", destination))
+        .insert_header((
+            "If",
+            format!(
+                "<{source}> ({}) <{destination}> ({})",
+                lock_tokens[0], lock_tokens[1]
+            ),
+        ))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let req = test::TestRequest::with_uri(destination)
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Lock-Token", lock_tokens[1].clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "the destination lock must be rebound to the moved replacement"
+    );
+
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Lock-Token", lock_tokens[0].clone()))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        409,
+        "a successful MOVE must destroy the lock rooted on the source"
+    );
+}
+
+#[actix_web::test]
+async fn test_webdav_copy_rebinds_all_shared_destination_root_locks() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let source = "/webdav/shared-copy-source.txt";
+    let destination = "/webdav/shared-copy-target.txt";
+
+    for (uri, body) in [
+        (source, "shared replacement"),
+        (destination, "old shared target"),
+    ] {
+        let req = test::TestRequest::put()
+            .uri(uri)
+            .insert_header(("Authorization", auth.clone()))
+            .set_payload(body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert!(resp.status() == 201 || resp.status() == 204);
+    }
+
+    let shared_lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:shared/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let mut lock_tokens = Vec::new();
+    for _ in 0..2 {
+        let req = test::TestRequest::with_uri(destination)
+            .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Content-Type", "application/xml"))
+            .insert_header(("Depth", "0"))
+            .set_payload(shared_lock_body)
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(resp.status(), 200);
+        lock_tokens.push(
+            resp.headers()
+                .get("Lock-Token")
+                .and_then(|value| value.to_str().ok())
+                .unwrap()
+                .to_string(),
+        );
+    }
+
+    let req = test::TestRequest::with_uri(source)
+        .method(actix_web::http::Method::from_bytes(b"COPY").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Destination", destination))
+        .insert_header(("If", format!("<{destination}> ({})", lock_tokens[0])))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(
+        resp.status() == 201 || resp.status() == 204,
+        "one shared token should satisfy one destination lock root"
+    );
+
+    for lock_token in lock_tokens {
+        let req = test::TestRequest::with_uri(destination)
+            .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header(("Lock-Token", lock_token))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            204,
+            "every shared destination-root lock must follow the replacement entity"
+        );
+    }
 }
 
 #[actix_web::test]
@@ -7662,11 +8209,15 @@ async fn test_webdav_recursive_copy_preserves_locked_destination_root_file() {
         .insert_header(("Destination", "/webdav/partial-root-file-target"))
         .to_request();
     let resp = test::call_service(&app, req).await;
-    assert_eq!(resp.status(), 207);
+    assert_eq!(
+        resp.status(),
+        423,
+        "a lock on the request destination root is a request-level failure"
+    );
     let body = test::read_body(resp).await;
     let xml = String::from_utf8_lossy(&body);
     assert!(xml.contains("/webdav/partial-root-file-target"), "{xml}");
-    assert!(xml.contains("423 Locked"), "{xml}");
+    assert!(xml.contains("lock-token-submitted"), "{xml}");
 
     let req = test::TestRequest::get()
         .uri("/webdav/partial-root-file-target")
@@ -7980,13 +8531,13 @@ async fn test_webdav_recursive_copy_move_stops_when_existing_destination_collect
         let resp = test::call_service(&app, req).await;
         assert_eq!(
             resp.status(),
-            207,
-            "{method} into a locked existing collection should return Multi-Status"
+            423,
+            "{method} failure at a locked destination root is request-level"
         );
         let body = test::read_body(resp).await;
         let xml = String::from_utf8_lossy(&body);
         assert!(xml.contains(&destination_root), "{xml}");
-        assert!(xml.contains("423 Locked"), "{xml}");
+        assert!(xml.contains("lock-token-submitted"), "{xml}");
 
         let req = test::TestRequest::get()
             .uri(&destination_child_file)

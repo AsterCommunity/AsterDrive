@@ -10,6 +10,7 @@ pub mod path_resolver;
 use aster_forge_db::transaction;
 use std::{collections::HashMap, pin::Pin};
 
+use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 use tokio::io::{AsyncRead, AsyncReadExt};
 
 use crate::db::repository::{file_repo, folder_repo, property_repo, team_repo, user_repo};
@@ -37,8 +38,9 @@ use aster_forge_utils::numbers::{i64_to_u64, usize_to_u64};
 use aster_forge_webdav::plan_atomic_proppatch;
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavContentStream, DavDirectoryEnumerator,
-    DavDirectoryPage, DavDirectoryPageRequest, DavDownloadSource, DavFileSystem, DavMetaData,
-    DavOpenedDownload, DavPath, DavProp, DavWriteOptions, DavWriteSystem, FsError, FsFuture,
+    DavDirectoryPage, DavDirectoryPageRequest, DavDownloadSource, DavFileSystem, DavLockError,
+    DavMetaData, DavMutationOperation, DavMutationTargetRole, DavOpenedDownload, DavPath, DavProp,
+    DavWriteOptions, DavWriteSystem, FsError, FsFuture, IfHeader, parent_relative_path,
 };
 
 /// AsterDrive WebDAV 文件系统，per-account workspace 实例。
@@ -56,6 +58,25 @@ pub(crate) struct AsterDavDownloadFile {
     pub(crate) file: file_entity::Model,
     pub(crate) blob: file_blob::Model,
     pub(crate) meta: AsterDavMeta,
+}
+
+pub(crate) struct DavMutationConditions<'a> {
+    pub(crate) prefix: &'a str,
+    pub(crate) if_header: Option<&'a IfHeader>,
+    pub(crate) request_scheme: &'a str,
+    pub(crate) request_host: &'a str,
+}
+
+#[derive(Debug)]
+pub(crate) enum AsterDavMutationError {
+    FileSystem(FsError),
+    Locked(DavPath),
+    Backend,
+}
+
+enum DeletedResource {
+    File(file_entity::Model),
+    Folder(aster_drive_model::entities::folder::Model),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -183,6 +204,797 @@ impl AsterDavFs {
         }
     }
 
+    /// Deletes one resource and all locks rooted in its namespace in one writer commit.
+    pub(crate) async fn delete_with_locks(
+        &self,
+        path: &DavPath,
+        is_collection: bool,
+        operation: DavMutationOperation,
+        role: DavMutationTargetRole,
+        conditions: DavMutationConditions<'_>,
+    ) -> Result<(), AsterDavMutationError> {
+        let txn = transaction::begin(self.state.writer_db())
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
+            .await
+            .map_err(map_atomic_lock_error)?;
+
+        let node =
+            path_resolver::resolve_path_in_scope(&txn, self.scope, path, self.root_folder_id)
+                .await
+                .map_err(AsterDavMutationError::FileSystem)?;
+
+        enum Deleted {
+            File(file_entity::Model),
+            Folder(folder::FolderTreeDeletion),
+        }
+
+        let prepared_folder = match (&node, is_collection) {
+            (ResolvedNode::Folder(folder), true) => Some(
+                folder::lock_tree_for_deletion_on(
+                    &txn,
+                    self.scope,
+                    folder.id,
+                    Some(MUTATION_FOLDER_TREE_LIMITS),
+                    true,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            ),
+            (ResolvedNode::File(_), false) => None,
+            _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+        };
+
+        revalidate_atomic_target(&txn, path, is_collection, &conditions).await?;
+        if let Some(parent) = parent_relative_path(path.as_str())
+            && let Ok(parent) = DavPath::new(&parent)
+        {
+            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+        }
+
+        let deleted = match (node, prepared_folder) {
+            (ResolvedNode::File(file), None) => {
+                file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                Deleted::File(file)
+            }
+            (ResolvedNode::Folder(_), Some(locked)) => Deleted::Folder(
+                folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?,
+            ),
+            _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+        };
+        lock::delete_rooted_locks_on(&txn, path)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        transaction::commit(txn)
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+
+        match deleted {
+            Deleted::File(file) => {
+                storage_change::publish(
+                    &self.state,
+                    storage_change::StorageChangeEvent::new(
+                        storage_change::StorageChangeKind::FileTrashed,
+                        self.scope,
+                        vec![file.id],
+                        vec![],
+                        vec![file.folder_id],
+                    ),
+                );
+                if operation == DavMutationOperation::Delete
+                    || role == DavMutationTargetRole::Destination
+                {
+                    self.log_deleted_file(path, &file).await;
+                }
+            }
+            Deleted::Folder(outcome) => {
+                storage_change::publish(
+                    &self.state,
+                    storage_change::StorageChangeEvent::new(
+                        storage_change::StorageChangeKind::FolderTrashed,
+                        self.scope,
+                        vec![],
+                        vec![outcome.folder.id],
+                        vec![outcome.folder.parent_id],
+                    ),
+                );
+                folder::invalidate_folder_path_cache_for_ids(&self.state, &[outcome.folder.id])
+                    .await;
+                if operation == DavMutationOperation::Delete
+                    || role == DavMutationTargetRole::Destination
+                {
+                    self.log_deleted_folder(path, &outcome.folder).await;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Moves one resource, destination overwrite state, rooted locks, and derived lock flags in
+    /// one writer commit.
+    pub(crate) async fn move_with_locks(
+        &self,
+        source: &DavPath,
+        destination: &DavPath,
+        conditions: DavMutationConditions<'_>,
+    ) -> Result<(), AsterDavMutationError> {
+        let txn = transaction::begin(self.state.writer_db())
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        let mut lock_paths = [source, destination];
+        lock_paths.sort_by(|left, right| left.as_str().cmp(right.as_str()));
+        for path in lock_paths {
+            lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
+                .await
+                .map_err(map_atomic_lock_error)?;
+        }
+
+        let source_node =
+            path_resolver::resolve_path_in_scope(&txn, self.scope, source, self.root_folder_id)
+                .await
+                .map_err(AsterDavMutationError::FileSystem)?;
+        let destination_node = match path_resolver::resolve_path_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        {
+            Ok(node) => Some(node),
+            Err(FsError::NotFound) => None,
+            Err(error) => return Err(AsterDavMutationError::FileSystem(error)),
+        };
+        let overwritten = destination_node.as_ref().and_then(|node| match node {
+            ResolvedNode::File(file) => Some(DeletedResource::File(file.clone())),
+            ResolvedNode::Folder(folder) => Some(DeletedResource::Folder(folder.clone())),
+            ResolvedNode::Root => None,
+        });
+
+        let source_is_collection = matches!(source_node, ResolvedNode::Folder(_));
+        let _source_tree_lock = match &source_node {
+            ResolvedNode::Folder(folder) => Some(
+                folder::lock_tree_for_deletion_on(
+                    &txn,
+                    self.scope,
+                    folder.id,
+                    Some(MUTATION_FOLDER_TREE_LIMITS),
+                    true,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            ),
+            ResolvedNode::File(_) => None,
+            ResolvedNode::Root => {
+                return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
+            }
+        };
+        revalidate_atomic_target(&txn, source, source_is_collection, &conditions).await?;
+        if let Some(parent) = parent_relative_path(source.as_str())
+            && let Ok(parent) = DavPath::new(&parent)
+        {
+            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+        }
+
+        let prepared_destination_folder = match &destination_node {
+            Some(ResolvedNode::Folder(folder)) => Some(
+                folder::lock_tree_for_deletion_on(
+                    &txn,
+                    self.scope,
+                    folder.id,
+                    Some(MUTATION_FOLDER_TREE_LIMITS),
+                    true,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            ),
+            _ => None,
+        };
+        if let Some(node) = &destination_node {
+            revalidate_atomic_target(
+                &txn,
+                destination,
+                matches!(node, ResolvedNode::Folder(_)),
+                &conditions,
+            )
+            .await?;
+        }
+        if let Some(parent) = parent_relative_path(destination.as_str())
+            && let Ok(parent) = DavPath::new(&parent)
+        {
+            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+        }
+
+        if let Some(node) = destination_node {
+            match (node, prepared_destination_folder) {
+                (ResolvedNode::File(file), None) => {
+                    file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
+                        .await
+                        .map_err(to_fs_error)
+                        .map_err(AsterDavMutationError::FileSystem)?;
+                }
+                (ResolvedNode::Folder(_), Some(locked)) => {
+                    folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
+                        .await
+                        .map_err(to_fs_error)
+                        .map_err(AsterDavMutationError::FileSystem)?;
+                }
+                _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+            }
+            lock::delete_descendant_rooted_locks_on(&txn, destination)
+                .await
+                .map_err(map_atomic_lock_error)?;
+        }
+
+        let (destination_parent_id, destination_name) = path_resolver::resolve_parent_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        enum Moved {
+            File {
+                previous: file_entity::Model,
+                current: file_entity::Model,
+            },
+            Folder {
+                previous: aster_drive_model::entities::folder::Model,
+                current: aster_drive_model::entities::folder::Model,
+            },
+        }
+
+        let (entity_type, entity_id, event, moved) = match source_node {
+            ResolvedNode::File(file) => {
+                let mut active: file_entity::ActiveModel = file.clone().into();
+                active.name = Set(destination_name);
+                active.folder_id = Set(destination_parent_id);
+                active.updated_at = Set(chrono::Utc::now());
+                let moved = active
+                    .update(&txn)
+                    .await
+                    .map_err(crate::errors::AsterError::from)
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                (
+                    EntityType::File,
+                    moved.id,
+                    storage_change::StorageChangeEvent::new(
+                        storage_change::StorageChangeKind::FileUpdated,
+                        self.scope,
+                        vec![moved.id],
+                        vec![],
+                        vec![file.folder_id, moved.folder_id],
+                    ),
+                    Moved::File {
+                        previous: file,
+                        current: moved,
+                    },
+                )
+            }
+            ResolvedNode::Folder(folder) => {
+                let mut active: aster_drive_model::entities::folder::ActiveModel =
+                    folder.clone().into();
+                active.name = Set(destination_name);
+                active.parent_id = Set(destination_parent_id);
+                active.updated_at = Set(chrono::Utc::now());
+                let moved = active
+                    .update(&txn)
+                    .await
+                    .map_err(crate::errors::AsterError::from)
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                (
+                    EntityType::Folder,
+                    moved.id,
+                    storage_change::StorageChangeEvent::new(
+                        storage_change::StorageChangeKind::FolderUpdated,
+                        self.scope,
+                        vec![],
+                        vec![moved.id],
+                        vec![folder.parent_id, moved.parent_id],
+                    ),
+                    Moved::Folder {
+                        previous: folder,
+                        current: moved,
+                    },
+                )
+            }
+            ResolvedNode::Root => {
+                return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
+            }
+        };
+        lock::delete_rooted_locks_on(&txn, source)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        lock::rebind_destination_root_locks_on(&txn, destination, entity_type, entity_id)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        transaction::commit(txn)
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        storage_change::publish(&self.state, event);
+        if let Some(overwritten) = overwritten.as_ref() {
+            self.log_deleted_resource(destination, overwritten).await;
+        }
+        match moved {
+            Moved::File { previous, current } => {
+                self.log_file_transfer(
+                    audit::AuditAction::FileMove,
+                    source,
+                    destination,
+                    &previous,
+                    &current,
+                )
+                .await;
+            }
+            Moved::Folder { previous, current } => {
+                self.log_folder_transfer(
+                    audit::AuditAction::FolderMove,
+                    source,
+                    destination,
+                    &previous,
+                    &current,
+                )
+                .await;
+            }
+        }
+        if entity_type == EntityType::Folder {
+            folder::invalidate_folder_path_cache_for_ids(&self.state, &[entity_id]).await;
+        }
+        Ok(())
+    }
+
+    /// Copies one file and atomically preserves/rebinds locks rooted at an overwritten destination.
+    pub(crate) async fn copy_file_with_locks(
+        &self,
+        source: &DavPath,
+        destination: &DavPath,
+        conditions: DavMutationConditions<'_>,
+    ) -> Result<(), AsterDavMutationError> {
+        let txn = transaction::begin(self.state.writer_db())
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        let source_file = match path_resolver::resolve_path_in_scope(
+            &txn,
+            self.scope,
+            source,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?
+        {
+            ResolvedNode::File(file) => file_repo::lock_by_id(&txn, file.id)
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+        };
+        let destination_node = match path_resolver::resolve_path_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        {
+            Ok(node) => Some(node),
+            Err(FsError::NotFound) => None,
+            Err(error) => return Err(AsterDavMutationError::FileSystem(error)),
+        };
+        let overwritten = destination_node.as_ref().and_then(|node| match node {
+            ResolvedNode::File(file) => Some(DeletedResource::File(file.clone())),
+            ResolvedNode::Folder(folder) => Some(DeletedResource::Folder(folder.clone())),
+            ResolvedNode::Root => None,
+        });
+        let prepared_destination_folder = match &destination_node {
+            Some(ResolvedNode::Folder(folder)) => Some(
+                folder::lock_tree_for_deletion_on(
+                    &txn,
+                    self.scope,
+                    folder.id,
+                    Some(MUTATION_FOLDER_TREE_LIMITS),
+                    true,
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            ),
+            _ => None,
+        };
+        if let Some(node) = &destination_node {
+            revalidate_atomic_target(
+                &txn,
+                destination,
+                matches!(node, ResolvedNode::Folder(_)),
+                &conditions,
+            )
+            .await?;
+        }
+        if let Some(parent) = parent_relative_path(destination.as_str())
+            && let Ok(parent) = DavPath::new(&parent)
+        {
+            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+        }
+        if let Some(node) = destination_node {
+            match (node, prepared_destination_folder) {
+                (ResolvedNode::File(file), None) => {
+                    file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
+                        .await
+                        .map_err(to_fs_error)
+                        .map_err(AsterDavMutationError::FileSystem)?;
+                }
+                (ResolvedNode::Folder(_), Some(locked)) => {
+                    folder::apply_locked_tree_deletion_on(&txn, locked, chrono::Utc::now())
+                        .await
+                        .map_err(to_fs_error)
+                        .map_err(AsterDavMutationError::FileSystem)?;
+                }
+                _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+            }
+            lock::delete_descendant_rooted_locks_on(&txn, destination)
+                .await
+                .map_err(map_atomic_lock_error)?;
+        }
+        let (destination_parent_id, destination_name) = path_resolver::resolve_parent_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        let copied = file_ops::duplicate_file_record_in_scope_on(
+            &txn,
+            self.scope,
+            &source_file,
+            destination_parent_id,
+            &destination_name,
+        )
+        .await
+        .map_err(to_fs_error)
+        .map_err(AsterDavMutationError::FileSystem)?;
+        copy_visible_entity_properties_on(
+            &txn,
+            EntityType::File,
+            source_file.id,
+            EntityType::File,
+            copied.id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        lock::rebind_destination_root_locks_on(&txn, destination, EntityType::File, copied.id)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        transaction::commit(txn)
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        storage_change::publish(
+            &self.state,
+            storage_change::StorageChangeEvent::new(
+                storage_change::StorageChangeKind::FileCreated,
+                self.scope,
+                vec![copied.id],
+                vec![],
+                vec![copied.folder_id],
+            )
+            .with_storage_delta(copied.size),
+        );
+        if let Some(overwritten) = overwritten.as_ref() {
+            self.log_deleted_resource(destination, overwritten).await;
+        }
+        self.log_file_transfer(
+            audit::AuditAction::FileCopy,
+            source,
+            destination,
+            &source_file,
+            &copied,
+        )
+        .await;
+        Ok(())
+    }
+
+    /// Prepares one collection destination for recursive COPY/MOVE while preserving the existing
+    /// destination lock scope in the same writer commit.
+    pub(crate) async fn prepare_collection_with_locks(
+        &self,
+        source: &DavPath,
+        destination: &DavPath,
+        operation: DavMutationOperation,
+        conditions: DavMutationConditions<'_>,
+    ) -> Result<(), AsterDavMutationError> {
+        let txn = transaction::begin(self.state.writer_db())
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
+            .await
+            .map_err(map_atomic_lock_error)?;
+        let source_folder = match path_resolver::resolve_path_in_scope(
+            &txn,
+            self.scope,
+            source,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?
+        {
+            ResolvedNode::Folder(folder) => folder_repo::lock_by_id(&txn, folder.id)
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?,
+            _ => return Err(AsterDavMutationError::FileSystem(FsError::Forbidden)),
+        };
+        let destination_node = match path_resolver::resolve_path_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        {
+            Ok(node) => Some(node),
+            Err(FsError::NotFound) => None,
+            Err(error) => return Err(AsterDavMutationError::FileSystem(error)),
+        };
+        let overwritten = destination_node.as_ref().and_then(|node| match node {
+            ResolvedNode::File(file) => Some(DeletedResource::File(file.clone())),
+            ResolvedNode::Folder(_) | ResolvedNode::Root => None,
+        });
+        if destination_node.is_some() {
+            revalidate_atomic_target(&txn, destination, false, &conditions).await?;
+        }
+        if let Some(parent) = parent_relative_path(destination.as_str())
+            && let Ok(parent) = DavPath::new(&parent)
+        {
+            revalidate_atomic_target(&txn, &parent, false, &conditions).await?;
+        }
+        let (destination_parent_id, destination_name) = path_resolver::resolve_parent_in_scope(
+            &txn,
+            self.scope,
+            destination,
+            self.root_folder_id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        let (destination_folder, created) = match destination_node {
+            Some(ResolvedNode::Folder(folder)) => (folder, false),
+            Some(ResolvedNode::File(file)) => {
+                file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                let created_by_username =
+                    crate::services::workspace::storage::load_scope_actor_username(
+                        &txn, self.scope,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                let now = chrono::Utc::now();
+                let folder = folder_repo::create(
+                    &txn,
+                    aster_drive_model::entities::folder::ActiveModel {
+                        name: Set(destination_name),
+                        parent_id: Set(destination_parent_id),
+                        team_id: Set(self.scope.team_id()),
+                        owner_user_id: Set(self.scope.owner_user_id()),
+                        created_by_user_id: Set(Some(self.scope.actor_user_id())),
+                        created_by_username: Set(created_by_username),
+                        policy_id: Set(source_folder.policy_id),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
+                (folder, true)
+            }
+            None => {
+                let created_by_username =
+                    crate::services::workspace::storage::load_scope_actor_username(
+                        &txn, self.scope,
+                    )
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+                let now = chrono::Utc::now();
+                let folder = folder_repo::create(
+                    &txn,
+                    aster_drive_model::entities::folder::ActiveModel {
+                        name: Set(destination_name),
+                        parent_id: Set(destination_parent_id),
+                        team_id: Set(self.scope.team_id()),
+                        owner_user_id: Set(self.scope.owner_user_id()),
+                        created_by_user_id: Set(Some(self.scope.actor_user_id())),
+                        created_by_username: Set(created_by_username),
+                        policy_id: Set(source_folder.policy_id),
+                        created_at: Set(now),
+                        updated_at: Set(now),
+                        ..Default::default()
+                    },
+                )
+                .await
+                .map_err(to_fs_error)
+                .map_err(AsterDavMutationError::FileSystem)?;
+                (folder, true)
+            }
+            Some(ResolvedNode::Root) => {
+                return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
+            }
+        };
+        copy_visible_entity_properties_on(
+            &txn,
+            EntityType::Folder,
+            source_folder.id,
+            EntityType::Folder,
+            destination_folder.id,
+        )
+        .await
+        .map_err(AsterDavMutationError::FileSystem)?;
+        lock::rebind_destination_root_locks_on(
+            &txn,
+            destination,
+            EntityType::Folder,
+            destination_folder.id,
+        )
+        .await
+        .map_err(map_atomic_lock_error)?;
+        transaction::commit(txn)
+            .await
+            .map_err(|_| AsterDavMutationError::Backend)?;
+        storage_change::publish(
+            &self.state,
+            storage_change::StorageChangeEvent::new(
+                if created {
+                    storage_change::StorageChangeKind::FolderCreated
+                } else {
+                    storage_change::StorageChangeKind::FolderUpdated
+                },
+                self.scope,
+                vec![],
+                vec![destination_folder.id],
+                vec![destination_folder.parent_id],
+            ),
+        );
+        if let Some(overwritten) = overwritten.as_ref() {
+            self.log_deleted_resource(destination, overwritten).await;
+        }
+        self.log_folder_transfer(
+            if operation == DavMutationOperation::Move {
+                audit::AuditAction::FolderMove
+            } else {
+                audit::AuditAction::FolderCopy
+            },
+            source,
+            destination,
+            &source_folder,
+            &destination_folder,
+        )
+        .await;
+        Ok(())
+    }
+
+    async fn log_deleted_resource(&self, path: &DavPath, resource: &DeletedResource) {
+        match resource {
+            DeletedResource::File(file) => self.log_deleted_file(path, file).await,
+            DeletedResource::Folder(folder) => self.log_deleted_folder(path, folder).await,
+        }
+    }
+
+    async fn log_deleted_file(&self, path: &DavPath, file: &file_entity::Model) {
+        let details = Some(serde_json::json!({
+            "folder_id": file.folder_id,
+            "path": path.as_str(),
+            "team_id": self.scope.team_id(),
+        }));
+        audit::log_with_details(
+            &self.state,
+            &self.audit_ctx,
+            audit::AuditAction::FileDelete,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(file.id),
+            Some(&file.name),
+            || details.clone(),
+        )
+        .await;
+    }
+
+    async fn log_deleted_folder(
+        &self,
+        path: &DavPath,
+        folder: &aster_drive_model::entities::folder::Model,
+    ) {
+        let details = Some(serde_json::json!({
+            "parent_id": folder.parent_id,
+            "path": path.as_str(),
+            "team_id": self.scope.team_id(),
+        }));
+        audit::log_with_details(
+            &self.state,
+            &self.audit_ctx,
+            audit::AuditAction::FolderDelete,
+            crate::services::ops::audit::AuditEntityType::Folder,
+            Some(folder.id),
+            Some(&folder.name),
+            || details.clone(),
+        )
+        .await;
+    }
+
+    async fn log_file_transfer(
+        &self,
+        action: audit::AuditAction,
+        source: &DavPath,
+        destination: &DavPath,
+        previous: &file_entity::Model,
+        current: &file_entity::Model,
+    ) {
+        let details = Some(serde_json::json!({
+            "source_folder_id": previous.folder_id,
+            "source_path": source.as_str(),
+            "target_folder_id": current.folder_id,
+            "target_path": destination.as_str(),
+            "previous_name": previous.name,
+            "next_name": current.name,
+            "team_id": self.scope.team_id(),
+        }));
+        audit::log_with_details(
+            &self.state,
+            &self.audit_ctx,
+            action,
+            crate::services::ops::audit::AuditEntityType::File,
+            Some(current.id),
+            Some(&current.name),
+            || details.clone(),
+        )
+        .await;
+    }
+
+    async fn log_folder_transfer(
+        &self,
+        action: audit::AuditAction,
+        source: &DavPath,
+        destination: &DavPath,
+        previous: &aster_drive_model::entities::folder::Model,
+        current: &aster_drive_model::entities::folder::Model,
+    ) {
+        let details = Some(serde_json::json!({
+            "source_parent_id": previous.parent_id,
+            "source_path": source.as_str(),
+            "target_parent_id": current.parent_id,
+            "target_path": destination.as_str(),
+            "previous_name": previous.name,
+            "next_name": current.name,
+            "team_id": self.scope.team_id(),
+        }));
+        audit::log_with_details(
+            &self.state,
+            &self.audit_ctx,
+            action,
+            crate::services::ops::audit::AuditEntityType::Folder,
+            Some(current.id),
+            Some(&current.name),
+            || details.clone(),
+        )
+        .await;
+    }
+
     pub(crate) async fn open_download_stream_for_file(
         &self,
         file: &file_entity::Model,
@@ -227,83 +1039,6 @@ impl AsterDavFs {
         )
         .await;
         Ok(stream)
-    }
-
-    pub(crate) async fn copy_dir_shallow(
-        &self,
-        from: &DavPath,
-        to: &DavPath,
-    ) -> Result<(), FsError> {
-        let node = path_resolver::resolve_path_cached_in_scope(
-            &self.state,
-            self.scope,
-            from,
-            self.root_folder_id,
-        )
-        .await?;
-        let src_folder = match node {
-            ResolvedNode::Folder(folder) => folder,
-            _ => return Err(FsError::Forbidden),
-        };
-
-        let (dest_parent_id, dest_name) = path_resolver::resolve_parent_cached_in_scope(
-            &self.state,
-            self.scope,
-            to,
-            self.root_folder_id,
-        )
-        .await?;
-
-        let state = self.app_state();
-        delete_existing_destination_for_overwrite(
-            &state,
-            self.scope(),
-            dest_parent_id,
-            &dest_name,
-            &self.audit_ctx,
-            Some(MUTATION_FOLDER_TREE_LIMITS),
-        )
-        .await?;
-
-        let created = folder::create_in_scope_with_audit(
-            &state,
-            self.scope(),
-            &dest_name,
-            dest_parent_id,
-            &self.audit_ctx,
-        )
-        .await
-        .map_err(to_fs_error)?;
-        copy_visible_entity_properties(
-            &state,
-            EntityType::Folder,
-            src_folder.id,
-            EntityType::Folder,
-            created.id,
-        )
-        .await?;
-        let target_folder = folder_repo::find_by_id(state.reader_db(), created.id)
-            .await
-            .map_err(to_fs_error)?;
-        let details = folder::audit_transfer_details_for_models(
-            &state,
-            self.scope(),
-            &src_folder,
-            &target_folder,
-        )
-        .await;
-        audit::log_with_details(
-            &state,
-            &self.audit_ctx,
-            audit::AuditAction::FolderCopy,
-            crate::services::ops::audit::AuditEntityType::Folder,
-            Some(created.id),
-            Some(&created.name),
-            || details.clone(),
-        )
-        .await;
-
-        Ok(())
     }
 
     pub(crate) fn write_directory_enumerator(&self) -> AsterDavWriteDirectoryEnumerator<'_> {
@@ -1237,7 +1972,24 @@ async fn copy_visible_entity_properties(
     dest_entity_type: EntityType,
     dest_entity_id: i64,
 ) -> Result<(), FsError> {
-    let props = property_repo::find_by_entity(state.writer_db(), src_entity_type, src_entity_id)
+    copy_visible_entity_properties_on(
+        state.writer_db(),
+        src_entity_type,
+        src_entity_id,
+        dest_entity_type,
+        dest_entity_id,
+    )
+    .await
+}
+
+async fn copy_visible_entity_properties_on<C: ConnectionTrait>(
+    db: &C,
+    src_entity_type: EntityType,
+    src_entity_id: i64,
+    dest_entity_type: EntityType,
+    dest_entity_id: i64,
+) -> Result<(), FsError> {
+    let props = property_repo::find_by_entity(db, src_entity_type, src_entity_id)
         .await
         .map_err(|_| FsError::GeneralFailure)?;
 
@@ -1246,7 +1998,7 @@ async fn copy_visible_entity_properties(
             continue;
         }
         property_repo::upsert(
-            state.writer_db(),
+            db,
             dest_entity_type,
             dest_entity_id,
             &prop.namespace,
@@ -1502,5 +2254,33 @@ fn to_fs_error(err: crate::errors::AsterError) -> FsError {
         crate::errors::AsterError::ResourceLocked(_) => FsError::Forbidden,
 
         _ => FsError::GeneralFailure,
+    }
+}
+
+async fn revalidate_atomic_target<C: ConnectionTrait>(
+    db: &C,
+    path: &DavPath,
+    deep: bool,
+    conditions: &DavMutationConditions<'_>,
+) -> Result<(), AsterDavMutationError> {
+    lock::revalidate_mutation_locks(
+        db,
+        path,
+        deep,
+        conditions.prefix,
+        conditions.if_header,
+        conditions.request_scheme,
+        conditions.request_host,
+    )
+    .await
+    .map_err(map_atomic_lock_error)
+}
+
+fn map_atomic_lock_error(error: DavLockError) -> AsterDavMutationError {
+    match error {
+        DavLockError::Conflict(lock) => AsterDavMutationError::Locked((*lock.path).clone()),
+        DavLockError::TokenMismatch | DavLockError::LimitExceeded | DavLockError::Backend => {
+            AsterDavMutationError::Backend
+        }
     }
 }
