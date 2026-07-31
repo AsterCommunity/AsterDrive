@@ -18,7 +18,9 @@ use aster_drive_model::types::{
 use aster_drive_storage::{BlobMetadata, StorageDriver, StreamUploadDriver};
 use aster_forge_cache as cache;
 use aster_forge_cache::CacheConfig;
-use aster_forge_webdav::{DavBackendError, DavLock, DavLockError, DavLockSystem, LsFuture};
+use aster_forge_webdav::{
+    DavBackendError, DavEvent, DavEventSink, DavLock, DavLockError, DavLockSystem, LsFuture,
+};
 use aster_forge_webdav::{DavXmlElement as Element, DavXmlNode as XMLNode};
 use async_trait::async_trait;
 use chrono::Utc;
@@ -32,7 +34,7 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::task::{Context, Poll};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf};
 
 fn parsed_request_head(req: &HttpRequest) -> aster_forge_webdav::DavRequestHead {
@@ -46,6 +48,21 @@ fn capability_snapshot(
 ) -> aster_forge_webdav::DavCapabilitySnapshot {
     crate::webdav::capability::DriveDavCapabilityProvider::snapshot_for(resource)
         .expect("test capability declaration should be valid")
+}
+
+#[derive(Default)]
+struct CapturingDavEventSink {
+    events: Mutex<Vec<DavEvent>>,
+}
+
+impl DavEventSink for CapturingDavEventSink {
+    fn publish(&self, event: &DavEvent) -> Result<(), aster_forge_webdav::DavObservationError> {
+        self.events
+            .lock()
+            .expect("event sink should lock")
+            .push(event.clone());
+        Ok(())
+    }
 }
 
 async fn build_webdav_test_state(
@@ -668,16 +685,26 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
     let lock_system = NoopLockSystem::default();
     let request_head = parsed_request_head(&req);
     let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
-    let response = handle_get_head(
-        &req,
-        &request_head,
-        &dav_fs,
-        &lock_system,
-        "/webdav",
-        false,
-        &capabilities,
-    )
+    let event_sink = Arc::new(CapturingDavEventSink::default());
+    let observation = crate::webdav::observation::DavObservation::new(
+        request_head.clone(),
+        Instant::now(),
+        event_sink.clone(),
+    );
+    let response = crate::webdav::observation::scope(observation.clone(), async {
+        handle_get_head(
+            &req,
+            &request_head,
+            &dav_fs,
+            &lock_system,
+            "/webdav",
+            false,
+            &capabilities,
+        )
+        .await
+    })
     .await;
+    let response = crate::webdav::observation::observe_response(response, observation);
 
     assert_eq!(response.status(), StatusCode::PARTIAL_CONTENT);
     assert_eq!(
@@ -694,6 +721,19 @@ async fn handle_get_range_uses_driver_range_without_opening_full_stream() {
         .await
         .expect("the exact range body should be readable");
     assert_eq!(body.as_ref(), b"bc");
+    let events = event_sink.events.lock().expect("event sink should lock");
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0].outcome.status(), 206);
+    assert_eq!(events[0].observations.bytes_sent, Some(2));
+    assert_eq!(events[0].observations.requested_ranges, Some(1));
+    assert_eq!(events[0].observations.served_ranges, Some(1));
+    assert_eq!(events[0].observations.resources, Some(1));
+    assert_eq!(events[0].observations.backend_open_count, Some(1));
+    assert_eq!(events[0].observations.backend_call_count, Some(2));
+    assert_eq!(
+        events[0].observations.stream,
+        Some(aster_forge_webdav::DavStreamOutcome::Completed)
+    );
 
     drop(state);
     let _ = std::fs::remove_dir_all(temp_root);

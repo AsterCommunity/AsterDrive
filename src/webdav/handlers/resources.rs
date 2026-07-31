@@ -329,6 +329,7 @@ pub(crate) async fn handle_delete(
         mutation_executor_limits(),
     )
     .await;
+    record_mutation_observations(&outcome);
     match mutation_outcome_response(prefix, &outcome, Default::default()) {
         Ok(response) => aster_forge_webdav::actix::into_response(response),
         Err(error) => {
@@ -510,6 +511,7 @@ pub(crate) async fn handle_copy_move(
         mutation_executor_limits(),
     )
     .await;
+    record_mutation_observations(&outcome);
     match mutation_outcome_response(prefix, &outcome, Default::default()) {
         Ok(response) => aster_forge_webdav::actix::into_response(response),
         Err(error) => {
@@ -517,4 +519,9 @@ pub(crate) async fn handle_copy_move(
             responses::empty(StatusCode::INTERNAL_SERVER_ERROR)
         }
     }
+}
+
+fn record_mutation_observations(outcome: &aster_forge_webdav::DavMutationOutcome) {
+    crate::webdav::observation::add_resources(outcome.progress.visited_resources);
+    crate::webdav::observation::add_backend_calls(outcome.progress.completed_mutations);
 }

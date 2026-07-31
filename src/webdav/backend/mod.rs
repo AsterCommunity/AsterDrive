@@ -1276,6 +1276,7 @@ impl DavDownloadSource for AsterDavFs {
         &'a self,
         path: &'a DavPath,
     ) -> Result<DavOpenedDownload, DavBackendError> {
+        crate::webdav::observation::add_backend_open();
         self.open_download(path, None).await
     }
 
@@ -1284,6 +1285,7 @@ impl DavDownloadSource for AsterDavFs {
         path: &'a DavPath,
         range: HttpByteRange,
     ) -> Result<DavOpenedDownload, DavBackendError> {
+        crate::webdav::observation::add_backend_open();
         self.open_download(path, Some(range)).await
     }
 }
@@ -1318,7 +1320,7 @@ fn exact_length_stream(
 ) -> DavContentStream {
     Box::pin(async_stream::stream! {
         let mut remaining = expected_length;
-        let mut buffer = vec![0_u8; 64 * 1024];
+        let mut buffer = vec![0_u8; crate::storage::io_limits::DOWNLOAD_READER_BUFFER_BYTES];
         while remaining != 0 {
             let maximum = usize::try_from(remaining)
                 .unwrap_or(usize::MAX)

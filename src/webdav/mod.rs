@@ -7,6 +7,7 @@ pub mod auth;
 pub mod backend;
 mod capability;
 mod handlers;
+mod observation;
 mod responses;
 pub mod system_file;
 
@@ -42,6 +43,7 @@ impl DavEventSink for TracingDavEventSink {
             .as_ref()
             .map(DavPath::as_str)
             .unwrap_or("");
+        let observations = event.observations;
         match event.outcome {
             DavEventOutcome::Succeeded { status } => tracing::debug!(
                 operation = ?event.operation,
@@ -49,6 +51,15 @@ impl DavEventSink for TracingDavEventSink {
                 destination,
                 status,
                 elapsed_ms = event.elapsed.as_millis(),
+                bytes_received = ?observations.bytes_received,
+                bytes_sent = ?observations.bytes_sent,
+                requested_ranges = ?observations.requested_ranges,
+                served_ranges = ?observations.served_ranges,
+                resources = ?observations.resources,
+                backend_open_count = ?observations.backend_open_count,
+                backend_call_count = ?observations.backend_call_count,
+                protocol_failure = ?observations.protocol_failure,
+                stream = ?observations.stream,
                 "WebDAV operation completed"
             ),
             DavEventOutcome::Failed {
@@ -61,6 +72,15 @@ impl DavEventSink for TracingDavEventSink {
                 status,
                 backend_error = ?backend_error,
                 elapsed_ms = event.elapsed.as_millis(),
+                bytes_received = ?observations.bytes_received,
+                bytes_sent = ?observations.bytes_sent,
+                requested_ranges = ?observations.requested_ranges,
+                served_ranges = ?observations.served_ranges,
+                resources = ?observations.resources,
+                backend_open_count = ?observations.backend_open_count,
+                backend_call_count = ?observations.backend_call_count,
+                protocol_failure = ?observations.protocol_failure,
+                stream = ?observations.stream,
                 "WebDAV operation failed"
             ),
         }
@@ -161,170 +181,174 @@ pub async fn webdav_handler(
                 let response = aster_forge_webdav::actix::into_response(
                     aster_forge_webdav::body_error_response(error),
                 );
-                aster_forge_webdav::publish_non_authoritative(
-                    Some(webdav.event_sink.as_ref()),
-                    &DavEvent::completed(
-                        &request_head,
-                        response.status().as_u16(),
-                        operation_started_at.elapsed(),
-                        None,
-                    ),
+                let observation = observation::DavObservation::new(
+                    request_head,
+                    operation_started_at,
+                    webdav.event_sink.clone(),
                 );
-                return response;
+                return observation::observe_response(response, observation);
             }
         };
-    let response = match request_head.method {
-        DavMethod::Options => aster_forge_webdav::actix::into_response(
-            aster_forge_webdav::options_response(&capability_snapshot),
-        ),
-        DavMethod::Propfind => {
-            handlers::properties::handle_propfind(
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                request_body.xml(),
-                &capability_snapshot,
-                handlers::properties::PROPFIND_MAXIMUM_DURATION,
-            )
-            .await
-        }
-        DavMethod::Proppatch => {
-            handlers::properties::handle_proppatch(
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                request_body.xml(),
-            )
-            .await
-        }
-        DavMethod::Get => {
-            handlers::transfer::handle_get_head(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                false,
-                &capability_snapshot,
-            )
-            .await
-        }
-        DavMethod::Head => {
-            handlers::transfer::handle_get_head(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                true,
-                &capability_snapshot,
-            )
-            .await
-        }
-        DavMethod::Put => {
-            let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
-                state.get_ref().runtime_config(),
-            );
-            handlers::transfer::handle_put(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                &system_file_policy,
-                &mut payload,
-                &capability_snapshot,
-            )
-            .await
-        }
-        DavMethod::Mkcol => {
-            let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
-                state.get_ref().runtime_config(),
-            );
-            handlers::resources::handle_mkcol(
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                &system_file_policy,
-            )
-            .await
-        }
-        DavMethod::Delete => {
-            handlers::resources::handle_delete(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-            )
-            .await
-        }
-        DavMethod::Copy | DavMethod::Move => {
-            let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
-                state.get_ref().runtime_config(),
-            );
-            handlers::resources::handle_copy_move(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                &system_file_policy,
-                request_head.method == DavMethod::Move,
-            )
-            .await
-        }
-        DavMethod::Lock => {
-            handlers::locks::handle_lock(
-                &req,
-                &request_head,
-                &dav_fs,
-                lock_system.as_ref(),
-                &webdav.prefix,
-                request_body.xml(),
-            )
-            .await
-        }
-        DavMethod::Unlock => {
-            handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
-        }
-        DavMethod::Report
-        | DavMethod::VersionControl
-        | DavMethod::Patch
-        | DavMethod::Acl
-        | DavMethod::Checkout
-        | DavMethod::Checkin
-        | DavMethod::Uncheckout
-        | DavMethod::Mkworkspace
-        | DavMethod::Update
-        | DavMethod::Label
-        | DavMethod::Merge
-        | DavMethod::BaselineControl
-        | DavMethod::Mkactivity
-        | DavMethod::Search
-        | DavMethod::Orderpatch
-        | DavMethod::Mkredirectref
-        | DavMethod::Updateredirectref
-        | DavMethod::Bind
-        | DavMethod::Unbind
-        | DavMethod::Rebind
-        | DavMethod::Post => aster_forge_webdav::actix::into_response(
-            aster_forge_webdav::method_not_allowed_response(&capability_snapshot),
-        ),
-    };
-    aster_forge_webdav::publish_non_authoritative(
-        Some(webdav.event_sink.as_ref()),
-        &DavEvent::completed(
-            &request_head,
-            response.status().as_u16(),
-            operation_started_at.elapsed(),
-            None,
-        ),
+    let observation = observation::DavObservation::new(
+        request_head.clone(),
+        operation_started_at,
+        webdav.event_sink.clone(),
     );
-    response
+    observation.add_bytes_received(
+        u64::try_from(
+            request_body
+                .xml()
+                .len()
+                .saturating_add(request_body.bytes().len()),
+        )
+        .unwrap_or(u64::MAX),
+    );
+    let response = observation::scope(observation.clone(), async {
+        match request_head.method {
+            DavMethod::Options => aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::options_response(&capability_snapshot),
+            ),
+            DavMethod::Propfind => {
+                handlers::properties::handle_propfind(
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    request_body.xml(),
+                    &capability_snapshot,
+                    handlers::properties::PROPFIND_MAXIMUM_DURATION,
+                )
+                .await
+            }
+            DavMethod::Proppatch => {
+                handlers::properties::handle_proppatch(
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    request_body.xml(),
+                )
+                .await
+            }
+            DavMethod::Get => {
+                handlers::transfer::handle_get_head(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    false,
+                    &capability_snapshot,
+                )
+                .await
+            }
+            DavMethod::Head => {
+                handlers::transfer::handle_get_head(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    true,
+                    &capability_snapshot,
+                )
+                .await
+            }
+            DavMethod::Put => {
+                let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
+                    state.get_ref().runtime_config(),
+                );
+                handlers::transfer::handle_put(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    &system_file_policy,
+                    &mut payload,
+                    &capability_snapshot,
+                )
+                .await
+            }
+            DavMethod::Mkcol => {
+                let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
+                    state.get_ref().runtime_config(),
+                );
+                handlers::resources::handle_mkcol(
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    &system_file_policy,
+                )
+                .await
+            }
+            DavMethod::Delete => {
+                handlers::resources::handle_delete(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                )
+                .await
+            }
+            DavMethod::Copy | DavMethod::Move => {
+                let system_file_policy = system_file::SystemFileBlockPolicy::from_runtime_config(
+                    state.get_ref().runtime_config(),
+                );
+                handlers::resources::handle_copy_move(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    &system_file_policy,
+                    request_head.method == DavMethod::Move,
+                )
+                .await
+            }
+            DavMethod::Lock => {
+                handlers::locks::handle_lock(
+                    &req,
+                    &request_head,
+                    &dav_fs,
+                    lock_system.as_ref(),
+                    &webdav.prefix,
+                    request_body.xml(),
+                )
+                .await
+            }
+            DavMethod::Unlock => {
+                handlers::locks::handle_unlock(&req, &request_head, lock_system.as_ref()).await
+            }
+            DavMethod::Report
+            | DavMethod::VersionControl
+            | DavMethod::Patch
+            | DavMethod::Acl
+            | DavMethod::Checkout
+            | DavMethod::Checkin
+            | DavMethod::Uncheckout
+            | DavMethod::Mkworkspace
+            | DavMethod::Update
+            | DavMethod::Label
+            | DavMethod::Merge
+            | DavMethod::BaselineControl
+            | DavMethod::Mkactivity
+            | DavMethod::Search
+            | DavMethod::Orderpatch
+            | DavMethod::Mkredirectref
+            | DavMethod::Updateredirectref
+            | DavMethod::Bind
+            | DavMethod::Unbind
+            | DavMethod::Rebind
+            | DavMethod::Post => aster_forge_webdav::actix::into_response(
+                aster_forge_webdav::method_not_allowed_response(&capability_snapshot),
+            ),
+        }
+    })
+    .await;
+    observation::observe_response(response, observation)
 }
 
 pub(crate) fn ensure_system_file_name_allowed(

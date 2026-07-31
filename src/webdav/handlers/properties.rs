@@ -179,6 +179,8 @@ where
         Ok(Err(error)) => return fs_error_response(error),
         Err(_) => return propfind_deadline_response(maximum_duration),
     };
+    crate::webdav::observation::add_backend_call();
+    crate::webdav::observation::add_resource();
     let metadata_elapsed_ms = metadata_started_at.elapsed().as_millis();
     if depth == Depth::Infinity && root_meta.is_dir() {
         return forge_response(propfind_finite_depth_response());
@@ -207,6 +209,7 @@ where
         requirements,
         !matches!(request_kind, DavPropfindRequest::PropName),
         &deadline,
+        crate::webdav::observation::current().as_deref(),
     )
     .await
     {
@@ -262,6 +265,7 @@ where
         requirements,
         quota,
         deadline.clone(),
+        crate::webdav::observation::current(),
     );
     forge_response(multistatus_stream_response_with_cancellation(
         source,
@@ -347,6 +351,7 @@ fn propfind_item_stream<L>(
     requirements: DavLivePropertyRequirements,
     quota: Option<DavQuotaSnapshot>,
     deadline: PropfindDeadline,
+    observation: Option<std::sync::Arc<crate::webdav::observation::DavObservation>>,
 ) -> impl Stream<Item = Result<DavMultiStatusItem, DavMultiStatusSourceError>> + Send + 'static
 where
     L: DavLockSystem + Clone + Send + Sync + 'static,
@@ -391,6 +396,9 @@ where
                     break;
                 }
             };
+            if let Some(observation) = &observation {
+                observation.add_backend_call();
+            }
 
             let mut resources = Vec::with_capacity(page.entries.len());
             for entry in page.entries {
@@ -461,6 +469,7 @@ where
                 requirements,
                 !matches!(request_kind, DavPropfindRequest::PropName),
                 &deadline,
+                observation.as_deref(),
             )
             .await
             {
@@ -493,6 +502,9 @@ where
                         return;
                     }
                 };
+                if let Some(observation) = &observation {
+                    observation.add_resource();
+                }
                 let values = values_for(resource.path, resource.metadata, &mut preload, quota);
                 match build_live_propfind_item(
                     href_for_relative(&prefix, &resource.relative),
@@ -518,6 +530,10 @@ where
     }
 }
 
+#[expect(
+    clippy::too_many_arguments,
+    reason = "The bounded preload receives explicit protocol requirements, deadline, and non-authoritative observation context."
+)]
 async fn preload_property_values<L: DavLockSystem>(
     dav_fs: &AsterDavFs,
     lock_system: &L,
@@ -526,8 +542,12 @@ async fn preload_property_values<L: DavLockSystem>(
     requirements: DavLivePropertyRequirements,
     include_property_content: bool,
     deadline: &PropfindDeadline,
+    observation: Option<&crate::webdav::observation::DavObservation>,
 ) -> Result<PropfindPreload, PropfindPreloadError> {
     let dead_properties = if requirements.dead_properties {
+        if let Some(observation) = observation {
+            observation.add_backend_call();
+        }
         deadline
             .run(dav_fs.get_props_many(paths, include_property_content))
             .await
@@ -537,6 +557,9 @@ async fn preload_property_values<L: DavLockSystem>(
         HashMap::new()
     };
     let locks = if requirements.locks && include_property_content {
+        if let Some(observation) = observation {
+            observation.add_backend_call();
+        }
         deadline
             .run(lock_system.discover_many(paths))
             .await
@@ -570,6 +593,7 @@ async fn load_quota(
         .await
         .map_err(|_| PropfindPreloadError::Cancelled)?
         .map_err(PropfindPreloadError::FileSystem)?;
+    crate::webdav::observation::add_backend_call();
     Ok(Some(DavQuotaSnapshot {
         used_bytes,
         available_bytes: total_bytes.map(|total| total.saturating_sub(used_bytes)),

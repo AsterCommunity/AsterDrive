@@ -57,6 +57,8 @@ pub(crate) async fn handle_get_head(
             );
         }
     };
+    crate::webdav::observation::add_backend_call();
+    crate::webdav::observation::add_resource();
     let last_modified = match meta.modified() {
         Ok(modified) => modified,
         Err(err) => return fs_error_response(err),
@@ -95,6 +97,14 @@ pub(crate) async fn handle_get_head(
         }
     };
     let mut response = plan.response;
+    let requested_ranges = requested_range_count(req);
+    let served_ranges = match &plan.body {
+        aster_forge_webdav::DavDownloadBody::Empty
+        | aster_forge_webdav::DavDownloadBody::Full { .. } => 0,
+        aster_forge_webdav::DavDownloadBody::Range(_) => 1,
+        aster_forge_webdav::DavDownloadBody::Multipart(plan) => plan.segments().len(),
+    };
+    crate::webdav::observation::set_ranges(requested_ranges, served_ranges);
     let opened = match open_download(dav_fs, &path, plan.body).await {
         Ok(opened) => opened,
         Err(DavDownloadOpenError::Backend(error)) => {
@@ -244,6 +254,7 @@ pub(crate) async fn handle_put(
                 return responses::request_body_read_error();
             }
         };
+        crate::webdav::observation::add_bytes_received(chunk.len());
         if let Err(error) = writer.write_bytes(chunk).await {
             tracing::warn!(path = %relative, error = %error, "WebDAV PUT write failed");
             if let Err(abort_error) = writer.abort().await {
@@ -266,4 +277,18 @@ pub(crate) async fn handle_put(
         Ok(response) => aster_forge_webdav::actix::into_response(response),
         Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
     }
+}
+
+fn requested_range_count(req: &HttpRequest) -> usize {
+    req.headers()
+        .get(actix_web::http::header::RANGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.split_once('=').map(|(_, ranges)| ranges))
+        .map(|ranges| {
+            ranges
+                .split(',')
+                .filter(|range| !range.trim().is_empty())
+                .count()
+        })
+        .unwrap_or(0)
 }
