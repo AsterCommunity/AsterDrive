@@ -5,7 +5,7 @@ use std::sync::Arc;
 
 use aster_drive_migration::Migrator;
 use chrono::{Duration, Utc};
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
@@ -512,4 +512,96 @@ async fn unlock_as_lock_owner_rejects_foreign_active_locks_without_deleting_anyt
         .await
         .expect("file should reload");
     assert!(reloaded_file.is_locked);
+}
+
+#[tokio::test]
+async fn unlock_by_token_rolls_back_lock_deletion_when_flag_sync_fails() {
+    let (state, user, file) = build_lock_test_state().await;
+    let lock = insert_lock_for_test(&state, &file, "token-rollback-lock", user.id, None).await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER lock_token_flag_sync_failure \
+             BEFORE UPDATE OF is_locked ON files \
+             WHEN NEW.is_locked = 0 BEGIN \
+             SELECT RAISE(ABORT, 'injected lock flag sync failure'); END;",
+        )
+        .await
+        .expect("flag sync failure trigger should install");
+
+    unlock_by_token(&state, &lock.token)
+        .await
+        .expect_err("flag sync failure should fail token unlock");
+
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &lock.token)
+            .await
+            .expect("lock should reload")
+            .is_some(),
+        "lock deletion must roll back with is_locked synchronization"
+    );
+    assert!(
+        file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .expect("file should reload")
+            .is_locked
+    );
+
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER lock_token_flag_sync_failure")
+        .await
+        .expect("flag sync failure trigger should be removed");
+    unlock_by_token(&state, &lock.token)
+        .await
+        .expect("token unlock should be retryable after the failure is removed");
+}
+
+#[tokio::test]
+async fn force_unlock_rolls_back_lock_deletion_when_flag_sync_fails() {
+    let (state, user, file) = build_lock_test_state().await;
+    let lock = insert_lock_for_test(&state, &file, "force-rollback-lock", user.id, None).await;
+    set_entity_locked(state.writer_db(), EntityType::File, file.id, true)
+        .await
+        .expect("file should be marked locked");
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER force_unlock_flag_sync_failure \
+             BEFORE UPDATE OF is_locked ON files \
+             WHEN NEW.is_locked = 0 BEGIN \
+             SELECT RAISE(ABORT, 'injected force unlock flag sync failure'); END;",
+        )
+        .await
+        .expect("flag sync failure trigger should install");
+
+    force_unlock(&state, lock.id)
+        .await
+        .expect_err("flag sync failure should fail force unlock");
+
+    assert!(
+        lock_repo::find_by_id(state.writer_db(), lock.id)
+            .await
+            .expect("lock should reload")
+            .is_some(),
+        "force unlock deletion must roll back with is_locked synchronization"
+    );
+    assert!(
+        file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .expect("file should reload")
+            .is_locked
+    );
+
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER force_unlock_flag_sync_failure")
+        .await
+        .expect("flag sync failure trigger should be removed");
+    force_unlock(&state, lock.id)
+        .await
+        .expect("force unlock should be retryable after the failure is removed");
 }

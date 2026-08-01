@@ -18,7 +18,7 @@ use sea_orm::{ActiveModelTrait, Set};
 use serde::Serialize;
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File};
-use std::io::Write;
+use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{Arc, LazyLock, Mutex};
@@ -219,6 +219,7 @@ struct RunningWebdavServer {
     handle: actix_web::dev::ServerHandle,
     task: JoinHandle<std::io::Result<()>>,
     server_log_path: PathBuf,
+    request_log: Arc<Mutex<BufWriter<File>>>,
 }
 
 impl RunningWebdavServer {
@@ -229,6 +230,11 @@ impl RunningWebdavServer {
             Ok(Err(error)) => Err(format!("WebDAV server stopped with an I/O error: {error}")),
             Err(error) => Err(format!("WebDAV server task join failed: {error}")),
         };
+
+        if let Ok(mut log) = self.request_log.lock() {
+            log.flush()
+                .map_err(|error| format!("failed to flush WebDAV request log: {error}"))?;
+        }
 
         let message = match &result {
             Ok(()) => "server stopped cleanly\n".to_string(),
@@ -256,7 +262,8 @@ async fn start_real_webdav_server(
             request_log_path.display()
         )
     })?;
-    let request_log = Arc::new(Mutex::new(request_log));
+    let request_log = Arc::new(Mutex::new(BufWriter::with_capacity(64 * 1024, request_log)));
+    let request_log_for_server = Arc::clone(&request_log);
     let server_log_path = workspace.join("server.log");
     let db = state.writer_db().clone();
     let webdav_config = WebDavConfig::default();
@@ -269,7 +276,7 @@ async fn start_real_webdav_server(
     let server = HttpServer::new(move || {
         let db = db.clone();
         let webdav_config = webdav_config.clone();
-        let request_log = Arc::clone(&request_log);
+        let request_log = Arc::clone(&request_log_for_server);
         App::new()
             .wrap_fn(move |request, service| {
                 let started_at = Instant::now();
@@ -300,7 +307,12 @@ async fn start_real_webdav_server(
                             litmus_case,
                             started_at.elapsed().as_millis()
                         );
-                        let _ = log.flush();
+                        if result
+                            .as_ref()
+                            .is_ok_and(|response| response.status().is_server_error())
+                        {
+                            let _ = log.flush();
+                        }
                     }
                     result
                 }
@@ -323,7 +335,20 @@ async fn start_real_webdav_server(
         handle,
         task,
         server_log_path,
+        request_log,
     })
+}
+
+fn litmus_database_url(group: &str) -> (String, aster_forge_utils::raii::TempDirGuard) {
+    let directory = std::env::temp_dir().join(format!(
+        "asterdrive-litmus-db-{group}-{}",
+        uuid::Uuid::new_v4().simple()
+    ));
+    fs::create_dir_all(&directory).expect("Litmus database directory should be created");
+    let database = directory.join("state.sqlite");
+    let guard =
+        aster_forge_utils::raii::TempDirGuard::new(directory, "WebDAV Litmus SQLite database");
+    (format!("sqlite://{}?mode=rwc", database.display()), guard)
 }
 
 async fn seed_real_webdav_account(state: &PrimaryAppState) -> (String, String) {
@@ -892,17 +917,20 @@ fn format_failure(
     message
 }
 
-async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> Result<(), String> {
+async fn run_single_litmus_test(
+    state: PrimaryAppState,
+    workspace: &Path,
+    group: LitmusGroup,
+) -> Result<(), String> {
     let litmus_wrapper = resolve_litmus_wrapper()?;
     let baseline = parse_baseline(BASELINE)?;
-    let workspace = TestWorkspace::create(group.name)?;
     let (username, password) = seed_real_webdav_account(&state).await;
-    let server = start_real_webdav_server(state, &workspace.path).await?;
+    let server = start_real_webdav_server(state, workspace).await?;
     let webdav_url = format!("{}/webdav/", server.base_url);
 
     let litmus_join_result = tokio::task::spawn_blocking({
         let litmus_wrapper = litmus_wrapper.clone();
-        let workspace = workspace.path.clone();
+        let workspace = workspace.to_path_buf();
         let username = username.clone();
         let password = password.clone();
         move || {
@@ -951,7 +979,7 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
         accepted_differences,
         errors: errors.clone(),
     };
-    write_report(&workspace.path, &report)?;
+    write_report(workspace, &report)?;
 
     if errors.is_empty() {
         match group.evaluation_mode {
@@ -970,13 +998,15 @@ async fn run_single_litmus_test(state: PrimaryAppState, group: LitmusGroup) -> R
         }
         Ok(())
     } else {
-        Err(format_failure(group, &process, &errors, &workspace.path))
+        Err(format_failure(group, &process, &errors, workspace))
     }
 }
 
 async fn run_group(group: LitmusGroup) {
-    let state = common::setup().await;
-    if let Err(error) = run_single_litmus_test(state, group).await {
+    let workspace = TestWorkspace::create(group.name).expect("Litmus workspace should be created");
+    let (database_url, _database_guard) = litmus_database_url(group.name);
+    let state = common::setup_with_database_url(&database_url).await;
+    if let Err(error) = run_single_litmus_test(state, &workspace.path, group).await {
         panic!("{error}");
     }
 }

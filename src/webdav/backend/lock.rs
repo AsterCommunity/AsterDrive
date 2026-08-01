@@ -380,34 +380,73 @@ impl DavLockSystem for DbLockSystem {
         let token_owned = token.to_string();
         let path_str = normalize_path(path);
         Box::pin(async move {
-            // 查锁拿 entity 信息
-            let lock = lock_repo::find_by_token(&self.db, &token_owned)
-                .await
-                .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for unlock");
-                    DavLockError::Backend
-                })?
-                .ok_or(DavLockError::TokenMismatch)?;
-            if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
-                return Err(DavLockError::TokenMismatch);
-            }
+            let txn = transaction::begin(&self.db).await.map_err(|error| {
+                tracing::warn!(error = %error, path = %path_str, "failed to begin WebDAV unlock transaction");
+                DavLockError::Backend
+            })?;
+            let result = async {
+                let lock = lock_repo::find_by_token_for_update(&txn, &token_owned)
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(error = %error, path = %path_str, "failed to query WebDAV lock for unlock");
+                        DavLockError::Backend
+                    })?
+                    .ok_or(DavLockError::TokenMismatch)?;
+                if !unlock_request_targets_lock_scope(&lock.path, lock.deep, &path_str) {
+                    return Err(DavLockError::TokenMismatch);
+                }
 
-            lock_repo::delete_by_token(&self.db, &token_owned)
+                lock_target_entity(&txn, lock.entity_type, lock.entity_id)
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(
+                            error = %error,
+                            entity_type = ?lock.entity_type,
+                            entity_id = lock.entity_id,
+                            "failed to lock WebDAV unlock target entity"
+                        );
+                        DavLockError::Backend
+                    })?;
+                lock_repo::delete_by_id(&txn, lock.id)
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(error = %error, path = %path_str, "failed to delete WebDAV lock for unlock");
+                        DavLockError::Backend
+                    })?;
+                crate::services::files::lock::clear_entity_locked_if_unlocked(
+                    &txn,
+                    lock.entity_type,
+                    lock.entity_id,
+                )
                 .await
                 .map_err(|error| {
-                    tracing::warn!(error = %error, path = %path_str, "failed to delete WebDAV lock for unlock");
+                    tracing::warn!(
+                        error = %error,
+                        entity_type = ?lock.entity_type,
+                        entity_id = lock.entity_id,
+                        "failed to sync is_locked after WebDAV unlock"
+                    );
                     DavLockError::Backend
                 })?;
-
-            if let Err(e) = crate::services::files::lock::clear_entity_locked_if_unlocked(
-                &self.db,
-                lock.entity_type,
-                lock.entity_id,
-            )
-            .await
-            {
-                tracing::warn!("failed to sync is_locked after unlock: {e}");
+                Ok(lock)
             }
+            .await;
+
+            let lock = match result {
+                Ok(lock) => {
+                    transaction::commit(txn).await.map_err(|error| {
+                        tracing::warn!(error = %error, path = %path_str, "failed to commit WebDAV unlock transaction");
+                        DavLockError::Backend
+                    })?;
+                    lock
+                }
+                Err(error) => {
+                    if let Err(rollback_error) = transaction::rollback(txn).await {
+                        tracing::warn!(error = %rollback_error, path = %path_str, "failed to rollback WebDAV unlock transaction");
+                    }
+                    return Err(error);
+                }
+            };
             self.log_lock_action(lock.entity_type, lock.entity_id, false)
                 .await;
             Ok(())

@@ -122,6 +122,29 @@ pub async fn find_by_token<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn find_by_token_for_update<C: ConnectionTrait>(
+    db: &C,
+    token: &str,
+) -> Result<Option<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::Token.eq(token))
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_by_id_for_update<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<Option<resource_lock::Model>> {
+    ResourceLock::find_by_id(id)
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 /// 查询单个资源的第一把锁。
 ///
 /// WebDAV shared lock 允许同一资源存在多把锁；新代码需要完整判断锁集合时，

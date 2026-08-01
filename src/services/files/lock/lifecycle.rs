@@ -152,13 +152,16 @@ pub async fn unlock(
 
 /// 按 token 解锁（WebDAV UNLOCK 用）
 pub async fn unlock_by_token(state: &impl SharedRuntimeState, token: &str) -> Result<()> {
-    let db = state.writer_db();
-    let lock = lock_repo::find_by_token(db, token)
-        .await?
-        .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
-
-    lock_repo::delete_by_token(db, token).await?;
-    clear_entity_locked_if_unlocked(db, lock.entity_type, lock.entity_id).await?;
+    let lock = transaction::with_transaction(state.writer_db(), async |txn| {
+        let lock = lock_repo::find_by_token_for_update(txn, token)
+            .await?
+            .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
+        lock_target_entity(txn, lock.entity_type, lock.entity_id).await?;
+        lock_repo::delete_by_id(txn, lock.id).await?;
+        clear_entity_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
+        Ok::<resource_lock::Model, AsterError>(lock)
+    })
+    .await?;
     tracing::debug!(
         lock_id = lock.id,
         entity_type = ?lock.entity_type,
@@ -170,13 +173,16 @@ pub async fn unlock_by_token(state: &impl SharedRuntimeState, token: &str) -> Re
 
 /// 强制解锁（admin 用）
 pub async fn force_unlock(state: &impl SharedRuntimeState, lock_id: i64) -> Result<()> {
-    let db = state.writer_db();
-    let lock = lock_repo::find_by_id(db, lock_id)
-        .await?
-        .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
-
-    lock_repo::delete_by_id(db, lock_id).await?;
-    clear_entity_locked_if_unlocked(db, lock.entity_type, lock.entity_id).await?;
+    let lock = transaction::with_transaction(state.writer_db(), async |txn| {
+        let lock = lock_repo::find_by_id_for_update(txn, lock_id)
+            .await?
+            .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
+        lock_target_entity(txn, lock.entity_type, lock.entity_id).await?;
+        lock_repo::delete_by_id(txn, lock.id).await?;
+        clear_entity_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
+        Ok::<resource_lock::Model, AsterError>(lock)
+    })
+    .await?;
     tracing::debug!(
         lock_id,
         entity_type = ?lock.entity_type,

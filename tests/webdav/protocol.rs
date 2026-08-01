@@ -5799,6 +5799,119 @@ async fn test_webdav_delete_rolls_back_when_rooted_lock_cleanup_fails() {
 }
 
 #[actix_web::test]
+async fn test_webdav_unlock_rolls_back_when_locked_flag_sync_fails() {
+    let (app, state) = setup_with_webdav_rate_limit(
+        RateLimitConfig::default(),
+        aster_drive::config::NetworkTrustConfig::default(),
+    )
+    .await;
+    let (username, password) = seed_real_webdav_account(&state).await;
+    let auth = basic_auth_header(&username, &password);
+    let path = "/webdav/atomic-unlock.txt";
+
+    let req = test::TestRequest::put()
+        .uri(path)
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("unlock rollback content")
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 201 || resp.status() == 204);
+
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+    let req = test::TestRequest::with_uri(path)
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Depth", "0"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 200);
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("LOCK response should include Lock-Token")
+        .to_string();
+
+    let account = webdav_account::Entity::find()
+        .filter(webdav_account::Column::Username.eq(username))
+        .one(state.writer_db())
+        .await
+        .unwrap()
+        .unwrap();
+    let file = file_repo::find_by_name_in_folder(
+        state.writer_db(),
+        account.user_id,
+        None,
+        "atomic-unlock.txt",
+    )
+    .await
+    .unwrap()
+    .unwrap();
+
+    state
+        .writer_db()
+        .execute_unprepared(
+            "CREATE TRIGGER webdav_unlock_flag_sync_failure \
+             BEFORE UPDATE OF is_locked ON files \
+             WHEN NEW.is_locked = 0 BEGIN \
+             SELECT RAISE(ABORT, 'injected WebDAV unlock flag sync failure'); END;",
+        )
+        .await
+        .expect("WebDAV unlock failure trigger should install");
+    let req = test::TestRequest::with_uri(path)
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Lock-Token", lock_token.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 500);
+
+    assert_eq!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-unlock.txt")
+            .await
+            .unwrap()
+            .len(),
+        1,
+        "UNLOCK must retain the lock row when is_locked synchronization fails"
+    );
+    assert!(
+        file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .is_locked
+    );
+
+    state
+        .writer_db()
+        .execute_unprepared("DROP TRIGGER webdav_unlock_flag_sync_failure")
+        .await
+        .expect("WebDAV unlock failure trigger should be removed");
+    let req = test::TestRequest::with_uri(path)
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Lock-Token", lock_token.clone()))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 204);
+    assert!(
+        lock_repo::find_by_path(state.writer_db(), "/atomic-unlock.txt")
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    assert!(
+        !file_repo::find_by_id(state.writer_db(), file.id)
+            .await
+            .unwrap()
+            .is_locked
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_move_rolls_back_when_source_lock_cleanup_fails() {
     let (app, state) = setup_with_webdav_rate_limit(
         RateLimitConfig::default(),

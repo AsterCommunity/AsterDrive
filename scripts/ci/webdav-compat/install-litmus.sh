@@ -68,9 +68,14 @@ apply_lockbomb_session_initialization_patch() {
   perl -0pi -e 's/(TF\(options\); TF\(finish\);\n)/$1\nint init_session(ne_session *sess);\n/' "$common_h"
   perl -0pi -e 's/(sess = ne_session_create\(i_origin\.scheme, i_origin\.host, i_origin\.port\);\n)/$1\n    if (init_session(sess) != OK) {\n        ne_session_destroy(sess);\n        return "failed to initialize lockbomb HTTP session";\n    }\n/' "$lockbomb_c"
 
+  # Keep the harness request/status log, but avoid an unbounded unbuffered HTTP
+  # trace for every request in the 800,000-request stress suite.
+  perl -0pi -e 's/(static int lockbomb\(void\)\n\{\n)/$1    ne_debug_init(ne_debug_stream, 0);\n/g' "$lockbomb_c"
+
   if ! grep -Fq 'int init_session(ne_session *sess)' "$common_c" \
     || ! grep -Fq 'int init_session(ne_session *sess);' "$common_h" \
-    || [[ $(grep -Fc 'if (init_session(sess) != OK)' "$lockbomb_c") -ne 1 ]]; then
+    || [[ $(grep -Fc 'if (init_session(sess) != OK)' "$lockbomb_c") -ne 1 ]] \
+    || [[ $(grep -Fc 'ne_debug_init(ne_debug_stream, 0);' "$lockbomb_c") -ne 2 ]]; then
     echo "Failed to apply the Litmus 0.18 lockbomb session initialization patch" >&2
     exit 1
   fi
