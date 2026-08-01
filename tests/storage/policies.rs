@@ -4133,6 +4133,128 @@ async fn test_policy_create_and_draft_test_reject_invalid_s3_region_before_stora
 }
 
 #[actix_web::test]
+async fn test_non_s3_object_storage_rejects_s3_region_for_create_update_and_draft() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    for (driver_type, endpoint, bucket) in [
+        (
+            "azure_blob",
+            "https://acct.blob.core.windows.net",
+            "archive",
+        ),
+        (
+            "tencent_cos",
+            "https://cos.ap-guangzhou.myqcloud.com",
+            "archive-1250000000",
+        ),
+    ] {
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("Invalid Region {driver_type}"),
+                "driver_type": driver_type,
+                "endpoint": endpoint,
+                "bucket": bucket,
+                "access_key": "ACCESS",
+                "secret_key": "SECRET",
+                "options": {
+                    "s3_region": "us-east-1"
+                }
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            400,
+            "{driver_type} create should reject s3_region"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+        assert_eq!(
+            body["msg"],
+            "s3_region is only valid for s3 storage policies"
+        );
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "name": format!("Valid {driver_type}"),
+                "driver_type": driver_type,
+                "endpoint": endpoint,
+                "bucket": bucket,
+                "access_key": "ACCESS",
+                "secret_key": "SECRET"
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            201,
+            "{driver_type} setup create should succeed"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        let policy_id = body["data"]["id"].as_i64().expect("policy id");
+
+        let req = test::TestRequest::patch()
+            .uri(&format!("/api/v1/admin/policies/{policy_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "options": {
+                    "s3_region": "us-east-1"
+                }
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            400,
+            "{driver_type} update should reject s3_region"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+        assert_eq!(
+            body["msg"],
+            "s3_region is only valid for s3 storage policies"
+        );
+
+        let req = test::TestRequest::post()
+            .uri("/api/v1/admin/policies/test")
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .set_json(serde_json::json!({
+                "driver_type": driver_type,
+                "endpoint": endpoint,
+                "bucket": bucket,
+                "access_key": "ACCESS",
+                "secret_key": "SECRET",
+                "options": {
+                    "s3_region": "us-east-1"
+                }
+            }))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            400,
+            "{driver_type} draft should reject s3_region"
+        );
+        let body: Value = test::read_body_json(resp).await;
+        assert_eq!(body["code"], ApiErrorCode::BadRequest.as_str());
+        assert_eq!(
+            body["msg"],
+            "s3_region is only valid for s3 storage policies"
+        );
+    }
+}
+
+#[actix_web::test]
 async fn test_policy_create_rejects_remote_without_node_with_stable_code() {
     let state = common::setup().await;
     let app = create_test_app!(state);

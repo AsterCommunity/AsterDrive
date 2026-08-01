@@ -87,7 +87,7 @@ Current notes:
   - Remote upload and download strategies through `remote_upload_strategy` / `remote_download_strategy`
   - local `content_dedup`
   - generic S3 path-style addressing through `s3_path_style` (defaults to `true`)
-  - S3 SigV4 signing region through `s3_region`. This optional string normalizes an empty or whitespace-only value to unset, with runtime falling back to `auto`. Custom S3-compatible endpoints that require a fixed region should use the provider-specified value. Draft connection tests and the saved S3 runtime driver use the same region.
+  - S3 SigV4 signing region through `s3_region`. This optional string is trimmed; an empty or whitespace-only value normalizes to unset, with runtime falling back to `auto`. A non-empty value must contain 1–128 printable ASCII characters and must not contain whitespace or `/`; invalid values are rejected as `BadRequest` (HTTP 400 with response code `bad_request`). Custom S3-compatible endpoints that require a fixed region should use the provider-specified value. Draft connection tests and the saved S3 runtime driver use the same region.
   - S3 connect / read / operation timeouts
   - storage-native thumbnails / image previews with `storage_native_processing_enabled`, `thumbnail_processor`, and `thumbnail_extensions`
   - storage-native media metadata with `storage_native_media_metadata_enabled` and `media_metadata_extensions`

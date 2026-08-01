@@ -130,6 +130,7 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         options
             .validate()
             .map_err(|error| crate::errors::AsterError::validation_error(error.to_string()))?;
+        common::ensure_s3_region_supported(Self::driver_type(), options)?;
         common::ensure_storage_native_processing_supported(
             Self::storage_connector_descriptor(),
             options,
