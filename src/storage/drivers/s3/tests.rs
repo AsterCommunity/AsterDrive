@@ -195,6 +195,34 @@ fn new_applies_timeout_config_from_policy_options() {
     );
 }
 
+#[test]
+fn new_applies_signing_region_from_policy_options() {
+    let mut policy = sample_policy("https://s3.example.test", "bucket");
+    policy.options = serialize_storage_policy_options(&StoragePolicyOptions {
+        s3_region: Some("us-west-004".to_string()),
+        ..Default::default()
+    })
+    .expect("options should serialize");
+
+    let driver = S3Driver::new(&policy).expect("driver should build with configured region");
+
+    assert_eq!(
+        driver.client.config().region().map(AsRef::as_ref),
+        Some("us-west-004")
+    );
+}
+
+#[test]
+fn new_defaults_signing_region_to_auto() {
+    let driver = S3Driver::new(&sample_policy("https://s3.example.test", "bucket"))
+        .expect("driver should build with default region");
+
+    assert_eq!(
+        driver.client.config().region().map(AsRef::as_ref),
+        Some("auto")
+    );
+}
+
 #[tokio::test]
 async fn presigned_put_url_uses_configured_addressing_style() {
     let path_style_driver = S3Driver::new(&sample_policy("https://s3.example.test", "bucket"))

@@ -26,6 +26,7 @@ mod tests;
 use async_trait::async_trait;
 use sea_orm::ConnectionTrait;
 use std::sync::Arc;
+use validator::Validate;
 
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
@@ -126,6 +127,10 @@ trait StorageConnector: StorageConnectorDescriptorProvider + Send + Sync + Sized
         options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
+        options
+            .validate()
+            .map_err(|error| crate::errors::AsterError::validation_error(error.to_string()))?;
+        common::ensure_s3_region_supported(Self::driver_type(), options)?;
         common::ensure_storage_native_processing_supported(
             Self::storage_connector_descriptor(),
             options,

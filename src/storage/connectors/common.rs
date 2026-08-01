@@ -7,7 +7,8 @@ use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code}
 use crate::storage::drivers::s3_config::{S3ConfigError, normalize_s3_endpoint_and_bucket};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions, serialize_storage_policy_options,
+    DriverType, StoragePolicyOptions, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
+    serialize_storage_policy_options,
 };
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDescriptor,
@@ -181,6 +182,19 @@ fn has_onedrive_options(options: &aster_drive_model::types::StoragePolicyOptions
         || options.onedrive_root_item_id.is_some()
         || options.onedrive_site_id.is_some()
         || options.onedrive_group_id.is_some()
+}
+
+pub(super) fn ensure_s3_region_supported(
+    driver_type: DriverType,
+    options: &StoragePolicyOptions,
+) -> Result<()> {
+    if driver_type != DriverType::S3 && options.s3_region.is_some() {
+        return Err(validation_error_with_code(
+            ApiErrorCode::BadRequest,
+            "s3_region is only valid for s3 storage policies",
+        ));
+    }
+    Ok(())
 }
 
 pub(super) fn ensure_onedrive_options_absent(

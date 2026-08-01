@@ -51,6 +51,7 @@ impl StorageConnectorDescriptorProvider for AzureBlobConnector {
                 access_key_trim_on_blur: true,
             },
             include_s3_path_style: false,
+            include_s3_region: false,
             presigned_part_etag_required: false,
             storage_native_processing: false,
             related_issues: vec![328, 329],

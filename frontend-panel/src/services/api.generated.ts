@@ -8050,6 +8050,7 @@ export interface components {
             s3_path_style?: boolean | null;
             /** Format: int64 */
             s3_read_timeout_secs?: number | null;
+            s3_region?: string | null;
             sftp_host_key_fingerprint?: string | null;
             storage_native_media_metadata_enabled?: boolean | null;
             storage_native_processing_enabled?: boolean | null;

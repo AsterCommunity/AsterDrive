@@ -102,6 +102,7 @@
   - Remote 上传下载策略，例如 `{"remote_upload_strategy":"presigned","remote_download_strategy":"presigned"}`
   - 本地策略的内容去重开关 `content_dedup`
   - 通用 S3 path-style 访问开关：`s3_path_style`，默认 `true`
+  - S3 SigV4 签名 region：`s3_region`。该字段为可选字符串，首尾空白会被清理，空值或纯空白会规范化为未配置，运行时使用 `auto`。非空值必须为 1–128 个可打印 ASCII 字符，且不能包含空白字符或 `/`；无效值会以 `BadRequest`（HTTP 400，响应码 `bad_request`）拒绝。自定义 S3-compatible endpoint 若要求固定 region，应填写服务商提供的值。草稿连接测试和保存后的 S3 runtime driver 使用同一个 region
   - S3 连接 / 读取 / 操作超时：`s3_connect_timeout_secs`、`s3_read_timeout_secs`、`s3_operation_timeout_secs`
   - 存储原生缩略图 / 图片预览：`storage_native_processing_enabled`、`thumbnail_processor`、`thumbnail_extensions`
   - 存储原生媒体元数据：`storage_native_media_metadata_enabled`、`media_metadata_extensions`

@@ -83,6 +83,8 @@
 	"object_storage_upload_strategy": "Object Storage Upload Strategy",
 	"s3_path_style": "Path-style addressing",
 	"s3_path_style_desc": "When enabled, requests use /bucket/key URLs for MinIO, RustFS, and similar compatible services. Services that support virtual-hosted-style addressing can usually disable this and use bucket.endpoint/key URLs.",
+	"s3_region": "S3 signing region",
+	"s3_region_desc": "The SigV4 signing region, such as us-east-1. Leave blank to use auto. For custom endpoints that require a fixed region, use the value provided by the service.",
 	"remote_download_strategy": "Remote Download Strategy",
 	"remote_upload_strategy": "Remote Upload Strategy",
 	"provider_resumable_upload_strategy": "OneDrive Upload Strategy",
