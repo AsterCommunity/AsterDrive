@@ -51,9 +51,10 @@ impl StorageConnectorDescriptorProvider for S3Connector {
                     access_key_trim_on_blur: false,
                 },
                 include_s3_path_style: true,
+                include_s3_region: true,
                 presigned_part_etag_required: true,
                 storage_native_processing: false,
-                related_issues: vec![328, 329],
+                related_issues: vec![328, 329, 452],
             },
         );
         descriptor

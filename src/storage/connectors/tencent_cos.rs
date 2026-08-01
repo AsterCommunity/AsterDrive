@@ -59,6 +59,7 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                     access_key_trim_on_blur: false,
                 },
                 include_s3_path_style: false,
+                include_s3_region: false,
                 presigned_part_etag_required: true,
                 storage_native_processing: true,
                 related_issues: vec![328, 329],

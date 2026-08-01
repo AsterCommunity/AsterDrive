@@ -83,6 +83,8 @@
 	"object_storage_upload_strategy": "对象存储上传方式",
 	"s3_path_style": "Path-style 访问",
 	"s3_path_style_desc": "开启后生成 /bucket/key 形式的请求，适合 MinIO、RustFS 等兼容服务；支持虚拟托管风格的服务通常可以关闭，改用 bucket.endpoint/key。",
+	"s3_region": "S3 签名区域",
+	"s3_region_desc": "用于 SigV4 请求签名，例如 us-east-1。留空时使用 auto；自定义 endpoint 若要求固定区域，请填写服务商提供的 region。",
 	"remote_download_strategy": "远程下载方式",
 	"remote_upload_strategy": "远程上传方式",
 	"provider_resumable_upload_strategy": "OneDrive 上传方式",

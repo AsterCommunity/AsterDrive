@@ -98,7 +98,7 @@ impl S3Driver {
 
         let mut config_builder = aws_sdk_s3::Config::builder()
             .behavior_version(BehaviorVersion::latest())
-            .region(Region::new("auto"))
+            .region(Region::new(options.effective_s3_region().to_string()))
             .credentials_provider(credentials)
             .timeout_config(timeout_config)
             .force_path_style(force_path_style);

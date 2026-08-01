@@ -341,6 +341,7 @@ impl From<StoredStoragePolicyOptions> for String {
 const DEFAULT_S3_CONNECT_TIMEOUT_SECS: u64 = 5;
 const DEFAULT_S3_READ_TIMEOUT_SECS: u64 = 30;
 const DEFAULT_S3_OPERATION_TIMEOUT_SECS: u64 = 60 * 60;
+const DEFAULT_S3_REGION: &str = "auto";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Validate)]
 #[validate(schema(function = "validate_storage_policy_options"))]
@@ -354,6 +355,9 @@ pub struct StoragePolicyOptions {
     pub object_storage_download_strategy: Option<ObjectStorageDownloadStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub s3_path_style: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[validate(custom(function = "validate_s3_region"))]
+    pub s3_region: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub remote_download_strategy: Option<RemoteDownloadStrategy>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -422,6 +426,10 @@ impl StoragePolicyOptions {
         self.s3_path_style.unwrap_or(true)
     }
 
+    pub fn effective_s3_region(&self) -> &str {
+        self.s3_region.as_deref().unwrap_or(DEFAULT_S3_REGION)
+    }
+
     pub fn effective_remote_download_strategy(&self) -> RemoteDownloadStrategy {
         self.remote_download_strategy
             .unwrap_or(RemoteDownloadStrategy::RelayStream)
@@ -474,6 +482,7 @@ impl StoragePolicyOptions {
             normalize_storage_policy_thumbnail_extensions(&self.thumbnail_extensions);
         self.media_metadata_extensions =
             normalize_storage_policy_media_metadata_extensions(&self.media_metadata_extensions);
+        trim_empty_option_string(&mut self.s3_region);
         trim_empty_option_string(&mut self.onedrive_tenant);
         trim_empty_option_string(&mut self.onedrive_drive_id);
         trim_empty_option_string(&mut self.onedrive_root_item_id);
@@ -558,6 +567,28 @@ fn validate_storage_policy_thumbnail_processor(
     if *value != MediaProcessorKind::StorageNative {
         let mut error = ValidationError::new("invalid");
         error.message = Some("thumbnail_processor only supports 'storage_native'".into());
+        return Err(error);
+    }
+
+    Ok(())
+}
+
+fn validate_s3_region(value: &str) -> std::result::Result<(), ValidationError> {
+    let value = value.trim();
+    if value.is_empty() {
+        return Ok(());
+    }
+
+    if value.len() > 128
+        || !value.is_ascii()
+        || value
+            .bytes()
+            .any(|byte| !(b'!'..=b'~').contains(&byte) || byte == b'/')
+    {
+        let mut error = ValidationError::new("invalid");
+        error.message = Some(
+            "s3_region must be 1-128 printable ASCII characters without whitespace or '/'".into(),
+        );
         return Err(error);
     }
 
@@ -880,6 +911,84 @@ mod tests {
 
         let options = parse_storage_policy_options(r#"{"s3_path_style":false}"#);
         assert!(!options.effective_s3_path_style());
+    }
+
+    #[test]
+    fn s3_region_defaults_to_auto_and_preserves_configured_value() {
+        let options = parse_storage_policy_options("{}");
+        assert_eq!(options.effective_s3_region(), "auto");
+
+        let options = parse_storage_policy_options(r#"{"s3_region":" us-east-1 "}"#);
+        assert_eq!(options.s3_region.as_deref(), Some("us-east-1"));
+        assert_eq!(options.effective_s3_region(), "us-east-1");
+        assert_eq!(
+            serialize_storage_policy_options(&options)
+                .expect("S3 region should serialize")
+                .as_ref(),
+            r#"{"s3_region":"us-east-1"}"#
+        );
+    }
+
+    #[test]
+    fn blank_s3_region_normalizes_to_default() {
+        let options = parse_storage_policy_options(r#"{"s3_region":"  "}"#);
+
+        assert_eq!(options.s3_region, None);
+        assert_eq!(options.effective_s3_region(), "auto");
+    }
+
+    #[test]
+    fn s3_region_validation_rejects_credential_scope_separators() {
+        for region in ["us east 1", "us-east-1/extra", "us-east-1\0", "华东-1"] {
+            let error = StoragePolicyOptions {
+                s3_region: Some(region.to_string()),
+                ..Default::default()
+            }
+            .validate()
+            .expect_err("invalid S3 region should fail");
+
+            assert!(error.to_string().contains("s3_region must be"), "{error}");
+        }
+    }
+
+    #[test]
+    fn s3_region_validation_accepts_provider_specific_printable_values_and_max_length() {
+        for region in [
+            "auto",
+            "us-east-1",
+            "us-west-004",
+            "RegionOne",
+            "custom.region_1",
+        ] {
+            StoragePolicyOptions {
+                s3_region: Some(region.to_string()),
+                ..Default::default()
+            }
+            .validate()
+            .unwrap_or_else(|error| panic!("provider region '{region}' should be valid: {error}"));
+        }
+
+        StoragePolicyOptions {
+            s3_region: Some(format!(" {} ", "r".repeat(128))),
+            ..Default::default()
+        }
+        .validate()
+        .expect("trimmed 128-byte S3 region should be valid");
+
+        StoragePolicyOptions {
+            s3_region: Some("   ".to_string()),
+            ..Default::default()
+        }
+        .validate()
+        .expect("blank S3 region should be treated as unconfigured");
+
+        let error = StoragePolicyOptions {
+            s3_region: Some("r".repeat(129)),
+            ..Default::default()
+        }
+        .validate()
+        .expect_err("129-byte S3 region should fail");
+        assert!(error.to_string().contains("s3_region must be"), "{error}");
     }
 
     #[test]

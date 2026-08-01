@@ -524,6 +524,7 @@ pub struct ObjectStorageConnectorDescriptorInput {
     pub supports_initial_setup: bool,
     pub fields: ObjectStorageFieldDescriptorInput,
     pub include_s3_path_style: bool,
+    pub include_s3_region: bool,
     pub presigned_part_etag_required: bool,
     pub storage_native_processing: bool,
     pub related_issues: Vec<u16>,
@@ -647,6 +648,26 @@ pub fn object_storage_connector_descriptor(
                 allowed_endpoint_protocols: Vec::new(),
                 allow_endpoint_without_protocol: false,
                 trim_on_blur: false,
+                visible_when_driver_types: vec![DriverType::S3],
+            },
+        ));
+    }
+    if input.include_s3_region {
+        fields.push(storage_connector_field_with_display(
+            StorageConnectorFieldDisplayInput {
+                name: "s3_region",
+                scope: StorageConnectorFieldScope::PolicyOptions,
+                kind: StorageConnectorFieldKind::Text,
+                required: false,
+                secret: false,
+                label_key: "s3_region",
+                placeholder: Some("auto"),
+                help_key: Some("s3_region_desc"),
+                required_message_key: None,
+                invalid_protocol_message_key: None,
+                allowed_endpoint_protocols: Vec::new(),
+                allow_endpoint_without_protocol: false,
+                trim_on_blur: true,
                 visible_when_driver_types: vec![DriverType::S3],
             },
         ));

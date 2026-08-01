@@ -413,6 +413,7 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
     assert!(has_policy_option(&s3, "object_storage_upload_strategy"));
     assert!(has_policy_option(&s3, "object_storage_download_strategy"));
     assert!(has_policy_option(&s3, "s3_path_style"));
+    assert!(has_policy_option(&s3, "s3_region"));
 
     let azure_blob = descriptor(DriverType::AzureBlob);
     assert!(has_policy_option(
@@ -447,6 +448,47 @@ fn transfer_strategy_policy_options_are_declared_by_descriptors() {
         "object_storage_download_strategy"
     ));
     assert!(!has_policy_option(&sftp, "s3_path_style"));
+
+    for driver_type in [
+        DriverType::Local,
+        DriverType::Sftp,
+        DriverType::AzureBlob,
+        DriverType::TencentCos,
+        DriverType::Remote,
+        DriverType::OneDrive,
+    ] {
+        assert!(
+            !has_policy_option(&descriptor(driver_type), "s3_region"),
+            "{} must not advertise the S3 signing region",
+            driver_type.as_str()
+        );
+    }
+}
+
+#[tokio::test]
+async fn s3_draft_policy_normalizes_and_validates_signing_region_before_driver_build() {
+    let db = setup_connector_test_db().await;
+    let mut connection = draft_connection(DriverType::S3);
+    connection.access_key = "draft-access".to_string();
+    connection.secret_key = "draft-secret".to_string();
+    connection.options.s3_region = Some(" us-east-1 ".to_string());
+
+    let policy = common::build_connection_test_policy::<S3Connector, _>(&db, connection)
+        .await
+        .expect("valid draft S3 region should build a temporary policy");
+    let options = parse_storage_policy_options(policy.options.as_ref());
+    assert_eq!(options.s3_region.as_deref(), Some("us-east-1"));
+    assert_eq!(options.effective_s3_region(), "us-east-1");
+
+    let mut invalid = draft_connection(DriverType::S3);
+    invalid.access_key = "draft-access".to_string();
+    invalid.secret_key = "draft-secret".to_string();
+    invalid.options.s3_region = Some("us-east-1/invalid".to_string());
+
+    let error = common::build_connection_test_policy::<S3Connector, _>(&db, invalid)
+        .await
+        .expect_err("invalid draft S3 region should fail before probing storage");
+    assert!(error.to_string().contains("s3_region must be"), "{error}");
 }
 
 #[test]
@@ -492,6 +534,12 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         s3_path_style.visible_when_driver_types,
         vec![DriverType::S3]
     );
+    let s3_region = field(&s3, "s3_region");
+    assert_eq!(s3_region.label_key, "s3_region");
+    assert_eq!(s3_region.placeholder.as_deref(), Some("auto"));
+    assert_eq!(s3_region.help_key.as_deref(), Some("s3_region_desc"));
+    assert!(s3_region.trim_on_blur);
+    assert_eq!(s3_region.visible_when_driver_types, vec![DriverType::S3]);
 
     let azure_blob = descriptor(DriverType::AzureBlob);
     assert_eq!(

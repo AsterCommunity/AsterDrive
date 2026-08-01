@@ -15,6 +15,8 @@ const labels: Record<string, string> = {
 	s3_endpoint_hint: "S3 endpoint hint",
 	s3_path_style: "Path-style addressing",
 	s3_path_style_desc: "Use /bucket/key requests.",
+	s3_region: "S3 signing region",
+	s3_region_desc: "Use the provider signing region.",
 	secret_key: "Secret key",
 	endpoint: "Endpoint",
 	policy_editor_credentials_keep_placeholder: "Keep current credential",
@@ -192,6 +194,19 @@ function objectStorageDescriptor(
 	];
 	if (driverType === "s3") {
 		fields.push({
+			help_key: "s3_region_desc",
+			kind: "text",
+			label_key: "s3_region",
+			name: "s3_region",
+			placeholder: "auto",
+			required: false,
+			scope: "policy_options",
+			secret: false,
+			trim_on_blur: true,
+			options: [],
+			visible_when_driver_types: ["s3"],
+		});
+		fields.push({
 			help_key: "s3_path_style_desc",
 			kind: "boolean",
 			label_key: "s3_path_style",
@@ -218,6 +233,25 @@ describe("ObjectStorageConnectionFields", () => {
 		expect(screen.getByText("Use /bucket/key requests.")).toBeInTheDocument();
 		fireEvent.click(screen.getByLabelText("switch:s3_path_style:true"));
 		expect(onFieldChange).toHaveBeenCalledWith("s3_path_style", false);
+	});
+
+	it("renders and trims the descriptor-provided S3 signing region", () => {
+		const onFieldChange = renderObjectStorageConnectionFields({
+			...emptyForm,
+			driver_type: "s3",
+			policy_option_values: { s3_region: " us-east-1 " },
+		});
+
+		const regionInput = screen.getByLabelText("S3 signing region");
+		expect(regionInput).toHaveAttribute("placeholder", "auto");
+		expect(
+			screen.getByText("Use the provider signing region."),
+		).toBeInTheDocument();
+
+		fireEvent.blur(regionInput);
+		expect(onFieldChange).toHaveBeenLastCalledWith("policy_option_values", {
+			s3_region: "us-east-1",
+		});
 	});
 
 	it("hides the path-style switch for Tencent COS policies", () => {
