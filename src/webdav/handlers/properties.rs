@@ -9,7 +9,7 @@ use actix_web::http::StatusCode;
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavCancellationToken, DavCapabilitySnapshot,
     DavDirectoryEntry, DavDirectoryPageLimits, DavDirectoryPageState, DavDirectoryReadError,
-    DavFileSystem, DavLivePropertyMetadata, DavLivePropertyRequirements,
+    DavExtensionPackage, DavFileSystem, DavLivePropertyMetadata, DavLivePropertyRequirements,
     DavLivePropertyValueSnapshot, DavLock, DavLockSystem, DavLockXml, DavMetaData,
     DavMultiStatusItem, DavMultiStatusLimits, DavMultiStatusSourceError, DavPath, DavProp,
     DavPropfindRequest, DavQuotaSnapshot, DavRequestHead, DavResourceState, DavXmlElement, Depth,
@@ -229,7 +229,13 @@ where
         Ok(metadata) => metadata,
         Err(error) => return fs_error_response(error),
     };
-    let root_values = values_for(path.clone(), root_metadata, &mut root_preload, quota);
+    let root_values = values_for(
+        path.clone(),
+        root_metadata,
+        &mut root_preload,
+        quota,
+        capability_snapshot,
+    );
     let root_item = match build_live_propfind_item(
         href_for_relative(prefix, &relative),
         capability_snapshot,
@@ -505,7 +511,13 @@ where
                 if let Some(observation) = &observation {
                     observation.add_resource();
                 }
-                let values = values_for(resource.path, resource.metadata, &mut preload, quota);
+                let values = values_for(
+                    resource.path,
+                    resource.metadata,
+                    &mut preload,
+                    quota,
+                    &resource.capabilities,
+                );
                 match build_live_propfind_item(
                     href_for_relative(&prefix, &resource.relative),
                     &resource.capabilities,
@@ -635,12 +647,13 @@ fn values_for(
     metadata: PropfindMetadata,
     preload: &mut PropfindPreload,
     quota: Option<DavQuotaSnapshot>,
+    capabilities: &DavCapabilitySnapshot,
 ) -> PropfindValues {
     PropfindValues {
         metadata,
         active_locks: preload.locks.remove(&path).unwrap_or_default(),
         dead_properties: preload.dead_properties.remove(&path).unwrap_or_default(),
-        quota,
+        quota: quota.filter(|_| capabilities.supports_extension(DavExtensionPackage::Quota)),
     }
 }
 
@@ -692,9 +705,14 @@ fn prop_element(prop: &DavProp) -> DavXmlElement {
     dav_dead_property_element(&property, None, prop.xml.as_deref())
 }
 
-fn forge_response<E>(response: Result<aster_forge_webdav::DavResponse, E>) -> HttpResponse {
+fn forge_response<E: std::fmt::Debug>(
+    response: Result<aster_forge_webdav::DavResponse, E>,
+) -> HttpResponse {
     match response {
         Ok(response) => aster_forge_webdav::actix::into_response(response),
-        Err(_) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
+        Err(error) => {
+            tracing::warn!(error = ?error, "failed to build WebDAV response");
+            responses::empty(StatusCode::INTERNAL_SERVER_ERROR)
+        }
     }
 }

@@ -711,10 +711,12 @@ async fn test_db_lock_system_exclusive_lock_blocks_shared_lock() {
 #[actix_web::test]
 async fn test_db_lock_system_propagates_backend_failures_from_every_query_port() {
     use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_drive_migration::Migrator;
     use aster_forge_webdav::{DavBackendErrorKind, DavLockSystem, DavPath};
     use sea_orm::Database;
 
     let db = Database::connect("sqlite::memory:").await.unwrap();
+    Migrator::up(&db, None).await.unwrap();
     let lock_system = DbLockSystem::new(db.clone(), 1, None);
     db.close().await.unwrap();
 

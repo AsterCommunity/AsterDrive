@@ -289,7 +289,7 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
     let before = snapshot_dir_tree(Path::new(&runtime_temp_dir)).unwrap();
     let payload = b"stream direct to s3";
 
-    let mut dav_file = AsterDavWriteHandle::for_write(
+    let mut write_handle = AsterDavWriteHandle::for_write(
         state.clone(),
         user.id,
         None,
@@ -299,11 +299,11 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
     )
     .await
     .expect("S3 direct WebDAV file should initialize");
-    dav_file
+    write_handle
         .write_bytes(Bytes::copy_from_slice(payload))
         .await
         .expect("S3 direct WebDAV write should succeed");
-    dav_file
+    write_handle
         .finish()
         .await
         .expect("S3 direct WebDAV finish should succeed");
@@ -318,7 +318,7 @@ async fn known_size_s3_write_avoids_runtime_temp_files() {
         file_repo::find_by_name_in_folder(state.writer_db(), user.id, None, "direct-s3.txt")
             .await
             .expect("stored file lookup should succeed")
-            .expect("S3 direct WebDAV flush should create a file");
+            .expect("S3 direct WebDAV finish should create a file");
     assert_eq!(
         stored.size,
         i64::try_from(payload.len()).expect("payload length should fit i64")

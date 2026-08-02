@@ -122,6 +122,8 @@ pub(crate) fn current() -> Option<Arc<DavObservation>> {
     ACTIVE.try_with(Arc::clone).ok()
 }
 
+// Observation is non-authoritative fire-and-forget; direct handlers and background tasks without
+// an ACTIVE scope intentionally skip these updates.
 pub(crate) fn add_bytes_received(count: usize) {
     if let Ok(count) = u64::try_from(count) {
         let _ = ACTIVE.try_with(|observation| observation.add_bytes_received(count));

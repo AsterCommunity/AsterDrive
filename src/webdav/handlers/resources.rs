@@ -3,13 +3,13 @@
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
 use aster_forge_webdav::{
-    DavConditionalOutcome, DavConditionalResource, DavCopyMoveMethod, DavDirectoryPageLimits,
-    DavMetaData, DavMethod, DavMutationCommand, DavMutationExecutorLimits, DavMutationOperation,
-    DavMutationPlanError, DavMutationPort, DavMutationRequest, DavMutationStepError,
-    DavMutationStepKind, DavNeverCancelled, DavRequestHead, DavResourceKind, DavResponse,
-    DavTraversalLimits, collection_created_response, execute_recursive_mutation,
-    mutation_outcome_response, mutation_plan_error_response, plan_copy_move_request,
-    validate_collection_create_target, validate_delete_target,
+    DavBackendError, DavBackendErrorKind, DavConditionalOutcome, DavConditionalResource,
+    DavCopyMoveMethod, DavDirectoryPageLimits, DavMetaData, DavMethod, DavMutationCommand,
+    DavMutationExecutorLimits, DavMutationOperation, DavMutationPlanError, DavMutationPort,
+    DavMutationRequest, DavMutationStepError, DavMutationStepKind, DavNeverCancelled,
+    DavRequestHead, DavResourceKind, DavResponse, DavTraversalLimits, collection_created_response,
+    execute_recursive_mutation, mutation_outcome_response, mutation_plan_error_response,
+    plan_copy_move_request, validate_collection_create_target, validate_delete_target,
 };
 
 use crate::services::files::folder::FolderTreeTraversalLimits;
@@ -111,6 +111,10 @@ impl DavMutationPort for AsterDavMutationPort<'_> {
             backend::AsterDavMutationError::Locked(lock_root) => {
                 DavMutationStepError::locked(affected_path, lock_root)
             }
+            backend::AsterDavMutationError::Conflict => DavMutationStepError::from_backend(
+                affected_path,
+                &DavBackendError::new(DavBackendErrorKind::Conflict),
+            ),
             backend::AsterDavMutationError::Backend => DavMutationStepError::backend(affected_path),
         })
     }
@@ -146,11 +150,8 @@ fn enforce_http_conditionals(
             last_modified,
         },
     )?;
-    if plan.outcome == DavConditionalOutcome::Proceed {
-        return Ok(());
-    }
     let status = match plan.outcome {
-        DavConditionalOutcome::Proceed => http::StatusCode::OK,
+        DavConditionalOutcome::Proceed => return Ok(()),
         DavConditionalOutcome::NotModified => http::StatusCode::NOT_MODIFIED,
         DavConditionalOutcome::PreconditionFailed => http::StatusCode::PRECONDITION_FAILED,
     };

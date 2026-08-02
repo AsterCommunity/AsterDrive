@@ -254,6 +254,58 @@ pub async fn find_by_team_folder_after_id<C: ConnectionTrait>(
         .await
 }
 
+async fn find_by_folders_after_id_in_scope<C: ConnectionTrait>(
+    db: &C,
+    scope: FileScope,
+    folder_ids: &[i64],
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<file::Model>> {
+    if folder_ids.is_empty() || limit == 0 {
+        return Ok(Vec::new());
+    }
+    let mut query = File::find()
+        .filter(active_scope_condition(scope))
+        .filter(file::Column::FolderId.is_in(folder_ids.iter().copied()));
+    if let Some(after_id) = after_id {
+        query = query.filter(file::Column::Id.gt(after_id));
+    }
+    query
+        .order_by_asc(file::Column::Id)
+        .limit(limit)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_by_folders_after_id<C: ConnectionTrait>(
+    db: &C,
+    user_id: i64,
+    folder_ids: &[i64],
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<file::Model>> {
+    find_by_folders_after_id_in_scope(
+        db,
+        FileScope::Personal { user_id },
+        folder_ids,
+        after_id,
+        limit,
+    )
+    .await
+}
+
+pub async fn find_by_team_folders_after_id<C: ConnectionTrait>(
+    db: &C,
+    team_id: i64,
+    folder_ids: &[i64],
+    after_id: Option<i64>,
+    limit: u64,
+) -> Result<Vec<file::Model>> {
+    find_by_folders_after_id_in_scope(db, FileScope::Team { team_id }, folder_ids, after_id, limit)
+        .await
+}
+
 pub(super) async fn find_by_folders_in_scope<C: ConnectionTrait>(
     db: &C,
     scope: FileScope,

@@ -51,14 +51,8 @@ impl<'a> DriveDavCapabilityProvider<'a> {
             ],
             DavResourceState::Unmapped => &[
                 DavMethod::Options,
-                DavMethod::Get,
                 DavMethod::Put,
-                DavMethod::Delete,
-                DavMethod::Copy,
-                DavMethod::Move,
                 DavMethod::Mkcol,
-                DavMethod::Propfind,
-                DavMethod::Proppatch,
                 DavMethod::Lock,
                 DavMethod::Unlock,
             ],
@@ -109,5 +103,103 @@ impl DavCapabilityProvider for DriveDavCapabilityProvider<'_> {
             .capability_resource_state(&target.path)
             .await?;
         Ok(Self::declaration_for(resource))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::DriveDavCapabilityProvider;
+    use aster_forge_webdav::{
+        DavExtensionPackage, DavLockingCapability, DavMethod, DavMethodSet, DavResourceState,
+    };
+
+    #[test]
+    fn declarations_and_snapshots_match_each_resource_state() {
+        let expected = [
+            (
+                DavResourceState::MountRoot,
+                &[
+                    DavMethod::Options,
+                    DavMethod::Propfind,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ][..],
+                true,
+            ),
+            (
+                DavResourceState::Collection,
+                &[
+                    DavMethod::Options,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                true,
+            ),
+            (
+                DavResourceState::File,
+                &[
+                    DavMethod::Options,
+                    DavMethod::Get,
+                    DavMethod::Put,
+                    DavMethod::Delete,
+                    DavMethod::Copy,
+                    DavMethod::Move,
+                    DavMethod::Propfind,
+                    DavMethod::Proppatch,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                false,
+            ),
+            (
+                DavResourceState::Unmapped,
+                &[
+                    DavMethod::Options,
+                    DavMethod::Put,
+                    DavMethod::Mkcol,
+                    DavMethod::Lock,
+                    DavMethod::Unlock,
+                ],
+                false,
+            ),
+            (DavResourceState::Principal, &[DavMethod::Options], false),
+            (
+                DavResourceState::RedirectReference,
+                &[DavMethod::Options],
+                false,
+            ),
+            (
+                DavResourceState::AddMemberEndpoint,
+                &[DavMethod::Options],
+                false,
+            ),
+        ];
+
+        for (resource, methods, supports_quota) in expected {
+            let declaration = DriveDavCapabilityProvider::declaration_for(resource);
+            assert_eq!(declaration.methods, DavMethodSet::from_methods(methods));
+            assert_eq!(declaration.locking, DavLockingCapability::Class2);
+            assert!(declaration.compliance.class1);
+            assert!(!declaration.compliance.class3);
+            assert_eq!(
+                declaration.extensions.contains(DavExtensionPackage::Quota),
+                supports_quota
+            );
+
+            if methods.contains(&DavMethod::Lock) {
+                let snapshot = DriveDavCapabilityProvider::snapshot_for(resource).unwrap();
+                assert_eq!(snapshot.declaration().resource, resource);
+                assert!(declaration.methods.is_subset_of(snapshot.methods()));
+                assert_eq!(
+                    snapshot.supports_extension(DavExtensionPackage::Quota),
+                    supports_quota
+                );
+            }
+        }
     }
 }

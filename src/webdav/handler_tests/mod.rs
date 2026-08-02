@@ -911,10 +911,7 @@ async fn propfind_href_is_percent_encoded_and_xml_parseable() {
         .to_http_request();
 
     let request_head = parsed_request_head(&req);
-    let capabilities = crate::webdav::capability::DriveDavCapabilityProvider::snapshot_for(
-        aster_forge_webdav::DavResourceState::File,
-    )
-    .unwrap();
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
     let response = handle_propfind(
         &request_head,
         &dav_fs,
@@ -984,10 +981,7 @@ async fn propfind_declares_requested_dav_prefix_for_rclone_size_check() {
 </d:propfind>"#;
 
     let request_head = parsed_request_head(&req);
-    let capabilities = crate::webdav::capability::DriveDavCapabilityProvider::snapshot_for(
-        aster_forge_webdav::DavResourceState::File,
-    )
-    .unwrap();
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
     let response = handle_propfind(
         &request_head,
         &dav_fs,
@@ -1051,10 +1045,7 @@ async fn propfind_allprop_keeps_default_dav_prefix_xml_parseable() {
         .to_http_request();
 
     let request_head = parsed_request_head(&req);
-    let capabilities = crate::webdav::capability::DriveDavCapabilityProvider::snapshot_for(
-        aster_forge_webdav::DavResourceState::File,
-    )
-    .unwrap();
+    let capabilities = capability_snapshot(aster_forge_webdav::DavResourceState::File);
     let response = handle_propfind(
         &request_head,
         &dav_fs,
@@ -1178,7 +1169,7 @@ async fn propfind_child_lock_preload_timeout_ends_started_stream_with_error() {
         "/webdav",
         body,
         &capabilities,
-        Duration::from_millis(100),
+        Duration::from_millis(500),
     )
     .await;
 

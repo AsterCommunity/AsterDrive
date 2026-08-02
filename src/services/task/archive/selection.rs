@@ -25,6 +25,7 @@ use crate::services::{
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use aster_drive_model::entities::{file, folder, share};
+use aster_forge_utils::numbers::u64_to_usize;
 
 pub(crate) struct PreparedArchiveDownload {
     pub file_ids: Vec<i64>,
@@ -53,6 +54,28 @@ impl ArchiveBuildLimits {
             ),
             max_temp_bytes: operations::archive_build_max_temp_bytes(runtime_config),
         }
+    }
+
+    fn folder_tree_traversal_limits(
+        self,
+        collected_entries: u64,
+    ) -> Result<folder_ops::FolderTreeTraversalLimits> {
+        let remaining_entries = self
+            .max_entries
+            .checked_sub(collected_entries)
+            .ok_or_else(|| {
+                AsterError::validation_error(format!(
+                    "archive selection expands to {collected_entries} entries, exceeds server limit {}",
+                    self.max_entries
+                ))
+            })?;
+        let maximum_resources =
+            u64_to_usize(remaining_entries, "archive remaining maximum entries")?;
+        Ok(folder_ops::FolderTreeTraversalLimits::new(
+            maximum_resources,
+            maximum_resources,
+            maximum_resources,
+        ))
     }
 }
 
@@ -514,12 +537,13 @@ async fn collect_archive_entries_from_shared_selection(
             .ok_or_else(|| AsterError::folder_not_found(format!("folder #{folder_id}")))?;
         let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
+        let tree_limits = limits.folder_tree_traversal_limits(stats.entry_count)?;
         let (tree_files, tree_folder_ids) = folder_ops::collect_folder_tree_in_resource_scope(
             state.writer_db(),
             scope,
             folder_id,
             false,
-            None,
+            Some(tree_limits),
         )
         .await?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
@@ -607,12 +631,13 @@ pub(super) async fn collect_archive_entries_from_selection_in_scope(
         storage::ensure_active_folder_scope(folder, scope)?;
         let archive_root = batch::reserve_unique_name(&mut reserved_root_names, &folder.name);
 
+        let tree_limits = limits.folder_tree_traversal_limits(stats.entry_count)?;
         let (tree_files, tree_folder_ids) = folder_ops::collect_folder_tree_in_scope(
             state.writer_db(),
             scope,
             folder_id,
             false,
-            None,
+            Some(tree_limits),
         )
         .await?;
         let folder_paths = folder_ops::build_folder_paths_cached(state, &tree_folder_ids).await?;
@@ -850,7 +875,32 @@ fn default_archive_name(selection: &batch::NormalizedSelection) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_directory_entry_path, archive_relative_dir, normalize_archive_zip_name};
+    use super::{
+        ArchiveBuildLimits, archive_directory_entry_path, archive_relative_dir,
+        normalize_archive_zip_name,
+    };
+
+    #[test]
+    fn archive_folder_traversal_uses_remaining_entry_budget() {
+        let limits = ArchiveBuildLimits {
+            max_entries: 5,
+            max_total_source_bytes: 1024,
+            max_temp_bytes: 1024,
+        };
+
+        let traversal = limits.folder_tree_traversal_limits(2).unwrap();
+        assert_eq!(traversal.maximum_resources, 3);
+        assert_eq!(traversal.maximum_frontier, 3);
+        assert_eq!(traversal.maximum_depth, 3);
+        assert_eq!(
+            limits
+                .folder_tree_traversal_limits(5)
+                .unwrap()
+                .maximum_resources,
+            0
+        );
+        assert!(limits.folder_tree_traversal_limits(6).is_err());
+    }
 
     #[test]
     fn archive_relative_dir_returns_empty_for_root_path() {

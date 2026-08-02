@@ -96,7 +96,7 @@ fn operation_resource_limit_is_distinct_from_storage_quota_and_uses_507() {
         ApiErrorCode::OperationResourceLimitExceeded
     );
     assert_eq!(err.http_status(), StatusCode::INSUFFICIENT_STORAGE);
-    assert!(!matches!(err, AsterError::StorageQuotaExceeded(_)));
+    assert_ne!(err.api_error_code(), ApiErrorCode::StorageQuotaExceeded);
 }
 
 #[test]

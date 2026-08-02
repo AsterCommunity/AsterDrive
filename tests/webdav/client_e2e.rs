@@ -406,6 +406,17 @@ fn header_value(headers: &str, name: &str) -> Option<String> {
     })
 }
 
+fn response_status_code(headers: &str) -> Option<u16> {
+    headers
+        .lines()
+        .filter_map(|line| {
+            let mut parts = line.split_whitespace();
+            parts.next()?.starts_with("HTTP/").then_some(())?;
+            parts.next()?.parse().ok()
+        })
+        .next_back()
+}
+
 #[actix_web::test]
 #[ignore = "requires the rclone binary, add -- --ignored to run"]
 async fn test_webdav_rclone_client_roundtrip() {
@@ -985,7 +996,7 @@ async fn test_webdav_curl_client_methods_ranges_and_locks() {
     .await;
     let refresh_headers =
         std::fs::read_to_string(&refresh_headers_path).expect("LOCK refresh headers should read");
-    assert!(refresh_headers.contains(" 200 "));
+    assert_eq!(response_status_code(&refresh_headers), Some(200));
     assert!(
         header_value(&refresh_headers, "Lock-Token").is_none(),
         "a LOCK refresh must not issue a new token"

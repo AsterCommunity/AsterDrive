@@ -71,6 +71,7 @@ pub(crate) struct DavMutationConditions<'a> {
 pub(crate) enum AsterDavMutationError {
     FileSystem(FsError),
     Locked(DavPath),
+    Conflict,
     Backend,
 }
 
@@ -218,7 +219,7 @@ impl AsterDavFs {
             .map_err(|_| AsterDavMutationError::Backend)?;
         lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
             .await
-            .map_err(map_atomic_lock_error)?;
+            .map_err(map_ancestor_lock_error)?;
 
         let node =
             path_resolver::resolve_path_in_scope(&txn, self.scope, path, self.root_folder_id)
@@ -334,7 +335,7 @@ impl AsterDavFs {
         for path in lock_paths {
             lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, path)
                 .await
-                .map_err(map_atomic_lock_error)?;
+                .map_err(map_ancestor_lock_error)?;
         }
 
         let source_node =
@@ -568,7 +569,7 @@ impl AsterDavFs {
             .map_err(|_| AsterDavMutationError::Backend)?;
         lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
             .await
-            .map_err(map_atomic_lock_error)?;
+            .map_err(map_ancestor_lock_error)?;
         let source_file = match path_resolver::resolve_path_in_scope(
             &txn,
             self.scope,
@@ -722,7 +723,7 @@ impl AsterDavFs {
             .map_err(|_| AsterDavMutationError::Backend)?;
         lock::lock_mutation_ancestor_entities(&txn, self.scope, self.root_folder_id, destination)
             .await
-            .map_err(map_atomic_lock_error)?;
+            .map_err(map_ancestor_lock_error)?;
         let source_folder = match path_resolver::resolve_path_in_scope(
             &txn,
             self.scope,
@@ -770,73 +771,48 @@ impl AsterDavFs {
         )
         .await
         .map_err(AsterDavMutationError::FileSystem)?;
-        let (destination_folder, created) = match destination_node {
-            Some(ResolvedNode::Folder(folder)) => (folder, false),
+        let destination_folder = match destination_node {
+            Some(ResolvedNode::Folder(folder)) => Some(folder),
             Some(ResolvedNode::File(file)) => {
                 file_ops::delete_in_scope_on(&txn, self.scope, file.id, true)
                     .await
                     .map_err(to_fs_error)
                     .map_err(AsterDavMutationError::FileSystem)?;
-                let created_by_username =
-                    crate::services::workspace::storage::load_scope_actor_username(
-                        &txn, self.scope,
-                    )
-                    .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
-                let now = chrono::Utc::now();
-                let folder = folder_repo::create(
-                    &txn,
-                    aster_drive_model::entities::folder::ActiveModel {
-                        name: Set(destination_name),
-                        parent_id: Set(destination_parent_id),
-                        team_id: Set(self.scope.team_id()),
-                        owner_user_id: Set(self.scope.owner_user_id()),
-                        created_by_user_id: Set(Some(self.scope.actor_user_id())),
-                        created_by_username: Set(created_by_username),
-                        policy_id: Set(source_folder.policy_id),
-                        created_at: Set(now),
-                        updated_at: Set(now),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
-                (folder, true)
+                None
             }
-            None => {
-                let created_by_username =
-                    crate::services::workspace::storage::load_scope_actor_username(
-                        &txn, self.scope,
-                    )
-                    .await
-                    .map_err(to_fs_error)
-                    .map_err(AsterDavMutationError::FileSystem)?;
-                let now = chrono::Utc::now();
-                let folder = folder_repo::create(
-                    &txn,
-                    aster_drive_model::entities::folder::ActiveModel {
-                        name: Set(destination_name),
-                        parent_id: Set(destination_parent_id),
-                        team_id: Set(self.scope.team_id()),
-                        owner_user_id: Set(self.scope.owner_user_id()),
-                        created_by_user_id: Set(Some(self.scope.actor_user_id())),
-                        created_by_username: Set(created_by_username),
-                        policy_id: Set(source_folder.policy_id),
-                        created_at: Set(now),
-                        updated_at: Set(now),
-                        ..Default::default()
-                    },
-                )
-                .await
-                .map_err(to_fs_error)
-                .map_err(AsterDavMutationError::FileSystem)?;
-                (folder, true)
-            }
+            None => None,
             Some(ResolvedNode::Root) => {
                 return Err(AsterDavMutationError::FileSystem(FsError::Forbidden));
             }
+        };
+        let (destination_folder, created) = if let Some(folder) = destination_folder {
+            (folder, false)
+        } else {
+            let created_by_username =
+                crate::services::workspace::storage::load_scope_actor_username(&txn, self.scope)
+                    .await
+                    .map_err(to_fs_error)
+                    .map_err(AsterDavMutationError::FileSystem)?;
+            let now = chrono::Utc::now();
+            let folder = folder_repo::create(
+                &txn,
+                aster_drive_model::entities::folder::ActiveModel {
+                    name: Set(destination_name),
+                    parent_id: Set(destination_parent_id),
+                    team_id: Set(self.scope.team_id()),
+                    owner_user_id: Set(self.scope.owner_user_id()),
+                    created_by_user_id: Set(Some(self.scope.actor_user_id())),
+                    created_by_username: Set(created_by_username),
+                    policy_id: Set(source_folder.policy_id),
+                    created_at: Set(now),
+                    updated_at: Set(now),
+                    ..Default::default()
+                },
+            )
+            .await
+            .map_err(to_fs_error)
+            .map_err(AsterDavMutationError::FileSystem)?;
+            (folder, true)
         };
         copy_visible_entity_properties_on(
             &txn,
@@ -2284,5 +2260,12 @@ fn map_atomic_lock_error(error: DavLockError) -> AsterDavMutationError {
         DavLockError::TokenMismatch | DavLockError::LimitExceeded | DavLockError::Backend => {
             AsterDavMutationError::Backend
         }
+    }
+}
+
+fn map_ancestor_lock_error(error: lock::LockMutationAncestorError) -> AsterDavMutationError {
+    match error {
+        lock::LockMutationAncestorError::Conflict => AsterDavMutationError::Conflict,
+        lock::LockMutationAncestorError::Backend => AsterDavMutationError::Backend,
     }
 }

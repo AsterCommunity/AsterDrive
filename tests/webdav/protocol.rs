@@ -36,6 +36,31 @@ fn webdav_test_password(label: &str) -> String {
     format!("TEST_PASSWORD_{label}_{}", uuid::Uuid::new_v4().simple())
 }
 
+fn find_bytes(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+    if needle.is_empty() {
+        None
+    } else {
+        haystack
+            .windows(needle.len())
+            .position(|window| window == needle)
+    }
+}
+
+fn multipart_payload_for_range<'a>(
+    body: &'a [u8],
+    boundary: &str,
+    content_range: &str,
+) -> Option<&'a [u8]> {
+    let range_header = format!("Content-Range: {content_range}\r\n");
+    let header_offset = find_bytes(body, range_header.as_bytes())?;
+    let part_headers = &body[header_offset..];
+    let payload_offset = find_bytes(part_headers, b"\r\n\r\n")? + 4;
+    let payload = &part_headers[payload_offset..];
+    let next_boundary = format!("\r\n--{boundary}");
+    let payload_end = find_bytes(payload, next_boundary.as_bytes())?;
+    Some(&payload[..payload_end])
+}
+
 async fn count_file_download_audit_rows(state: &PrimaryAppState, entity_name: &str) -> u64 {
     aster_forge_audit::flush_global_audit_log_manager().await;
     audit_log::Entity::find()
@@ -117,6 +142,47 @@ fn proppatch_statuses_by_property(xml: &str) -> Vec<(String, String)> {
 
 fn propfind_statuses_by_property(xml: &str) -> Vec<(String, String)> {
     proppatch_statuses_by_property(xml)
+}
+
+fn propfind_status_for_href_property(
+    xml: &str,
+    expected_href: &str,
+    property_name: &str,
+) -> Option<String> {
+    let multistatus = Element::parse_reader(Cursor::new(xml.as_bytes()))
+        .expect("PROPFIND Multi-Status XML should parse");
+    for response in multistatus
+        .child_elements()
+        .filter(|element| element.name == "response")
+    {
+        let href = response
+            .child_elements()
+            .find(|element| element.name == "href")
+            .and_then(Element::text);
+        if href.as_deref() != Some(expected_href) {
+            continue;
+        }
+        for propstat in response
+            .child_elements()
+            .filter(|element| element.name == "propstat")
+        {
+            let contains_property = propstat
+                .child_elements()
+                .find(|element| element.name == "prop")
+                .is_some_and(|properties| {
+                    properties
+                        .child_elements()
+                        .any(|property| property.name == property_name)
+                });
+            if contains_property {
+                return propstat
+                    .child_elements()
+                    .find(|element| element.name == "status")
+                    .and_then(Element::text);
+            }
+        }
+    }
+    None
 }
 
 fn propfind_dav_property_text(xml: &str, property_name: &str) -> Option<String> {
@@ -1312,13 +1378,19 @@ async fn test_webdav_get_supports_binary_range_requests() {
         .unwrap_or_default()
         .to_owned();
     assert!(content_type.starts_with("multipart/byteranges; boundary="));
+    let boundary = content_type
+        .strip_prefix("multipart/byteranges; boundary=")
+        .expect("multipart response should declare its boundary");
     let body = test::read_body(resp).await;
-    let multipart = String::from_utf8_lossy(&body);
-    assert!(multipart.contains("Content-Range: bytes 0-1/4099"));
-    assert!(multipart.contains("Content-Range: bytes 100-101/4099"));
-    assert!(multipart.contains("Content-Type: application/octet-stream"));
-    assert!(multipart.contains(String::from_utf8_lossy(&data[0..=1]).as_ref()));
-    assert!(multipart.contains(String::from_utf8_lossy(&data[100..=101]).as_ref()));
+    assert!(find_bytes(&body, b"Content-Type: application/octet-stream\r\n").is_some());
+    assert_eq!(
+        multipart_payload_for_range(&body, boundary, "bytes 0-1/4099"),
+        Some(&data[0..=1])
+    );
+    assert_eq!(
+        multipart_payload_for_range(&body, boundary, "bytes 100-101/4099"),
+        Some(&data[100..=101])
+    );
 
     let req = test::TestRequest::get()
         .uri("/webdav/range-image.bin")
@@ -2696,6 +2768,43 @@ async fn test_webdav_copy_move() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_webdav_copy_move_missing_destination_parent_returns_conflict() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+
+    let req = test::TestRequest::put()
+        .uri("/webdav/missing-parent-source.txt")
+        .insert_header(("Authorization", auth.clone()))
+        .set_payload("source")
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 201);
+
+    for method in ["COPY", "MOVE"] {
+        let req = test::TestRequest::with_uri("/webdav/missing-parent-source.txt")
+            .method(actix_web::http::Method::from_bytes(method.as_bytes()).unwrap())
+            .insert_header(("Authorization", auth.clone()))
+            .insert_header((
+                "Destination",
+                format!("/webdav/missing-{method}-parent/child.txt"),
+            ))
+            .to_request();
+        let resp = test::call_service(&app, req).await;
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::CONFLICT,
+            "{method} below a missing destination parent should return 409"
+        );
+    }
+
+    let req = test::TestRequest::get()
+        .uri("/webdav/missing-parent-source.txt")
+        .insert_header(("Authorization", auth))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
 }
 
 #[actix_web::test]
@@ -4434,6 +4543,28 @@ async fn test_webdav_quota_live_properties_follow_rfc_4331_boundaries() {
             "used > total must saturate available bytes to zero: {xml}"
         );
     }
+
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Depth", "1"))
+        .insert_header(("Content-Type", "application/xml"))
+        .set_payload(explicit_quota)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 207);
+    let body = test::read_body(resp).await;
+    let xml = String::from_utf8_lossy(&body);
+    assert_eq!(
+        propfind_status_for_href_property(&xml, "/webdav/quota-collection/", "quota-used-bytes")
+            .as_deref(),
+        Some("HTTP/1.1 200 OK")
+    );
+    assert_eq!(
+        propfind_status_for_href_property(&xml, "/webdav/quota-file.txt", "quota-used-bytes")
+            .as_deref(),
+        Some("HTTP/1.1 404 Not Found")
+    );
 
     let req = test::TestRequest::with_uri("/webdav/quota-file.txt")
         .method(actix_web::http::Method::from_bytes(b"PROPFIND").unwrap())

@@ -16,9 +16,21 @@ use crate::webdav::{
 };
 use aster_forge_webdav::{DavLockSystem, FsError};
 
+const MULTI_RANGE_MAXIMUM_HEADER_BYTES: usize = 8 * 1024;
+const MULTI_RANGE_MAXIMUM_RAW_RANGES: usize = 16;
+const MULTI_RANGE_MAXIMUM_SEGMENTS: usize = 8;
+const MULTI_RANGE_MAXIMUM_AGGREGATE_BYTES: u64 = 64 * 1024 * 1024;
+const MULTI_RANGE_MAXIMUM_BACKEND_OPENS: usize = 8;
+const MULTI_RANGE_COALESCE_GAP_BYTES: u64 = 80;
 const MULTI_RANGE_POLICY: DavMultiRangePolicy = DavMultiRangePolicy::new(
-    DavMultiRangeLimits::new(8 * 1024, 16, 8, 64 * 1024 * 1024, 8),
-    80,
+    DavMultiRangeLimits::new(
+        MULTI_RANGE_MAXIMUM_HEADER_BYTES,
+        MULTI_RANGE_MAXIMUM_RAW_RANGES,
+        MULTI_RANGE_MAXIMUM_SEGMENTS,
+        MULTI_RANGE_MAXIMUM_AGGREGATE_BYTES,
+        MULTI_RANGE_MAXIMUM_BACKEND_OPENS,
+    ),
+    MULTI_RANGE_COALESCE_GAP_BYTES,
     DavRangeLimitBehavior::IgnoreRange,
 );
 

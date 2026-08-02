@@ -11,6 +11,9 @@ use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
 use crate::services::workspace::storage::{WorkspaceResourceScope, WorkspaceStorageScope};
 use aster_drive_model::entities::{file, folder};
+use aster_forge_utils::numbers::usize_to_u64;
+
+const FOLDER_TREE_FILE_PAGE_SIZE: usize = 512;
 
 /// Optional resource bounds for a product-owned folder-tree traversal.
 ///
@@ -96,13 +99,7 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
                 .into_iter()
                 .filter(|file| file_matches_scope(file, scope))
                 .collect::<Vec<_>>();
-            check_folder_tree_resource_limits(
-                limits,
-                folder_ids.len(),
-                files.len(),
-                level_files.len(),
-            )?;
-            files.extend(level_files);
+            extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
             frontier = folder_repo::find_all_children_in_parents(db, &frontier)
                 .await?
                 .into_iter()
@@ -115,14 +112,16 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
 
         frontier = match scope {
             WorkspaceResourceScope::Personal { user_id } => {
-                let level_files = file_repo::find_by_folders(db, user_id, &frontier).await?;
-                check_folder_tree_resource_limits(
+                let level_files = load_level_files(
+                    db,
+                    WorkspaceResourceScope::Personal { user_id },
+                    &frontier,
                     limits,
                     folder_ids.len(),
                     files.len(),
-                    level_files.len(),
-                )?;
-                files.extend(level_files);
+                )
+                .await?;
+                extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
                 folder_repo::find_children_in_parents(db, user_id, &frontier)
                     .await?
                     .into_iter()
@@ -130,14 +129,16 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
                     .collect()
             }
             WorkspaceResourceScope::Team { team_id } => {
-                let level_files = file_repo::find_by_team_folders(db, team_id, &frontier).await?;
-                check_folder_tree_resource_limits(
+                let level_files = load_level_files(
+                    db,
+                    WorkspaceResourceScope::Team { team_id },
+                    &frontier,
                     limits,
                     folder_ids.len(),
                     files.len(),
-                    level_files.len(),
-                )?;
-                files.extend(level_files);
+                )
+                .await?;
+                extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
                 folder_repo::find_team_children_in_parents(db, team_id, &frontier)
                     .await?
                     .into_iter()
@@ -149,6 +150,79 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
     }
 
     Ok((files, folder_ids))
+}
+
+async fn load_level_files<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceResourceScope,
+    frontier: &[i64],
+    limits: Option<FolderTreeTraversalLimits>,
+    folder_count: usize,
+    file_count: usize,
+) -> Result<Vec<file::Model>> {
+    let page_limit = if let Some(limits) = limits {
+        let used = folder_count
+            .checked_add(file_count)
+            .ok_or_else(folder_tree_limit_error)?;
+        let remaining = limits
+            .maximum_resources
+            .checked_sub(used)
+            .ok_or_else(folder_tree_limit_error)?;
+        usize_to_u64(remaining, "folder tree remaining resource limit")?
+            .checked_add(1)
+            .ok_or_else(folder_tree_limit_error)?
+    } else {
+        usize_to_u64(FOLDER_TREE_FILE_PAGE_SIZE, "folder tree file page size")?
+    };
+
+    let mut files = Vec::new();
+    let mut after_id = None;
+    loop {
+        let page = match scope {
+            WorkspaceResourceScope::Personal { user_id } => {
+                file_repo::find_by_folders_after_id(db, user_id, frontier, after_id, page_limit)
+                    .await?
+            }
+            WorkspaceResourceScope::Team { team_id } => {
+                file_repo::find_by_team_folders_after_id(
+                    db, team_id, frontier, after_id, page_limit,
+                )
+                .await?
+            }
+        };
+        if let Some(limits) = limits {
+            if page.len()
+                > limits
+                    .maximum_resources
+                    .saturating_sub(folder_count.saturating_add(file_count))
+            {
+                return Err(folder_tree_limit_error());
+            }
+            files.extend(page);
+            break;
+        }
+        let Some(last_id) = page.last().map(|file| file.id) else {
+            break;
+        };
+        let page_len = page.len();
+        files.extend(page);
+        after_id = Some(last_id);
+        if page_len < FOLDER_TREE_FILE_PAGE_SIZE {
+            break;
+        }
+    }
+    Ok(files)
+}
+
+fn extend_level_files(
+    limits: Option<FolderTreeTraversalLimits>,
+    files: &mut Vec<file::Model>,
+    folder_count: usize,
+    level_files: Vec<file::Model>,
+) -> Result<()> {
+    check_folder_tree_resource_limits(limits, folder_count, files.len(), level_files.len())?;
+    files.extend(level_files);
+    Ok(())
 }
 
 fn check_folder_tree_frontier_limits(

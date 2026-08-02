@@ -3,6 +3,7 @@ use crate::errors::{AsterError, Result};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::{events::storage_change, workspace::storage::WorkspaceStorageScope};
 use aster_drive_model::entities::file;
+use aster_forge_db::transaction;
 use sea_orm::ConnectionTrait;
 
 pub(crate) async fn delete_in_scope(
@@ -11,7 +12,9 @@ pub(crate) async fn delete_in_scope(
     id: i64,
 ) -> Result<()> {
     tracing::debug!(scope = ?scope, file_id = id, "soft deleting file");
-    let file = delete_in_scope_on(state.writer_db(), scope, id, false).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    let file = delete_in_scope_on(&txn, scope, id, false).await?;
+    transaction::commit(txn).await?;
     storage_change::publish(
         state,
         storage_change::StorageChangeEvent::new(

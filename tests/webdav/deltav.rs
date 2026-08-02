@@ -71,13 +71,15 @@ async fn deltav_methods_are_not_advertised_or_dispatched() {
     let dav = resp
         .headers()
         .get("DAV")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
+        .expect("OPTIONS should include DAV")
+        .to_str()
+        .expect("DAV should be valid UTF-8");
     let allow = resp
         .headers()
         .get("Allow")
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default();
+        .expect("OPTIONS should include Allow")
+        .to_str()
+        .expect("Allow should be valid UTF-8");
     assert!(
         !dav.split(',')
             .any(|token| token.trim() == "version-control")

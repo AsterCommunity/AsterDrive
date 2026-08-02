@@ -231,10 +231,13 @@ impl RunningWebdavServer {
             Err(error) => Err(format!("WebDAV server task join failed: {error}")),
         };
 
-        if let Ok(mut log) = self.request_log.lock() {
-            log.flush()
-                .map_err(|error| format!("failed to flush WebDAV request log: {error}"))?;
-        }
+        let mut log = self
+            .request_log
+            .lock()
+            .map_err(|error| format!("failed to lock WebDAV request log for flush: {error}"))?;
+        log.flush()
+            .map_err(|error| format!("failed to flush WebDAV request log: {error}"))?;
+        drop(log);
 
         let message = match &result {
             Ok(()) => "server stopped cleanly\n".to_string(),
@@ -297,21 +300,29 @@ async fn start_real_webdav_server(
                         .as_ref()
                         .map(|response| response.status().as_u16().to_string())
                         .unwrap_or_else(|_| "service-error".to_string());
-                    if let Ok(mut log) = request_log.lock() {
-                        let _ = writeln!(
-                            log,
-                            "method={} uri={} status={} litmus={} duration_ms={}",
-                            method,
-                            uri,
-                            status,
-                            litmus_case,
-                            started_at.elapsed().as_millis()
-                        );
-                        if result
-                            .as_ref()
-                            .is_ok_and(|response| response.status().is_server_error())
-                        {
-                            let _ = log.flush();
+                    match request_log.lock() {
+                        Ok(mut log) => {
+                            if let Err(error) = writeln!(
+                                log,
+                                "method={} uri={} status={} litmus={} duration_ms={}",
+                                method,
+                                uri,
+                                status,
+                                litmus_case,
+                                started_at.elapsed().as_millis()
+                            ) {
+                                tracing::error!(error = %error, "failed to write Litmus WebDAV request log");
+                            }
+                            if result
+                                .as_ref()
+                                .is_ok_and(|response| response.status().is_server_error())
+                                && let Err(error) = log.flush()
+                            {
+                                tracing::error!(error = %error, "failed to flush Litmus WebDAV request log after 5xx response");
+                            }
+                        }
+                        Err(error) => {
+                            tracing::error!(error = %error, "Litmus WebDAV request log lock is poisoned");
                         }
                     }
                     result
