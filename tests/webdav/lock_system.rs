@@ -738,3 +738,59 @@ async fn test_db_lock_system_propagates_backend_failures_from_every_query_port()
         Err(error) if error.kind == DavBackendErrorKind::Internal
     ));
 }
+
+#[actix_web::test]
+async fn test_db_lock_system_distinguishes_mount_root_and_missing_targets() {
+    use aster_drive::db::repository::lock_repo;
+    use aster_drive::webdav::backend::lock::DbLockSystem;
+    use aster_drive_model::types::ResourceLockTargetType;
+    use aster_forge_webdav::{DavLockSystem, DavPath};
+
+    let state = common::setup().await;
+    let user = common::create_test_account(
+        &state,
+        "dav-lock-targets",
+        "dav-lock-targets@example.com",
+        "pass1234",
+    )
+    .await
+    .unwrap();
+    let lock_system = DbLockSystem::new(state.writer_db().clone(), user.id, None);
+
+    let missing = lock_system
+        .lock(
+            &DavPath::new("/missing.txt").unwrap(),
+            None,
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            false,
+        )
+        .await
+        .unwrap_err();
+    assert!(matches!(missing, DavLockError::NotFound));
+
+    let root_path = DavPath::new("/").unwrap();
+    let root_lock = lock_system
+        .lock(
+            &root_path,
+            None,
+            None,
+            Some(Duration::from_secs(60)),
+            false,
+            true,
+        )
+        .await
+        .expect("virtual mount root should support LOCK");
+    let stored = lock_repo::find_by_token(state.writer_db(), &root_lock.token)
+        .await
+        .unwrap()
+        .expect("root lock should be persisted");
+    assert_eq!(stored.entity_type, ResourceLockTargetType::PersonalRoot);
+    assert_eq!(stored.entity_id, user.id);
+
+    lock_system
+        .unlock(&root_path, &root_lock.token)
+        .await
+        .expect("virtual mount root should support UNLOCK");
+}

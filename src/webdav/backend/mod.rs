@@ -2257,9 +2257,10 @@ async fn revalidate_atomic_target<C: ConnectionTrait>(
 fn map_atomic_lock_error(error: DavLockError) -> AsterDavMutationError {
     match error {
         DavLockError::Conflict(lock) => AsterDavMutationError::Locked((*lock.path).clone()),
-        DavLockError::TokenMismatch | DavLockError::LimitExceeded | DavLockError::Backend => {
-            AsterDavMutationError::Backend
-        }
+        DavLockError::TokenMismatch
+        | DavLockError::LimitExceeded
+        | DavLockError::NotFound
+        | DavLockError::Backend => AsterDavMutationError::Backend,
     }
 }
 

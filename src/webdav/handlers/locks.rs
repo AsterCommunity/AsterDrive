@@ -74,6 +74,9 @@ pub(crate) async fn handle_lock(
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
                 }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
+                }
                 Err(DavLockError::Backend) => {
                     return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
                 }
@@ -85,6 +88,9 @@ pub(crate) async fn handle_lock(
                 }
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
+                }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
                 }
                 Err(DavLockError::Backend) => {
                     return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
@@ -133,6 +139,9 @@ pub(crate) async fn handle_lock(
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
                 }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
+                }
                 Err(DavLockError::Backend) => {
                     return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
                 }
@@ -170,6 +179,7 @@ pub(crate) async fn handle_unlock(
         Err(DavLockError::LimitExceeded) => {
             aster_forge_webdav::actix::into_response(lock_limit_response())
         }
+        Err(DavLockError::NotFound) => responses::empty(StatusCode::NOT_FOUND),
         Err(DavLockError::Backend) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

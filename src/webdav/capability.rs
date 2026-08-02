@@ -62,7 +62,16 @@ impl<'a> DriveDavCapabilityProvider<'a> {
         };
         let mut declaration =
             DavCapabilityDeclaration::new(resource, DavMethodSet::from_methods(methods));
-        declaration.locking = DavLockingCapability::Class2;
+        declaration.locking = if matches!(
+            resource,
+            DavResourceState::Principal
+                | DavResourceState::RedirectReference
+                | DavResourceState::AddMemberEndpoint
+        ) {
+            DavLockingCapability::Disabled
+        } else {
+            DavLockingCapability::Class2
+        };
         declaration.compliance = DavComplianceClasses {
             class1: true,
             class3: false,
@@ -125,6 +134,7 @@ mod tests {
                     DavMethod::Unlock,
                 ][..],
                 true,
+                DavLockingCapability::Class2,
             ),
             (
                 DavResourceState::Collection,
@@ -139,6 +149,7 @@ mod tests {
                     DavMethod::Unlock,
                 ],
                 true,
+                DavLockingCapability::Class2,
             ),
             (
                 DavResourceState::File,
@@ -155,6 +166,7 @@ mod tests {
                     DavMethod::Unlock,
                 ],
                 false,
+                DavLockingCapability::Class2,
             ),
             (
                 DavResourceState::Unmapped,
@@ -166,24 +178,32 @@ mod tests {
                     DavMethod::Unlock,
                 ],
                 false,
+                DavLockingCapability::Class2,
             ),
-            (DavResourceState::Principal, &[DavMethod::Options], false),
+            (
+                DavResourceState::Principal,
+                &[DavMethod::Options],
+                false,
+                DavLockingCapability::Disabled,
+            ),
             (
                 DavResourceState::RedirectReference,
                 &[DavMethod::Options],
                 false,
+                DavLockingCapability::Disabled,
             ),
             (
                 DavResourceState::AddMemberEndpoint,
                 &[DavMethod::Options],
                 false,
+                DavLockingCapability::Disabled,
             ),
         ];
 
-        for (resource, methods, supports_quota) in expected {
+        for (resource, methods, supports_quota, locking) in expected {
             let declaration = DriveDavCapabilityProvider::declaration_for(resource);
             assert_eq!(declaration.methods, DavMethodSet::from_methods(methods));
-            assert_eq!(declaration.locking, DavLockingCapability::Class2);
+            assert_eq!(declaration.locking, locking);
             assert!(declaration.compliance.class1);
             assert!(!declaration.compliance.class3);
             assert_eq!(
@@ -191,15 +211,13 @@ mod tests {
                 supports_quota
             );
 
-            if methods.contains(&DavMethod::Lock) {
-                let snapshot = DriveDavCapabilityProvider::snapshot_for(resource).unwrap();
-                assert_eq!(snapshot.declaration().resource, resource);
-                assert!(declaration.methods.is_subset_of(snapshot.methods()));
-                assert_eq!(
-                    snapshot.supports_extension(DavExtensionPackage::Quota),
-                    supports_quota
-                );
-            }
+            let snapshot = DriveDavCapabilityProvider::snapshot_for(resource).unwrap();
+            assert_eq!(snapshot.declaration().resource, resource);
+            assert!(declaration.methods.is_subset_of(snapshot.methods()));
+            assert_eq!(
+                snapshot.supports_extension(DavExtensionPackage::Quota),
+                supports_quota
+            );
         }
     }
 }

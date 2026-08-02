@@ -501,7 +501,7 @@ pub struct InvitationAuditDetails<'a> {
 
 #[derive(Serialize)]
 pub struct LockAuditDetails {
-    pub entity_type: EntityType,
+    pub entity_type: aster_drive_model::types::ResourceLockTargetType,
     pub entity_id: i64,
 }
 

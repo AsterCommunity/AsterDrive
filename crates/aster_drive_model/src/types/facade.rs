@@ -13,7 +13,7 @@ pub use super::auth::{
     MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod, TokenType, VerificationChannel,
     VerificationPurpose,
 };
-pub use super::entity::EntityType;
+pub use super::entity::{EntityType, ResourceLockTargetType};
 pub use super::media_metadata::{
     AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
     MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,

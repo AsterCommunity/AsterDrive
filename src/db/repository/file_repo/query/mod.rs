@@ -11,7 +11,9 @@ pub use admin::{
     AdminBlobUploaderRef, AdminFileFilters, find_admin_blob_uploader_refs_for_blobs,
     find_admin_file_by_id, find_admin_files_paginated, find_by_blob_id,
 };
-pub(crate) use basic::{FileIdSize, find_id_size_by_folders};
+pub(crate) use basic::{
+    FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,
+};
 pub use basic::{
     count_live_files, find_all_in_folders, find_by_folder, find_by_folder_after_id,
     find_by_folders, find_by_folders_after_id, find_by_id, find_by_ids,

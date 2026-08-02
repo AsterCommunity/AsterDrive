@@ -27,6 +27,8 @@ use crate::services::{
 use aster_drive_model::entities::{file, folder, share};
 use aster_forge_utils::numbers::u64_to_usize;
 
+const ARCHIVE_FOLDER_TREE_MAXIMUM_DEPTH: usize = 128;
+
 pub(crate) struct PreparedArchiveDownload {
     pub file_ids: Vec<i64>,
     pub folder_ids: Vec<i64>,
@@ -69,12 +71,18 @@ impl ArchiveBuildLimits {
                     self.max_entries
                 ))
             })?;
+        if remaining_entries == 0 {
+            return Err(AsterError::validation_error(format!(
+                "archive selection expands to {collected_entries} entries, exceeds server limit {}",
+                self.max_entries
+            )));
+        }
         let maximum_resources =
             u64_to_usize(remaining_entries, "archive remaining maximum entries")?;
         Ok(folder_ops::FolderTreeTraversalLimits::new(
             maximum_resources,
             maximum_resources,
-            maximum_resources,
+            ARCHIVE_FOLDER_TREE_MAXIMUM_DEPTH,
         ))
     }
 }
@@ -891,14 +899,8 @@ mod tests {
         let traversal = limits.folder_tree_traversal_limits(2).unwrap();
         assert_eq!(traversal.maximum_resources, 3);
         assert_eq!(traversal.maximum_frontier, 3);
-        assert_eq!(traversal.maximum_depth, 3);
-        assert_eq!(
-            limits
-                .folder_tree_traversal_limits(5)
-                .unwrap()
-                .maximum_resources,
-            0
-        );
+        assert_eq!(traversal.maximum_depth, 128);
+        assert!(limits.folder_tree_traversal_limits(5).is_err());
         assert!(limits.folder_tree_traversal_limits(6).is_err());
     }
 

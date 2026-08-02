@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use crate::types::{EntityType, StoredLockOwnerInfo};
+use crate::types::{ResourceLockTargetType, StoredLockOwnerInfo};
 
 #[derive(Clone, Debug, PartialEq, DeriveEntityModel, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -16,7 +16,7 @@ pub struct Model {
     pub id: i64,
     #[sea_orm(unique)]
     pub token: String,
-    pub entity_type: EntityType,
+    pub entity_type: ResourceLockTargetType,
     pub entity_id: i64,
     pub path: String,
     pub owner_id: Option<i64>,

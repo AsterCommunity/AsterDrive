@@ -1259,6 +1259,76 @@ async fn folder_tree_limits_enforce_exact_resource_frontier_and_depth_boundaries
 }
 
 #[actix_web::test]
+async fn folder_tree_limits_bound_deleted_file_loading_before_collection() {
+    use crate::services::files::folder::{FolderTreeTraversalLimits, collect_folder_tree_in_scope};
+    use crate::services::workspace::storage::WorkspaceStorageScope;
+
+    let driver = CountingDirectUploadDriver::default();
+    let (state, user, policy, temp_root) = build_webdav_test_state(
+        DriverType::Local,
+        aster_drive_model::types::StoredStoragePolicyOptions::empty(),
+        Arc::new(driver),
+    )
+    .await;
+    let scope = WorkspaceStorageScope::Personal { user_id: user.id };
+    let root = create_test_folder(&state, &user, "deleted-budget-root", None).await;
+    let (active, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "active-budget.txt",
+        1,
+        "files/active-budget.txt",
+    )
+    .await;
+    let (deleted, _) = create_root_file(
+        &state,
+        user.id,
+        policy.id,
+        "deleted-budget.txt",
+        1,
+        "files/deleted-budget.txt",
+    )
+    .await;
+    file::ActiveModel {
+        id: Set(active.id),
+        folder_id: Set(Some(root.id)),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("active file should move under test folder");
+    file::ActiveModel {
+        id: Set(deleted.id),
+        folder_id: Set(Some(root.id)),
+        deleted_at: Set(Some(Utc::now())),
+        ..Default::default()
+    }
+    .update(state.writer_db())
+    .await
+    .expect("deleted file should move under test folder");
+
+    let exact = FolderTreeTraversalLimits::new(2, 1, 1);
+    let (files, folders) =
+        collect_folder_tree_in_scope(state.writer_db(), scope, root.id, false, Some(exact))
+            .await
+            .expect("active-only traversal should fit the exact budget");
+    assert_eq!(files.len(), 1);
+    assert_eq!(folders, [root.id]);
+
+    let error = collect_folder_tree_in_scope(state.writer_db(), scope, root.id, true, Some(exact))
+        .await
+        .expect_err("deleted file at remaining limit plus one should fail during loading");
+    assert!(matches!(
+        error,
+        crate::errors::AsterError::OperationResourceLimitExceeded(_)
+    ));
+
+    drop(state);
+    let _ = std::fs::remove_dir_all(temp_root);
+}
+
+#[actix_web::test]
 async fn bounded_delete_and_copy_fail_before_any_tree_write() {
     use crate::services::files::folder::{self, FolderTreeTraversalLimits};
     use crate::services::workspace::storage::WorkspaceStorageScope;

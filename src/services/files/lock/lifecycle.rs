@@ -3,12 +3,12 @@ use chrono::{Duration, Utc};
 use sea_orm::Set;
 
 use crate::api::api_error_code::ApiErrorCode;
-use crate::db::repository::{file_repo, folder_repo, lock_repo};
+use crate::db::repository::{file_repo, folder_repo, lock_repo, team_repo, user_repo};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
 use aster_drive_model::entities::resource_lock;
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::{EntityType, ResourceLockTargetType};
 
 use super::models::ResourceLockOwnerInfo;
 use super::owner_info::serialize_resource_lock_owner_info;
@@ -32,7 +32,7 @@ pub async fn lock(
     let txn = transaction::begin(state.writer_db()).await?;
 
     let result = async {
-        lock_target_entity(&txn, entity_type, entity_id).await?;
+        lock_target_entity(&txn, entity_type.into(), entity_id).await?;
 
         for existing in lock_repo::find_all_by_entity(&txn, entity_type, entity_id).await? {
             if existing
@@ -55,7 +55,7 @@ pub async fn lock(
         let path = resolve_entity_path(&txn, entity_type, entity_id).await?;
         let model = resource_lock::ActiveModel {
             token: Set(token),
-            entity_type: Set(entity_type),
+            entity_type: Set(entity_type.into()),
             entity_id: Set(entity_id),
             path: Set(path),
             owner_id: Set(owner_id),
@@ -111,7 +111,7 @@ pub async fn unlock(
     let now = Utc::now();
 
     transaction::with_transaction(state.writer_db(), async |txn| {
-        lock_target_entity(txn, entity_type, entity_id).await?;
+        lock_target_entity(txn, entity_type.into(), entity_id).await?;
         lock_repo::delete_expired_by_entity_before(txn, entity_type, entity_id, now).await?;
 
         let locks = lock_repo::find_all_by_entity_for_update(txn, entity_type, entity_id).await?;
@@ -158,7 +158,7 @@ pub async fn unlock_by_token(state: &impl SharedRuntimeState, token: &str) -> Re
             .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
         lock_target_entity(txn, lock.entity_type, lock.entity_id).await?;
         lock_repo::delete_by_id(txn, lock.id).await?;
-        clear_entity_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
+        clear_lock_target_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
         Ok::<resource_lock::Model, AsterError>(lock)
     })
     .await?;
@@ -179,7 +179,7 @@ pub async fn force_unlock(state: &impl SharedRuntimeState, lock_id: i64) -> Resu
             .ok_or_else(|| AsterError::record_not_found("lock not found"))?;
         lock_target_entity(txn, lock.entity_type, lock.entity_id).await?;
         lock_repo::delete_by_id(txn, lock.id).await?;
-        clear_entity_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
+        clear_lock_target_locked_if_unlocked(txn, lock.entity_type, lock.entity_id).await?;
         Ok::<resource_lock::Model, AsterError>(lock)
     })
     .await?;
@@ -221,16 +221,33 @@ pub async fn force_unlock_with_audit(
 
 async fn lock_target_entity<C: sea_orm::ConnectionTrait>(
     db: &C,
-    entity_type: EntityType,
+    entity_type: ResourceLockTargetType,
     entity_id: i64,
 ) -> Result<()> {
     match entity_type {
-        EntityType::File => {
+        ResourceLockTargetType::File => {
             file_repo::lock_by_id(db, entity_id).await?;
         }
-        EntityType::Folder => {
+        ResourceLockTargetType::Folder => {
             folder_repo::lock_by_id(db, entity_id).await?;
         }
+        ResourceLockTargetType::PersonalRoot => {
+            user_repo::lock_by_id(db, entity_id).await?;
+        }
+        ResourceLockTargetType::TeamRoot => {
+            team_repo::lock_by_id(db, entity_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn clear_lock_target_locked_if_unlocked<C: sea_orm::ConnectionTrait>(
+    db: &C,
+    entity_type: ResourceLockTargetType,
+    entity_id: i64,
+) -> Result<()> {
+    if let Some(entity_type) = entity_type.entity_type() {
+        clear_entity_locked_if_unlocked(db, entity_type, entity_id).await?;
     }
     Ok(())
 }

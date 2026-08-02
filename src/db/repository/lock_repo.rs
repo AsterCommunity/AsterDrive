@@ -13,7 +13,7 @@ use aster_drive_model::entities::{
     file, folder,
     resource_lock::{self, Entity as ResourceLock},
 };
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::{EntityType, ResourceLockTargetType};
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
@@ -155,7 +155,7 @@ pub async fn find_by_entity<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<Option<resource_lock::Model>> {
     ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .order_by_asc(resource_lock::Column::Id)
         .one(db)
@@ -169,7 +169,7 @@ pub async fn find_all_by_entity<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .order_by_asc(resource_lock::Column::Id)
         .all(db)
@@ -183,7 +183,7 @@ pub async fn find_all_by_entity_for_update<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .order_by_asc(resource_lock::Column::Id)
         .lock_exclusive()
@@ -238,7 +238,10 @@ pub async fn rebind_path<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<u64> {
     let result = ResourceLock::update_many()
-        .col_expr(resource_lock::Column::EntityType, Expr::value(entity_type))
+        .col_expr(
+            resource_lock::Column::EntityType,
+            Expr::value(ResourceLockTargetType::from(entity_type)),
+        )
         .col_expr(resource_lock::Column::EntityId, Expr::value(entity_id))
         .filter(resource_lock::Column::Path.eq(path))
         .exec(db)
@@ -285,7 +288,7 @@ pub async fn delete_by_entity<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<()> {
     ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .exec(db)
         .await
@@ -300,7 +303,7 @@ pub async fn delete_by_entity_and_owner<C: ConnectionTrait>(
     owner_id: i64,
 ) -> Result<()> {
     ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .filter(resource_lock::Column::OwnerId.eq(owner_id))
         .exec(db)
@@ -316,7 +319,7 @@ pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
     cutoff: chrono::DateTime<Utc>,
 ) -> Result<u64> {
     let res = ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
+        .filter(resource_lock::Column::EntityType.eq(ResourceLockTargetType::from(entity_type)))
         .filter(resource_lock::Column::EntityId.eq(entity_id))
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
         .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
@@ -549,7 +552,7 @@ mod tests {
                 &db,
                 resource_lock::ActiveModel {
                     token: Set(format!("token-{owner_id}-{timeout_at:?}")),
-                    entity_type: Set(EntityType::File),
+                    entity_type: Set(EntityType::File.into()),
                     entity_id: Set(owner_id),
                     path: Set(format!("/{owner_id}-{timeout_at:?}.txt")),
                     owner_id: Set(Some(owner_id)),

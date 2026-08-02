@@ -6,7 +6,7 @@ use crate::db::repository::lock_repo;
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::ops::audit::{self, AuditContext};
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::ResourceLockTargetType;
 use aster_forge_utils::numbers::usize_to_u64;
 
 /// 清理过期锁（后台任务用）
@@ -25,12 +25,13 @@ pub async fn cleanup_expired(state: &impl SharedRuntimeState) -> Result<u64> {
     let mut folder_ids = BTreeSet::new();
     for lock in &expired {
         match lock.entity_type {
-            EntityType::File => {
+            ResourceLockTargetType::File => {
                 file_ids.insert(lock.entity_id);
             }
-            EntityType::Folder => {
+            ResourceLockTargetType::Folder => {
                 folder_ids.insert(lock.entity_id);
             }
+            ResourceLockTargetType::PersonalRoot | ResourceLockTargetType::TeamRoot => {}
         }
     }
 

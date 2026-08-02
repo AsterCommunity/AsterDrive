@@ -203,7 +203,7 @@ async fn insert_test_resource_lock<C: ConnectionTrait>(
         db,
         resource_lock::ActiveModel {
             token: Set(format!("urn:uuid:{token_label}-{}", uuid::Uuid::new_v4())),
-            entity_type: Set(EntityType::File),
+            entity_type: Set(EntityType::File.into()),
             entity_id: Set(file_id),
             path: Set(format!("/wopi/{file_id}/{token_label}")),
             owner_id: Set(None),

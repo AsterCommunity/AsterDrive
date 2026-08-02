@@ -44,7 +44,9 @@ pub use query::{
     find_by_team_folders, find_by_team_folders_after_id, lock_by_id, resolve_unique_filename,
     resolve_unique_team_filename, sum_live_file_bytes,
 };
-pub(crate) use query::{FileIdSize, find_id_size_by_folders};
+pub(crate) use query::{
+    FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,
+};
 pub use trash::{
     delete, delete_many, find_all_by_team, find_all_by_team_paginated, find_all_by_user,
     find_all_by_user_paginated, find_deleted_by_user, find_deleted_in_folder, find_expired_deleted,

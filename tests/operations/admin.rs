@@ -2390,7 +2390,7 @@ async fn test_admin_locks_support_explicit_sorting() {
             state.writer_db(),
             resource_lock::ActiveModel {
                 token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
-                entity_type: Set(EntityType::File),
+                entity_type: Set(EntityType::File.into()),
                 entity_id: Set(10_000 + idx as i64),
                 path: Set(path.to_string()),
                 owner_id: Set(Some(1)),

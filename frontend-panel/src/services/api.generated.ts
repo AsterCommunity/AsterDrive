@@ -6547,7 +6547,7 @@ export interface components {
                 deep: boolean;
                 /** Format: int64 */
                 entity_id: number;
-                entity_type: components["schemas"]["EntityType"];
+                entity_type: components["schemas"]["ResourceLockTargetType"];
                 /** Format: int64 */
                 id: number;
                 owner?: null | components["schemas"]["UserSummary"];
@@ -7402,7 +7402,7 @@ export interface components {
             deep: boolean;
             /** Format: int64 */
             entity_id: number;
-            entity_type: components["schemas"]["EntityType"];
+            entity_type: components["schemas"]["ResourceLockTargetType"];
             /** Format: int64 */
             id: number;
             owner?: null | components["schemas"]["UserSummary"];
@@ -7422,6 +7422,14 @@ export interface components {
             /** @enum {string} */
             kind: "text";
         });
+        /**
+         * @description Resource identity used by lock persistence.
+         *
+         *     WebDAV mount roots can be virtual workspace resources rather than rows in `files` or
+         *     `folders`, so lock storage needs a target type that can represent those roots explicitly.
+         * @enum {string}
+         */
+        ResourceLockTargetType: "file" | "folder" | "personal_root" | "team_root";
         RuntimeSystemHealthComponent: {
             details?: components["schemas"]["HealthComponentDetail"][];
             message: string;
@@ -10295,7 +10303,7 @@ export interface operations {
                                 deep: boolean;
                                 /** Format: int64 */
                                 entity_id: number;
-                                entity_type: components["schemas"]["EntityType"];
+                                entity_type: components["schemas"]["ResourceLockTargetType"];
                                 /** Format: int64 */
                                 id: number;
                                 owner?: null | components["schemas"]["UserSummary"];

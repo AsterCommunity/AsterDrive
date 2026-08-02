@@ -41,15 +41,6 @@ impl FolderTreeTraversalLimits {
     }
 }
 
-fn file_matches_scope(file: &file::Model, scope: WorkspaceResourceScope) -> bool {
-    match scope {
-        WorkspaceResourceScope::Personal { user_id } => {
-            file.team_id.is_none() && file.owner_user_id == Some(user_id)
-        }
-        WorkspaceResourceScope::Team { team_id } => file.team_id == Some(team_id),
-    }
-}
-
 fn folder_matches_scope(folder: &folder::Model, scope: WorkspaceResourceScope) -> bool {
     match scope {
         WorkspaceResourceScope::Personal { user_id } => {
@@ -91,15 +82,19 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
 
         folder_ids.extend(frontier.iter().copied());
 
+        let level_files = load_level_files(
+            db,
+            scope,
+            &frontier,
+            include_deleted,
+            limits,
+            folder_ids.len(),
+            files.len(),
+        )
+        .await?;
+        extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
+
         if include_deleted {
-            // 带 deleted 节点的场景通常是回收站恢复/清理，不适合走普通 repo 过滤器，
-            // 所以先拉全量 children，再在内存里按 scope 过滤。
-            let level_files = file_repo::find_all_in_folders(db, &frontier)
-                .await?
-                .into_iter()
-                .filter(|file| file_matches_scope(file, scope))
-                .collect::<Vec<_>>();
-            extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
             frontier = folder_repo::find_all_children_in_parents(db, &frontier)
                 .await?
                 .into_iter()
@@ -112,16 +107,6 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
 
         frontier = match scope {
             WorkspaceResourceScope::Personal { user_id } => {
-                let level_files = load_level_files(
-                    db,
-                    WorkspaceResourceScope::Personal { user_id },
-                    &frontier,
-                    limits,
-                    folder_ids.len(),
-                    files.len(),
-                )
-                .await?;
-                extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
                 folder_repo::find_children_in_parents(db, user_id, &frontier)
                     .await?
                     .into_iter()
@@ -129,16 +114,6 @@ pub(crate) async fn collect_folder_forest_in_resource_scope<C: ConnectionTrait>(
                     .collect()
             }
             WorkspaceResourceScope::Team { team_id } => {
-                let level_files = load_level_files(
-                    db,
-                    WorkspaceResourceScope::Team { team_id },
-                    &frontier,
-                    limits,
-                    folder_ids.len(),
-                    files.len(),
-                )
-                .await?;
-                extend_level_files(limits, &mut files, folder_ids.len(), level_files)?;
                 folder_repo::find_team_children_in_parents(db, team_id, &frontier)
                     .await?
                     .into_iter()
@@ -156,6 +131,7 @@ async fn load_level_files<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceResourceScope,
     frontier: &[i64],
+    include_deleted: bool,
     limits: Option<FolderTreeTraversalLimits>,
     folder_count: usize,
     file_count: usize,
@@ -178,16 +154,29 @@ async fn load_level_files<C: ConnectionTrait>(
     let mut files = Vec::new();
     let mut after_id = None;
     loop {
-        let page = match scope {
-            WorkspaceResourceScope::Personal { user_id } => {
-                file_repo::find_by_folders_after_id(db, user_id, frontier, after_id, page_limit)
+        let page = if include_deleted {
+            let file_scope = match scope {
+                WorkspaceResourceScope::Personal { user_id } => {
+                    file_repo::FileScope::Personal { user_id }
+                }
+                WorkspaceResourceScope::Team { team_id } => file_repo::FileScope::Team { team_id },
+            };
+            file_repo::find_all_by_folders_after_id_in_scope(
+                db, file_scope, frontier, after_id, page_limit,
+            )
+            .await?
+        } else {
+            match scope {
+                WorkspaceResourceScope::Personal { user_id } => {
+                    file_repo::find_by_folders_after_id(db, user_id, frontier, after_id, page_limit)
+                        .await?
+                }
+                WorkspaceResourceScope::Team { team_id } => {
+                    file_repo::find_by_team_folders_after_id(
+                        db, team_id, frontier, after_id, page_limit,
+                    )
                     .await?
-            }
-            WorkspaceResourceScope::Team { team_id } => {
-                file_repo::find_by_team_folders_after_id(
-                    db, team_id, frontier, after_id, page_limit,
-                )
-                .await?
+                }
             }
         };
         if let Some(limits) = limits {

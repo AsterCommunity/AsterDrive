@@ -9,13 +9,13 @@ use chrono::Utc;
 use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::config::webdav;
-use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
+use crate::db::repository::{file_repo, folder_repo, lock_repo, team_repo, user_repo};
 use crate::runtime::{PrimaryAppState, SharedRuntimeState};
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::webdav::backend::path_resolver::{self, ResolvedNode};
 use aster_drive_model::entities::resource_lock;
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::{EntityType, ResourceLockTargetType};
 use aster_forge_webdav::{
     DavBackendError, DavBackendErrorKind, DavLock, DavLockError, DavLockPreflightError,
     DavLockSystem, DavPath, FsError, IfHeader, LsFuture, href_for_dav_path, submitted_lock_tokens,
@@ -230,15 +230,22 @@ impl DavLockSystem for DbLockSystem {
             let result = async {
                 let now = Utc::now();
 
-                let Some((entity_type, entity_id)) =
-                    resolve_path_to_entity(&txn, self.scope, self.root_folder_id, &path_str)
-                        .await
-                        .map_err(|error| {
-                            tracing::warn!(error = ?error, path = %path_str, "failed to resolve WebDAV lock target");
-                            DavLockError::Backend
-                        })?
-                else {
-                    return Err(DavLockError::Backend);
+                let (entity_type, entity_id) = match resolve_path_to_entity(
+                    &txn,
+                    self.scope,
+                    self.root_folder_id,
+                    &path_str,
+                )
+                .await
+                .map_err(|error| {
+                    tracing::warn!(error = ?error, path = %path_str, "failed to resolve WebDAV lock target");
+                    DavLockError::Backend
+                })? {
+                    LockPathTarget::Entity(entity_type, entity_id) => {
+                        (ResourceLockTargetType::from(entity_type), entity_id)
+                    }
+                    LockPathTarget::Root => root_lock_target(self.scope, self.root_folder_id),
+                    LockPathTarget::Missing => return Err(DavLockError::NotFound),
                 };
                 lock_target_entity(&txn, entity_type, entity_id)
                     .await
@@ -324,12 +331,7 @@ impl DavLockSystem for DbLockSystem {
                         tracing::warn!(error = %error, path = %path_str, "failed to create WebDAV lock");
                         DavLockError::Backend
                     })?;
-                crate::services::files::lock::set_entity_locked(
-                    &txn,
-                    entity_type,
-                    entity_id,
-                    true,
-                )
+                set_lock_target_locked(&txn, entity_type, entity_id, true)
                 .await
                 .map_err(|error| {
                     tracing::warn!(
@@ -366,7 +368,9 @@ impl DavLockSystem for DbLockSystem {
                             tracing::warn!(error = %error, path = %path_str, "failed to commit WebDAV lock transaction");
                             DavLockError::Backend
                         })?;
-                    self.log_lock_action(entity_type, entity_id, true).await;
+                    if let Some(entity_type) = entity_type.entity_type() {
+                        self.log_lock_action(entity_type, entity_id, true).await;
+                    }
                     Ok(lock)
                 }
                 Err(error) => {
@@ -416,11 +420,7 @@ impl DavLockSystem for DbLockSystem {
                         tracing::warn!(error = %error, path = %path_str, "failed to delete WebDAV lock for unlock");
                         DavLockError::Backend
                     })?;
-                crate::services::files::lock::clear_entity_locked_if_unlocked(
-                    &txn,
-                    lock.entity_type,
-                    lock.entity_id,
-                )
+                clear_lock_target_locked_if_unlocked(&txn, lock.entity_type, lock.entity_id)
                 .await
                 .map_err(|error| {
                     tracing::warn!(
@@ -447,8 +447,10 @@ impl DavLockSystem for DbLockSystem {
                     return Err(error);
                 }
             };
-            self.log_lock_action(lock.entity_type, lock.entity_id, false)
-                .await;
+            if let Some(entity_type) = lock.entity_type.entity_type() {
+                self.log_lock_action(entity_type, lock.entity_id, false)
+                    .await;
+            }
             Ok(())
         })
     }
@@ -488,8 +490,10 @@ impl DavLockSystem for DbLockSystem {
                     DavLockError::Backend
                 })?
                 .ok_or(DavLockError::TokenMismatch)?;
-            self.log_lock_action(lock.entity_type, lock.entity_id, true)
-                .await;
+            if let Some(entity_type) = lock.entity_type.entity_type() {
+                self.log_lock_action(entity_type, lock.entity_id, true)
+                    .await;
+            }
             let owner = lock_owner_xml(&lock)
                 .as_deref()
                 .and_then(deserialize_element)
@@ -732,34 +736,87 @@ fn path_ancestors(path: &str) -> Vec<String> {
     ancestors
 }
 
-/// 从 WebDAV 路径解析出 (entity_type, entity_id)
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum LockPathTarget {
+    Entity(EntityType, i64),
+    Root,
+    Missing,
+}
+
+/// Resolve a WebDAV path without collapsing virtual roots and missing resources.
 async fn resolve_path_to_entity<C: ConnectionTrait>(
     db: &C,
     scope: WorkspaceStorageScope,
     root_folder_id: Option<i64>,
     path: &str,
-) -> Result<Option<(EntityType, i64)>, FsError> {
+) -> Result<LockPathTarget, FsError> {
     let dav_path = DavPath::new(path).map_err(|_| FsError::GeneralFailure)?;
     match path_resolver::resolve_path_in_scope(db, scope, &dav_path, root_folder_id).await {
-        Ok(ResolvedNode::File(f)) => Ok(Some((EntityType::File, f.id))),
-        Ok(ResolvedNode::Folder(f)) => Ok(Some((EntityType::Folder, f.id))),
-        Ok(ResolvedNode::Root) | Err(FsError::NotFound) => Ok(None),
+        Ok(ResolvedNode::File(f)) => Ok(LockPathTarget::Entity(EntityType::File, f.id)),
+        Ok(ResolvedNode::Folder(f)) => Ok(LockPathTarget::Entity(EntityType::Folder, f.id)),
+        Ok(ResolvedNode::Root) => Ok(LockPathTarget::Root),
+        Err(FsError::NotFound) => Ok(LockPathTarget::Missing),
         Err(error) => Err(error),
+    }
+}
+
+fn root_lock_target(
+    scope: WorkspaceStorageScope,
+    root_folder_id: Option<i64>,
+) -> (ResourceLockTargetType, i64) {
+    if let Some(folder_id) = root_folder_id {
+        return (ResourceLockTargetType::Folder, folder_id);
+    }
+    match scope {
+        WorkspaceStorageScope::Personal { user_id } => {
+            (ResourceLockTargetType::PersonalRoot, user_id)
+        }
+        WorkspaceStorageScope::Team { team_id, .. } => (ResourceLockTargetType::TeamRoot, team_id),
     }
 }
 
 async fn lock_target_entity<C: ConnectionTrait>(
     db: &C,
-    entity_type: EntityType,
+    entity_type: ResourceLockTargetType,
     entity_id: i64,
 ) -> crate::errors::Result<()> {
     match entity_type {
-        EntityType::File => {
+        ResourceLockTargetType::File => {
             file_repo::lock_by_id(db, entity_id).await?;
         }
-        EntityType::Folder => {
+        ResourceLockTargetType::Folder => {
             folder_repo::lock_by_id(db, entity_id).await?;
         }
+        ResourceLockTargetType::PersonalRoot => {
+            user_repo::lock_by_id(db, entity_id).await?;
+        }
+        ResourceLockTargetType::TeamRoot => {
+            team_repo::lock_by_id(db, entity_id).await?;
+        }
+    }
+    Ok(())
+}
+
+async fn set_lock_target_locked<C: ConnectionTrait>(
+    db: &C,
+    entity_type: ResourceLockTargetType,
+    entity_id: i64,
+    locked: bool,
+) -> crate::errors::Result<()> {
+    if let Some(entity_type) = entity_type.entity_type() {
+        crate::services::files::lock::set_entity_locked(db, entity_type, entity_id, locked).await?;
+    }
+    Ok(())
+}
+
+async fn clear_lock_target_locked_if_unlocked<C: ConnectionTrait>(
+    db: &C,
+    entity_type: ResourceLockTargetType,
+    entity_id: i64,
+) -> crate::errors::Result<()> {
+    if let Some(entity_type) = entity_type.entity_type() {
+        crate::services::files::lock::clear_entity_locked_if_unlocked(db, entity_type, entity_id)
+            .await?;
     }
     Ok(())
 }
@@ -850,18 +907,26 @@ pub(crate) async fn lock_mutation_ancestor_entities<C: ConnectionTrait>(
     let target = normalize_path(path);
     for ancestor in path_ancestors(&target) {
         match resolve_path_to_entity(db, scope, root_folder_id, &ancestor).await {
-            Ok(Some((entity_type, entity_id))) => {
-                lock_target_entity(db, entity_type, entity_id)
+            Ok(LockPathTarget::Entity(entity_type, entity_id)) => {
+                lock_target_entity(db, entity_type.into(), entity_id)
                     .await
                     .map_err(|error| {
                         tracing::warn!(error = %error, path = %ancestor, "failed to lock WebDAV mutation ancestor");
                         LockMutationAncestorError::Backend
                     })?;
             }
-            Ok(None)
-                if ancestor.trim_end_matches('/') == target.trim_end_matches('/')
-                    || ancestor == "/" => {}
-            Ok(None) => {
+            Ok(LockPathTarget::Root) => {
+                let (entity_type, entity_id) = root_lock_target(scope, root_folder_id);
+                lock_target_entity(db, entity_type, entity_id)
+                    .await
+                    .map_err(|error| {
+                        tracing::warn!(error = %error, path = %ancestor, "failed to lock WebDAV mutation root");
+                        LockMutationAncestorError::Backend
+                    })?;
+            }
+            Ok(LockPathTarget::Missing)
+                if ancestor.trim_end_matches('/') == target.trim_end_matches('/') => {}
+            Ok(LockPathTarget::Missing) => {
                 tracing::warn!(path = %ancestor, "WebDAV mutation ancestor is missing");
                 return Err(LockMutationAncestorError::Conflict);
             }
@@ -931,19 +996,15 @@ pub(crate) async fn rebind_destination_root_locks_on<C: ConnectionTrait>(
             tracing::warn!(error = %error, path = %path_str, "failed to query destination WebDAV locks");
             DavLockError::Backend
         })?;
-    lock_repo::rebind_path(db, &path_str, entity_type, entity_id)
+    let rows_affected = lock_repo::rebind_path(db, &path_str, entity_type, entity_id)
         .await
         .map_err(|error| {
             tracing::warn!(error = %error, path = %path_str, "failed to rebind destination WebDAV locks");
             DavLockError::Backend
         })?;
     for lock in previous {
-        if lock.entity_type != entity_type || lock.entity_id != entity_id {
-            crate::services::files::lock::clear_entity_locked_if_unlocked(
-                db,
-                lock.entity_type,
-                lock.entity_id,
-            )
+        if lock.entity_type != entity_type.into() || lock.entity_id != entity_id {
+            clear_lock_target_locked_if_unlocked(db, lock.entity_type, lock.entity_id)
             .await
             .map_err(|error| {
                 tracing::warn!(error = %error, path = %path_str, "failed to clear replaced WebDAV lock flag");
@@ -951,17 +1012,10 @@ pub(crate) async fn rebind_destination_root_locks_on<C: ConnectionTrait>(
             })?;
         }
     }
-    if lock_repo::find_by_path(db, &path_str)
-        .await
-        .map_err(|error| {
-            tracing::warn!(error = %error, path = %path_str, "failed to verify rebound WebDAV locks");
-            DavLockError::Backend
-        })?
-        .is_empty()
-    {
+    if rows_affected == 0 {
         return Ok(());
     }
-    crate::services::files::lock::set_entity_locked(db, entity_type, entity_id, true)
+    set_lock_target_locked(db, entity_type.into(), entity_id, true)
         .await
         .map_err(|error| {
             tracing::warn!(error = %error, path = %path_str, "failed to set rebound WebDAV lock flag");
@@ -979,22 +1033,18 @@ async fn delete_lock_and_sync_flag<C: ConnectionTrait>(
             tracing::warn!(lock_id = lock.id, error = %error, "failed to delete WebDAV lock");
             DavLockError::Backend
         })?;
-    crate::services::files::lock::clear_entity_locked_if_unlocked(
-        db,
-        lock.entity_type,
-        lock.entity_id,
-    )
-    .await
-    .map_err(|error| {
-        tracing::warn!(
-            lock_id = lock.id,
-            entity_type = ?lock.entity_type,
-            entity_id = lock.entity_id,
-            error = %error,
-            "failed to sync is_locked after WebDAV lock deletion"
-        );
-        DavLockError::Backend
-    })?;
+    clear_lock_target_locked_if_unlocked(db, lock.entity_type, lock.entity_id)
+        .await
+        .map_err(|error| {
+            tracing::warn!(
+                lock_id = lock.id,
+                entity_type = ?lock.entity_type,
+                entity_id = lock.entity_id,
+                error = %error,
+                "failed to sync is_locked after WebDAV lock deletion"
+            );
+            DavLockError::Backend
+        })?;
     Ok(())
 }
 

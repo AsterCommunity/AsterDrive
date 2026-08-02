@@ -372,7 +372,7 @@ async fn test_update_content_locked_by_other() {
         let now = chrono::Utc::now();
         let lock = aster_drive_model::entities::resource_lock::ActiveModel {
             token: Set(format!("urn:uuid:{}", uuid::Uuid::new_v4())),
-            entity_type: Set(aster_drive_model::types::EntityType::File),
+            entity_type: Set(aster_drive_model::types::EntityType::File.into()),
             entity_id: Set(file_id),
             path: Set("/test.txt".to_string()),
             owner_id: Set(Some(99999)),

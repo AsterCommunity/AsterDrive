@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::services::user::account;
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::ResourceLockTargetType;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -38,7 +38,7 @@ pub enum ResourceLockOwnerInfo {
 pub struct ResourceLock {
     pub id: i64,
     pub token: String,
-    pub entity_type: EntityType,
+    pub entity_type: ResourceLockTargetType,
     pub entity_id: i64,
     pub path: String,
     pub owner: Option<account::UserSummary>,

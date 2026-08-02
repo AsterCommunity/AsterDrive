@@ -24,7 +24,7 @@ fn sample_lock(owner_info: Option<StoredLockOwnerInfo>) -> resource_lock::Model 
     resource_lock::Model {
         id: 42,
         token: "urn:uuid:test".to_string(),
-        entity_type: EntityType::File,
+        entity_type: EntityType::File.into(),
         entity_id: 7,
         path: "/docs/report.txt".to_string(),
         owner_id: Some(9),
@@ -184,7 +184,7 @@ async fn insert_lock_for_test(
         state.writer_db(),
         resource_lock::ActiveModel {
             token: Set(token.to_string()),
-            entity_type: Set(EntityType::File),
+            entity_type: Set(EntityType::File.into()),
             entity_id: Set(file.id),
             path: Set("/lock-target.txt".to_string()),
             owner_id: Set(Some(owner_id)),
@@ -294,7 +294,7 @@ async fn lock_replaces_expired_lock_and_keeps_single_row() {
         state.writer_db(),
         resource_lock::ActiveModel {
             token: Set("expired-lock".to_string()),
-            entity_type: Set(EntityType::File),
+            entity_type: Set(EntityType::File.into()),
             entity_id: Set(file.id),
             path: Set("/lock-target.txt".to_string()),
             owner_id: Set(Some(user.id)),
@@ -348,7 +348,7 @@ async fn clear_entity_locked_if_unlocked_keeps_flag_when_replacement_lock_exists
         state.writer_db(),
         resource_lock::ActiveModel {
             token: Set("active-lock".to_string()),
-            entity_type: Set(EntityType::File),
+            entity_type: Set(EntityType::File.into()),
             entity_id: Set(file.id),
             path: Set("/lock-target.txt".to_string()),
             owner_id: Set(Some(user.id)),

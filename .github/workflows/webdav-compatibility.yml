@@ -9,6 +9,7 @@ on:
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
+      - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -21,6 +22,7 @@ on:
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
+      - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -52,49 +54,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install pinned Litmus and runtime dependencies
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            autoconf \
-            automake \
-            build-essential \
-            ca-certificates \
-            curl \
-            ffmpeg \
-            libexpat1-dev \
-            libssl-dev \
-            libvips-tools \
-            perl \
-            pkg-config
-          scripts/ci/webdav-compat/install-litmus.sh
-
-      - name: Record Litmus toolchain
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          source scripts/ci/webdav-compat/versions.env
-          mkdir -p artifacts/tool-versions
-          {
-            "${WEBDAV_COMPAT_TOOLS_DIR}/bin/litmus" --version
-            echo "litmus_commit=${LITMUS_SOURCE_COMMIT}"
-            echo "litmus_source_sha256=${LITMUS_SOURCE_SHA256}"
-            echo "neon_commit=${LITMUS_NEON_COMMIT}"
-            echo "neon_source_sha256=${LITMUS_NEON_SOURCE_SHA256}"
-            openssl version
-            rustc --version
-            cargo --version
-          } | tee artifacts/tool-versions/litmus.txt
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: webdav-litmus-0.18-v1
+      - name: Setup Litmus
+        uses: ./.github/actions/setup-litmus
 
       - name: Run Litmus baseline suite
         env:
@@ -138,49 +99,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install pinned Litmus and runtime dependencies
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            autoconf \
-            automake \
-            build-essential \
-            ca-certificates \
-            curl \
-            ffmpeg \
-            libexpat1-dev \
-            libssl-dev \
-            libvips-tools \
-            perl \
-            pkg-config
-          scripts/ci/webdav-compat/install-litmus.sh
-
-      - name: Record Litmus toolchain
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          source scripts/ci/webdav-compat/versions.env
-          mkdir -p artifacts/tool-versions
-          {
-            "${WEBDAV_COMPAT_TOOLS_DIR}/bin/litmus" --version
-            echo "litmus_commit=${LITMUS_SOURCE_COMMIT}"
-            echo "litmus_source_sha256=${LITMUS_SOURCE_SHA256}"
-            echo "neon_commit=${LITMUS_NEON_COMMIT}"
-            echo "neon_source_sha256=${LITMUS_NEON_SOURCE_SHA256}"
-            openssl version
-            rustc --version
-            cargo --version
-          } | tee artifacts/tool-versions/litmus.txt
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: webdav-litmus-0.18-v1
+      - name: Setup Litmus
+        uses: ./.github/actions/setup-litmus
 
       - name: Run Litmus ${{ matrix.suite }} suite
         env:
@@ -206,6 +126,10 @@ jobs:
               cargo test --test webdav \
                 litmus_compliance::security_policy_litmus::test_litmus_protected -- \
                 --ignored --exact --nocapture --test-threads=1
+              ;;
+            *)
+              echo "unknown Litmus suite: ${{ matrix.suite }}" >&2
+              exit 2
               ;;
           esac 2>&1 | tee "artifacts/litmus-${{ matrix.suite }}-test.log"
 

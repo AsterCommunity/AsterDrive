@@ -6563,6 +6563,51 @@ async fn test_webdav_lock_missing_file_creates_locked_empty_resource() {
 }
 
 #[actix_web::test]
+async fn test_webdav_lock_mount_root_returns_success_instead_of_backend_error() {
+    let app = setup_with_webdav!();
+    let (token, _) = register_and_login!(app);
+    let auth = create_webdav_basic_auth!(app, token);
+    let lock_body = r#"<?xml version="1.0" encoding="utf-8" ?>
+<D:lockinfo xmlns:D="DAV:">
+  <D:lockscope><D:exclusive/></D:lockscope>
+  <D:locktype><D:write/></D:locktype>
+</D:lockinfo>"#;
+
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"LOCK").unwrap())
+        .insert_header(("Authorization", auth.clone()))
+        .insert_header(("Content-Type", "application/xml"))
+        .insert_header(("Timeout", "Second-3600"))
+        .insert_header(("Depth", "infinity"))
+        .set_payload(lock_body)
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        200,
+        "LOCK on an existing mount root should succeed"
+    );
+    let lock_token = resp
+        .headers()
+        .get("Lock-Token")
+        .and_then(|value| value.to_str().ok())
+        .expect("root LOCK response should include Lock-Token")
+        .to_string();
+
+    let req = test::TestRequest::with_uri("/webdav/")
+        .method(actix_web::http::Method::from_bytes(b"UNLOCK").unwrap())
+        .insert_header(("Authorization", auth))
+        .insert_header(("Lock-Token", lock_token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(
+        resp.status(),
+        204,
+        "UNLOCK on the mount root should succeed"
+    );
+}
+
+#[actix_web::test]
 async fn test_webdav_depth_zero_collection_lock_protects_member_urls() {
     let app = setup_with_webdav!();
     let (token, _) = register_and_login!(app);

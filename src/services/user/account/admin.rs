@@ -465,13 +465,14 @@ pub async fn force_delete(
 
     let locks = lock_repo::find_by_owner(db, target_user_id).await?;
     for lock in &locks {
-        if let Err(error) = crate::services::files::lock::set_entity_locked(
-            db,
-            lock.entity_type,
-            lock.entity_id,
-            false,
-        )
-        .await
+        if let Some(entity_type) = lock.entity_type.entity_type()
+            && let Err(error) = crate::services::files::lock::set_entity_locked(
+                db,
+                entity_type,
+                lock.entity_id,
+                false,
+            )
+            .await
         {
             tracing::warn!(
                 lock_id = lock.id,
