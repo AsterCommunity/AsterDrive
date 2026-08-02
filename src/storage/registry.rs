@@ -3,7 +3,7 @@
 use super::drivers::azure_blob::AzureBlobDriver;
 use super::drivers::local::LocalDriver;
 use super::drivers::remote::RemoteDriver;
-use super::drivers::s3::S3Driver;
+use super::drivers::s3::{S3Driver, S3DriverOptions};
 use super::drivers::sftp::SftpDriver;
 use super::drivers::tencent_cos::TencentCosDriver;
 use super::metrics_driver::{MetricsMultipartStorageDriver, MetricsStorageDriver};
@@ -364,7 +364,11 @@ impl DriverRegistry {
                 Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))
             }
             DriverType::S3 => {
-                let driver = Arc::new(S3Driver::new(policy)?);
+                let driver = Arc::new(S3Driver::new(
+                    policy,
+                    S3DriverOptions::default(),
+                    std::convert::identity,
+                )?);
                 let storage: Arc<dyn StorageDriver> = driver.clone();
                 let multipart: Arc<dyn MultipartStorageDriver> = driver;
                 Ok(self.build_entry(policy.driver_type, storage, Some(multipart)))

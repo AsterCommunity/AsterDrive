@@ -10,7 +10,7 @@ mod signing;
 #[cfg(test)]
 mod tests;
 
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 use bytes::Bytes;
@@ -80,10 +80,12 @@ impl TencentCosDriver {
         storage_policy.endpoint =
             signing::cos_virtual_hosted_s3_endpoint(&normalized.endpoint, &normalized.bucket)?;
         storage_policy.bucket = normalized.bucket.clone();
-        let storage = S3CompatibleDriver::new_with_s3_options(
+        let s3_driver = S3Driver::new(
             &storage_policy,
             S3DriverOptions::virtual_hosted_style(),
+            signing::configure_cos_auth,
         )?;
+        let storage = S3CompatibleDriver::from_s3_driver(Arc::new(s3_driver));
         let client = cos_ci_http_client(policy)?;
 
         Ok(Self {

@@ -1,8 +1,19 @@
 use crate::errors::{AsterError, MapAsterErr, Result};
+use aws_credential_types::Credentials;
+use aws_runtime::auth::{HttpSignatureType, SigV4OperationSigningConfig};
+use aws_smithy_runtime_api::box_error::BoxError;
+use aws_smithy_runtime_api::client::auth::{
+    AuthScheme, AuthSchemeEndpointConfig, AuthSchemeId, Sign,
+};
+use aws_smithy_runtime_api::client::identity::{Identity, SharedIdentityResolver};
+use aws_smithy_runtime_api::client::orchestrator::HttpRequest;
+use aws_smithy_runtime_api::client::runtime_components::{GetIdentityResolver, RuntimeComponents};
+use aws_smithy_types::config_bag::ConfigBag;
 use hmac::{Hmac, KeyInit, Mac};
-use percent_encoding::{AsciiSet, CONTROLS, percent_encode};
+use percent_encoding::{AsciiSet, CONTROLS, percent_decode_str, percent_encode};
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use sha1::{Digest, Sha1};
+use std::time::{Duration, UNIX_EPOCH};
 use url::Url;
 
 use aster_drive_storage::error::{StorageErrorKind, storage_driver_error};
@@ -12,13 +23,182 @@ use super::TencentCosDriver;
 type HmacSha1 = Hmac<Sha1>;
 
 const COS_SIGN_ALGORITHM: &str = "sha1";
+const COS_AUTH_SCHEME_ID: AuthSchemeId = aws_runtime::auth::sigv4::SCHEME_ID;
+const DEFAULT_COS_AUTH_TTL: Duration = Duration::from_secs(60 * 60);
+
+const COS_SIGNED_HEADERS: &[&str] = &[
+    "host",
+    "range",
+    "x-cos-acl",
+    "x-cos-grant-read",
+    "x-cos-grant-write",
+    "x-cos-grant-full-control",
+    "cache-control",
+    "content-disposition",
+    "content-encoding",
+    "content-type",
+    "content-length",
+    "content-md5",
+    "transfer-encoding",
+    "expect",
+    "expires",
+    "x-cos-content-sha1",
+    "x-cos-storage-class",
+    "if-match",
+    "if-modified-since",
+    "if-none-match",
+    "if-unmodified-since",
+    "origin",
+    "access-control-request-method",
+    "access-control-request-headers",
+    "x-cos-object-type",
+    "pic-operations",
+];
+
+const COS_HEADER_RENAMES: &[(&str, &str)] = &[
+    ("x-amz-copy-source", "x-cos-copy-source"),
+    ("x-amz-copy-source-range", "x-cos-copy-source-range"),
+    ("x-amz-metadata-directive", "x-cos-metadata-directive"),
+    ("x-amz-tagging-directive", "x-cos-tagging-directive"),
+    ("x-amz-storage-class", "x-cos-storage-class"),
+    ("x-amz-acl", "x-cos-acl"),
+    ("x-amz-grant-read", "x-cos-grant-read"),
+    ("x-amz-grant-write", "x-cos-grant-write"),
+    ("x-amz-grant-full-control", "x-cos-grant-full-control"),
+];
+
+const AWS_SDK_CHECKSUM_HEADERS: &[&str] = &[
+    "x-amz-sdk-checksum-algorithm",
+    "x-amz-checksum-crc32",
+    "x-amz-checksum-crc32c",
+    "x-amz-checksum-sha1",
+    "x-amz-checksum-sha256",
+    "x-amz-checksum-crc64nvme",
+];
+
+pub(super) fn configure_cos_auth(
+    builder: aws_sdk_s3::config::Builder,
+) -> aws_sdk_s3::config::Builder {
+    builder
+        .request_checksum_calculation(aws_sdk_s3::config::RequestChecksumCalculation::WhenRequired)
+        .response_checksum_validation(aws_sdk_s3::config::ResponseChecksumValidation::WhenRequired)
+        .push_auth_scheme(CosAuthScheme::default())
+}
+
+#[derive(Debug, Default)]
+struct CosAuthScheme {
+    signer: CosSigner,
+}
+
+impl AuthScheme for CosAuthScheme {
+    fn scheme_id(&self) -> AuthSchemeId {
+        COS_AUTH_SCHEME_ID
+    }
+
+    fn identity_resolver(
+        &self,
+        identity_resolvers: &dyn GetIdentityResolver,
+    ) -> Option<SharedIdentityResolver> {
+        identity_resolvers.identity_resolver(self.scheme_id())
+    }
+
+    fn signer(&self) -> &dyn Sign {
+        &self.signer
+    }
+}
+
+#[derive(Debug, Default)]
+struct CosSigner;
+
+impl Sign for CosSigner {
+    fn sign_http_request(
+        &self,
+        request: &mut HttpRequest,
+        identity: &Identity,
+        _auth_scheme_endpoint_config: AuthSchemeEndpointConfig<'_>,
+        runtime_components: &RuntimeComponents,
+        config_bag: &ConfigBag,
+    ) -> std::result::Result<(), BoxError> {
+        let credentials = identity
+            .data::<Credentials>()
+            .ok_or("COS signer requires AWS credential identity")?;
+        normalize_aws_request_for_cos(request)?;
+
+        let operation_config = config_bag.load::<SigV4OperationSigningConfig>();
+        let signature_type = operation_config
+            .map(|config| config.signing_options.signature_type)
+            .unwrap_or(HttpSignatureType::HttpRequestHeaders);
+        let expires = operation_config
+            .and_then(|config| config.signing_options.expires_in)
+            .unwrap_or(DEFAULT_COS_AUTH_TTL);
+        let now = runtime_components.time_source().unwrap_or_default().now();
+        let start = now.duration_since(UNIX_EPOCH)?.as_secs();
+        let end = start
+            .checked_add(expires.as_secs())
+            .ok_or("COS signing expiration overflow")?;
+        let key_time = format!("{start};{end}");
+
+        let mut url = Url::parse(request.uri())?;
+        if signature_type == HttpSignatureType::HttpRequestQueryParams {
+            if let Some(token) = credentials.session_token() {
+                url.query_pairs_mut()
+                    .append_pair("x-cos-security-token", token);
+            }
+        } else if let Some(token) = credentials.session_token() {
+            request
+                .headers_mut()
+                .insert("x-cos-security-token", token.to_string());
+        }
+
+        let host = host_header_value(&url, "COS SDK request URL missing host")?;
+        let signed_headers = collect_signed_headers(request, &host);
+        let query = url
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        let header_refs = signed_headers
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
+        let query_refs = query
+            .iter()
+            .map(|(key, value)| (key.as_str(), value.as_str()))
+            .collect::<Vec<_>>();
+        let canonical_path = canonical_url_path(&url)?;
+        let authorization = cos_authorization(
+            request.method(),
+            &canonical_path,
+            &query_refs,
+            &header_refs,
+            credentials.access_key_id(),
+            credentials.secret_access_key(),
+            &key_time,
+        )?;
+
+        if signature_type == HttpSignatureType::HttpRequestQueryParams {
+            let mut query = url.query_pairs_mut();
+            for component in authorization.split('&') {
+                let (key, value) = component
+                    .split_once('=')
+                    .ok_or("invalid COS authorization component")?;
+                query.append_pair(key, value);
+            }
+            drop(query);
+            request.set_uri(url.as_str())?;
+        } else {
+            request.headers_mut().insert("authorization", authorization);
+        }
+
+        Ok(())
+    }
+}
 
 // Tencent COS request-signature docs require UrlEncode for canonical query and
 // header keys/values. Query/header keys are lowercased after encoding, while
 // values keep their encoded case. The documented UrlEncode symbol table is:
 // space ; ! < " = # > $ ? % @ & [ ' \ ( ] ) ^ * ` + { , | / } :
 // Source: https://cloud.tencent.com/document/api/436/7778
-const COS_PATH_ENCODE_SET: &AsciiSet = &CONTROLS
+const COS_QUERY_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b' ')
     .add(b'"')
     .add(b'#')
@@ -28,8 +208,7 @@ const COS_PATH_ENCODE_SET: &AsciiSet = &CONTROLS
     .add(b'?')
     .add(b'`')
     .add(b'{')
-    .add(b'}');
-const COS_QUERY_ENCODE_SET: &AsciiSet = &COS_PATH_ENCODE_SET
+    .add(b'}')
     .add(b'!')
     .add(b'$')
     .add(b'&')
@@ -86,21 +265,17 @@ impl TencentCosDriver {
     ) -> Result<(Url, String)> {
         let (mut url, key) = self.object_url(path)?;
         let host = host_header_value(&url, "COS object URL missing host")?;
-        let path_for_sign = url.path().to_string();
-        let url_param_list = canonical_param_list(params);
-        let http_params = canonical_params(params);
-        let http_headers = format!("host={}", percent_encode_path(&host));
-        let http_string = format!("get\n{path_for_sign}\n{http_params}\n{http_headers}\n");
-        let string_to_sign = format!(
-            "{COS_SIGN_ALGORITHM}\n{key_time}\n{}\n",
-            sha1_hex(http_string.as_bytes())
+        let canonical_path = canonical_url_path(&url)?;
+        let authorization = cos_authorization(
+            "GET",
+            &canonical_path,
+            params,
+            &[("host", host.as_str())],
+            &self.access_key,
+            &self.secret_key,
+            key_time,
         );
-        let sign_key = hmac_sha1_hex(self.secret_key.as_bytes(), key_time.as_bytes())?;
-        let signature = hmac_sha1_hex(sign_key.as_bytes(), string_to_sign.as_bytes())?;
-        let authorization = format!(
-            "q-sign-algorithm={COS_SIGN_ALGORITHM}&q-ak={}&q-sign-time={key_time}&q-key-time={key_time}&q-header-list=host&q-url-param-list={url_param_list}&q-signature={signature}",
-            self.access_key
-        );
+        let authorization = authorization?;
 
         {
             let mut query = url.query_pairs_mut();
@@ -139,9 +314,6 @@ impl TencentCosDriver {
         let host = host_header_value(url, "COS request URL missing host")?;
         let mut signed_headers = headers.to_vec();
         signed_headers.push(("host", host.as_str()));
-
-        let header_list = canonical_header_list(&signed_headers);
-        let http_headers = canonical_headers(&signed_headers);
         let params = url
             .query_pairs()
             .map(|(key, value)| (key.into_owned(), value.into_owned()))
@@ -150,25 +322,16 @@ impl TencentCosDriver {
             .iter()
             .map(|(key, value)| (key.as_str(), value.as_str()))
             .collect::<Vec<_>>();
-        let url_param_list = canonical_param_list(&param_refs);
-        let http_params = canonical_params(&param_refs);
-        let http_string = format!(
-            "{}\n{}\n{}\n{}\n",
-            method.to_ascii_lowercase(),
-            url.path(),
-            http_params,
-            http_headers
-        );
-        let string_to_sign = format!(
-            "{COS_SIGN_ALGORITHM}\n{key_time}\n{}\n",
-            sha1_hex(http_string.as_bytes())
-        );
-        let sign_key = hmac_sha1_hex(self.secret_key.as_bytes(), key_time.as_bytes())?;
-        let signature = hmac_sha1_hex(sign_key.as_bytes(), string_to_sign.as_bytes())?;
-        let authorization = format!(
-            "q-sign-algorithm={COS_SIGN_ALGORITHM}&q-ak={}&q-sign-time={key_time}&q-key-time={key_time}&q-header-list={header_list}&q-url-param-list={url_param_list}&q-signature={signature}",
-            self.access_key
-        );
+        let canonical_path = canonical_url_path(url)?;
+        let authorization = cos_authorization(
+            method,
+            &canonical_path,
+            &param_refs,
+            &signed_headers,
+            &self.access_key,
+            &self.secret_key,
+            key_time,
+        )?;
 
         let mut result = HeaderMap::new();
         for (key, value) in headers {
@@ -191,6 +354,88 @@ impl TencentCosDriver {
         );
         Ok(result)
     }
+}
+
+fn normalize_aws_request_for_cos(request: &mut HttpRequest) -> std::result::Result<(), BoxError> {
+    for (aws_name, cos_name) in COS_HEADER_RENAMES {
+        if let Some(value) = request.headers_mut().remove(aws_name) {
+            request.headers_mut().insert(*cos_name, value);
+        }
+    }
+    for header in AWS_SDK_CHECKSUM_HEADERS {
+        request.headers_mut().remove(header);
+    }
+
+    let mut url = Url::parse(request.uri())?;
+    let query = url
+        .query_pairs()
+        .filter(|(key, _)| !key.eq_ignore_ascii_case("x-id"))
+        .map(|(key, value)| (key.into_owned(), value.into_owned()))
+        .collect::<Vec<_>>();
+    url.set_query(None);
+    if !query.is_empty() {
+        url.query_pairs_mut().extend_pairs(query);
+    }
+    request.set_uri(url.as_str())?;
+    Ok(())
+}
+
+fn collect_signed_headers(request: &HttpRequest, host: &str) -> Vec<(String, String)> {
+    let mut headers = request
+        .headers()
+        .iter()
+        .filter(|(name, _)| is_cos_signed_header(name))
+        .map(|(name, value)| (name.to_ascii_lowercase(), value.to_string()))
+        .collect::<Vec<_>>();
+    if !headers.iter().any(|(name, _)| name == "host") {
+        headers.push(("host".to_string(), host.to_string()));
+    }
+    headers
+}
+
+fn is_cos_signed_header(name: &str) -> bool {
+    let name = name.to_ascii_lowercase();
+    COS_SIGNED_HEADERS.contains(&name.as_str())
+        || name.starts_with("x-cos-")
+        || name.starts_with("x-ci-")
+}
+
+fn cos_authorization(
+    method: &str,
+    path: &str,
+    params: &[(&str, &str)],
+    headers: &[(&str, &str)],
+    access_key: &str,
+    secret_key: &str,
+    key_time: &str,
+) -> Result<String> {
+    let header_list = canonical_header_list(headers);
+    let http_headers = canonical_headers(headers);
+    let url_param_list = canonical_param_list(params);
+    let http_params = canonical_params(params);
+    let http_string = format!(
+        "{}\n{path}\n{http_params}\n{http_headers}\n",
+        method.to_ascii_lowercase()
+    );
+    let string_to_sign = format!(
+        "{COS_SIGN_ALGORITHM}\n{key_time}\n{}\n",
+        sha1_hex(http_string.as_bytes())
+    );
+    let sign_key = hmac_sha1_hex(secret_key.as_bytes(), key_time.as_bytes())?;
+    let signature = hmac_sha1_hex(sign_key.as_bytes(), string_to_sign.as_bytes())?;
+    Ok(format!(
+        "q-sign-algorithm={COS_SIGN_ALGORITHM}&q-ak={access_key}&q-sign-time={key_time}&q-key-time={key_time}&q-header-list={header_list}&q-url-param-list={url_param_list}&q-signature={signature}"
+    ))
+}
+
+fn canonical_url_path(url: &Url) -> Result<String> {
+    percent_decode_str(url.path())
+        .decode_utf8()
+        .map(|path| path.into_owned())
+        .map_aster_err_ctx(
+            "decode COS canonical request path",
+            AsterError::storage_driver_error,
+        )
 }
 
 fn host_header_value(url: &Url, missing_host_message: &'static str) -> Result<String> {
@@ -243,7 +488,7 @@ fn canonical_params(params: &[(&str, &str)]) -> String {
             )
         })
         .collect::<Vec<_>>();
-    normalized.sort_by(|a, b| a.0.cmp(&b.0));
+    normalized.sort();
     normalized
         .into_iter()
         .map(|(key, value)| format!("{key}={value}"))
@@ -257,7 +502,6 @@ fn canonical_header_list(headers: &[(&str, &str)]) -> String {
         .map(|(key, _)| percent_encode_query_key(key.trim()))
         .collect::<Vec<_>>();
     names.sort();
-    names.dedup();
     names.join(";")
 }
 
@@ -271,8 +515,7 @@ fn canonical_headers(headers: &[(&str, &str)]) -> String {
             )
         })
         .collect::<Vec<_>>();
-    normalized.sort_by(|a, b| a.0.cmp(&b.0));
-    normalized.dedup_by(|a, b| a.0 == b.0);
+    normalized.sort();
     normalized
         .into_iter()
         .map(|(key, value)| format!("{key}={value}"))
@@ -282,10 +525,6 @@ fn canonical_headers(headers: &[(&str, &str)]) -> String {
 
 fn normalize_header_value(value: &str) -> String {
     value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn percent_encode_path(value: &str) -> String {
-    percent_encode(value.as_bytes(), COS_PATH_ENCODE_SET).to_string()
 }
 
 fn percent_encode_query_key(value: &str) -> String {
@@ -313,6 +552,13 @@ fn hmac_sha1_hex(key: &[u8], message: &[u8]) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, UNIX_EPOCH};
+
+    use aws_sdk_s3::config::{BehaviorVersion, Credentials, Region};
+    use aws_sdk_s3::presigning::PresigningConfig;
+    use aws_sdk_s3::primitives::ByteStream;
+    use aws_smithy_http_client::test_util::{CaptureRequestReceiver, capture_request};
+    use aws_smithy_types::body::SdkBody;
     use reqwest::header::AUTHORIZATION;
     use url::Url;
 
@@ -324,9 +570,51 @@ mod tests {
     use super::TencentCosDriver;
     use super::{
         canonical_header_list, canonical_headers, canonical_param_list, canonical_params,
-        host_header_value, percent_encode_path, percent_encode_query_key,
-        percent_encode_query_value,
+        canonical_url_path, configure_cos_auth, cos_authorization, host_header_value,
+        percent_encode_query_key, percent_encode_query_value,
     };
+
+    fn cos_sdk_client(
+        response: Option<http::Response<SdkBody>>,
+    ) -> (aws_sdk_s3::Client, CaptureRequestReceiver) {
+        cos_sdk_client_with_session_token(response, None)
+    }
+
+    fn cos_sdk_client_with_session_token(
+        response: Option<http::Response<SdkBody>>,
+        session_token: Option<&str>,
+    ) -> (aws_sdk_s3::Client, CaptureRequestReceiver) {
+        let (http_client, receiver) = capture_request(response);
+        let builder = aws_sdk_s3::Config::builder()
+            .behavior_version(BehaviorVersion::latest())
+            .http_client(http_client)
+            .credentials_provider(Credentials::new(
+                "AKIDEXAMPLE",
+                "SECRETEXAMPLE",
+                session_token.map(str::to_owned),
+                None,
+                "cos-auth-test",
+            ))
+            .region(Region::new("ap-guangzhou"))
+            .endpoint_url("https://cos.ap-guangzhou.myqcloud.com")
+            .force_path_style(false);
+        let config = configure_cos_auth(builder).build();
+        (aws_sdk_s3::Client::from_conf(config), receiver)
+    }
+
+    fn empty_success_response() -> http::Response<SdkBody> {
+        http::Response::builder()
+            .status(200)
+            .body(SdkBody::empty())
+            .expect("mock COS response")
+    }
+
+    fn authorization_key_time(authorization: &str) -> &str {
+        authorization
+            .split('&')
+            .find_map(|component| component.strip_prefix("q-key-time="))
+            .expect("q-key-time")
+    }
 
     fn sample_driver(endpoint: &str) -> TencentCosDriver {
         TencentCosDriver::new(&storage_policy::Model {
@@ -352,23 +640,469 @@ mod tests {
     }
 
     #[test]
-    fn path_percent_encode_set_matches_cos_path_rules() {
-        let cases = [
-            (" ", "%20"),
-            ("\"", "%22"),
-            ("#", "%23"),
-            ("%", "%25"),
-            ("<", "%3C"),
-            (">", "%3E"),
-            ("?", "%3F"),
-            ("`", "%60"),
-            ("{", "%7B"),
-            ("}", "%7D"),
-        ];
+    fn cos_authorization_matches_official_sdk_vector() {
+        let authorization = cos_authorization(
+            "PUT",
+            "/testfile2",
+            &[],
+            &[
+                ("host", "testbucket-125000000.cos.ap-guangzhou.myqcloud.com"),
+                (
+                    "x-cos-content-sha1",
+                    "db8ac1c259eb89d4a131b253bacfca5f319d54f2",
+                ),
+                ("x-cos-stroage-class", "nearline"),
+            ],
+            "QmFzZTY0IGlzIGEgZ2VuZXJp",
+            "AKIDZfbOA78asKUYBcXFrJD0a1ICvR98JM",
+            "1480932292;1481012292",
+        )
+        .expect("COS authorization");
 
-        for (input, expected) in cases {
-            assert_eq!(percent_encode_path(input), expected, "input={input:?}");
-        }
+        assert_eq!(
+            authorization,
+            "q-sign-algorithm=sha1&q-ak=QmFzZTY0IGlzIGEgZ2VuZXJp&q-sign-time=1480932292;1481012292&q-key-time=1480932292;1481012292&q-header-list=host;x-cos-content-sha1;x-cos-stroage-class&q-url-param-list=&q-signature=ce4ac0ecbcdb30538b3fee0a97cc6389694ce53a"
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_normal_request_uses_cos_authorization() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+
+        client
+            .get_object()
+            .bucket("bucket-1250000000")
+            .key("docs/report.txt")
+            .range("bytes=0-9")
+            .send()
+            .await
+            .expect("mock COS GET should deserialize");
+
+        let request = receiver.expect_request();
+        let authorization = request
+            .headers()
+            .get("authorization")
+            .expect("COS Authorization header");
+        assert!(authorization.starts_with("q-sign-algorithm=sha1&q-ak=AKIDEXAMPLE&"));
+        assert!(authorization.contains("q-header-list=host;range"));
+        assert!(authorization.contains("q-url-param-list="));
+        assert!(!request.uri().contains("x-id="));
+        let aws_headers = request
+            .headers()
+            .iter()
+            // AWS SDK adds its telemetry header after signing. It is not part of
+            // the COS canonical request; protocol/signature headers must be gone.
+            .filter(|(name, _)| name.starts_with("x-amz-") && *name != "x-amz-user-agent")
+            .collect::<Vec<_>>();
+        assert!(
+            aws_headers.is_empty(),
+            "unexpected AWS headers: {aws_headers:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_signs_decoded_cos_canonical_path_once() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+
+        client
+            .get_object()
+            .bucket("bucket-1250000000")
+            .key("\u{76ee}\u{5f55}/a b+%2F.txt")
+            .send()
+            .await
+            .expect("mock COS GET should deserialize");
+
+        let request = receiver.expect_request();
+        let url = Url::parse(request.uri()).expect("captured COS URL");
+        assert_eq!(url.path(), "/%E7%9B%AE%E5%BD%95/a%20b%2B%252F.txt");
+        assert_eq!(
+            canonical_url_path(&url).expect("canonical path"),
+            "/\u{76ee}\u{5f55}/a b+%2F.txt"
+        );
+
+        let authorization = request
+            .headers()
+            .get("authorization")
+            .expect("COS Authorization header");
+        let key_time = authorization_key_time(authorization);
+        let expected = cos_authorization(
+            "GET",
+            "/\u{76ee}\u{5f55}/a b+%2F.txt",
+            &[],
+            &[("host", "bucket-1250000000.cos.ap-guangzhou.myqcloud.com")],
+            "AKIDEXAMPLE",
+            "SECRETEXAMPLE",
+            key_time,
+        )
+        .expect("expected COS authorization");
+        let encoded_path_signature = cos_authorization(
+            "GET",
+            url.path(),
+            &[],
+            &[("host", "bucket-1250000000.cos.ap-guangzhou.myqcloud.com")],
+            "AKIDEXAMPLE",
+            "SECRETEXAMPLE",
+            key_time,
+        )
+        .expect("encoded-path COS authorization");
+
+        assert_eq!(authorization, expected);
+        assert_ne!(authorization, encoded_path_signature);
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_put_request_has_no_aws_checksum_or_chunked_residue() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+
+        client
+            .put_object()
+            .bucket("bucket-1250000000")
+            .key("upload.bin")
+            .content_type("application/octet-stream")
+            .body(ByteStream::from_static(b"payload"))
+            .send()
+            .await
+            .expect("mock COS PUT should deserialize");
+
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "PUT");
+        assert_eq!(request.headers().get("content-length"), Some("7"));
+        assert!(request.headers().get("transfer-encoding").is_none());
+        assert!(request.headers().get("content-encoding").is_none());
+        assert!(
+            request
+                .headers()
+                .iter()
+                .all(|(name, _)| !name.starts_with("x-amz-checksum-")
+                    && name != "x-amz-sdk-checksum-algorithm")
+        );
+        let authorization = request
+            .headers()
+            .get("authorization")
+            .expect("COS Authorization header");
+        assert!(authorization.contains("q-header-list=content-length;content-type;host"));
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_delete_request_uses_cos_authorization() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+
+        client
+            .delete_object()
+            .bucket("bucket-1250000000")
+            .key("obsolete.bin")
+            .send()
+            .await
+            .expect("mock COS DELETE should deserialize");
+
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "DELETE");
+        assert!(!request.uri().contains("x-id="));
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .starts_with("q-sign-algorithm=sha1&q-ak=AKIDEXAMPLE&")
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_session_token_is_signed_in_header_and_presigned_query() {
+        let (client, receiver) =
+            cos_sdk_client_with_session_token(Some(empty_success_response()), Some("SESSIONTOKEN"));
+
+        client
+            .head_object()
+            .bucket("bucket-1250000000")
+            .key("object.txt")
+            .send()
+            .await
+            .expect("mock COS HEAD should deserialize");
+
+        let request = receiver.expect_request();
+        assert_eq!(
+            request.headers().get("x-cos-security-token"),
+            Some("SESSIONTOKEN")
+        );
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-header-list=host;x-cos-security-token")
+        );
+
+        let (client, receiver) = cos_sdk_client_with_session_token(None, Some("SESSIONTOKEN"));
+        let presigned = client
+            .get_object()
+            .bucket("bucket-1250000000")
+            .key("object.txt")
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .expires_in(Duration::from_secs(300))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("COS presigned GET");
+
+        receiver.expect_no_request();
+        let query = Url::parse(presigned.uri())
+            .expect("COS presigned URL")
+            .query_pairs()
+            .into_owned()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            query.get("x-cos-security-token").map(String::as_str),
+            Some("SESSIONTOKEN")
+        );
+        assert_eq!(
+            query.get("q-url-param-list").map(String::as_str),
+            Some("x-cos-security-token")
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_copy_request_renames_copy_source_before_cos_signing() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+
+        let _ = client
+            .copy_object()
+            .bucket("bucket-1250000000")
+            .key("dest.txt")
+            .copy_source("bucket-1250000000/source.txt")
+            .send()
+            .await;
+
+        let request = receiver.expect_request();
+        assert_eq!(
+            request.headers().get("x-cos-copy-source").map(str::trim),
+            Some("bucket-1250000000/source.txt")
+        );
+        assert!(request.headers().get("x-amz-copy-source").is_none());
+        let authorization = request
+            .headers()
+            .get("authorization")
+            .expect("COS Authorization header");
+        assert!(authorization.contains("q-header-list=host;x-cos-copy-source"));
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_presigned_get_uses_cos_query_signature_and_ttl() {
+        let (client, receiver) = cos_sdk_client(None);
+        let start = UNIX_EPOCH + Duration::from_secs(1_700_000_000);
+        let presigned = client
+            .get_object()
+            .bucket("bucket-1250000000")
+            .key("docs/report.txt")
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(start)
+                    .expires_in(Duration::from_secs(600))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("COS presigned GET");
+
+        receiver.expect_no_request();
+        let url = Url::parse(presigned.uri()).expect("COS presigned URL");
+        let query = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            query.get("q-sign-algorithm").map(AsRef::as_ref),
+            Some("sha1")
+        );
+        assert_eq!(query.get("q-ak").map(AsRef::as_ref), Some("AKIDEXAMPLE"));
+        assert_eq!(
+            query.get("q-sign-time").map(AsRef::as_ref),
+            Some("1700000000;1700000600")
+        );
+        assert_eq!(query.get("q-header-list").map(AsRef::as_ref), Some("host"));
+        assert_eq!(query.get("q-url-param-list").map(AsRef::as_ref), Some(""));
+        assert!(!query.keys().any(|key| key.eq_ignore_ascii_case("x-id")));
+        assert!(!query.keys().any(|key| key.starts_with("X-Amz-")));
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_presigned_upload_part_signs_multipart_query() {
+        let (client, receiver) = cos_sdk_client(None);
+        let presigned = client
+            .upload_part()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .upload_id("upload-id")
+            .part_number(7)
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .expires_in(Duration::from_secs(300))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("COS presigned upload part");
+
+        receiver.expect_no_request();
+        let url = Url::parse(presigned.uri()).expect("COS presigned part URL");
+        let query = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(query.get("partNumber").map(AsRef::as_ref), Some("7"));
+        assert_eq!(query.get("uploadId").map(AsRef::as_ref), Some("upload-id"));
+        assert_eq!(
+            query.get("q-url-param-list").map(AsRef::as_ref),
+            Some("partnumber;uploadid")
+        );
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_presigned_put_uses_cos_query_signature() {
+        let (client, receiver) = cos_sdk_client(None);
+        let presigned = client
+            .put_object()
+            .bucket("bucket-1250000000")
+            .key("upload.bin")
+            .content_type("application/octet-stream")
+            .presigned(
+                PresigningConfig::builder()
+                    .start_time(UNIX_EPOCH + Duration::from_secs(1_700_000_000))
+                    .expires_in(Duration::from_secs(300))
+                    .build()
+                    .expect("presign config"),
+            )
+            .await
+            .expect("COS presigned PUT");
+
+        receiver.expect_no_request();
+        let url = Url::parse(presigned.uri()).expect("COS presigned PUT URL");
+        let query = url
+            .query_pairs()
+            .collect::<std::collections::HashMap<_, _>>();
+        assert_eq!(
+            query.get("q-sign-algorithm").map(AsRef::as_ref),
+            Some("sha1")
+        );
+        assert_eq!(
+            query.get("q-header-list").map(AsRef::as_ref),
+            Some("content-type;host")
+        );
+        assert!(!query.keys().any(|key| key.starts_with("X-Amz-")));
+    }
+
+    #[tokio::test]
+    async fn aws_sdk_multipart_operations_use_cos_signatures() {
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+        let _ = client
+            .create_multipart_upload()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .send()
+            .await;
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "POST");
+        assert!(request.uri().contains("uploads="));
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-url-param-list=uploads")
+        );
+
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+        let _ = client
+            .upload_part()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .upload_id("upload-id")
+            .part_number(7)
+            .body(ByteStream::from_static(b"part-data"))
+            .send()
+            .await;
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "PUT");
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-url-param-list=partnumber;uploadid")
+        );
+        assert!(
+            request
+                .headers()
+                .iter()
+                .all(|(name, _)| !name.starts_with("x-amz-checksum-")
+                    && name != "x-amz-sdk-checksum-algorithm")
+        );
+
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+        let _ = client
+            .list_parts()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .upload_id("upload-id")
+            .send()
+            .await;
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "GET");
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-url-param-list=uploadid")
+        );
+
+        let completed_upload = aws_sdk_s3::types::CompletedMultipartUpload::builder()
+            .parts(
+                aws_sdk_s3::types::CompletedPart::builder()
+                    .part_number(7)
+                    .e_tag("etag-7")
+                    .build(),
+            )
+            .build();
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+        let _ = client
+            .complete_multipart_upload()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .upload_id("upload-id")
+            .multipart_upload(completed_upload)
+            .send()
+            .await;
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "POST");
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-url-param-list=uploadid")
+        );
+        assert!(request.headers().get("content-length").is_some());
+
+        let (client, receiver) = cos_sdk_client(Some(empty_success_response()));
+        let _ = client
+            .abort_multipart_upload()
+            .bucket("bucket-1250000000")
+            .key("video.bin")
+            .upload_id("upload-id")
+            .send()
+            .await;
+        let request = receiver.expect_request();
+        assert_eq!(request.method(), "DELETE");
+        assert!(
+            request
+                .headers()
+                .get("authorization")
+                .expect("COS Authorization header")
+                .contains("q-url-param-list=uploadid")
+        );
     }
 
     #[test]
@@ -483,7 +1217,7 @@ mod tests {
     }
 
     #[test]
-    fn canonical_cos_headers_deduplicate_names_consistently_with_header_list() {
+    fn canonical_cos_headers_preserve_and_sort_duplicate_values() {
         let headers = [
             ("Host", "bucket-1250000000.cos.ap-guangzhou.myqcloud.com"),
             ("host", "duplicate.example.com"),
@@ -491,11 +1225,22 @@ mod tests {
             ("content-type", " text/plain "),
         ];
 
-        assert_eq!(canonical_header_list(&headers), "content-type;host");
+        assert_eq!(
+            canonical_header_list(&headers),
+            "content-type;content-type;host;host"
+        );
         assert_eq!(
             canonical_headers(&headers),
-            "content-type=application%2Fxml&host=bucket-1250000000.cos.ap-guangzhou.myqcloud.com"
+            "content-type=application%2Fxml&content-type=text%2Fplain&host=bucket-1250000000.cos.ap-guangzhou.myqcloud.com&host=duplicate.example.com"
         );
+    }
+
+    #[test]
+    fn canonical_cos_params_sort_duplicate_values_like_official_sdk() {
+        let params = [("part", "z"), ("part", "a"), ("Part", "m")];
+
+        assert_eq!(canonical_param_list(&params), "part;part;part");
+        assert_eq!(canonical_params(&params), "part=a&part=m&part=z");
     }
 
     #[test]

@@ -31,7 +31,10 @@ use validator::Validate;
 use crate::errors::Result;
 use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::drivers::{
-    azure_blob::AzureBlobDriver, local::LocalDriver, s3::S3Driver, sftp::SftpDriver,
+    azure_blob::AzureBlobDriver,
+    local::LocalDriver,
+    s3::{S3Driver, S3DriverOptions},
+    sftp::SftpDriver,
     tencent_cos::TencentCosDriver,
 };
 use aster_drive_model::entities::storage_policy;
@@ -731,7 +734,11 @@ impl BuiltinStorageConnector {
     ) -> Result<Arc<dyn StorageDriver>> {
         match self {
             Self::Local => Ok(Arc::new(LocalDriver::new(policy)?)),
-            Self::S3 => Ok(Arc::new(S3Driver::new(policy)?)),
+            Self::S3 => Ok(Arc::new(S3Driver::new(
+                policy,
+                S3DriverOptions::default(),
+                std::convert::identity,
+            )?)),
             Self::Sftp => Ok(Arc::new(SftpDriver::new(policy)?)),
             Self::AzureBlob => Ok(Arc::new(AzureBlobDriver::new(policy)?)),
             Self::TencentCos => Ok(Arc::new(TencentCosDriver::new(policy)?)),

@@ -63,14 +63,14 @@ impl S3Driver {
         Ok(())
     }
 
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Self::new_with_options(policy, S3DriverOptions::default())
-    }
-
-    pub fn new_with_options(
+    pub fn new<F>(
         policy: &storage_policy::Model,
         driver_options: S3DriverOptions,
-    ) -> Result<Self> {
+        configure: F,
+    ) -> Result<Self>
+    where
+        F: FnOnce(aws_sdk_s3::config::Builder) -> aws_sdk_s3::config::Builder,
+    {
         Self::validate_policy(policy)?;
         let normalized = normalize_s3_endpoint_and_bucket(&policy.endpoint, &policy.bucket)
             .map_err(Self::rewrap_s3_config_error)?;
@@ -107,7 +107,7 @@ impl S3Driver {
             config_builder = config_builder.endpoint_url(&normalized.endpoint);
         }
 
-        let config = config_builder.build();
+        let config = configure(config_builder).build();
         let client = Client::from_conf(config);
 
         Ok(Self {

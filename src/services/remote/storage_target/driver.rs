@@ -5,7 +5,10 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, validation_error_with_code};
 use crate::runtime::FollowerRuntimeState;
 use crate::storage::drivers::s3_config::normalize_s3_endpoint_and_bucket;
-use crate::storage::drivers::{local::LocalDriver, s3::S3Driver};
+use crate::storage::drivers::{
+    local::LocalDriver,
+    s3::{S3Driver, S3DriverOptions},
+};
 use aster_drive_model::entities::{remote_storage_target, storage_policy};
 use aster_drive_model::types::{
     DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
@@ -352,7 +355,11 @@ impl RemoteStorageTargetDriverConnector for S3RemoteStorageTargetDriverConnector
     }
 
     fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
-        Ok(Arc::new(S3Driver::new(policy)?))
+        Ok(Arc::new(S3Driver::new(
+            policy,
+            S3DriverOptions::default(),
+            std::convert::identity,
+        )?))
     }
 }
 

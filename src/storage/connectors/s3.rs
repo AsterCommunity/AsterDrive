@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::drivers::s3::S3Driver;
+use crate::storage::drivers::s3::{S3Driver, S3DriverOptions};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
     DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
@@ -93,7 +93,11 @@ impl StorageConnector for S3Connector {
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
         let _ = state;
-        Ok(Box::new(S3Driver::new(policy)?))
+        Ok(Box::new(S3Driver::new(
+            policy,
+            S3DriverOptions::default(),
+            std::convert::identity,
+        )?))
     }
 
     fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {

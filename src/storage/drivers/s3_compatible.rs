@@ -25,16 +25,11 @@ pub struct S3CompatibleDriver {
 impl S3CompatibleDriver {
     pub fn new(policy: &storage_policy::Model) -> Result<Self> {
         Ok(Self {
-            inner: Arc::new(S3Driver::new(policy)?),
-        })
-    }
-
-    pub fn new_with_s3_options(
-        policy: &storage_policy::Model,
-        options: S3DriverOptions,
-    ) -> Result<Self> {
-        Ok(Self {
-            inner: Arc::new(S3Driver::new_with_options(policy, options)?),
+            inner: Arc::new(S3Driver::new(
+                policy,
+                S3DriverOptions::default(),
+                std::convert::identity,
+            )?),
         })
     }
 

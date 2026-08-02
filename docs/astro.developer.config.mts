@@ -88,6 +88,11 @@ const sidebar = assertUniqueSidebarLinks([
 				link: '/design/storage-object-naming-and-onedrive-direct-download/'
 			},
 			{
+				label: '对象存储自定义认证',
+				translations: { en: 'Object Storage Custom Auth' },
+				link: '/design/object-storage-custom-auth/'
+			},
+			{
 				label: '上传完成契约',
 				translations: { en: 'Upload Finalization Contracts' },
 				link: '/design/upload-finalization-contracts/'

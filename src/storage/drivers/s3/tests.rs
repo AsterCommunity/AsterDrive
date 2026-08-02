@@ -157,10 +157,11 @@ fn sample_policy(endpoint: &str, bucket: &str) -> storage_policy::Model {
 
 #[test]
 fn new_keeps_generic_s3_endpoint_path_unchanged() {
-    let driver = S3Driver::new(&sample_policy(
-        "https://s3.example.test/custom/path",
-        "archive",
-    ))
+    let driver = S3Driver::new(
+        &sample_policy("https://s3.example.test/custom/path", "archive"),
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
     .expect("generic S3-compatible driver");
 
     assert_eq!(driver.bucket, "archive");
@@ -177,7 +178,8 @@ fn new_applies_timeout_config_from_policy_options() {
     })
     .expect("options should serialize");
 
-    let driver = S3Driver::new(&policy).expect("driver should build with timeout config");
+    let driver = S3Driver::new(&policy, S3DriverOptions::default(), std::convert::identity)
+        .expect("driver should build with timeout config");
     let timeout_config = driver
         .client
         .config()
@@ -204,7 +206,8 @@ fn new_applies_signing_region_from_policy_options() {
     })
     .expect("options should serialize");
 
-    let driver = S3Driver::new(&policy).expect("driver should build with configured region");
+    let driver = S3Driver::new(&policy, S3DriverOptions::default(), std::convert::identity)
+        .expect("driver should build with configured region");
 
     assert_eq!(
         driver.client.config().region().map(AsRef::as_ref),
@@ -214,8 +217,12 @@ fn new_applies_signing_region_from_policy_options() {
 
 #[test]
 fn new_defaults_signing_region_to_auto() {
-    let driver = S3Driver::new(&sample_policy("https://s3.example.test", "bucket"))
-        .expect("driver should build with default region");
+    let driver = S3Driver::new(
+        &sample_policy("https://s3.example.test", "bucket"),
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("driver should build with default region");
 
     assert_eq!(
         driver.client.config().region().map(AsRef::as_ref),
@@ -225,11 +232,16 @@ fn new_defaults_signing_region_to_auto() {
 
 #[tokio::test]
 async fn presigned_put_url_uses_configured_addressing_style() {
-    let path_style_driver = S3Driver::new(&sample_policy("https://s3.example.test", "bucket"))
-        .expect("path-style driver");
-    let override_virtual_hosted_driver = S3Driver::new_with_options(
+    let path_style_driver = S3Driver::new(
+        &sample_policy("https://s3.example.test", "bucket"),
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("path-style driver");
+    let override_virtual_hosted_driver = S3Driver::new(
         &sample_policy("https://s3.example.test", "bucket"),
         S3DriverOptions::virtual_hosted_style(),
+        std::convert::identity,
     )
     .expect("override virtual-hosted driver");
     let mut virtual_hosted_policy = sample_policy("https://s3.example.test", "bucket");
@@ -238,9 +250,12 @@ async fn presigned_put_url_uses_configured_addressing_style() {
         ..Default::default()
     })
     .expect("options should serialize");
-    let virtual_hosted_driver =
-        S3Driver::new_with_options(&virtual_hosted_policy, S3DriverOptions::default())
-            .expect("virtual-hosted driver");
+    let virtual_hosted_driver = S3Driver::new(
+        &virtual_hosted_policy,
+        S3DriverOptions::default(),
+        std::convert::identity,
+    )
+    .expect("virtual-hosted driver");
 
     let path_style = path_style_driver
         .presigned_put_url("folder/file.txt", Duration::from_secs(60))

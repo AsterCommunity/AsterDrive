@@ -1,6 +1,6 @@
 //! S3 存储驱动集成测试（使用 testcontainers + rustfs）
 
-use aster_drive::storage::drivers::s3::S3Driver;
+use aster_drive::storage::drivers::s3::{S3Driver, S3DriverOptions};
 use aster_drive_storage::{
     PresignedDownloadOptions, PresignedStorageDriver, StorageDriver, StreamUploadDriver,
 };
@@ -111,7 +111,8 @@ async fn test_s3_put_get_delete() {
     wait_for_s3_bucket(&endpoint, bucket).await;
 
     let policy = s3_policy(&endpoint, bucket);
-    let driver = S3Driver::new(&policy).expect("failed to create S3Driver");
+    let driver = S3Driver::new(&policy, S3DriverOptions::default(), std::convert::identity)
+        .expect("failed to create S3Driver");
 
     // PUT
     let data = b"hello s3 world";

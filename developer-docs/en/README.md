@@ -28,6 +28,7 @@ This is the source-level documentation library for AsterDrive contributors, inte
 - [External authentication module](./design/external-auth.md)
 - [Storage descriptor and field normalization](./design/storage-descriptor-normalization-contract.md)
 - [Object naming and OneDrive direct downloads](./design/storage-object-naming-and-onedrive-direct-download.md)
+- [Object storage custom authentication and AWS SDK reuse boundaries](./design/object-storage-custom-auth.md)
 - [Upload finalization contracts](./design/upload-finalization-contracts.md)
 - [Remote storage target and policy ownership](../zh-CN/design/remote-storage-target-policy-ownership.md) — **translation pending**
 
