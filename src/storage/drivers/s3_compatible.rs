@@ -4,35 +4,14 @@
 //! 但又会额外暴露各自的数据处理能力。这个模块把通用 S3-compatible 行为
 //! 抽出来，厂商 driver 只需要实现自己的能力扩展。
 
-use aster_drive_storage::Result;
+use super::s3::S3Driver;
 use std::sync::Arc;
-use std::time::Duration;
-
-use async_trait::async_trait;
-use bytes::Bytes;
-use tokio::io::AsyncRead;
-
-use super::s3::{S3Driver, S3DriverOptions};
-use aster_drive_model::entities::storage_policy;
-use aster_drive_storage::traits::driver::{BlobMetadata, StorageDriver};
-use aster_drive_storage::traits::extensions::StorageCapacityInfo;
-use aster_drive_storage::traits::multipart::MultipartStorageDriver;
 
 pub struct S3CompatibleDriver {
     inner: Arc<S3Driver>,
 }
 
 impl S3CompatibleDriver {
-    pub fn new(policy: &storage_policy::Model) -> Result<Self> {
-        Ok(Self {
-            inner: Arc::new(S3Driver::new(
-                policy,
-                S3DriverOptions::default(),
-                std::convert::identity,
-            )?),
-        })
-    }
-
     pub fn from_s3_driver(inner: Arc<S3Driver>) -> Self {
         Self { inner }
     }
@@ -40,167 +19,185 @@ impl S3CompatibleDriver {
     pub fn s3_driver(&self) -> Arc<S3Driver> {
         self.inner.clone()
     }
-
-    fn inner(&self) -> &S3Driver {
-        &self.inner
-    }
 }
 
-#[async_trait]
-impl StorageDriver for S3CompatibleDriver {
-    async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
-        self.inner().put(path, data).await
-    }
+macro_rules! delegate_s3_compatible_storage_driver {
+    ($driver:ty, $field:ident $(, $native_extension:ident)*) => {
+        #[async_trait::async_trait]
+        impl aster_drive_storage::StorageDriver for $driver {
+            async fn put(&self, path: &str, data: &[u8]) -> aster_drive_storage::Result<String> {
+                self.$field.put(path, data).await
+            }
 
-    async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
-        self.inner().get(path).await
-    }
+            async fn get(&self, path: &str) -> aster_drive_storage::Result<Vec<u8>> {
+                self.$field.get(path).await
+            }
 
-    async fn get_stream(
-        &self,
-        path: &str,
-    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.inner().get_stream(path).await
-    }
+            async fn get_stream(
+                &self,
+                path: &str,
+            ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+                self.$field.get_stream(path).await
+            }
 
-    async fn get_range(
-        &self,
-        path: &str,
-        offset: u64,
-        length: Option<u64>,
-    ) -> aster_drive_storage::Result<Box<dyn AsyncRead + Unpin + Send>> {
-        self.inner().get_range(path, offset, length).await
-    }
+            async fn get_range(
+                &self,
+                path: &str,
+                offset: u64,
+                length: Option<u64>,
+            ) -> aster_drive_storage::Result<Box<dyn tokio::io::AsyncRead + Unpin + Send>> {
+                self.$field.get_range(path, offset, length).await
+            }
 
-    fn supports_efficient_range(&self) -> bool {
-        self.inner().supports_efficient_range()
-    }
+            fn supports_efficient_range(&self) -> bool {
+                self.$field.supports_efficient_range()
+            }
 
-    async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
-        self.inner().delete(path).await
-    }
+            async fn delete(&self, path: &str) -> aster_drive_storage::Result<()> {
+                self.$field.delete(path).await
+            }
 
-    async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
-        self.inner().exists(path).await
-    }
+            async fn exists(&self, path: &str) -> aster_drive_storage::Result<bool> {
+                self.$field.exists(path).await
+            }
 
-    async fn metadata(&self, path: &str) -> aster_drive_storage::Result<BlobMetadata> {
-        self.inner().metadata(path).await
-    }
+            async fn metadata(
+                &self,
+                path: &str,
+            ) -> aster_drive_storage::Result<aster_drive_storage::BlobMetadata> {
+                self.$field.metadata(path).await
+            }
 
-    async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
-        self.inner().readiness_check().await
-    }
+            async fn readiness_check(&self) -> aster_drive_storage::Result<()> {
+                self.$field.readiness_check().await
+            }
 
-    async fn copy_object(
-        &self,
-        src_path: &str,
-        dest_path: &str,
-    ) -> aster_drive_storage::Result<String> {
-        self.inner().copy_object(src_path, dest_path).await
-    }
+            async fn copy_object(
+                &self,
+                src_path: &str,
+                dest_path: &str,
+            ) -> aster_drive_storage::Result<String> {
+                self.$field.copy_object(src_path, dest_path).await
+            }
 
-    fn extensions(&self) -> aster_drive_storage::traits::StorageDriverExtensions<'_> {
-        aster_drive_storage::traits::StorageDriverExtensions {
-            presigned: self.inner().extensions().presigned,
-            list: self.inner().extensions().list,
-            stream_upload: self.inner().extensions().stream_upload,
-            multipart: Some(self),
-            ..Default::default()
+            fn extensions(&self) -> aster_drive_storage::StorageDriverExtensions<'_> {
+                let base = self.$field.extensions();
+                aster_drive_storage::StorageDriverExtensions {
+                    presigned: base.presigned,
+                    list: base.list,
+                    stream_upload: base.stream_upload,
+                    multipart: Some(self),
+                    $($native_extension: Some(self),)*
+                    ..Default::default()
+                }
+            }
+
+            async fn capacity_info(
+                &self,
+            ) -> aster_drive_storage::Result<aster_drive_storage::StorageCapacityInfo> {
+                self.$field.capacity_info().await
+            }
         }
-    }
-
-    async fn capacity_info(&self) -> aster_drive_storage::Result<StorageCapacityInfo> {
-        self.inner().capacity_info().await
-    }
+    };
 }
 
-#[async_trait]
-impl MultipartStorageDriver for S3CompatibleDriver {
-    async fn create_multipart_upload(&self, path: &str) -> aster_drive_storage::Result<String> {
-        self.inner().create_multipart_upload(path).await
-    }
+macro_rules! delegate_s3_compatible_multipart_driver {
+    ($driver:ty, $field:ident) => {
+        #[async_trait::async_trait]
+        impl aster_drive_storage::MultipartStorageDriver for $driver {
+            async fn create_multipart_upload(
+                &self,
+                path: &str,
+            ) -> aster_drive_storage::Result<String> {
+                self.$field.create_multipart_upload(path).await
+            }
 
-    async fn presigned_upload_part_url(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        expires: Duration,
-    ) -> aster_drive_storage::Result<String> {
-        self.inner()
-            .presigned_upload_part_url(path, upload_id, part_number, expires)
-            .await
-    }
+            async fn presigned_upload_part_url(
+                &self,
+                path: &str,
+                upload_id: &str,
+                part_number: i32,
+                expires: std::time::Duration,
+            ) -> aster_drive_storage::Result<String> {
+                self.$field
+                    .presigned_upload_part_url(path, upload_id, part_number, expires)
+                    .await
+            }
 
-    async fn complete_multipart_upload(
-        &self,
-        path: &str,
-        upload_id: &str,
-        parts: Vec<(i32, String)>,
-    ) -> aster_drive_storage::Result<()> {
-        self.inner()
-            .complete_multipart_upload(path, upload_id, parts)
-            .await
-    }
+            async fn complete_multipart_upload(
+                &self,
+                path: &str,
+                upload_id: &str,
+                parts: Vec<(i32, String)>,
+            ) -> aster_drive_storage::Result<()> {
+                self.$field
+                    .complete_multipart_upload(path, upload_id, parts)
+                    .await
+            }
 
-    async fn upload_multipart_part(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        data: &[u8],
-    ) -> aster_drive_storage::Result<String> {
-        self.inner()
-            .upload_multipart_part(path, upload_id, part_number, data)
-            .await
-    }
+            async fn upload_multipart_part(
+                &self,
+                path: &str,
+                upload_id: &str,
+                part_number: i32,
+                data: &[u8],
+            ) -> aster_drive_storage::Result<String> {
+                self.$field
+                    .upload_multipart_part(path, upload_id, part_number, data)
+                    .await
+            }
 
-    async fn upload_multipart_part_bytes(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        data: Bytes,
-    ) -> aster_drive_storage::Result<String> {
-        self.inner()
-            .upload_multipart_part_bytes(path, upload_id, part_number, data)
-            .await
-    }
+            async fn upload_multipart_part_bytes(
+                &self,
+                path: &str,
+                upload_id: &str,
+                part_number: i32,
+                data: bytes::Bytes,
+            ) -> aster_drive_storage::Result<String> {
+                self.$field
+                    .upload_multipart_part_bytes(path, upload_id, part_number, data)
+                    .await
+            }
 
-    async fn upload_multipart_part_reader(
-        &self,
-        path: &str,
-        upload_id: &str,
-        part_number: i32,
-        reader: Box<dyn AsyncRead + Unpin + Send + Sync>,
-        size: i64,
-    ) -> aster_drive_storage::Result<String> {
-        self.inner()
-            .upload_multipart_part_reader(path, upload_id, part_number, reader, size)
-            .await
-    }
+            async fn upload_multipart_part_reader(
+                &self,
+                path: &str,
+                upload_id: &str,
+                part_number: i32,
+                reader: Box<dyn tokio::io::AsyncRead + Unpin + Send + Sync>,
+                size: i64,
+            ) -> aster_drive_storage::Result<String> {
+                self.$field
+                    .upload_multipart_part_reader(path, upload_id, part_number, reader, size)
+                    .await
+            }
 
-    async fn abort_multipart_upload(
-        &self,
-        path: &str,
-        upload_id: &str,
-    ) -> aster_drive_storage::Result<()> {
-        self.inner().abort_multipart_upload(path, upload_id).await
-    }
+            async fn abort_multipart_upload(
+                &self,
+                path: &str,
+                upload_id: &str,
+            ) -> aster_drive_storage::Result<()> {
+                self.$field.abort_multipart_upload(path, upload_id).await
+            }
 
-    async fn list_uploaded_part_details(
-        &self,
-        path: &str,
-        upload_id: &str,
-    ) -> aster_drive_storage::Result<
-        Vec<aster_drive_storage::traits::multipart::UploadedMultipartPart>,
-    > {
-        self.inner()
-            .list_uploaded_part_details(path, upload_id)
-            .await
-    }
+            async fn list_uploaded_part_details(
+                &self,
+                path: &str,
+                upload_id: &str,
+            ) -> aster_drive_storage::Result<Vec<aster_drive_storage::UploadedMultipartPart>> {
+                self.$field
+                    .list_uploaded_part_details(path, upload_id)
+                    .await
+            }
+        }
+    };
 }
+
+pub(super) use delegate_s3_compatible_multipart_driver;
+pub(super) use delegate_s3_compatible_storage_driver;
+
+delegate_s3_compatible_storage_driver!(S3CompatibleDriver, inner);
+delegate_s3_compatible_multipart_driver!(S3CompatibleDriver, inner);
 
 #[cfg(test)]
 mod tests {
@@ -209,7 +206,19 @@ mod tests {
     use aster_drive_model::types::{
         DriverType, StoredStoragePolicyAllowedTypes, StoredStoragePolicyOptions,
     };
-    use aster_drive_storage::StorageErrorKind;
+    use aster_drive_storage::{StorageDriver, StorageErrorKind};
+    use std::time::Duration;
+
+    fn build_driver(
+        policy: &storage_policy::Model,
+    ) -> aster_drive_storage::Result<S3CompatibleDriver> {
+        let driver = S3Driver::new(
+            policy,
+            super::super::s3::S3DriverOptions::default(),
+            std::convert::identity,
+        )?;
+        Ok(S3CompatibleDriver::from_s3_driver(Arc::new(driver)))
+    }
 
     fn sample_policy() -> storage_policy::Model {
         storage_policy::Model {
@@ -235,7 +244,7 @@ mod tests {
 
     #[test]
     fn exposes_s3_compatible_optional_capabilities() {
-        let driver = S3CompatibleDriver::new(&sample_policy()).expect("driver should build");
+        let driver = build_driver(&sample_policy()).expect("driver should build");
 
         assert!(driver.supports_efficient_range());
         assert!(driver.extensions().presigned.is_some());
@@ -247,7 +256,7 @@ mod tests {
 
     #[tokio::test]
     async fn presigned_urls_are_forwarded_through_s3_driver() {
-        let driver = S3CompatibleDriver::new(&sample_policy()).expect("driver should build");
+        let driver = build_driver(&sample_policy()).expect("driver should build");
         let presigned = driver
             .extensions()
             .presigned
@@ -272,7 +281,7 @@ mod tests {
         let mut policy = sample_policy();
         policy.access_key = String::new();
 
-        let err = S3CompatibleDriver::new(&policy)
+        let err = build_driver(&policy)
             .err()
             .expect("empty access key should fail");
 

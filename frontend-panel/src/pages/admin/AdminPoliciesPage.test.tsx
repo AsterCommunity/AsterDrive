@@ -817,8 +817,8 @@ function storageConnectorUi(driverType: string) {
 	switch (driverType) {
 		case "local":
 			return {
-				base_path_empty_display: "./data",
-				base_path_placeholder: "./data",
+				base_path_empty_display: "./data/uploads",
+				base_path_placeholder: "./data/uploads",
 				config_step_description_key: "policy_wizard_step_local_desc",
 				config_step_title_key: "policy_wizard_step_local_title",
 				description_key: "policy_wizard_local_storage_desc",
@@ -1466,7 +1466,7 @@ describe("AdminPoliciesPage", () => {
 		expect(screen.getByText("policies_intro")).toBeInTheDocument();
 		expect(screen.getByText("Default Local")).toBeInTheDocument();
 		expect(screen.getByText("Archive S3")).toBeInTheDocument();
-		expect(screen.getByText("./data")).toBeInTheDocument();
+		expect(screen.getByText("./data/uploads")).toBeInTheDocument();
 		expect(screen.getByText("https://s3.example.com")).toBeInTheDocument();
 		expect(screen.getByText("archive")).toBeInTheDocument();
 		expect(screen.getAllByText("is_default")).toHaveLength(2);

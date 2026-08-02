@@ -4,9 +4,11 @@ use std::path::{Component, Path, PathBuf};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
+use super::DEFAULT_LOCAL_STORAGE_PATH;
+
 pub fn effective_base_path(policy: &storage_policy::Model) -> PathBuf {
     if policy.base_path.is_empty() {
-        PathBuf::from("./data")
+        PathBuf::from(DEFAULT_LOCAL_STORAGE_PATH)
     } else {
         PathBuf::from(&policy.base_path)
     }

@@ -67,15 +67,6 @@ const COS_HEADER_RENAMES: &[(&str, &str)] = &[
     ("x-amz-grant-full-control", "x-cos-grant-full-control"),
 ];
 
-const AWS_SDK_CHECKSUM_HEADERS: &[&str] = &[
-    "x-amz-sdk-checksum-algorithm",
-    "x-amz-checksum-crc32",
-    "x-amz-checksum-crc32c",
-    "x-amz-checksum-sha1",
-    "x-amz-checksum-sha256",
-    "x-amz-checksum-crc64nvme",
-];
-
 pub(super) fn configure_cos_auth(
     builder: aws_sdk_s3::config::Builder,
 ) -> aws_sdk_s3::config::Builder {
@@ -357,27 +348,11 @@ impl TencentCosDriver {
 }
 
 fn normalize_aws_request_for_cos(request: &mut HttpRequest) -> std::result::Result<(), BoxError> {
-    for (aws_name, cos_name) in COS_HEADER_RENAMES {
-        if let Some(value) = request.headers_mut().remove(aws_name) {
-            request.headers_mut().insert(*cos_name, value);
-        }
-    }
-    for header in AWS_SDK_CHECKSUM_HEADERS {
-        request.headers_mut().remove(header);
-    }
-
-    let mut url = Url::parse(request.uri())?;
-    let query = url
-        .query_pairs()
-        .filter(|(key, _)| !key.eq_ignore_ascii_case("x-id"))
-        .map(|(key, value)| (key.into_owned(), value.into_owned()))
-        .collect::<Vec<_>>();
-    url.set_query(None);
-    if !query.is_empty() {
-        url.query_pairs_mut().extend_pairs(query);
-    }
-    request.set_uri(url.as_str())?;
-    Ok(())
+    crate::storage::drivers::s3_vendor::normalize_aws_s3_vendor_request(
+        request,
+        COS_HEADER_RENAMES,
+        |_| Ok(()),
+    )
 }
 
 fn collect_signed_headers(request: &HttpRequest, host: &str) -> Vec<(String, String)> {

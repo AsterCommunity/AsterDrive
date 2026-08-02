@@ -15,7 +15,7 @@ import type { Translate } from "./StoragePolicyFieldTypes";
 const t: Translate = (key) => key;
 const localDescriptor = {
 	ui: {
-		base_path_placeholder: "./data",
+		base_path_placeholder: "./data/uploads",
 	},
 } as StorageConnectorDescriptor;
 
@@ -127,7 +127,7 @@ describe("StoragePolicyBasicFields", () => {
 		expect(screen.getByText("name required")).toBeInTheDocument();
 		expect(screen.getByLabelText("base_path")).toHaveAttribute(
 			"placeholder",
-			"./data",
+			"./data/uploads",
 		);
 		expect(screen.getByText("local_content_dedup_desc")).toBeInTheDocument();
 		expect(screen.getByLabelText("max_file_size (bytes)")).toHaveAttribute(

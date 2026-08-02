@@ -1423,7 +1423,7 @@ async fn fresh_postgres_concurrent_primaries_share_startup_and_setup_state_machi
         .json(&json!({
             "name": "Rejected Pod Local",
             "driver_type": "local",
-            "base_path": "./data",
+            "base_path": "./data/uploads",
             "max_file_size": 0,
             "chunk_size": 5_242_880,
             "is_default": true

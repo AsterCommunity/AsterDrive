@@ -2,7 +2,7 @@ use async_trait::async_trait;
 
 use crate::errors::Result;
 use crate::runtime::RemoteProtocolRuntimeState;
-use crate::storage::drivers::local::LocalDriver;
+use crate::storage::drivers::local::{DEFAULT_LOCAL_STORAGE_PATH, LocalDriver};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::DriverType;
 use aster_drive_storage::StorageDriver;
@@ -36,8 +36,8 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
                 config_step_title_key: "policy_wizard_step_local_title",
                 config_step_description_key: "policy_wizard_step_local_desc",
                 edit_context_key: "policy_edit_context_local_desc",
-                base_path_empty_display: "./data",
-                base_path_placeholder: "./data",
+                base_path_empty_display: DEFAULT_LOCAL_STORAGE_PATH,
+                base_path_placeholder: DEFAULT_LOCAL_STORAGE_PATH,
             }),
             credential_mode: StorageConnectorCredentialMode::None,
             deployment_scope: StorageConnectorDeploymentScope::InstanceLocal,

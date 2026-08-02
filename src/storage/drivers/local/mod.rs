@@ -18,6 +18,8 @@ pub(crate) use copy::copy_file_with_checkpoint;
 pub use paths::{effective_base_path, resolved_base_path, upload_staging_path};
 pub use promote::{promote_local_file_if_absent, promote_local_file_if_absent_with_check};
 
+pub(crate) const DEFAULT_LOCAL_STORAGE_PATH: &str = "./data/uploads";
+
 pub struct LocalDriver {
     pub(super) base_path: PathBuf,
 }

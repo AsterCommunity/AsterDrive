@@ -1,4 +1,5 @@
-use super::paths::sanitize_relative_path;
+use super::DEFAULT_LOCAL_STORAGE_PATH;
+use super::paths::{effective_base_path, sanitize_relative_path};
 use crate::storage::drivers::local::promote::PromoteLocalFileOutcome;
 use aster_drive_storage::traits::driver::{StorageDriver, StoragePathVisitor};
 use aster_drive_storage::traits::extensions::{
@@ -35,6 +36,16 @@ fn unique_temp_dir(label: &str) -> PathBuf {
         std::process::id(),
         rand::random::<u64>()
     ))
+}
+
+#[test]
+fn empty_policy_base_path_uses_uploads_directory() {
+    let policy = build_policy(Path::new(""));
+
+    assert_eq!(
+        effective_base_path(&policy),
+        PathBuf::from(DEFAULT_LOCAL_STORAGE_PATH)
+    );
 }
 
 struct CollectingVisitor {

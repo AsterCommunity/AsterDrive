@@ -343,8 +343,8 @@ fn descriptors_expose_connector_owned_ui_metadata() {
         local.ui.config_step_description_key,
         "policy_wizard_step_local_desc"
     );
-    assert_eq!(local.ui.base_path_empty_display, "./data");
-    assert_eq!(local.ui.base_path_placeholder, "./data");
+    assert_eq!(local.ui.base_path_empty_display, "./data/uploads");
+    assert_eq!(local.ui.base_path_placeholder, "./data/uploads");
 
     let azure = descriptor(DriverType::AzureBlob);
     assert_eq!(azure.ui.label_key, "driver_type_azure_blob");
