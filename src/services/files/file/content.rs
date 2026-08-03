@@ -57,7 +57,7 @@ pub(crate) async fn stream_request_body_to_temp_upload(
     {
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
         let staging_path =
-            crate::storage::drivers::local::upload_staging_path(policy, &staging_token)
+            crate::storage::drivers::local::upload_staging_path(&policy.base_path, &staging_token)
                 .map_aster_err_ctx(
                     "resolve local staging path",
                     AsterError::storage_driver_error,
@@ -290,12 +290,14 @@ pub(crate) async fn update_content_in_scope(
     let result = if resolved_policy.driver_type == aster_drive_model::types::DriverType::Local {
         let should_dedup = storage::local_content_dedup_enabled(&resolved_policy);
         let staging_token = format!("{}.upload", uuid::Uuid::new_v4());
-        let staging_path =
-            crate::storage::drivers::local::upload_staging_path(&resolved_policy, &staging_token)
-                .map_aster_err_ctx(
-                "resolve local staging path",
-                AsterError::storage_driver_error,
-            )?;
+        let staging_path = crate::storage::drivers::local::upload_staging_path(
+            &resolved_policy.base_path,
+            &staging_token,
+        )
+        .map_aster_err_ctx(
+            "resolve local staging path",
+            AsterError::storage_driver_error,
+        )?;
         if let Some(parent) = staging_path.parent() {
             tokio::fs::create_dir_all(parent)
                 .await

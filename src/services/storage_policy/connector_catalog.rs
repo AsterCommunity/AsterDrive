@@ -47,7 +47,7 @@ pub async fn validate_connector_for_current_setup_state<C: ConnectionTrait>(
     {
         return Err(AsterError::validation_error(format!(
             "storage connector '{}' requires post-setup configuration and cannot create the initial storage policy",
-            descriptor.driver_type.as_str()
+            descriptor.connector_id.as_str()
         )));
     }
     Ok(setup_state)
@@ -61,10 +61,10 @@ fn connector_visible_in_context(
     match context {
         StorageConnectorCatalogContext::Manage => true,
         StorageConnectorCatalogContext::Create => {
-            descriptor.enabled && connector_compatible_with_deployment(config, descriptor)
+            connector_compatible_with_deployment(config, descriptor)
         }
         StorageConnectorCatalogContext::InitialSetup => {
-            descriptor.enabled && connector_compatible_with_deployment(config, descriptor)
+            connector_compatible_with_deployment(config, descriptor)
         }
     }
 }
@@ -73,14 +73,14 @@ fn connector_visible_in_context(
 mod tests {
     use super::{StorageConnectorCatalogContext, list_storage_connector_catalog};
     use crate::config::{Config, DeploymentProfile};
-    use aster_drive_model::types::DriverType;
+    use aster_drive_storage::ConnectorId;
 
-    fn driver_types(config: &Config, context: StorageConnectorCatalogContext) -> Vec<DriverType> {
+    fn connector_ids(config: &Config, context: StorageConnectorCatalogContext) -> Vec<ConnectorId> {
         let registry = crate::storage::connectors::builtin_storage_connector_registry()
             .expect("built-in connector registry");
         list_storage_connector_catalog(&registry, config, context)
             .into_iter()
-            .map(|descriptor| descriptor.driver_type)
+            .map(|descriptor| descriptor.connector_id)
             .collect()
     }
 
@@ -88,10 +88,10 @@ mod tests {
     fn single_profile_creation_catalog_includes_instance_local_connectors() {
         let config = Config::default();
 
-        let drivers = driver_types(&config, StorageConnectorCatalogContext::Create);
+        let drivers = connector_ids(&config, StorageConnectorCatalogContext::Create);
 
-        assert!(drivers.contains(&DriverType::Local));
-        assert!(drivers.contains(&DriverType::OneDrive));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(drivers.len(), 7);
     }
 
@@ -100,26 +100,26 @@ mod tests {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
-        let drivers = driver_types(&config, StorageConnectorCatalogContext::Create);
+        let drivers = connector_ids(&config, StorageConnectorCatalogContext::Create);
 
-        assert!(!drivers.contains(&DriverType::Local));
-        assert!(drivers.contains(&DriverType::OneDrive));
+        assert!(!drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(drivers.len(), 6);
     }
 
     #[test]
     fn initial_setup_catalog_exposes_unavailable_connectors_for_presentation() {
         let single = Config::default();
-        let single_drivers = driver_types(&single, StorageConnectorCatalogContext::InitialSetup);
-        assert!(single_drivers.contains(&DriverType::Local));
-        assert!(single_drivers.contains(&DriverType::OneDrive));
+        let single_drivers = connector_ids(&single, StorageConnectorCatalogContext::InitialSetup);
+        assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(single_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(single_drivers.len(), 7);
 
         let mut cluster = Config::default();
         cluster.deployment.profile = DeploymentProfile::Cluster;
-        let cluster_drivers = driver_types(&cluster, StorageConnectorCatalogContext::InitialSetup);
-        assert!(!cluster_drivers.contains(&DriverType::Local));
-        assert!(cluster_drivers.contains(&DriverType::OneDrive));
+        let cluster_drivers = connector_ids(&cluster, StorageConnectorCatalogContext::InitialSetup);
+        assert!(!cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(cluster_drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(cluster_drivers.len(), 6);
     }
 
@@ -128,10 +128,10 @@ mod tests {
         let mut config = Config::default();
         config.deployment.profile = DeploymentProfile::Cluster;
 
-        let drivers = driver_types(&config, StorageConnectorCatalogContext::Manage);
+        let drivers = connector_ids(&config, StorageConnectorCatalogContext::Manage);
 
-        assert!(drivers.contains(&DriverType::Local));
-        assert!(drivers.contains(&DriverType::OneDrive));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.local")));
+        assert!(drivers.contains(&ConnectorId::declared("asterdrive.storage.onedrive")));
         assert_eq!(drivers.len(), 7);
     }
 }

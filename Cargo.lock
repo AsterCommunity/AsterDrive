@@ -927,6 +927,7 @@ dependencies = [
  "chrono",
  "rand 0.10.2",
  "serde",
+ "serde_json",
  "tokio",
  "utoipa",
 ]

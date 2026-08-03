@@ -734,8 +734,6 @@ async fn test_user_default_policy_switch_updates_snapshot_immediately() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -900,8 +898,6 @@ async fn test_creating_first_default_policy_backfills_bootstrap_admin() {
             chunk_size: None,
             is_default: true,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -976,8 +972,6 @@ async fn test_promoting_policy_backfills_unassigned_users() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1143,19 +1137,19 @@ async fn test_policy_promotes_generic_s3_policy_to_tencent_cos() {
                 base_path: "tenant/prefix".to_string(),
                 remote_node_id: None,
                 remote_storage_target_key: None,
-                options: Default::default(),
+                options: StoragePolicyOptions {
+                    object_storage_upload_strategy: Some(ObjectStorageUploadStrategy::Presigned),
+                    object_storage_download_strategy: Some(
+                        ObjectStorageDownloadStrategy::Presigned,
+                    ),
+                    s3_path_style: Some(false),
+                    ..Default::default()
+                },
             },
             max_file_size: 0,
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: Some(StoragePolicyOptions {
-                object_storage_upload_strategy: Some(ObjectStorageUploadStrategy::Presigned),
-                object_storage_download_strategy: Some(ObjectStorageDownloadStrategy::Presigned),
-                s3_path_style: Some(false),
-                ..Default::default()
-            }),
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1237,8 +1231,6 @@ async fn test_policy_promote_s3_driver_rejects_bucket_change() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1304,8 +1296,6 @@ async fn test_policy_promote_s3_driver_rejects_non_generic_s3_source() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1367,8 +1357,6 @@ async fn test_policy_promote_s3_driver_rejects_unsupported_target() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1435,8 +1423,6 @@ async fn test_policy_promote_s3_driver_rejects_active_upload_sessions() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1517,8 +1503,6 @@ async fn test_policy_promote_s3_driver_ignores_expired_upload_sessions() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -1904,8 +1888,6 @@ async fn test_policy_force_delete_still_rejects_blob_references() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )
@@ -3207,8 +3189,6 @@ async fn test_resolve_policy_fails_when_policy_group_has_no_matching_rule() {
             chunk_size: None,
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         },
     )

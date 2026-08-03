@@ -11,19 +11,24 @@
     )
 )]
 
+pub mod connector_config;
 pub mod connector_descriptor;
 pub mod error;
 pub mod field_contract;
 pub mod object_key;
 pub mod traits;
 
+pub use connector_config::{
+    CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId, ConnectorIdError,
+};
 pub use connector_descriptor::{
     StorageConnectorActionDescriptor, StorageConnectorActionEndpoint, StorageConnectorActionKind,
     StorageConnectorAffordanceAction, StorageConnectorCapabilities, StorageConnectorCredentialMode,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldDescriptor, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode, StorageConnectorUploadWorkflows,
-    StoragePolicyExecutableAction,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorFieldDefaultValue,
+    StorageConnectorFieldDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorFieldValidation, StorageConnectorObjectNamingMode,
+    StorageConnectorOptionsValidationError, StorageConnectorUploadWorkflows,
+    StoragePolicyExecutableAction, normalize_storage_connector_config,
 };
 pub use error::{
     MapStorageErr, Result, StorageError, StorageErrorContext, StorageErrorKind,

@@ -63,15 +63,13 @@ impl From<CreatePolicyReq> for policy::CreateStoragePolicyInput {
                 base_path: value.base_path,
                 remote_node_id: value.remote_node_id,
                 remote_storage_target_key: value.remote_storage_target_key.clone(),
-                options: aster_drive_model::types::StoragePolicyOptions::default(),
+                options: value.options.unwrap_or_default(),
             }
             .into(),
             max_file_size: value.max_file_size.unwrap_or(0),
             chunk_size: value.chunk_size,
             is_default: value.is_default.unwrap_or(false),
             allowed_types: value.allowed_types,
-            options: value.options,
-            remote_storage_target_key: value.remote_storage_target_key,
             application_config: value.application_config.unwrap_or_default(),
         }
     }

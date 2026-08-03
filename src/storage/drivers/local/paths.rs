@@ -1,16 +1,15 @@
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 
-use aster_drive_model::entities::storage_policy;
 use aster_drive_storage::{MapStorageErr, Result, StorageErrorKind, storage_driver_error};
 
 use super::DEFAULT_LOCAL_STORAGE_PATH;
 
-pub fn effective_base_path(policy: &storage_policy::Model) -> PathBuf {
-    if policy.base_path.is_empty() {
+pub fn effective_base_path(base_path: &str) -> PathBuf {
+    if base_path.is_empty() {
         PathBuf::from(DEFAULT_LOCAL_STORAGE_PATH)
     } else {
-        PathBuf::from(&policy.base_path)
+        PathBuf::from(base_path)
     }
 }
 
@@ -111,8 +110,8 @@ pub(super) fn resolve_path_within_root(
     }
 }
 
-pub fn resolved_base_path(policy: &storage_policy::Model) -> Result<PathBuf> {
-    resolve_existing_path(&effective_base_path(policy))
+pub fn resolved_base_path(base_path: &str) -> Result<PathBuf> {
+    resolve_existing_path(&effective_base_path(base_path))
 }
 
 /// 校验 driver 输入路径，拒绝绝对路径、Windows 盘符前缀以及任何 `..` 段，
@@ -136,8 +135,8 @@ pub(super) fn sanitize_relative_path(path: &str) -> Result<PathBuf> {
     Ok(safe)
 }
 
-pub fn upload_staging_path(policy: &storage_policy::Model, name: &str) -> Result<PathBuf> {
-    let root = resolved_base_path(policy)?;
+pub fn upload_staging_path(base_path: &str, name: &str) -> Result<PathBuf> {
+    let root = resolved_base_path(base_path)?;
     let safe = sanitize_relative_path(name).unwrap_or_else(|_| PathBuf::from("_invalid"));
     resolve_path_within_root(&root, &Path::new(".staging").join(safe), name)
 }

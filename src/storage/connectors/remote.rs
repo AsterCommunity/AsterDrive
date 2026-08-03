@@ -11,16 +11,15 @@ use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::services::storage_policy::credential::crypto;
 use crate::storage::drivers::remote::RemoteDriver;
 use aster_drive_model::entities::{managed_follower, storage_policy};
-use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
+use aster_drive_model::types::{RemoteNodeTransportMode, parse_storage_policy_options};
 use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
     StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
-    object_multipart_upload_capabilities, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, storage_connector_field,
-    storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorFieldKind, StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    draft_connection_test_action_descriptor, object_multipart_upload_capabilities,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
 use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
@@ -33,11 +32,14 @@ use super::{
 
 pub struct RemoteConnector;
 
-impl StorageConnectorDescriptorProvider for RemoteConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl RemoteConnector {
+    pub const ID: &'static str = "asterdrive.storage.remote";
+}
+
+impl RemoteConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         StorageConnectorDescriptor {
-            driver_type: DriverType::Remote,
-            enabled: true,
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "Remote node".to_string(),
             description: "Remote follower node storage policy".to_string(),
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
@@ -98,23 +100,40 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
                     false,
                     false,
                 ),
-                storage_connector_field_with_options(
-                    "remote_download_strategy",
-                    StorageConnectorFieldScope::PolicyOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["relay_stream", "presigned"],
-                ),
-                storage_connector_field_with_options(
-                    "remote_upload_strategy",
-                    StorageConnectorFieldScope::PolicyOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["relay_stream", "presigned"],
-                ),
+                {
+                    let mut field = storage_connector_field_with_options(
+                        "remote_download_strategy",
+                        StorageConnectorFieldScope::ConnectorOptions,
+                        StorageConnectorFieldKind::Select,
+                        true,
+                        false,
+                        vec!["relay_stream", "presigned"],
+                    );
+                    field.default_value = Some(
+                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                            "relay_stream".to_string(),
+                        ),
+                    );
+                    field
+                },
+                {
+                    let mut field = storage_connector_field_with_options(
+                        "remote_upload_strategy",
+                        StorageConnectorFieldScope::ConnectorOptions,
+                        StorageConnectorFieldKind::Select,
+                        true,
+                        false,
+                        vec!["relay_stream", "presigned"],
+                    );
+                    field.default_value = Some(
+                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                            "relay_stream".to_string(),
+                        ),
+                    );
+                    field
+                },
             ],
+            config_schema_version: 1,
             actions: vec![
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
@@ -127,12 +146,8 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
 
 #[async_trait]
 impl StorageConnector for RemoteConnector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::Remote
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

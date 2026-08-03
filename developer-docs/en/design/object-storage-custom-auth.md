@@ -134,17 +134,42 @@ break consistency between the Host and canonical URI.
 
 ## Boundary with Provider Option Plugins
 
-Issue #458 tracks the future plugin-safe provider option contract. The built-in
-OSS connector may temporarily use typed `oss_*` options, subject to these
-rules:
+Issue #458 is now the storage refactor contract, not a future compatibility
+layer. Built-in connectors and dynamically loaded plugins use the same
+namespaced `ConnectorConfigEnvelope`:
 
-- Each connector owns normalization and validation of its provider options.
-- Do not continue expanding the provider-key matrix in
-  `src/storage/connectors/common.rs`.
-- Services and upload flows only consume stable common options, descriptors,
-  and capabilities.
-- Do not combine the built-in OSS implementation with a refactor of namespaced
-  plugin option persistence.
+- `connector_id`, format version, schema version, and connector-owned
+  values are persisted as one envelope.
+- Descriptor fields declare defaults, scalar validation, secret handling, and
+  UI metadata; the connector owns normalization and runtime decoding.
+- Core services do not match provider field names or maintain a
+  `DriverType`-to-options matrix.
+- `StoragePolicyOptions` and its provider-specific enums are
+  transitional legacy code and must be deleted after all built-in connectors
+  are migrated.
+- Cross-connector product behavior, such as media processing limits, belongs
+  to a separate core policy behavior contract rather than a connector
+  namespace.
+- Unknown connector envelopes remain inspectable as unavailable policy data;
+  they are not silently converted to another connector or discarded.
+
+### Legacy option ownership map
+
+The following legacy fields are the deletion checklist for
+StoragePolicyOptions:
+
+| Legacy fields | New owner |
+| --- | --- |
+| object_storage_upload_strategy, object_storage_download_strategy, s3_path_style, s3_region, s3_*_timeout_secs | S3 connector config |
+| object_storage_upload_strategy, object_storage_download_strategy, storage_native_processing_enabled, storage_native_media_metadata_enabled | Object-storage connector config declared by each descriptor |
+| remote_download_strategy, remote_upload_strategy | Remote connector config |
+| provider_resumable_upload_strategy, provider_download_strategy, provider_download_filename_mode, onedrive_* | OneDrive connector config |
+| sftp_host_key_fingerprint | SFTP connector config |
+| content_dedup | Local connector config |
+| thumbnail_processor, thumbnail_extensions, media_metadata_extensions | Core storage policy behavior |
+
+The provider enum types move with their connector or become private parser
+types. They must not remain in the shared model facade after the migration.
 
 ## Verification Requirements
 

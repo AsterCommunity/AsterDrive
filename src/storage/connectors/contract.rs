@@ -14,7 +14,7 @@ use aster_drive_storage::connector_descriptor::{
     StorageConnectorAffordanceAction, StorageConnectorDescriptor, StorageConnectorObjectNamingMode,
     StoragePolicyExecutableAction,
 };
-use aster_drive_storage::{MultipartStorageDriver, StorageDriver, StorageErrorKind};
+use aster_drive_storage::{ConnectorId, MultipartStorageDriver, StorageDriver, StorageErrorKind};
 
 use super::common;
 use super::models::{
@@ -115,8 +115,6 @@ impl StorageConnectorDriver {
 /// Product services select a connector through [`StorageConnectorRegistry`]
 /// and invoke this object-safe contract without matching concrete providers.
 pub(crate) trait StorageConnector: Send + Sync {
-    fn driver_type(&self) -> DriverType;
-
     fn descriptor(&self) -> StorageConnectorDescriptor;
 
     fn normalize_connection_fields(&self, endpoint: &str, bucket: &str)
@@ -139,7 +137,7 @@ pub(crate) trait StorageConnector: Send + Sync {
         if !application_config.is_empty() {
             return Err(AsterError::validation_error(format!(
                 "application credential config is not valid for {} storage policies",
-                self.driver_type().as_str()
+                self.descriptor().connector_id.as_str()
             )));
         }
         Ok(input)
@@ -165,7 +163,17 @@ pub(crate) trait StorageConnector: Send + Sync {
         options
             .validate()
             .map_err(|error| AsterError::validation_error(error.to_string()))?;
-        common::ensure_s3_region_supported(self.driver_type(), options)?;
+        if options.s3_region.is_some()
+            && !self
+                .descriptor()
+                .fields
+                .iter()
+                .any(|field| field.name == "s3_region")
+        {
+            return Err(AsterError::validation_error(
+                "connector does not declare the legacy s3_region field",
+            ));
+        }
         common::ensure_storage_native_processing_supported(self.descriptor(), options)?;
         common::ensure_onedrive_options_absent(options)?;
         common::ensure_sftp_options_absent(options)
@@ -182,7 +190,7 @@ pub(crate) trait StorageConnector: Send + Sync {
         if !application_config.is_empty() {
             return Err(AsterError::validation_error(format!(
                 "application credential config is not valid for {} storage policies",
-                self.driver_type().as_str()
+                self.descriptor().connector_id.as_str()
             )));
         }
         Ok(())
@@ -226,7 +234,7 @@ pub(crate) trait StorageConnector: Send + Sync {
             StorageErrorKind::Unsupported,
             format!(
                 "{} storage policies do not use runtime credential driver construction",
-                self.driver_type().as_str()
+                self.descriptor().connector_id.as_str()
             ),
         ))
     }
@@ -240,7 +248,7 @@ pub(crate) trait StorageConnector: Send + Sync {
     ) -> Result<StorageCredentialValidationOutcome> {
         Err(AsterError::unsupported_driver(format!(
             "credential validation is not implemented for {} storage policies",
-            self.driver_type().as_str()
+            self.descriptor().connector_id.as_str()
         )))
     }
 
@@ -347,7 +355,7 @@ pub(crate) trait StorageConnector: Send + Sync {
             crate::api::api_error_code::ApiErrorCode::PolicyPromotionTargetUnsupported,
             format!(
                 "promoting S3-compatible policy to '{}' is not supported",
-                self.driver_type().as_str()
+                self.descriptor().connector_id.as_str()
             ),
         ))
     }
@@ -356,49 +364,56 @@ pub(crate) trait StorageConnector: Send + Sync {
 /// Ordered connector catalog and runtime-factory lookup table.
 ///
 /// Registration order is preserved for stable descriptor presentation, while
-/// runtime dispatch uses `DriverType` lookup and rejects ambiguous contracts.
+/// Runtime dispatch uses plugin-safe [`ConnectorId`] lookup. `DriverType` is
+/// accepted only by the temporary database adapter until policy persistence is
+/// migrated to connector ids.
 pub(crate) struct StorageConnectorRegistry {
     ordered: Vec<Arc<dyn StorageConnector>>,
-    by_driver_type: HashMap<DriverType, Arc<dyn StorageConnector>>,
+    by_connector_id: HashMap<ConnectorId, Arc<dyn StorageConnector>>,
 }
 
 impl StorageConnectorRegistry {
     pub(crate) fn new(connectors: Vec<Arc<dyn StorageConnector>>) -> Result<Self> {
-        let mut by_driver_type = HashMap::with_capacity(connectors.len());
+        let mut by_connector_id = HashMap::with_capacity(connectors.len());
         for connector in &connectors {
-            let driver_type = connector.driver_type();
-            let descriptor_driver_type = connector.descriptor().driver_type;
-            if descriptor_driver_type != driver_type {
-                return Err(AsterError::internal_error(format!(
-                    "storage connector '{}' descriptor declares driver type '{}'",
-                    driver_type.as_str(),
-                    descriptor_driver_type.as_str()
-                )));
-            }
-            if by_driver_type
-                .insert(driver_type, connector.clone())
+            let descriptor = connector.descriptor();
+            descriptor.connector_id.validate().map_err(|error| {
+                AsterError::internal_error(format!(
+                    "storage connector declares invalid id '{}': {error}",
+                    descriptor.connector_id
+                ))
+            })?;
+            if by_connector_id
+                .insert(descriptor.connector_id.clone(), connector.clone())
                 .is_some()
             {
                 return Err(AsterError::internal_error(format!(
                     "storage connector '{}' is registered more than once",
-                    driver_type.as_str()
+                    descriptor.connector_id
                 )));
             }
         }
         Ok(Self {
             ordered: connectors,
-            by_driver_type,
+            by_connector_id,
         })
     }
 
     pub(crate) fn require(&self, driver_type: DriverType) -> Result<&dyn StorageConnector> {
-        self.by_driver_type
-            .get(&driver_type)
+        self.require_connector(&connector_id_for_legacy_driver_type(driver_type))
+    }
+
+    pub(crate) fn require_connector(
+        &self,
+        connector_id: &ConnectorId,
+    ) -> Result<&dyn StorageConnector> {
+        self.by_connector_id
+            .get(connector_id)
             .map(AsRef::as_ref)
             .ok_or_else(|| {
                 AsterError::internal_error(format!(
                     "storage connector '{}' is not registered",
-                    driver_type.as_str()
+                    connector_id
                 ))
             })
     }
@@ -420,4 +435,8 @@ impl StorageConnectorRegistry {
             .capabilities
             .object_naming)
     }
+}
+
+pub(crate) fn connector_id_for_legacy_driver_type(driver_type: DriverType) -> ConnectorId {
+    ConnectorId::declared(format!("asterdrive.storage.{}", driver_type.as_str()))
 }

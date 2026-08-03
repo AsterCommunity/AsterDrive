@@ -12,18 +12,18 @@ use crate::storage::drivers::onedrive::{
 };
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
-    DriverType, ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
+    ProviderDownloadFilenameMode, ProviderDownloadStrategy, StorageCredentialKind,
     StorageCredentialProvider, StorageCredentialStatus, parse_storage_policy_options,
 };
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider, StorageConnectorFieldKind,
-    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
-    StorageConnectorProviderResumableUploadCapabilities, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, saved_connection_test_action_descriptor,
-    server_relay_simple_upload_capabilities, start_authorization_action_descriptor,
-    storage_connector_field, storage_connector_field_with_options, storage_connector_ui_descriptor,
+    StorageConnectorDescriptor, StorageConnectorFieldKind, StorageConnectorFieldScope,
+    StorageConnectorObjectNamingMode, StorageConnectorProviderResumableUploadCapabilities,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
+    start_authorization_action_descriptor, storage_connector_field,
+    storage_connector_field_with_options, storage_connector_ui_descriptor,
     validate_credential_action_descriptor,
 };
 
@@ -41,6 +41,10 @@ use super::{
 
 pub struct OneDriveConnector;
 
+impl OneDriveConnector {
+    pub const ID: &'static str = "asterdrive.storage.onedrive";
+}
+
 #[derive(Debug, Deserialize)]
 struct OneDriveCredentialMetadata {
     #[serde(default)]
@@ -49,12 +53,11 @@ struct OneDriveCredentialMetadata {
     root_item_id: Option<String>,
 }
 
-impl StorageConnectorDescriptorProvider for OneDriveConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl OneDriveConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         let upload_capabilities = microsoft_graph_upload_capabilities();
         StorageConnectorDescriptor {
-            driver_type: DriverType::OneDrive,
-            enabled: true,
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "OneDrive / SharePoint".to_string(),
             description: "Microsoft Graph-backed OneDrive or SharePoint storage policy".to_string(),
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
@@ -129,7 +132,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 ),
                 storage_connector_field_with_options(
                     "provider_resumable_upload_strategy",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Select,
                     true,
                     false,
@@ -137,7 +140,7 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 ),
                 storage_connector_field_with_options(
                     "provider_download_strategy",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Select,
                     true,
                     false,
@@ -145,69 +148,86 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
                 ),
                 storage_connector_field_with_options(
                     "provider_download_filename_mode",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Select,
                     true,
                     false,
                     vec!["provider_native", "strict_current"],
                 ),
-                storage_connector_field_with_options(
-                    "cloud",
-                    StorageConnectorFieldScope::PolicyOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec!["global", "china"],
-                ),
-                storage_connector_field_with_options(
-                    "account_mode",
-                    StorageConnectorFieldScope::PolicyOptions,
-                    StorageConnectorFieldKind::Select,
-                    true,
-                    false,
-                    vec![
-                        "personal",
-                        "work_or_school",
-                        "sharepoint_site",
-                        "group_drive",
-                    ],
-                ),
+                {
+                    let mut field = storage_connector_field_with_options(
+                        "cloud",
+                        StorageConnectorFieldScope::ConnectorOptions,
+                        StorageConnectorFieldKind::Select,
+                        true,
+                        false,
+                        vec!["global", "china"],
+                    );
+                    field.default_value = Some(
+                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                            "global".to_string(),
+                        ),
+                    );
+                    field
+                },
+                {
+                    let mut field = storage_connector_field_with_options(
+                        "account_mode",
+                        StorageConnectorFieldScope::ConnectorOptions,
+                        StorageConnectorFieldKind::Select,
+                        true,
+                        false,
+                        vec![
+                            "personal",
+                            "work_or_school",
+                            "sharepoint_site",
+                            "group_drive",
+                        ],
+                    );
+                    field.default_value = Some(
+                        aster_drive_storage::StorageConnectorFieldDefaultValue::String(
+                            "personal".to_string(),
+                        ),
+                    );
+                    field
+                },
                 storage_connector_field(
                     "tenant",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
                 ),
                 storage_connector_field(
                     "drive_id",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
                 ),
                 storage_connector_field(
                     "root_item_id",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
                 ),
                 storage_connector_field(
                     "site_id",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
                 ),
                 storage_connector_field(
                     "group_id",
-                    StorageConnectorFieldScope::PolicyOptions,
+                    StorageConnectorFieldScope::ConnectorOptions,
                     StorageConnectorFieldKind::Text,
                     false,
                     false,
                 ),
             ],
+            config_schema_version: 1,
             actions: vec![
                 start_authorization_action_descriptor(),
                 validate_credential_action_descriptor(),
@@ -221,12 +241,8 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
 
 #[async_trait]
 impl StorageConnector for OneDriveConnector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::OneDrive
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

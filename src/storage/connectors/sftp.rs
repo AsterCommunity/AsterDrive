@@ -3,16 +3,15 @@ use async_trait::async_trait;
 use crate::errors::Result;
 use crate::storage::drivers::sftp::SftpDriver;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::DriverType;
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorCapabilities, StorageConnectorCredentialMode, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptor, StorageConnectorDescriptorProvider,
-    StorageConnectorFieldDisplayInput, StorageConnectorFieldKind, StorageConnectorFieldScope,
-    StorageConnectorObjectNamingMode, StorageConnectorUiDescriptorInput,
-    StorageConnectorUploadWorkflows, draft_connection_test_action_descriptor,
-    saved_connection_test_action_descriptor, server_relay_simple_upload_capabilities,
-    storage_connector_field, storage_connector_field_with_display, storage_connector_ui_descriptor,
+    StorageConnectorDescriptor, StorageConnectorFieldDisplayInput, StorageConnectorFieldKind,
+    StorageConnectorFieldScope, StorageConnectorObjectNamingMode,
+    StorageConnectorUiDescriptorInput, StorageConnectorUploadWorkflows,
+    draft_connection_test_action_descriptor, saved_connection_test_action_descriptor,
+    server_relay_simple_upload_capabilities, storage_connector_field,
+    storage_connector_field_with_display, storage_connector_ui_descriptor,
 };
 
 use super::common::{ensure_onedrive_options_absent, validate_static_secret_credentials};
@@ -20,11 +19,14 @@ use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorU
 
 pub struct SftpConnector;
 
-impl StorageConnectorDescriptorProvider for SftpConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl SftpConnector {
+    pub const ID: &'static str = "asterdrive.storage.sftp";
+}
+
+impl SftpConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         StorageConnectorDescriptor {
-            driver_type: DriverType::Sftp,
-            enabled: true,
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "SFTP".to_string(),
             description: "SSH File Transfer Protocol storage policy".to_string(),
             ui: storage_connector_ui_descriptor(StorageConnectorUiDescriptorInput {
@@ -81,7 +83,6 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                     allowed_endpoint_protocols: vec!["sftp:"],
                     allow_endpoint_without_protocol: true,
                     trim_on_blur: true,
-                    visible_when_driver_types: Vec::new(),
                 }),
                 storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                     name: "access_key",
@@ -97,7 +98,6 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                     allowed_endpoint_protocols: Vec::new(),
                     allow_endpoint_without_protocol: false,
                     trim_on_blur: true,
-                    visible_when_driver_types: Vec::new(),
                 }),
                 storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
                     name: "secret_key",
@@ -113,7 +113,6 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                     allowed_endpoint_protocols: Vec::new(),
                     allow_endpoint_without_protocol: false,
                     trim_on_blur: false,
-                    visible_when_driver_types: Vec::new(),
                 }),
                 storage_connector_field(
                     "base_path",
@@ -122,23 +121,28 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
                     false,
                     false,
                 ),
-                storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
-                    name: "sftp_host_key_fingerprint",
-                    scope: StorageConnectorFieldScope::PolicyOptions,
-                    kind: StorageConnectorFieldKind::Text,
-                    required: false,
-                    secret: false,
-                    label_key: "sftp_host_key_fingerprint",
-                    placeholder: Some("SHA256:..."),
-                    help_key: Some("sftp_host_key_fingerprint_hint"),
-                    required_message_key: None,
-                    invalid_protocol_message_key: None,
-                    allowed_endpoint_protocols: Vec::new(),
-                    allow_endpoint_without_protocol: false,
-                    trim_on_blur: true,
-                    visible_when_driver_types: Vec::new(),
-                }),
+                {
+                    let mut field =
+                        storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+                            name: "sftp_host_key_fingerprint",
+                            scope: StorageConnectorFieldScope::ConnectorOptions,
+                            kind: StorageConnectorFieldKind::Text,
+                            required: false,
+                            secret: false,
+                            label_key: "sftp_host_key_fingerprint",
+                            placeholder: Some("SHA256:..."),
+                            help_key: Some("sftp_host_key_fingerprint_hint"),
+                            required_message_key: None,
+                            invalid_protocol_message_key: None,
+                            allowed_endpoint_protocols: Vec::new(),
+                            allow_endpoint_without_protocol: false,
+                            trim_on_blur: true,
+                        });
+                    field.validation.max_length = Some(512);
+                    field
+                },
             ],
+            config_schema_version: 1,
             actions: vec![
                 draft_connection_test_action_descriptor(),
                 saved_connection_test_action_descriptor(false),
@@ -151,12 +155,8 @@ impl StorageConnectorDescriptorProvider for SftpConnector {
 
 #[async_trait]
 impl StorageConnector for SftpConnector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::Sftp
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

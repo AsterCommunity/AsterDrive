@@ -5,65 +5,16 @@
 //! 它不是 runtime driver，本文件不应该承载实际对象读写逻辑。
 
 use serde::{Deserialize, Serialize};
+use std::collections::{BTreeMap, HashMap};
+use std::fmt;
 #[cfg(all(debug_assertions, feature = "openapi"))]
 use utoipa::ToSchema;
 
-use aster_drive_model::types::{DriverType, OBJECT_MULTIPART_MIN_PART_SIZE};
+use aster_drive_model::types::OBJECT_MULTIPART_MIN_PART_SIZE;
+
+use crate::ConnectorId;
 
 use super::field_contract::{StorageDescriptorFieldKind, StorageDescriptorFieldSemantics};
-
-/// 为 connector 提供静态/半静态 descriptor。
-///
-/// 内置 connector 目前直接返回静态结构；未来 plugin connector 也应该走同一层，
-/// 让 UI 和后端管理入口不再到处 match `DriverType`。
-pub trait StorageConnectorDescriptorProvider {
-    /// 返回当前 connector 的配置字段、能力、上传工作流和可执行动作声明。
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor;
-
-    /// 查询 connector 是否声明了某个 UI/服务 affordance。
-    ///
-    /// Affordance action 是“显示/启用某个系统入口”，例如授权、校验凭据、连接测试。
-    fn storage_connector_supports_affordance_action(
-        action: StorageConnectorAffordanceAction,
-    ) -> bool {
-        Self::storage_connector_descriptor()
-            .actions
-            .iter()
-            .any(|descriptor| descriptor.affordance_action == Some(action))
-    }
-
-    /// 查询 connector 是否支持某个真正的 provider/policy 动作。
-    ///
-    /// Policy action 可能会修改远端状态，例如配置 Tencent COS CORS。
-    fn storage_connector_supports_policy_action(action: StoragePolicyExecutableAction) -> bool {
-        Self::storage_connector_descriptor()
-            .actions
-            .iter()
-            .any(|descriptor| descriptor.policy_action == Some(action))
-    }
-
-    fn storage_connector_supports_draft_connection_test() -> bool {
-        Self::storage_connector_descriptor()
-            .actions
-            .iter()
-            .any(|descriptor| {
-                descriptor.affordance_action
-                    == Some(StorageConnectorAffordanceAction::TestDraftConnection)
-                    && descriptor.kind == StorageConnectorActionKind::ConnectionTest
-            })
-    }
-
-    fn storage_connector_supports_saved_connection_test() -> bool {
-        Self::storage_connector_descriptor()
-            .actions
-            .iter()
-            .any(|descriptor| {
-                descriptor.affordance_action
-                    == Some(StorageConnectorAffordanceAction::TestSavedConnection)
-                    && descriptor.kind == StorageConnectorActionKind::ConnectionTest
-            })
-    }
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -114,8 +65,11 @@ impl StorageConnectorDeploymentScope {
 pub enum StorageConnectorFieldScope {
     /// 写入 `storage_policies` 通用连接字段，例如 endpoint/bucket/base_path。
     Connection,
-    /// 写入 `StoragePolicyOptions` 的 driver-specific option。
-    PolicyOptions,
+    /// 写入当前 connector namespace 下的版本化 provider options。
+    ///
+    /// 这类字段由 connector 负责 normalize/validate，core policy options 不应知道
+    /// 字段名，也不应把该值转存回 `StoragePolicyOptions`。
+    ConnectorOptions,
     /// 写入 connector-owned application config，不应混进 legacy access_key/secret_key。
     ApplicationCredential,
     /// 绑定外部 runtime 资源，例如 remote node。
@@ -131,6 +85,30 @@ pub enum StorageConnectorFieldKind {
     Select,
     Boolean,
     Number,
+}
+
+/// Descriptor 可声明的 JSON 标量默认值。
+///
+/// Provider option 只允许标量配置；credential secret 使用独立 credential/application
+/// config 通道，复杂对象也应拆成有明确字段 contract 的标量集合。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(untagged)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub enum StorageConnectorFieldDefaultValue {
+    Boolean(bool),
+    Integer(i64),
+    String(String),
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
+pub struct StorageConnectorFieldValidation {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub min_integer: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_integer: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_length: Option<u32>,
 }
 
 impl From<StorageDescriptorFieldKind> for StorageConnectorFieldKind {
@@ -415,9 +393,318 @@ pub struct StorageConnectorFieldDescriptor {
     /// select/radio 等枚举控件的稳定取值。
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
-    /// 同一字段只对部分 driver 可见时使用。为空表示不额外限制。
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub visible_when_driver_types: Vec<DriverType>,
+    /// Connector schema 定义的默认值。省略表示该字段没有隐式默认值。
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub default_value: Option<StorageConnectorFieldDefaultValue>,
+    /// 可被前端用于即时反馈、且必须由后端再次执行的基础约束。
+    #[serde(default)]
+    pub validation: StorageConnectorFieldValidation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StorageConnectorOptionsValidationError {
+    FormatVersionMismatch {
+        expected: u32,
+        actual: u32,
+    },
+    NamespaceMismatch {
+        expected: String,
+        actual: String,
+    },
+    SchemaVersionMismatch {
+        expected: u32,
+        actual: u32,
+    },
+    DuplicateField(String),
+    UnknownField(String),
+    MissingRequiredField(String),
+    SecretField(String),
+    TypeMismatch {
+        field: String,
+        expected: StorageConnectorFieldKind,
+    },
+    InvalidOption {
+        field: String,
+        value: String,
+    },
+    IntegerBelowMinimum {
+        field: String,
+        minimum: i64,
+    },
+    IntegerAboveMaximum {
+        field: String,
+        maximum: i64,
+    },
+    StringTooLong {
+        field: String,
+        maximum: u32,
+    },
+}
+
+impl fmt::Display for StorageConnectorOptionsValidationError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::FormatVersionMismatch { expected, actual } => write!(
+                formatter,
+                "connector config format version mismatch: expected {expected}, got {actual}"
+            ),
+            Self::NamespaceMismatch { expected, actual } => write!(
+                formatter,
+                "provider options namespace mismatch: expected '{expected}', got '{actual}'"
+            ),
+            Self::SchemaVersionMismatch { expected, actual } => write!(
+                formatter,
+                "provider options schema version mismatch: expected {expected}, got {actual}"
+            ),
+            Self::DuplicateField(field) => {
+                write!(
+                    formatter,
+                    "provider option field '{field}' is declared more than once"
+                )
+            }
+            Self::UnknownField(field) => {
+                write!(formatter, "unknown provider option field '{field}'")
+            }
+            Self::MissingRequiredField(field) => {
+                write!(
+                    formatter,
+                    "required provider option field '{field}' is missing"
+                )
+            }
+            Self::SecretField(field) => write!(
+                formatter,
+                "provider option field '{field}' is secret and must use credential storage"
+            ),
+            Self::TypeMismatch { field, expected } => write!(
+                formatter,
+                "provider option field '{field}' must be a {}",
+                expected.as_str()
+            ),
+            Self::InvalidOption { field, value } => write!(
+                formatter,
+                "provider option field '{field}' has unsupported value '{value}'"
+            ),
+            Self::IntegerBelowMinimum { field, minimum } => write!(
+                formatter,
+                "provider option field '{field}' must be at least {minimum}"
+            ),
+            Self::IntegerAboveMaximum { field, maximum } => write!(
+                formatter,
+                "provider option field '{field}' must be at most {maximum}"
+            ),
+            Self::StringTooLong { field, maximum } => write!(
+                formatter,
+                "provider option field '{field}' exceeds maximum length {maximum}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StorageConnectorOptionsValidationError {}
+
+impl StorageConnectorFieldKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "string",
+            Self::Secret => "secret string",
+            Self::Select => "string",
+            Self::Boolean => "boolean",
+            Self::Number => "integer",
+        }
+    }
+}
+
+/// 按 connector descriptor 归一化并校验一个 provider option namespace。
+///
+/// 调用方必须传入 payload 顶层 namespace，避免 service 先丢掉 namespace 后让错误
+/// connector 接收数据。返回值只包含 descriptor 声明的字段及补齐后的默认值。
+pub fn normalize_storage_connector_config(
+    descriptor: &StorageConnectorDescriptor,
+    input: &crate::ConnectorConfigEnvelope,
+) -> Result<crate::ConnectorConfigEnvelope, StorageConnectorOptionsValidationError> {
+    if input.format_version != crate::CONNECTOR_CONFIG_FORMAT_VERSION {
+        return Err(
+            StorageConnectorOptionsValidationError::FormatVersionMismatch {
+                expected: crate::CONNECTOR_CONFIG_FORMAT_VERSION,
+                actual: input.format_version,
+            },
+        );
+    }
+    if descriptor.connector_id != input.connector_id {
+        return Err(StorageConnectorOptionsValidationError::NamespaceMismatch {
+            expected: descriptor.connector_id.as_str().to_string(),
+            actual: input.connector_id.as_str().to_string(),
+        });
+    }
+    if descriptor.config_schema_version != input.schema_version {
+        return Err(
+            StorageConnectorOptionsValidationError::SchemaVersionMismatch {
+                expected: descriptor.config_schema_version,
+                actual: input.schema_version,
+            },
+        );
+    }
+
+    let mut fields = HashMap::new();
+    for field in descriptor
+        .fields
+        .iter()
+        .filter(|field| field.scope == StorageConnectorFieldScope::ConnectorOptions)
+    {
+        if fields.insert(field.name.as_str(), field).is_some() {
+            return Err(StorageConnectorOptionsValidationError::DuplicateField(
+                field.name.clone(),
+            ));
+        }
+    }
+
+    for name in input.values.keys() {
+        if !fields.contains_key(name.as_str()) {
+            return Err(StorageConnectorOptionsValidationError::UnknownField(
+                name.clone(),
+            ));
+        }
+    }
+
+    let mut normalized = BTreeMap::new();
+    for field in fields.values() {
+        if field.secret || field.kind == StorageConnectorFieldKind::Secret {
+            if input.values.contains_key(&field.name) {
+                return Err(StorageConnectorOptionsValidationError::SecretField(
+                    field.name.clone(),
+                ));
+            }
+            continue;
+        }
+
+        let value = input
+            .values
+            .get(&field.name)
+            .cloned()
+            .or_else(|| field.default_value.as_ref().map(default_value_to_json));
+        let Some(mut value) = value else {
+            if field.required {
+                return Err(
+                    StorageConnectorOptionsValidationError::MissingRequiredField(
+                        field.name.clone(),
+                    ),
+                );
+            }
+            continue;
+        };
+
+        normalize_and_validate_provider_option_value(field, &mut value)?;
+        if value.as_str().is_some_and(str::is_empty) && !field.required {
+            continue;
+        }
+        normalized.insert(field.name.clone(), value);
+    }
+
+    Ok(crate::ConnectorConfigEnvelope {
+        format_version: crate::CONNECTOR_CONFIG_FORMAT_VERSION,
+        connector_id: input.connector_id.clone(),
+        schema_version: descriptor.config_schema_version,
+        values: normalized,
+    })
+}
+
+fn default_value_to_json(value: &StorageConnectorFieldDefaultValue) -> serde_json::Value {
+    match value {
+        StorageConnectorFieldDefaultValue::Boolean(value) => serde_json::Value::Bool(*value),
+        StorageConnectorFieldDefaultValue::Integer(value) => {
+            serde_json::Value::Number((*value).into())
+        }
+        StorageConnectorFieldDefaultValue::String(value) => {
+            serde_json::Value::String(value.clone())
+        }
+    }
+}
+
+fn normalize_and_validate_provider_option_value(
+    field: &StorageConnectorFieldDescriptor,
+    value: &mut serde_json::Value,
+) -> Result<(), StorageConnectorOptionsValidationError> {
+    match field.kind {
+        StorageConnectorFieldKind::Text | StorageConnectorFieldKind::Select => {
+            let Some(text) = value.as_str() else {
+                return Err(StorageConnectorOptionsValidationError::TypeMismatch {
+                    field: field.name.clone(),
+                    expected: field.kind,
+                });
+            };
+            let normalized = if field.trim_on_blur {
+                text.trim()
+            } else {
+                text
+            };
+            if field.required && normalized.is_empty() {
+                return Err(
+                    StorageConnectorOptionsValidationError::MissingRequiredField(
+                        field.name.clone(),
+                    ),
+                );
+            }
+            if let Some(maximum) = field.validation.max_length
+                && normalized.chars().count() > maximum as usize
+            {
+                return Err(StorageConnectorOptionsValidationError::StringTooLong {
+                    field: field.name.clone(),
+                    maximum,
+                });
+            }
+            if field.kind == StorageConnectorFieldKind::Select
+                && !field.options.iter().any(|option| option == normalized)
+            {
+                return Err(StorageConnectorOptionsValidationError::InvalidOption {
+                    field: field.name.clone(),
+                    value: normalized.to_string(),
+                });
+            }
+            *value = serde_json::Value::String(normalized.to_string());
+        }
+        StorageConnectorFieldKind::Boolean => {
+            if !value.is_boolean() {
+                return Err(StorageConnectorOptionsValidationError::TypeMismatch {
+                    field: field.name.clone(),
+                    expected: field.kind,
+                });
+            }
+        }
+        StorageConnectorFieldKind::Number => {
+            let Some(integer) = value.as_i64() else {
+                return Err(StorageConnectorOptionsValidationError::TypeMismatch {
+                    field: field.name.clone(),
+                    expected: field.kind,
+                });
+            };
+            if let Some(minimum) = field.validation.min_integer
+                && integer < minimum
+            {
+                return Err(
+                    StorageConnectorOptionsValidationError::IntegerBelowMinimum {
+                        field: field.name.clone(),
+                        minimum,
+                    },
+                );
+            }
+            if let Some(maximum) = field.validation.max_integer
+                && integer > maximum
+            {
+                return Err(
+                    StorageConnectorOptionsValidationError::IntegerAboveMaximum {
+                        field: field.name.clone(),
+                        maximum,
+                    },
+                );
+            }
+        }
+        StorageConnectorFieldKind::Secret => {
+            return Err(StorageConnectorOptionsValidationError::SecretField(
+                field.name.clone(),
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -434,8 +721,8 @@ pub struct StorageConnectorEndpointHostRule {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorDriverRecommendation {
-    /// Candidate driver that should be suggested for matching endpoint hosts.
-    pub target_driver_type: DriverType,
+    /// Candidate connector that should be suggested for matching endpoint hosts.
+    pub target_connector_id: ConnectorId,
     /// Host rules owned by the source connector.
     ///
     /// This keeps provider-detection rules in connector metadata instead of in
@@ -446,10 +733,8 @@ pub struct StorageConnectorDriverRecommendation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 pub struct StorageConnectorDescriptor {
-    /// 持久化到 policy 的 driver type。
-    pub driver_type: DriverType,
-    /// 当前部署是否启用该 connector。
-    pub enabled: bool,
+    /// 持久化到 policy 的稳定 connector/plugin id。
+    pub connector_id: ConnectorId,
     /// 人类可读名称。
     pub label: String,
     /// 人类可读说明。
@@ -478,6 +763,8 @@ pub struct StorageConnectorDescriptor {
     pub upload_workflows: StorageConnectorUploadWorkflows,
     /// 管理端配置字段声明。
     pub fields: Vec<StorageConnectorFieldDescriptor>,
+    /// 当前 connector 能解析并输出的配置 schema 版本。
+    pub config_schema_version: u32,
     /// 管理端/服务端可执行动作声明。
     pub actions: Vec<StorageConnectorActionDescriptor>,
     /// Connector-owned recommendations for moving a policy to a more specific driver.
@@ -516,7 +803,7 @@ pub struct StorageConnectorUiDescriptor {
 }
 
 pub struct ObjectStorageConnectorDescriptorInput {
-    pub driver_type: DriverType,
+    pub connector_id: ConnectorId,
     pub label: &'static str,
     pub description: &'static str,
     pub ui: StorageConnectorUiDescriptorInput,
@@ -525,8 +812,10 @@ pub struct ObjectStorageConnectorDescriptorInput {
     pub fields: ObjectStorageFieldDescriptorInput,
     pub include_s3_path_style: bool,
     pub include_s3_region: bool,
+    pub include_s3_timeouts: bool,
     pub presigned_part_etag_required: bool,
     pub storage_native_processing: bool,
+    pub config_schema_version: u32,
     pub related_issues: Vec<u16>,
 }
 
@@ -558,7 +847,6 @@ pub fn object_storage_connector_descriptor(
             allowed_endpoint_protocols: vec!["http:", "https:"],
             allow_endpoint_without_protocol: false,
             trim_on_blur: false,
-            visible_when_driver_types: Vec::new(),
         }),
         storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "bucket",
@@ -574,7 +862,6 @@ pub fn object_storage_connector_descriptor(
             allowed_endpoint_protocols: Vec::new(),
             allow_endpoint_without_protocol: false,
             trim_on_blur: false,
-            visible_when_driver_types: Vec::new(),
         }),
         storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "access_key",
@@ -590,7 +877,6 @@ pub fn object_storage_connector_descriptor(
             allowed_endpoint_protocols: Vec::new(),
             allow_endpoint_without_protocol: false,
             trim_on_blur: input.fields.access_key_trim_on_blur,
-            visible_when_driver_types: Vec::new(),
         }),
         storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
             name: "secret_key",
@@ -606,7 +892,6 @@ pub fn object_storage_connector_descriptor(
             allowed_endpoint_protocols: Vec::new(),
             allow_endpoint_without_protocol: false,
             trim_on_blur: false,
-            visible_when_driver_types: Vec::new(),
         }),
         storage_connector_field(
             "base_path",
@@ -615,67 +900,97 @@ pub fn object_storage_connector_descriptor(
             false,
             false,
         ),
-        storage_connector_field_with_options(
-            "object_storage_upload_strategy",
-            StorageConnectorFieldScope::PolicyOptions,
-            StorageConnectorFieldKind::Select,
-            true,
-            false,
-            vec!["relay_stream", "presigned"],
-        ),
-        storage_connector_field_with_options(
-            "object_storage_download_strategy",
-            StorageConnectorFieldScope::PolicyOptions,
-            StorageConnectorFieldKind::Select,
-            true,
-            false,
-            vec!["relay_stream", "presigned"],
-        ),
+        {
+            let mut field = storage_connector_field_with_options(
+                "object_storage_upload_strategy",
+                StorageConnectorFieldScope::ConnectorOptions,
+                StorageConnectorFieldKind::Select,
+                true,
+                false,
+                vec!["relay_stream", "presigned"],
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+                "relay_stream".to_string(),
+            ));
+            field
+        },
+        {
+            let mut field = storage_connector_field_with_options(
+                "object_storage_download_strategy",
+                StorageConnectorFieldScope::ConnectorOptions,
+                StorageConnectorFieldKind::Select,
+                true,
+                false,
+                vec!["relay_stream", "presigned"],
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+                "relay_stream".to_string(),
+            ));
+            field
+        },
     ];
     if input.include_s3_path_style {
-        fields.push(storage_connector_field_with_display(
-            StorageConnectorFieldDisplayInput {
-                name: "s3_path_style",
-                scope: StorageConnectorFieldScope::PolicyOptions,
-                kind: StorageConnectorFieldKind::Boolean,
-                required: false,
-                secret: false,
-                label_key: "s3_path_style",
-                placeholder: None,
-                help_key: Some("s3_path_style_desc"),
-                required_message_key: None,
-                invalid_protocol_message_key: None,
-                allowed_endpoint_protocols: Vec::new(),
-                allow_endpoint_without_protocol: false,
-                trim_on_blur: false,
-                visible_when_driver_types: vec![DriverType::S3],
-            },
-        ));
+        let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "s3_path_style",
+            scope: StorageConnectorFieldScope::ConnectorOptions,
+            kind: StorageConnectorFieldKind::Boolean,
+            required: false,
+            secret: false,
+            label_key: "s3_path_style",
+            placeholder: None,
+            help_key: Some("s3_path_style_desc"),
+            required_message_key: None,
+            invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
+            trim_on_blur: false,
+        });
+        field.default_value = Some(StorageConnectorFieldDefaultValue::Boolean(true));
+        fields.push(field);
     }
     if input.include_s3_region {
-        fields.push(storage_connector_field_with_display(
-            StorageConnectorFieldDisplayInput {
-                name: "s3_region",
-                scope: StorageConnectorFieldScope::PolicyOptions,
-                kind: StorageConnectorFieldKind::Text,
-                required: false,
-                secret: false,
-                label_key: "s3_region",
-                placeholder: Some("auto"),
-                help_key: Some("s3_region_desc"),
-                required_message_key: None,
-                invalid_protocol_message_key: None,
-                allowed_endpoint_protocols: Vec::new(),
-                allow_endpoint_without_protocol: false,
-                trim_on_blur: true,
-                visible_when_driver_types: vec![DriverType::S3],
-            },
+        let mut field = storage_connector_field_with_display(StorageConnectorFieldDisplayInput {
+            name: "s3_region",
+            scope: StorageConnectorFieldScope::ConnectorOptions,
+            kind: StorageConnectorFieldKind::Text,
+            required: false,
+            secret: false,
+            label_key: "s3_region",
+            placeholder: Some("auto"),
+            help_key: Some("s3_region_desc"),
+            required_message_key: None,
+            invalid_protocol_message_key: None,
+            allowed_endpoint_protocols: Vec::new(),
+            allow_endpoint_without_protocol: false,
+            trim_on_blur: true,
+        });
+        field.default_value = Some(StorageConnectorFieldDefaultValue::String(
+            "auto".to_string(),
         ));
+        field.validation.max_length = Some(128);
+        fields.push(field);
+    }
+    if input.include_s3_timeouts {
+        for (name, default_value) in [
+            ("s3_connect_timeout_secs", 5),
+            ("s3_read_timeout_secs", 30),
+            ("s3_operation_timeout_secs", 3_600),
+        ] {
+            let mut field = storage_connector_field(
+                name,
+                StorageConnectorFieldScope::ConnectorOptions,
+                StorageConnectorFieldKind::Number,
+                false,
+                false,
+            );
+            field.default_value = Some(StorageConnectorFieldDefaultValue::Integer(default_value));
+            field.validation.min_integer = Some(1);
+            fields.push(field);
+        }
     }
 
     StorageConnectorDescriptor {
-        driver_type: input.driver_type,
-        enabled: true,
+        connector_id: input.connector_id,
         label: input.label.to_string(),
         description: input.description.to_string(),
         ui: storage_connector_ui_descriptor(input.ui),
@@ -711,6 +1026,7 @@ pub fn object_storage_connector_descriptor(
             provider_resumable_upload_capabilities: None,
         },
         fields,
+        config_schema_version: input.config_schema_version,
         actions: vec![
             draft_connection_test_action_descriptor(),
             saved_connection_test_action_descriptor(false),
@@ -750,11 +1066,11 @@ pub fn object_multipart_upload_capabilities(
 }
 
 pub fn endpoint_driver_recommendation(
-    target_driver_type: DriverType,
+    target_connector_id: ConnectorId,
     endpoint_host_rules: Vec<StorageConnectorEndpointHostRule>,
 ) -> StorageConnectorDriverRecommendation {
     StorageConnectorDriverRecommendation {
-        target_driver_type,
+        target_connector_id,
         endpoint_host_rules,
     }
 }
@@ -857,7 +1173,6 @@ pub fn storage_connector_field(
         allowed_endpoint_protocols: Vec::new(),
         allow_endpoint_without_protocol: false,
         trim_on_blur: false,
-        visible_when_driver_types: Vec::new(),
     })
 }
 
@@ -875,7 +1190,6 @@ pub struct StorageConnectorFieldDisplayInput<'a> {
     pub allowed_endpoint_protocols: Vec<&'a str>,
     pub allow_endpoint_without_protocol: bool,
     pub trim_on_blur: bool,
-    pub visible_when_driver_types: Vec<DriverType>,
 }
 
 pub fn storage_connector_field_with_display(
@@ -905,7 +1219,8 @@ pub fn storage_connector_field_with_display(
         required: semantics.required,
         secret: semantics.secret,
         options: Vec::new(),
-        visible_when_driver_types: input.visible_when_driver_types,
+        default_value: None,
+        validation: StorageConnectorFieldValidation::default(),
     }
 }
 
@@ -950,5 +1265,147 @@ pub fn storage_connector_ui_descriptor(
         edit_context_key: input.edit_context_key.to_string(),
         base_path_empty_display: input.base_path_empty_display.to_string(),
         base_path_placeholder: input.base_path_placeholder.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::BTreeMap;
+
+    use super::{
+        ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
+        StorageConnectorDeploymentScope, StorageConnectorFieldDefaultValue,
+        StorageConnectorOptionsValidationError, StorageConnectorUiDescriptorInput,
+        normalize_storage_connector_config, object_storage_connector_descriptor,
+    };
+    use crate::{CONNECTOR_CONFIG_FORMAT_VERSION, ConnectorConfigEnvelope, ConnectorId};
+
+    fn s3_descriptor() -> super::StorageConnectorDescriptor {
+        object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
+            connector_id: ConnectorId::declared("asterdrive.storage.s3"),
+            label: "S3",
+            description: "test",
+            ui: StorageConnectorUiDescriptorInput {
+                label_key: "s3",
+                description_key: "s3_desc",
+                icon_src: None,
+                icon_name: None,
+                helper_key: "helper",
+                config_step_title_key: "title",
+                config_step_description_key: "description",
+                edit_context_key: "edit",
+                base_path_empty_display: "root",
+                base_path_placeholder: "prefix",
+            },
+            deployment_scope: StorageConnectorDeploymentScope::SharedAcrossPrimaryInstances,
+            supports_initial_setup: true,
+            fields: ObjectStorageFieldDescriptorInput {
+                endpoint_placeholder: "https://s3.example.com",
+                endpoint_help_key: "endpoint_help",
+                endpoint_protocol_error_key: "endpoint_protocol",
+                bucket_required_message_key: "bucket_required",
+                access_key_label_key: "access_key",
+                secret_key_label_key: "secret_key",
+                access_key_trim_on_blur: false,
+            },
+            include_s3_path_style: true,
+            include_s3_region: true,
+            include_s3_timeouts: true,
+            presigned_part_etag_required: true,
+            storage_native_processing: false,
+            config_schema_version: 3,
+            related_issues: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn connector_options_apply_defaults_and_normalize_text() {
+        let descriptor = s3_descriptor();
+        let input = ConnectorConfigEnvelope {
+            format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
+            connector_id: ConnectorId::declared("asterdrive.storage.s3"),
+            schema_version: 3,
+            values: BTreeMap::from([(
+                "s3_region".to_string(),
+                serde_json::json!("  cn-beijing  "),
+            )]),
+        };
+
+        let normalized = normalize_storage_connector_config(&descriptor, &input).unwrap();
+
+        assert_eq!(normalized.values["s3_region"], "cn-beijing");
+        assert_eq!(normalized.values["s3_path_style"], true);
+        assert_eq!(normalized.values["s3_connect_timeout_secs"], 5);
+        assert_eq!(normalized.values["s3_read_timeout_secs"], 30);
+        assert_eq!(normalized.values["s3_operation_timeout_secs"], 3_600);
+    }
+
+    #[test]
+    fn connector_options_reject_namespace_version_unknown_type_and_range_errors() {
+        let descriptor = s3_descriptor();
+        let namespace = ConnectorConfigEnvelope {
+            format_version: CONNECTOR_CONFIG_FORMAT_VERSION,
+            connector_id: ConnectorId::declared("asterdrive.storage.s3"),
+            schema_version: 3,
+            values: BTreeMap::new(),
+        };
+        assert!(matches!(
+            normalize_storage_connector_config(
+                &descriptor,
+                &ConnectorConfigEnvelope {
+                    connector_id: ConnectorId::declared("wrong.namespace"),
+                    ..namespace.clone()
+                }
+            ),
+            Err(StorageConnectorOptionsValidationError::NamespaceMismatch { .. })
+        ));
+
+        let mut wrong_version = namespace.clone();
+        wrong_version.schema_version = 2;
+        assert!(matches!(
+            normalize_storage_connector_config(&descriptor, &wrong_version),
+            Err(StorageConnectorOptionsValidationError::SchemaVersionMismatch { .. })
+        ));
+
+        let mut unknown = namespace.clone();
+        unknown
+            .values
+            .insert("secret_backdoor".to_string(), serde_json::json!(true));
+        assert!(matches!(
+            normalize_storage_connector_config(&descriptor, &unknown),
+            Err(StorageConnectorOptionsValidationError::UnknownField(_))
+        ));
+
+        let mut wrong_type = namespace.clone();
+        wrong_type
+            .values
+            .insert("s3_path_style".to_string(), serde_json::json!("false"));
+        assert!(matches!(
+            normalize_storage_connector_config(&descriptor, &wrong_type),
+            Err(StorageConnectorOptionsValidationError::TypeMismatch { .. })
+        ));
+
+        let mut below_minimum = namespace;
+        below_minimum
+            .values
+            .insert("s3_connect_timeout_secs".to_string(), serde_json::json!(0));
+        assert!(matches!(
+            normalize_storage_connector_config(&descriptor, &below_minimum),
+            Err(StorageConnectorOptionsValidationError::IntegerBelowMinimum { .. })
+        ));
+    }
+
+    #[test]
+    fn connector_option_defaults_match_declared_scalar_types() {
+        let descriptor = s3_descriptor();
+        let path_style = descriptor
+            .fields
+            .iter()
+            .find(|field| field.name == "s3_path_style")
+            .unwrap();
+        assert_eq!(
+            path_style.default_value,
+            Some(StorageConnectorFieldDefaultValue::Boolean(true))
+        );
     }
 }

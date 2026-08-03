@@ -4,14 +4,11 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::Result;
 use crate::storage::drivers::azure_blob::{AzureBlobConfigError, AzureBlobDriver};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
-};
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, parse_storage_policy_options};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorUiDescriptorInput,
     object_storage_connector_descriptor,
 };
 
@@ -20,10 +17,14 @@ use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorU
 
 pub struct AzureBlobConnector;
 
-impl StorageConnectorDescriptorProvider for AzureBlobConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl AzureBlobConnector {
+    pub const ID: &'static str = "asterdrive.storage.azure_blob";
+}
+
+impl AzureBlobConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-            driver_type: DriverType::AzureBlob,
+            connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
             label: "Azure Blob Storage",
             description: "Azure Blob block blob storage policy",
             ui: StorageConnectorUiDescriptorInput {
@@ -51,8 +52,10 @@ impl StorageConnectorDescriptorProvider for AzureBlobConnector {
             },
             include_s3_path_style: false,
             include_s3_region: false,
+            include_s3_timeouts: false,
             presigned_part_etag_required: false,
             storage_native_processing: false,
+            config_schema_version: 1,
             related_issues: vec![328, 329],
         })
     }
@@ -60,12 +63,8 @@ impl StorageConnectorDescriptorProvider for AzureBlobConnector {
 
 #[async_trait]
 impl StorageConnector for AzureBlobConnector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::AzureBlob
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

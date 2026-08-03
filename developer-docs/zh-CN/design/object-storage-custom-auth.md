@@ -104,13 +104,39 @@ OSS 可以沿用 COS 验证后的结构，但 signer、endpoint/addressing 和�
 
 ## 与 provider option 插件化的边界
 
-Issue #458 记录未来 plugin-safe provider option contract。本次内置 OSS connector
-可以暂时使用 typed `oss_*` options，但要遵守：
+Issue #458 现在就是 storage 重构 contract，不再是以后再做的兼容层。内建
+connector 和动态加载的 plugin 使用同一个 namespaced
+`ConnectorConfigEnvelope`：
 
-- provider option 的 normalize/validate 由具体 connector 所有；
-- 不继续扩大 `src/storage/connectors/common.rs` 的 provider key 矩阵；
-- service 和上传流程只读取稳定的公共 option、descriptor 和 capability；
-- 不在实现内置 OSS 时顺带重构 namespaced plugin option 持久化。
+- 持久化内容统一包含 `connector_id`、format version、schema version
+  和 connector-owned values；
+- descriptor 声明默认值、标量校验、secret 处理和 UI 元数据，具体 connector
+  负责 normalize 与 runtime 解码；
+- core service 不匹配 provider 字段名，也不维护 `DriverType` 到
+  options 的矩阵；
+- `StoragePolicyOptions` 及其中 provider-specific enum 只是过渡
+  遗留，所有内建 connector 迁移完成后必须删除；
+- 缩略图、媒体处理上限等跨 connector 的产品行为放入独立的 core policy
+  behavior contract，不塞进 connector namespace；
+- 未加载的 connector 对应 envelope 仍须作为 unavailable policy data 保留，
+  不能静默转换成其他 connector 或丢弃。
+
+### 旧 options 字段归属表
+
+下面这张表是删除 StoragePolicyOptions 时的检查清单：
+
+| 旧字段 | 新归属 |
+| --- | --- |
+| object_storage_upload_strategy、object_storage_download_strategy、s3_path_style、s3_region、s3_*_timeout_secs | S3 connector config |
+| object_storage_upload_strategy、object_storage_download_strategy、storage_native_processing_enabled、storage_native_media_metadata_enabled | 由各 descriptor 声明的 object-storage connector config |
+| remote_download_strategy、remote_upload_strategy | Remote connector config |
+| provider_resumable_upload_strategy、provider_download_strategy、provider_download_filename_mode、onedrive_* | OneDrive connector config |
+| sftp_host_key_fingerprint | SFTP connector config |
+| content_dedup | Local connector config |
+| thumbnail_processor、thumbnail_extensions、media_metadata_extensions | core storage policy behavior |
+
+provider enum 要随具体 connector 一起移动，或者降为 connector 内部解析类型。
+迁移完成后它们不能继续从 shared model facade 导出。
 
 ## 验证要求
 

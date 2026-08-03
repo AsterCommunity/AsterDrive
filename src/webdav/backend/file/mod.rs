@@ -131,9 +131,11 @@ impl AsterDavFile {
 
             if policy.driver_type == aster_drive_model::types::DriverType::Local {
                 let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
-                let staging_path =
-                    crate::storage::drivers::local::upload_staging_path(&policy, &staging_token)
-                        .map_err(|_| FsError::GeneralFailure)?;
+                let staging_path = crate::storage::drivers::local::upload_staging_path(
+                    &policy.base_path,
+                    &staging_token,
+                )
+                .map_err(|_| FsError::GeneralFailure)?;
                 if let Some(parent) = staging_path.parent() {
                     tokio::fs::create_dir_all(parent)
                         .await

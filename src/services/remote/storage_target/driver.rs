@@ -268,7 +268,7 @@ impl RemoteStorageTargetDriverConnector for LocalRemoteStorageTargetDriverConnec
 
     fn build_driver(policy: &storage_policy::Model) -> Result<Arc<dyn StorageDriver>> {
         Self::validate_policy(policy)?;
-        Ok(Arc::new(LocalDriver::new(policy)?))
+        Ok(Arc::new(LocalDriver::new(&policy.base_path)?))
     }
 }
 

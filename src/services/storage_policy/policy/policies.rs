@@ -121,14 +121,11 @@ pub async fn create(
         chunk_size,
         is_default,
         allowed_types,
-        options,
-        remote_storage_target_key,
         application_config,
     } = input;
     let mut connection = connection;
-    let remote_storage_target_key = normalize_remote_storage_target_key(
-        remote_storage_target_key.or_else(|| connection.remote_storage_target_key.clone()),
-    );
+    let remote_storage_target_key =
+        normalize_remote_storage_target_key(connection.remote_storage_target_key.clone());
     connection.remote_storage_target_key = remote_storage_target_key.clone();
     let connectors = state.driver_registry().connectors();
     let connection = crate::storage::connectors::normalize_policy_connection(
@@ -146,7 +143,7 @@ pub async fn create(
         base_path,
         remote_node_id,
         remote_storage_target_key: normalized_connection_target_key,
-        options: _,
+        options,
     } = crate::storage::connectors::prepare_connection_for_storage(
         connectors,
         connection,
@@ -166,7 +163,7 @@ pub async fn create(
         )
         .await?;
     let allowed_types = allowed_types.unwrap_or_default();
-    let options = options.unwrap_or_default().normalized();
+    let options = options.normalized();
     let serialized_options = serialize_options(&options)?;
     let max_file_size =
         aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
@@ -183,7 +180,7 @@ pub async fn create(
         state,
         driver_type,
         remote_node_id,
-        remote_storage_target_key.or(normalized_connection_target_key),
+        normalized_connection_target_key,
         true,
     )
     .await?;
@@ -987,8 +984,6 @@ mod tests {
             chunk_size: Some(5_242_880),
             is_default: false,
             allowed_types: None,
-            options: None,
-            remote_storage_target_key: None,
             application_config: Default::default(),
         }
     }
@@ -1131,8 +1126,6 @@ mod tests {
                 chunk_size: Some(5_242_880),
                 is_default: false,
                 allowed_types: None,
-                options: None,
-                remote_storage_target_key: None,
                 application_config: Default::default(),
             },
         )
@@ -1221,8 +1214,6 @@ mod tests {
                 chunk_size: Some(5_242_880),
                 is_default: false,
                 allowed_types: None,
-                options: None,
-                remote_storage_target_key: None,
                 application_config: Default::default(),
             },
         )
@@ -1266,18 +1257,16 @@ mod tests {
                     base_path: String::new(),
                     remote_node_id: Some(remote_node_id),
                     remote_storage_target_key: None,
-                    options: StoragePolicyOptions::default(),
+                    options: StoragePolicyOptions {
+                        remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
+                        remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),
+                        ..Default::default()
+                    },
                 },
                 max_file_size: 0,
                 chunk_size: Some(5_242_880),
                 is_default: false,
                 allowed_types: None,
-                options: Some(StoragePolicyOptions {
-                    remote_upload_strategy: Some(RemoteUploadStrategy::RelayStream),
-                    remote_download_strategy: Some(RemoteDownloadStrategy::RelayStream),
-                    ..Default::default()
-                }),
-                remote_storage_target_key: None,
                 application_config: Default::default(),
             },
         )
@@ -1308,14 +1297,12 @@ mod tests {
                     base_path: String::new(),
                     remote_node_id: None,
                     remote_storage_target_key: None,
-                    options: StoragePolicyOptions::default(),
+                    options: onedrive_options(),
                 },
                 max_file_size: 0,
                 chunk_size: Some(5_242_880),
                 is_default: false,
                 allowed_types: None,
-                options: Some(onedrive_options()),
-                remote_storage_target_key: None,
                 application_config: crate::storage::StorageConnectorApplicationConfigInput {
                     microsoft_graph: Some(crate::storage::MicrosoftGraphApplicationConfigInput {
                         client_id: Some("metadata-client-id".to_string()),

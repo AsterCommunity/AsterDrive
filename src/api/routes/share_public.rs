@@ -1285,7 +1285,8 @@ mod tests {
         let source_bytes = tiny_png();
         let source_hash = aster_forge_crypto::sha256_hex(&source_bytes);
         let driver = Arc::new(
-            LocalDriver::new(&policy).expect("share image preview route local driver should build"),
+            LocalDriver::new(&policy.base_path)
+                .expect("share image preview route local driver should build"),
         );
         let source_path = "objects/source.png";
         driver

@@ -425,10 +425,6 @@ mod tests {
 
     #[async_trait::async_trait]
     impl StorageConnector for CapturingConnector {
-        fn driver_type(&self) -> DriverType {
-            DriverType::Local
-        }
-
         fn descriptor(&self) -> aster_drive_storage::StorageConnectorDescriptor {
             self.descriptor.clone()
         }
@@ -666,26 +662,28 @@ mod tests {
     }
 
     #[test]
-    fn connector_registry_rejects_descriptor_driver_type_mismatch() {
+    fn connector_registry_accepts_non_builtin_plugin_id_without_a_parallel_path() {
         let mut descriptor = builtin_storage_connector_registry()
             .expect("built-in connector registry")
             .require(DriverType::Local)
             .expect("local connector")
             .descriptor();
-        descriptor.driver_type = DriverType::S3;
+        let plugin_id = aster_drive_storage::ConnectorId::declared("com.example.storage");
+        descriptor.connector_id = plugin_id.clone();
 
-        let error = match StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
+        let registry = StorageConnectorRegistry::new(vec![Arc::new(CapturingConnector {
             descriptor,
             runtime_builds: Arc::new(AtomicUsize::new(0)),
-        })]) {
-            Ok(_) => panic!("connector descriptor mismatch must be rejected"),
-            Err(error) => error,
-        };
+        })])
+        .expect("third-party plugin should use the same connector registry");
 
-        assert!(
-            error
-                .to_string()
-                .contains("storage connector 'local' descriptor declares driver type 's3'")
+        assert_eq!(
+            registry
+                .require_connector(&plugin_id)
+                .expect("third-party plugin id should resolve")
+                .descriptor()
+                .connector_id,
+            plugin_id
         );
     }
 

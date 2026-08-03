@@ -295,7 +295,10 @@ pub(crate) fn validate_driver_promotion_target(
     if storage_driver_descriptor(registry, source)?
         .driver_recommendations
         .iter()
-        .any(|recommendation| recommendation.target_driver_type == target)
+        .any(|recommendation| {
+            recommendation.target_connector_id
+                == contract::connector_id_for_legacy_driver_type(target)
+        })
     {
         return Ok(());
     }

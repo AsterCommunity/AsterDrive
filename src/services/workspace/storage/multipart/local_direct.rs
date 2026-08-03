@@ -51,12 +51,14 @@ pub(super) async fn upload_local_direct(
             let filename = aster_forge_validation::filename::normalize_validate_name(&filename)?;
 
             let staging_token = format!("{}.upload", aster_forge_utils::id::new_uuid());
-            let staging_path =
-                crate::storage::drivers::local::upload_staging_path(policy, &staging_token)
-                    .map_aster_err_ctx(
-                        "resolve local staging path",
-                        upload_local_staging_path_resolve_failed,
-                    )?;
+            let staging_path = crate::storage::drivers::local::upload_staging_path(
+                &policy.base_path,
+                &staging_token,
+            )
+            .map_aster_err_ctx(
+                "resolve local staging path",
+                upload_local_staging_path_resolve_failed,
+            )?;
             if let Some(parent) = staging_path.parent() {
                 tokio::fs::create_dir_all(parent).await.map_aster_err_ctx(
                     "create local staging dir",

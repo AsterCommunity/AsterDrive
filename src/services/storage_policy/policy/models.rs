@@ -183,11 +183,6 @@ pub struct PolicyGroupAssignmentMigrationResult {
 }
 
 #[derive(Debug, Clone)]
-pub struct ConfigureTencentCosCorsInput {
-    pub connection: StoragePolicyConnectionInput,
-}
-
-#[derive(Debug, Clone)]
 pub struct CreateStoragePolicyInput {
     pub name: String,
     pub connection: StoragePolicyConnectionInput,
@@ -195,8 +190,6 @@ pub struct CreateStoragePolicyInput {
     pub chunk_size: Option<i64>,
     pub is_default: bool,
     pub allowed_types: Option<Vec<String>>,
-    pub options: Option<StoragePolicyOptions>,
-    pub remote_storage_target_key: Option<String>,
     pub application_config: crate::storage::StorageConnectorApplicationConfigInput,
 }
 

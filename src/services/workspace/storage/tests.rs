@@ -102,7 +102,7 @@ struct CountingUploadDriver {
 impl CountingUploadDriver {
     fn new(policy: &storage_policy::Model) -> Self {
         Self {
-            inner: crate::storage::drivers::local::LocalDriver::new(policy)
+            inner: crate::storage::drivers::local::LocalDriver::new(&policy.base_path)
                 .expect("counting test driver should initialize"),
             put_file_count: AtomicUsize::new(0),
             put_reader_count: AtomicUsize::new(0),
@@ -213,7 +213,7 @@ impl BlockingPutFileDriver {
         let release_put_file = Arc::new(Notify::new());
         (
             Self {
-                inner: crate::storage::drivers::local::LocalDriver::new(policy)
+                inner: crate::storage::drivers::local::LocalDriver::new(&policy.base_path)
                     .expect("blocking test driver should initialize"),
                 put_file_entered: Mutex::new(Some(entered_tx)),
                 release_put_file: release_put_file.clone(),
@@ -327,7 +327,7 @@ impl BlockingLocalPathDriver {
         let (release_tx, release_rx) = mpsc::channel();
         (
             Self {
-                inner: crate::storage::drivers::local::LocalDriver::new(policy)
+                inner: crate::storage::drivers::local::LocalDriver::new(&policy.base_path)
                     .expect("blocking local path test driver should initialize"),
                 target_entered: Mutex::new(Some(entered_tx)),
                 release_target: Mutex::new(Some(release_rx)),
@@ -680,7 +680,7 @@ struct CancelAfterLocalPathDriver {
 impl CancelAfterLocalPathDriver {
     fn new(policy: &storage_policy::Model, cancelled: Arc<AtomicBool>) -> Self {
         Self {
-            inner: crate::storage::drivers::local::LocalDriver::new(policy)
+            inner: crate::storage::drivers::local::LocalDriver::new(&policy.base_path)
                 .expect("cancel after local path test driver should initialize"),
             cancelled,
         }

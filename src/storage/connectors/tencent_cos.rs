@@ -5,14 +5,11 @@ use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
-};
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, parse_storage_policy_options};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorUiDescriptorInput,
     StoragePolicyExecutableAction, object_storage_connector_descriptor, policy_action_descriptor,
 };
 
@@ -27,11 +24,15 @@ use super::{
 
 pub struct TencentCosConnector;
 
-impl StorageConnectorDescriptorProvider for TencentCosConnector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl TencentCosConnector {
+    pub const ID: &'static str = "asterdrive.storage.tencent_cos";
+}
+
+impl TencentCosConnector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         let mut descriptor =
             object_storage_connector_descriptor(ObjectStorageConnectorDescriptorInput {
-                driver_type: DriverType::TencentCos,
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
                 label: "Tencent COS",
                 description: "Tencent Cloud COS object storage policy",
                 ui: StorageConnectorUiDescriptorInput {
@@ -59,8 +60,10 @@ impl StorageConnectorDescriptorProvider for TencentCosConnector {
                 },
                 include_s3_path_style: false,
                 include_s3_region: false,
+                include_s3_timeouts: false,
                 presigned_part_etag_required: true,
                 storage_native_processing: true,
+                config_schema_version: 1,
                 related_issues: vec![328, 329],
             });
         descriptor.actions.push(policy_action_descriptor(
@@ -117,12 +120,8 @@ fn resolve_cos_cors_allowed_origins(
 
 #[async_trait]
 impl StorageConnector for TencentCosConnector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::TencentCos
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

@@ -3,27 +3,31 @@ use async_trait::async_trait;
 use crate::errors::Result;
 use crate::storage::drivers::s3::{S3Driver, S3DriverOptions};
 use aster_drive_model::entities::storage_policy;
-use aster_drive_model::types::{
-    DriverType, ObjectStorageDownloadStrategy, parse_storage_policy_options,
-};
+use aster_drive_model::types::{ObjectStorageDownloadStrategy, parse_storage_policy_options};
 use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectStorageConnectorDescriptorInput, ObjectStorageFieldDescriptorInput,
-    StorageConnectorDeploymentScope, StorageConnectorDescriptor,
-    StorageConnectorDescriptorProvider, StorageConnectorUiDescriptorInput,
+    StorageConnectorDeploymentScope, StorageConnectorDescriptor, StorageConnectorUiDescriptorInput,
     endpoint_driver_recommendation, endpoint_host_rule, object_storage_connector_descriptor,
 };
 
 use super::common::{normalize_s3_connection_fields, validate_static_secret_credentials};
-use super::{StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport};
+use super::{
+    StorageConnector, StorageConnectorConnectionInput, StorageConnectorUploadTransport,
+    TencentCosConnector,
+};
 
 pub struct S3Connector;
 
-impl StorageConnectorDescriptorProvider for S3Connector {
-    fn storage_connector_descriptor() -> StorageConnectorDescriptor {
+impl S3Connector {
+    pub const ID: &'static str = "asterdrive.storage.s3";
+}
+
+impl S3Connector {
+    fn descriptor_definition() -> StorageConnectorDescriptor {
         let mut descriptor = object_storage_connector_descriptor(
             ObjectStorageConnectorDescriptorInput {
-                driver_type: DriverType::S3,
+                connector_id: aster_drive_storage::ConnectorId::declared(Self::ID),
                 label: "S3-compatible object storage",
                 description: "S3-compatible object storage policy",
                 ui: StorageConnectorUiDescriptorInput {
@@ -51,15 +55,17 @@ impl StorageConnectorDescriptorProvider for S3Connector {
                 },
                 include_s3_path_style: true,
                 include_s3_region: true,
+                include_s3_timeouts: true,
                 presigned_part_etag_required: true,
                 storage_native_processing: false,
+                config_schema_version: 1,
                 related_issues: vec![328, 329, 452],
             },
         );
         descriptor
             .driver_recommendations
             .push(endpoint_driver_recommendation(
-                DriverType::TencentCos,
+                aster_drive_storage::ConnectorId::declared(TencentCosConnector::ID),
                 vec![
                     endpoint_host_rule(Some("myqcloud.com"), None),
                     endpoint_host_rule(None, Some(".myqcloud.com")),
@@ -71,12 +77,8 @@ impl StorageConnectorDescriptorProvider for S3Connector {
 
 #[async_trait]
 impl StorageConnector for S3Connector {
-    fn driver_type(&self) -> DriverType {
-        DriverType::S3
-    }
-
     fn descriptor(&self) -> StorageConnectorDescriptor {
-        Self::storage_connector_descriptor()
+        Self::descriptor_definition()
     }
 
     fn normalize_connection_fields(

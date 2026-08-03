@@ -4,7 +4,7 @@ use crate::config::DatabaseConfig;
 use aster_drive_migration::Migrator;
 use aster_drive_storage::connector_descriptor::{
     StorageConnectorActionKind, StorageConnectorAffordanceAction, StorageConnectorDeploymentScope,
-    StorageConnectorDescriptorProvider, StorageConnectorFieldScope, StoragePolicyExecutableAction,
+    StorageConnectorFieldScope, StoragePolicyExecutableAction,
 };
 use chrono::Utc;
 use sea_orm::ActiveValue::Set;
@@ -205,9 +205,10 @@ fn descriptors_cover_every_storage_driver() {
         DriverType::OneDrive,
     ] {
         assert!(
-            descriptors
-                .iter()
-                .any(|descriptor| descriptor.driver_type == driver_type),
+            descriptors.iter().any(|descriptor| {
+                descriptor.connector_id
+                    == super::contract::connector_id_for_legacy_driver_type(driver_type)
+            }),
             "missing descriptor for {driver_type:?}"
         );
     }
@@ -318,27 +319,27 @@ fn descriptors_expose_connector_owned_ui_metadata() {
         assert!(
             !descriptor.ui.label_key.trim().is_empty(),
             "{:?} missing label key",
-            descriptor.driver_type
+            descriptor.connector_id
         );
         assert!(
             !descriptor.ui.description_key.trim().is_empty(),
             "{:?} missing description key",
-            descriptor.driver_type
+            descriptor.connector_id
         );
         assert!(
             !descriptor.ui.helper_key.trim().is_empty(),
             "{:?} missing create helper key",
-            descriptor.driver_type
+            descriptor.connector_id
         );
         assert!(
             !descriptor.ui.edit_context_key.trim().is_empty(),
             "{:?} missing edit context key",
-            descriptor.driver_type
+            descriptor.connector_id
         );
         assert!(
             descriptor.ui.icon_src.is_some() || descriptor.ui.icon_name.is_some(),
             "{:?} should declare a visual affordance",
-            descriptor.driver_type
+            descriptor.connector_id
         );
     }
 
@@ -401,8 +402,10 @@ fn connector_registry_covers_every_builtin_storage_driver() {
             .require(driver_type)
             .expect("registered connector");
 
-        assert_eq!(connector.driver_type(), driver_type);
-        assert_eq!(connector.descriptor().driver_type, driver_type);
+        assert_eq!(
+            connector.descriptor().connector_id,
+            super::contract::connector_id_for_legacy_driver_type(driver_type)
+        );
     }
 }
 
@@ -419,7 +422,7 @@ fn connector_registry_rejects_duplicate_driver_types() {
     assert!(
         error
             .to_string()
-            .contains("storage connector 'local' is registered more than once")
+            .contains("storage connector 'asterdrive.storage.local' is registered more than once")
     );
 }
 
@@ -436,7 +439,7 @@ fn connector_registry_rejects_missing_driver_lookup() {
     assert!(
         error
             .to_string()
-            .contains("storage connector 's3' is not registered")
+            .contains("storage connector 'asterdrive.storage.s3' is not registered")
     );
 }
 
@@ -449,15 +452,19 @@ fn connector_registry_preserves_registration_order() {
     ])
     .expect("unique connector registrations should succeed");
 
-    let driver_types = registry
+    let connector_ids = registry
         .descriptors()
         .into_iter()
-        .map(|descriptor| descriptor.driver_type)
+        .map(|descriptor| descriptor.connector_id)
         .collect::<Vec<_>>();
 
     assert_eq!(
-        driver_types,
-        vec![DriverType::S3, DriverType::Local, DriverType::AzureBlob]
+        connector_ids,
+        vec![
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.s3"),
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.local"),
+            aster_drive_storage::ConnectorId::declared("asterdrive.storage.azure_blob"),
+        ]
     );
 }
 
@@ -467,7 +474,7 @@ fn local_descriptor_declares_content_dedup_policy_option() {
 
     assert!(descriptor.fields.iter().any(|field| {
         field.name == "content_dedup"
-            && field.scope == StorageConnectorFieldScope::PolicyOptions
+            && field.scope == StorageConnectorFieldScope::ConnectorOptions
             && field.kind
                 == aster_drive_storage::connector_descriptor::StorageConnectorFieldKind::Boolean
     }));
@@ -596,16 +603,11 @@ fn object_storage_connection_field_display_metadata_is_connector_owned() {
         s3_path_style.help_key.as_deref(),
         Some("s3_path_style_desc")
     );
-    assert_eq!(
-        s3_path_style.visible_when_driver_types,
-        vec![DriverType::S3]
-    );
     let s3_region = field(&s3, "s3_region");
     assert_eq!(s3_region.label_key, "s3_region");
     assert_eq!(s3_region.placeholder.as_deref(), Some("auto"));
     assert_eq!(s3_region.help_key.as_deref(), Some("s3_region_desc"));
     assert!(s3_region.trim_on_blur);
-    assert_eq!(s3_region.visible_when_driver_types, vec![DriverType::S3]);
 
     let azure_blob = descriptor(DriverType::AzureBlob);
     assert_eq!(
@@ -707,7 +709,7 @@ fn sftp_connection_field_display_metadata_is_connector_owned() {
     assert_eq!(field(&sftp, "secret_key").label_key, "sftp_password");
     assert_eq!(
         field(&sftp, "sftp_host_key_fingerprint").scope,
-        StorageConnectorFieldScope::PolicyOptions
+        StorageConnectorFieldScope::ConnectorOptions
     );
     assert_eq!(
         field(&sftp, "sftp_host_key_fingerprint").label_key,
@@ -753,7 +755,10 @@ fn s3_descriptor_declares_connector_owned_endpoint_driver_recommendation() {
     let recommendation = s3
         .driver_recommendations
         .iter()
-        .find(|recommendation| recommendation.target_driver_type == DriverType::TencentCos)
+        .find(|recommendation| {
+            recommendation.target_connector_id
+                == aster_drive_storage::ConnectorId::declared("asterdrive.storage.tencent_cos")
+        })
         .expect("S3 connector should recommend the specialized Tencent COS driver");
 
     assert!(
@@ -885,7 +890,7 @@ fn non_onedrive_connectors_reject_microsoft_graph_application_config() {
     assert!(
         error
             .to_string()
-            .contains("application credential config is not valid for s3")
+            .contains("application credential config is not valid for asterdrive.storage.s3")
     );
 }
 
@@ -1262,7 +1267,7 @@ fn onedrive_connector_personal_and_work_modes_reject_site_and_group_ids() {
 
 #[test]
 fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
-    let onedrive = OneDriveConnector::storage_connector_descriptor();
+    let onedrive = OneDriveConnector.descriptor();
 
     assert!(onedrive.actions.iter().any(|action| {
         action.affordance_action == Some(StorageConnectorAffordanceAction::StartAuthorization)
@@ -1277,14 +1282,18 @@ fn connector_action_endpoint_gate_rejects_non_endpoint_actions() {
         .contains("not supported")
     );
     assert!(
-        TencentCosConnector::storage_connector_supports_policy_action(
-            StoragePolicyExecutableAction::ConfigureTencentCosCors
-        )
+        TencentCosConnector
+            .descriptor()
+            .actions
+            .iter()
+            .any(|action| {
+                action.policy_action == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
+            })
     );
     assert!(
-        !OneDriveConnector::storage_connector_supports_policy_action(
-            StoragePolicyExecutableAction::ConfigureTencentCosCors
-        )
+        !OneDriveConnector.descriptor().actions.iter().any(|action| {
+            action.policy_action == Some(StoragePolicyExecutableAction::ConfigureTencentCosCors)
+        })
     );
 }
 
@@ -1379,10 +1388,9 @@ fn has_policy_option(
     descriptor: &aster_drive_storage::StorageConnectorDescriptor,
     name: &str,
 ) -> bool {
-    descriptor
-        .fields
-        .iter()
-        .any(|field| field.scope == StorageConnectorFieldScope::PolicyOptions && field.name == name)
+    descriptor.fields.iter().any(|field| {
+        field.scope == StorageConnectorFieldScope::ConnectorOptions && field.name == name
+    })
 }
 
 fn field<'a>(
