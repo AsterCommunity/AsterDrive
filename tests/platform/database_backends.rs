@@ -729,6 +729,35 @@ async fn test_postgres_smoke_search_and_admin_overview() {
 async fn test_mysql_smoke_search_and_admin_overview() {
     let database_url = common::mysql_test_database_url().await;
 
+    let config = aster_drive::config::DatabaseConfig {
+        url: database_url.clone().into(),
+        pool_size: 1,
+        retry_count: 0,
+    };
+    let database =
+        aster_drive::db::connect_with_metrics(&config, aster_drive_metrics::NoopMetrics::arc())
+            .await
+            .expect("MySQL cache configuration test connection should succeed");
+    let row = database
+        .query_one_raw(Statement::from_string(
+            DbBackend::MySql,
+            "SELECT @@GLOBAL.table_definition_cache",
+        ))
+        .await
+        .expect("MySQL table definition cache should be readable")
+        .expect("MySQL table definition cache query should return one row");
+    let table_definition_cache: u64 = row
+        .try_get_by_index(0)
+        .expect("MySQL table definition cache should be an unsigned integer");
+    assert!(
+        table_definition_cache >= common::MYSQL_TEST_TABLE_DEFINITION_CACHE,
+        "MySQL table definition cache must cover parallel isolated test schemas"
+    );
+    database
+        .close()
+        .await
+        .expect("MySQL cache configuration test connection should close cleanly");
+
     exercise_backend_smoke(&database_url, DbBackend::MySql).await;
 }
 
