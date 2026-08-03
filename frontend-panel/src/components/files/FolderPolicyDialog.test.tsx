@@ -146,7 +146,7 @@ function folderInfo(policyId: number | null = null) {
 		created_at: "2026-06-12T00:00:00Z",
 		created_by_username: "alice",
 		id: 12,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		name: "Projects",
 		policy_id: policyId,
 		tags: [],

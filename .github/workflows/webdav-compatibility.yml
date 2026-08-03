@@ -9,6 +9,7 @@ on:
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
+      - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -21,6 +22,7 @@ on:
       - 'tests/common/**'
       - 'tests/webdav/**'
       - 'scripts/ci/webdav-compat/**'
+      - '.github/actions/setup-litmus/**'
       - '.github/workflows/webdav-compatibility.yml'
       - 'Cargo.toml'
       - 'Cargo.lock'
@@ -43,8 +45,8 @@ env:
   CARGO_PROFILE_TEST_DEBUG: '0'
 
 jobs:
-  litmus:
-    name: Litmus 0.18 baseline
+  litmus-baseline:
+    name: Litmus 0.18 / baseline
     runs-on: ubuntu-24.04
     timeout-minutes: 60
     steps:
@@ -52,50 +54,10 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+      - name: Setup Litmus
+        uses: ./.github/actions/setup-litmus
 
-      - name: Install pinned Litmus and runtime dependencies
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            autoconf \
-            automake \
-            build-essential \
-            ca-certificates \
-            curl \
-            ffmpeg \
-            libexpat1-dev \
-            libssl-dev \
-            libvips-tools \
-            pkg-config
-          scripts/ci/webdav-compat/install-litmus.sh
-
-      - name: Record Litmus toolchain
-        env:
-          WEBDAV_COMPAT_TOOLS_DIR: ${{ runner.temp }}/webdav-compat-tools
-        run: |
-          source scripts/ci/webdav-compat/versions.env
-          mkdir -p artifacts/tool-versions
-          {
-            "${WEBDAV_COMPAT_TOOLS_DIR}/bin/litmus" --version
-            echo "litmus_commit=${LITMUS_SOURCE_COMMIT}"
-            echo "litmus_source_sha256=${LITMUS_SOURCE_SHA256}"
-            echo "neon_commit=${LITMUS_NEON_COMMIT}"
-            echo "neon_source_sha256=${LITMUS_NEON_SOURCE_SHA256}"
-            openssl version
-            rustc --version
-            cargo --version
-          } | tee artifacts/tool-versions/litmus.txt
-
-      - name: Cache Rust build artifacts
-        uses: Swatinem/rust-cache@v2
-        with:
-          shared-key: webdav-litmus-0.18-v1
-
-      - name: Run Litmus conformance baseline
+      - name: Run Litmus baseline suite
         env:
           LITMUS_BIN: ${{ runner.temp }}/webdav-compat-tools/bin/litmus
           ASTER_WEBDAV_COMPAT_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
@@ -106,13 +68,76 @@ jobs:
             --skip resource_litmus:: \
             --skip security_policy_litmus:: \
             --nocapture --test-threads=1 \
-            2>&1 | tee artifacts/litmus-test.log
+            2>&1 | tee artifacts/litmus-baseline-test.log
 
       - name: Upload Litmus results and request logs
         if: always()
         uses: actions/upload-artifact@v7
         with:
-          name: webdav-litmus-${{ github.run_id }}
+          name: webdav-litmus-baseline-${{ github.run_id }}
+          if-no-files-found: error
+          retention-days: 30
+          path: artifacts
+
+  litmus:
+    name: Litmus 0.18 / ${{ matrix.suite }}
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-24.04
+    timeout-minutes: ${{ matrix.timeout_minutes }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: resource
+            timeout_minutes: 120
+          - suite: lockbomb
+            timeout_minutes: 180
+          - suite: protected
+            timeout_minutes: 45
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Setup Litmus
+        uses: ./.github/actions/setup-litmus
+
+      - name: Run Litmus ${{ matrix.suite }} suite
+        env:
+          LITMUS_BIN: ${{ runner.temp }}/webdav-compat-tools/bin/litmus
+          ASTER_WEBDAV_COMPAT_ARTIFACT_DIR: ${{ github.workspace }}/artifacts
+        run: |
+          set -o pipefail
+          case '${{ matrix.suite }}' in
+            resource)
+              cargo test --test webdav \
+                litmus_compliance::resource_litmus::test_litmus_largefile -- \
+                --ignored --exact --nocapture --test-threads=1
+              cargo test --test webdav \
+                litmus_compliance::resource_litmus::test_litmus_lockbomb_single -- \
+                --ignored --exact --nocapture --test-threads=1
+              ;;
+            lockbomb)
+              cargo test --test webdav \
+                litmus_compliance::resource_litmus::test_litmus_lockbomb -- \
+                --ignored --exact --nocapture --test-threads=1
+              ;;
+            protected)
+              cargo test --test webdav \
+                litmus_compliance::security_policy_litmus::test_litmus_protected -- \
+                --ignored --exact --nocapture --test-threads=1
+              ;;
+            *)
+              echo "unknown Litmus suite: ${{ matrix.suite }}" >&2
+              exit 2
+              ;;
+          esac 2>&1 | tee "artifacts/litmus-${{ matrix.suite }}-test.log"
+
+      - name: Upload Litmus results and request logs
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: webdav-litmus-${{ matrix.suite }}-${{ github.run_id }}
           if-no-files-found: error
           retention-days: 30
           path: artifacts

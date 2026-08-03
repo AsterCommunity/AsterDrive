@@ -15,6 +15,7 @@ export const ApiErrorCode = {
 	ConfigError: "config.error",
 	EndpointNotFound: "endpoint.not_found",
 	RateLimited: "rate_limited",
+	OperationResourceLimitExceeded: "operation.resource_limit_exceeded",
 	MailNotConfigured: "mail.not_configured",
 	MailDeliveryFailed: "mail.delivery_failed",
 	Conflict: "conflict",

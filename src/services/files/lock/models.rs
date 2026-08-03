@@ -3,7 +3,7 @@ use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 
 use crate::services::user::account;
-use aster_drive_model::types::EntityType;
+use aster_drive_model::types::{LockDepth, LockMode, LockOrigin, LockRootKind};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -38,15 +38,18 @@ pub enum ResourceLockOwnerInfo {
 pub struct ResourceLock {
     pub id: i64,
     pub token: String,
-    pub entity_type: EntityType,
-    pub entity_id: i64,
-    pub path: String,
+    pub namespace_id: i64,
+    pub root_kind: LockRootKind,
+    pub root_folder_id: Option<i64>,
+    pub root_file_id: Option<i64>,
+    pub depth: LockDepth,
+    pub mode: LockMode,
+    pub origin: LockOrigin,
+    pub lockroot_path: Option<String>,
     pub owner: Option<account::UserSummary>,
     pub owner_info: Option<ResourceLockOwnerInfo>,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub timeout_at: Option<chrono::DateTime<chrono::Utc>>,
-    pub shared: bool,
-    pub deep: bool,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub created_at: chrono::DateTime<chrono::Utc>,
 }

@@ -11,7 +11,7 @@ title: "WebDAV"
 普通用户用 WebDAV 一般只关心：在要连接的工作空间里创建专用账号，把地址塞进 Finder / Windows / rclone。个人空间和团队空间的 WebDAV 地址相同，账号凭据决定进入哪个工作空间。
 :::
 
-协议方法、属性、锁和 DeltaV 边界见 [WebDAV 协议兼容](/reference/webdav-compat/)；账号、挂载、文件名编码和同名限制见 [WebDAV 使用](/using/webdav/)。
+协议方法、属性、锁和版本控制边界见 [WebDAV 协议兼容](/reference/webdav-compat/)；账号、挂载、文件名编码和同名限制见 [WebDAV 使用](/using/webdav/)。
 
 ## `config.toml` 里的静态配置
 
@@ -26,7 +26,7 @@ xml_payload_limit = 1048576
 | --- | --- | --- |
 | `prefix` | `"/webdav"` | WebDAV 路径前缀；改完客户端地址也要一起改 |
 | `payload_limit` | `10737418240` | WebDAV 文件写入请求体硬上限，默认 10 GiB |
-| `xml_payload_limit` | `1048576` | WebDAV XML 类请求体硬上限，默认 1 MiB；用于 `PROPFIND`、`PROPPATCH`、`REPORT`、`LOCK` |
+| `xml_payload_limit` | `1048576` | WebDAV XML 类请求体硬上限，默认 1 MiB；用于 `PROPFIND`、`PROPPATCH`、`LOCK` |
 
 :::caution[这些静态项改完要重启服务]
 和后台总开关不一样，静态配置只在启动时读一次。

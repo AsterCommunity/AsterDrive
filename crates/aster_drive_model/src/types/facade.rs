@@ -13,7 +13,7 @@ pub use super::auth::{
     MfaFirstFactor, MfaMethod, MfaPersistentFactorMethod, TokenType, VerificationChannel,
     VerificationPurpose,
 };
-pub use super::entity::EntityType;
+pub use super::entity::{EntityType, ResourceLockTargetType};
 pub use super::media_metadata::{
     AudioMediaMetadata, ImageMediaMetadata, MediaMetadataKind, MediaMetadataPayload,
     MediaMetadataStatus, StoredMediaMetadataPayload, VideoMediaMetadata,
@@ -23,6 +23,7 @@ pub use super::preferences::{
     BrowserOpenMode, ColorPreset, Language, PrefViewMode, StoredUserConfig, ThemeMode, UserConfig,
     UserPreferences,
 };
+pub use super::resource_lock::{LockDepth, LockMode, LockOrigin, LockRootKind, LockWorkspaceType};
 pub use super::sort::SortBy;
 pub use super::storage_credential::{
     MicrosoftGraphCloud, StorageAuthorizationFlowStatus, StorageCredentialKind,

@@ -9,14 +9,15 @@ use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     content::tag,
+    files::lock,
     share,
     workspace::storage::{self, WorkspaceResourceScope, WorkspaceStorageScope},
 };
 use aster_forge_utils::numbers::usize_to_u64;
 
 use super::{
-    FileCursor, FolderContents, build_file_list_items_with_tags, build_folder_list_items_with_tags,
-    ensure_personal_folder_scope,
+    FileCursor, FolderContents, build_file_list_items_with_tags_and_lock_states,
+    build_folder_list_items_with_tags_and_lock_states, ensure_personal_folder_scope,
 };
 
 #[derive(Debug, Clone)]
@@ -80,10 +81,21 @@ async fn build_folder_contents(
         share::find_active_folder_ids_in_resource_scope(state, scope, &folder_ids),
     )?;
     let tags_by_entity = tag::load_entity_tag_map(state, scope, &file_ids, &folder_ids).await?;
+    let lock_states = lock::load_for_scope(state, scope, &files, &folders).await?;
 
     Ok(FolderContents {
-        folders: build_folder_list_items_with_tags(folders, &shared_folder_ids, &tags_by_entity),
-        files: build_file_list_items_with_tags(files, &shared_file_ids, &tags_by_entity),
+        folders: build_folder_list_items_with_tags_and_lock_states(
+            folders,
+            &shared_folder_ids,
+            &tags_by_entity,
+            &lock_states,
+        ),
+        files: build_file_list_items_with_tags_and_lock_states(
+            files,
+            &shared_file_ids,
+            &tags_by_entity,
+            &lock_states,
+        ),
         folders_total,
         files_total,
         next_file_cursor,

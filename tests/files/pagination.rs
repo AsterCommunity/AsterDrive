@@ -105,9 +105,9 @@ async fn test_folder_list_includes_share_and_lock_status() {
     let files = body["data"]["files"].as_array().unwrap();
     assert_eq!(folders.len(), 1);
     assert_eq!(files.len(), 1);
-    assert_eq!(folders[0]["is_locked"], true);
+    assert_eq!(folders[0]["lock_state"]["state"], "direct");
     assert_eq!(folders[0]["is_shared"], true);
-    assert_eq!(files[0]["is_locked"], true);
+    assert_eq!(files[0]["lock_state"]["state"], "direct");
     assert_eq!(files[0]["is_shared"], true);
 }
 

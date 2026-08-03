@@ -36,14 +36,17 @@ pub use mutation::{
 pub use query::{
     AdminBlobUploaderRef, AdminFileFilters, count_live_files,
     find_admin_blob_uploader_refs_for_blobs, find_admin_file_by_id, find_admin_files_paginated,
-    find_all_in_folders, find_by_blob_id, find_by_folder, find_by_folder_cursor, find_by_folders,
-    find_by_id, find_by_ids, find_by_ids_in_personal_scope, find_by_ids_in_team_scope,
-    find_by_name_in_folder, find_by_name_in_team_folder, find_by_names_in_folder,
-    find_by_names_in_team_folder, find_by_team_folder, find_by_team_folder_cursor,
-    find_by_team_folders, lock_by_id, resolve_unique_filename, resolve_unique_team_filename,
-    sum_live_file_bytes,
+    find_all_in_folders, find_by_blob_id, find_by_folder, find_by_folder_after_id,
+    find_by_folder_cursor, find_by_folders, find_by_folders_after_id, find_by_id, find_by_ids,
+    find_by_ids_in_personal_scope, find_by_ids_in_team_scope, find_by_name_in_folder,
+    find_by_name_in_team_folder, find_by_names_in_folder, find_by_names_in_team_folder,
+    find_by_team_folder, find_by_team_folder_after_id, find_by_team_folder_cursor,
+    find_by_team_folders, find_by_team_folders_after_id, lock_by_id, resolve_unique_filename,
+    resolve_unique_team_filename, sum_live_file_bytes,
 };
-pub(crate) use query::{FileIdSize, find_id_size_by_folders};
+pub(crate) use query::{
+    FileIdSize, find_all_by_folders_after_id_in_scope, find_id_size_by_folders,
+};
 pub use trash::{
     delete, delete_many, find_all_by_team, find_all_by_team_paginated, find_all_by_user,
     find_all_by_user_paginated, find_deleted_by_user, find_deleted_in_folder, find_expired_deleted,

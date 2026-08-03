@@ -124,7 +124,7 @@ WebDAV does not go through `src/api/routes/**`. Instead:
 3. It performs WebDAV-specific Basic Auth
 4. It builds a user-scoped `AsterDavFs`
 5. It uses the database lock system and version capability support
-6. It enters the custom WebDAV / DeltaV handler
+6. It enters the WebDAV handler
 
 ## Layered structure
 
@@ -134,7 +134,7 @@ WebDAV does not go through `src/api/routes/**`. Instead:
 │  - React frontend / public sharing pages    │
 │  - REST API (primary)                       │
 │  - Internal Storage API (follower)          │
-│  - WebDAV / DeltaV                          │
+│  - WebDAV                                   │
 ├─────────────────────────────────────────────┤
 │ Application layer                           │
 │  - Routes, DTOs, unified responses, error codes
@@ -195,7 +195,7 @@ The practical rule of thumb in this repository remains:
 | `src/storage/connectors/` | Storage connectors: descriptors, fields, actions, connection tests, upload workflows, and credential requirements |
 | `src/storage/drivers/` | Local, S3-compatible, SFTP, Azure Blob, Tencent COS, OneDrive, and remote drivers |
 | `src/storage/remote_protocol/tunnel/` | Reverse tunnel transport runtime, auth, registry, and streaming responses |
-| `src/webdav/` | WebDAV filesystem, auth, locks, and DeltaV support |
+| `src/webdav/` | WebDAV product adapters, auth, lock persistence, and filesystem integration |
 | `frontend-panel/` | React 19 + Vite frontend; build artifacts are served by the backend |
 
 ## Startup flow

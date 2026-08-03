@@ -5,13 +5,13 @@ use std::time::Duration;
 use actix_web::http::StatusCode;
 use actix_web::{HttpRequest, HttpResponse};
 use aster_forge_webdav::{
-    DavLockPlan, DavLockPlanError, DavRequestHead, DavXmlError, lock_acquire_success_response,
-    lock_conflict_response, lock_limit_response, lock_refresh_success_response,
-    lock_xml_error_response, plan_lock_request, unlock_success_response,
-    unlock_token_mismatch_response,
+    DavLockPlan, DavLockPlanError, DavMutationCredentials, DavRequestHead, DavXmlError, FsError,
+    lock_acquire_success_response, lock_conflict_response, lock_limit_response,
+    lock_refresh_success_response, lock_xml_error_response, plan_lock_request,
+    unlock_success_response, unlock_token_mismatch_response,
 };
 
-use crate::webdav::{backend, fs_error_response, responses};
+use crate::webdav::{backend, responses};
 use aster_forge_webdav::{DavLockError, DavLockPreflightError, DavLockSystem};
 
 const MAX_LOCK_DURATION_SECS: u64 = 604_800;
@@ -63,12 +63,26 @@ pub(crate) async fn handle_lock(
             {
                 return resp;
             }
-            if lock_system
+            match lock_system
                 .check(&path, None, false, false, std::slice::from_ref(&token))
                 .await
-                .is_err()
             {
-                return responses::precondition_failed();
+                Ok(()) => {}
+                Err(DavLockError::Conflict(_) | DavLockError::TokenMismatch) => {
+                    return responses::precondition_failed();
+                }
+                Err(DavLockError::LimitExceeded) => {
+                    return aster_forge_webdav::actix::into_response(lock_limit_response());
+                }
+                Err(DavLockError::ParentMissing) => {
+                    return responses::empty(StatusCode::CONFLICT);
+                }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
+                }
+                Err(DavLockError::Backend) => {
+                    return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
+                }
             }
             let lock = match lock_system.refresh(&path, &token, Some(timeout)).await {
                 Ok(lock) => lock,
@@ -77,6 +91,12 @@ pub(crate) async fn handle_lock(
                 }
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
+                }
+                Err(DavLockError::ParentMissing) => {
+                    return responses::empty(StatusCode::CONFLICT);
+                }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
                 }
                 Err(DavLockError::Backend) => {
                     return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
@@ -101,17 +121,41 @@ pub(crate) async fn handle_lock(
                 };
             }
 
-            let resource_existed =
-                match aster_forge_webdav::ensure_lock_target_exists(dav_fs, &path).await {
-                    Ok(resource_existed) => resource_existed,
-                    Err(err) => return fs_error_response(err),
-                };
+            let credentials = match dav_fs.metadata_for_write(&path).await {
+                Ok(_) => DavMutationCredentials::default(),
+                Err(FsError::NotFound) => match aster_forge_webdav::actix::enforce_parent_unlocked(
+                    lock_system,
+                    &path,
+                    prefix,
+                    request_head.if_header.as_ref(),
+                    request_scheme,
+                    request_host,
+                )
+                .await
+                {
+                    Ok(credentials) => credentials,
+                    Err(response) => return response,
+                },
+                Err(error) => {
+                    return aster_forge_webdav::actix::into_response(
+                        aster_forge_webdav::backend_error_response(&error.into()),
+                    );
+                }
+            };
 
-            let lock = match lock_system
-                .lock(&path, None, owner.as_ref(), Some(timeout), shared, deep)
+            let result = match lock_system
+                .lock(aster_forge_webdav::DavLockAcquireRequest {
+                    path: &path,
+                    principal: None,
+                    owner: owner.as_ref(),
+                    timeout: Some(timeout),
+                    shared,
+                    deep,
+                    credentials,
+                })
                 .await
             {
-                Ok(lock) => lock,
+                Ok(result) => result,
                 Err(DavLockError::Conflict(lock)) => {
                     return into_xml_response(lock_conflict_response(prefix, &lock.path));
                 }
@@ -121,15 +165,21 @@ pub(crate) async fn handle_lock(
                 Err(DavLockError::LimitExceeded) => {
                     return aster_forge_webdav::actix::into_response(lock_limit_response());
                 }
+                Err(DavLockError::ParentMissing) => {
+                    return responses::empty(StatusCode::CONFLICT);
+                }
+                Err(DavLockError::NotFound) => {
+                    return responses::empty(StatusCode::NOT_FOUND);
+                }
                 Err(DavLockError::Backend) => {
                     return responses::empty(StatusCode::INTERNAL_SERVER_ERROR);
                 }
             };
 
             into_xml_response(lock_acquire_success_response(
-                &lock,
+                &result.lock,
                 prefix,
-                resource_existed,
+                result.resource_existed,
             ))
         }
     }
@@ -158,6 +208,8 @@ pub(crate) async fn handle_unlock(
         Err(DavLockError::LimitExceeded) => {
             aster_forge_webdav::actix::into_response(lock_limit_response())
         }
+        Err(DavLockError::ParentMissing) => responses::empty(StatusCode::CONFLICT),
+        Err(DavLockError::NotFound) => responses::empty(StatusCode::NOT_FOUND),
         Err(DavLockError::Backend) => responses::empty(StatusCode::INTERNAL_SERVER_ERROR),
     }
 }

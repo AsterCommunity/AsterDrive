@@ -486,7 +486,7 @@ function createFile(overrides: Partial<AdminFileInfo> = {}): AdminFileInfo {
 		file_category: "text",
 		folder_id: 2,
 		id: 21,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		mime_type: "text/plain",
 		name: "report.txt",
 		owner_user_id: 1,

@@ -430,7 +430,6 @@ where
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )

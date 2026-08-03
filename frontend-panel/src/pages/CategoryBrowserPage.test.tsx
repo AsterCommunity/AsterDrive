@@ -313,7 +313,7 @@ function fileItem(id: number, name: string): FileListItem {
 		compound_extension: null,
 		extension: name.split(".").pop() ?? "",
 		file_category: "image",
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		mime_type: "image/jpeg",
 		name,

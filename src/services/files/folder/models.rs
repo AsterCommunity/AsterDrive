@@ -6,6 +6,8 @@ use std::collections::HashSet;
 use utoipa::ToSchema;
 
 use crate::services::content::tag::TagSummary;
+use crate::services::files::lock::LockStateMap;
+use crate::services::files::lock::ResourceLockState;
 use aster_drive_model::entities::{file, folder};
 use aster_drive_model::types::EntityType;
 
@@ -32,7 +34,7 @@ pub struct FileListItem {
     pub file_category: aster_forge_file_classification::FileCategory,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub is_locked: bool,
+    pub lock_state: ResourceLockState,
     pub is_shared: bool,
     pub tags: Vec<TagSummary>,
 }
@@ -44,7 +46,7 @@ pub struct FolderListItem {
     pub name: String,
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = String))]
     pub updated_at: chrono::DateTime<chrono::Utc>,
-    pub is_locked: bool,
+    pub lock_state: ResourceLockState,
     pub is_shared: bool,
     pub tags: Vec<TagSummary>,
 }
@@ -80,6 +82,20 @@ pub fn build_file_list_items_with_tags(
     shared_file_ids: &HashSet<i64>,
     tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
 ) -> Vec<FileListItem> {
+    build_file_list_items_with_tags_and_lock_states(
+        files,
+        shared_file_ids,
+        tags_by_entity,
+        &std::collections::HashMap::new(),
+    )
+}
+
+pub fn build_file_list_items_with_tags_and_lock_states(
+    files: Vec<file::Model>,
+    shared_file_ids: &HashSet<i64>,
+    tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
+    lock_states: &LockStateMap,
+) -> Vec<FileListItem> {
     files
         .into_iter()
         .map(|file| FileListItem {
@@ -91,7 +107,10 @@ pub fn build_file_list_items_with_tags(
             compound_extension: file.compound_extension,
             file_category: file.file_category,
             updated_at: file.updated_at,
-            is_locked: file.is_locked,
+            lock_state: lock_states
+                .get(&(EntityType::File, file.id))
+                .cloned()
+                .unwrap_or(ResourceLockState::Unlocked),
             is_shared: shared_file_ids.contains(&file.id),
             tags: tags_by_entity
                 .get(&(EntityType::File, file.id))
@@ -117,13 +136,30 @@ pub fn build_folder_list_items_with_tags(
     shared_folder_ids: &HashSet<i64>,
     tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
 ) -> Vec<FolderListItem> {
+    build_folder_list_items_with_tags_and_lock_states(
+        folders,
+        shared_folder_ids,
+        tags_by_entity,
+        &std::collections::HashMap::new(),
+    )
+}
+
+pub fn build_folder_list_items_with_tags_and_lock_states(
+    folders: Vec<folder::Model>,
+    shared_folder_ids: &HashSet<i64>,
+    tags_by_entity: &std::collections::HashMap<(EntityType, i64), Vec<TagSummary>>,
+    lock_states: &LockStateMap,
+) -> Vec<FolderListItem> {
     folders
         .into_iter()
         .map(|folder| FolderListItem {
             id: folder.id,
             name: folder.name,
             updated_at: folder.updated_at,
-            is_locked: folder.is_locked,
+            lock_state: lock_states
+                .get(&(EntityType::Folder, folder.id))
+                .cloned()
+                .unwrap_or(ResourceLockState::Unlocked),
             is_shared: shared_folder_ids.contains(&folder.id),
             tags: tags_by_entity
                 .get(&(EntityType::Folder, folder.id))
@@ -141,7 +177,6 @@ mod tests {
     fn mock_file(
         id: i64,
         name: &str,
-        is_locked: bool,
         extension: &str,
         compound_extension: Option<&str>,
         file_category: aster_forge_file_classification::FileCategory,
@@ -163,11 +198,10 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
-            is_locked,
         }
     }
 
-    fn mock_folder(id: i64, name: &str, is_locked: bool) -> folder::Model {
+    fn mock_folder(id: i64, name: &str) -> folder::Model {
         folder::Model {
             id,
             name: name.to_string(),
@@ -180,7 +214,6 @@ mod tests {
             created_at: chrono::Utc::now(),
             updated_at: chrono::Utc::now(),
             deleted_at: None,
-            is_locked,
         }
     }
 
@@ -190,7 +223,6 @@ mod tests {
             mock_file(
                 1,
                 "a.txt",
-                false,
                 "txt",
                 None,
                 aster_forge_file_classification::FileCategory::Document,
@@ -198,7 +230,6 @@ mod tests {
             mock_file(
                 2,
                 "backup.tar.gz",
-                true,
                 "gz",
                 Some("tar.gz"),
                 aster_forge_file_classification::FileCategory::Archive,
@@ -206,7 +237,6 @@ mod tests {
             mock_file(
                 3,
                 "README",
-                false,
                 "",
                 None,
                 aster_forge_file_classification::FileCategory::Other,
@@ -225,7 +255,7 @@ mod tests {
             aster_forge_file_classification::FileCategory::Document
         );
         assert!(items[0].is_shared);
-        assert!(!items[0].is_locked);
+        assert_eq!(items[0].lock_state, ResourceLockState::Unlocked);
         assert_eq!(items[1].id, 2);
         assert_eq!(items[1].extension, "gz");
         assert_eq!(items[1].compound_extension.as_deref(), Some("tar.gz"));
@@ -234,7 +264,7 @@ mod tests {
             aster_forge_file_classification::FileCategory::Archive
         );
         assert!(!items[1].is_shared);
-        assert!(items[1].is_locked);
+        assert_eq!(items[1].lock_state, ResourceLockState::Unlocked);
         assert_eq!(items[2].extension, "");
         assert_eq!(items[2].compound_extension, None);
         assert_eq!(
@@ -255,7 +285,6 @@ mod tests {
             mock_file(
                 1,
                 "a.txt",
-                false,
                 "txt",
                 None,
                 aster_forge_file_classification::FileCategory::Document,
@@ -263,7 +292,6 @@ mod tests {
             mock_file(
                 2,
                 "b.txt",
-                false,
                 "txt",
                 None,
                 aster_forge_file_classification::FileCategory::Document,
@@ -297,7 +325,7 @@ mod tests {
 
     #[test]
     fn build_folder_list_items_maps_correctly() {
-        let folders = vec![mock_folder(1, "docs", false), mock_folder(2, "pics", true)];
+        let folders = vec![mock_folder(1, "docs"), mock_folder(2, "pics")];
         let shared: HashSet<i64> = [2].into_iter().collect();
         let items = build_folder_list_items(folders, &shared);
 
@@ -306,12 +334,12 @@ mod tests {
         assert!(!items[0].is_shared);
         assert_eq!(items[1].id, 2);
         assert!(items[1].is_shared);
-        assert!(items[1].is_locked);
+        assert_eq!(items[1].lock_state, ResourceLockState::Unlocked);
     }
 
     #[test]
     fn build_folder_list_items_with_tags_maps_hits_and_isolates_entity_type() {
-        let folders = vec![mock_folder(1, "docs", false), mock_folder(2, "pics", true)];
+        let folders = vec![mock_folder(1, "docs"), mock_folder(2, "pics")];
         let shared: HashSet<i64> = [2].into_iter().collect();
         let tag = TagSummary {
             id: 20,

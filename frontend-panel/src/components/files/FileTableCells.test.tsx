@@ -90,7 +90,7 @@ describe("FileTableCells", () => {
 						id: 1,
 						name: "report.pdf",
 						is_shared: true,
-						is_locked: true,
+						lock_state: { state: "direct", mode: "exclusive" },
 					} as never
 				}
 				thumbnailPath="/thumb/1"
@@ -123,7 +123,7 @@ describe("FileTableCells", () => {
 						id: 2,
 						name: "Docs",
 						is_shared: false,
-						is_locked: true,
+						lock_state: { state: "direct", mode: "exclusive" },
 					} as never
 				}
 			/>,

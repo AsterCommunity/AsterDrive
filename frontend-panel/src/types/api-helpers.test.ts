@@ -29,6 +29,10 @@ describe("ApiErrorCode helpers", () => {
 		}
 	});
 
+	it("recognizes the operation resource limit error contract", () => {
+		expect(isApiErrorCode("operation.resource_limit_exceeded")).toBe(true);
+	});
+
 	it("keeps ApiErrorCode runtime values unique", () => {
 		const values = Object.values(ApiErrorCode);
 

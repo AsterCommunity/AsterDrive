@@ -33,6 +33,185 @@ const REQUIRE_UPLOAD_SESSION_KIND_MIGRATION: &str = "m20260723_000001_require_up
 const REMOTE_TUNNEL_OWNERS_MIGRATION: &str = "m20260725_000001_remote_tunnel_owners";
 const PROVIDER_RELAY_RESUMABLE_UPLOAD_MIGRATION: &str =
     "m20260728_000001_provider_relay_resumable_upload";
+const REFACTOR_RESOURCE_LOCKS_MIGRATION: &str = "m20260803_000001_refactor_resource_locks";
+
+#[tokio::test]
+async fn resource_lock_migration_backfills_workspace_and_typed_root() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(REFACTOR_RESOURCE_LOCKS_MIGRATION)),
+    )
+    .await
+    .expect("legacy resource-lock schema should apply");
+
+    let now = "2026-08-03T00:00:00Z";
+    db.execute_unprepared(&format!(
+        "INSERT INTO users (id, username, email, password_hash, role, status, storage_quota, storage_used, created_at, updated_at) \
+         VALUES (101, 'lock-owner', 'lock-owner@example.test', 'hash', 'user', 'active', 0, 0, '{now}', '{now}'); \
+         INSERT INTO storage_policies (id, name, driver_type, created_at, updated_at) \
+         VALUES (1, 'lock-test', 'local', '{now}', '{now}'); \
+         INSERT INTO file_blobs (id, hash, storage_path, size, ref_count, policy_id, created_at, updated_at) \
+         VALUES (201, 'lock-blob', 'lock-blob', 0, 1, 1, '{now}', '{now}'); \
+         INSERT INTO files (id, name, folder_id, team_id, blob_id, size, owner_user_id, created_by_user_id, created_by_username, mime_type, extension, compound_extension, file_category, created_at, updated_at, deleted_at, is_locked) \
+         VALUES (301, 'locked.txt', NULL, NULL, 201, 0, 101, 101, 'lock-owner', 'text/plain', 'txt', NULL, 'document', '{now}', '{now}', NULL, 1); \
+         INSERT INTO resource_locks (token, entity_type, entity_id, path, owner_id, owner_info, timeout_at, shared, deep, created_at) \
+         VALUES ('legacy-token', 'file', 301, '/locked.txt', 101, '{{\"kind\":\"webdav\",\"xml\":\"<owner/>\"}}', NULL, 0, 0, '{now}')"
+    ))
+    .await
+    .expect("legacy resource-lock fixture should insert");
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("resource-lock refactor migration should apply");
+
+    let row = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT ns.workspace_type, ns.workspace_id, rl.root_kind, rl.root_file_id, rl.depth, rl.mode, rl.origin, rl.lockroot_path \
+             FROM resource_locks rl JOIN resource_lock_namespaces ns ON ns.id = rl.namespace_id \
+             WHERE rl.token = 'legacy-token'",
+        ))
+        .await
+        .expect("migrated lock should query")
+        .expect("migrated lock should exist");
+    assert_eq!(row.try_get_by_index::<String>(0).unwrap(), "personal");
+    assert_eq!(row.try_get_by_index::<i64>(1).unwrap(), 101);
+    assert_eq!(row.try_get_by_index::<String>(2).unwrap(), "file");
+    assert_eq!(row.try_get_by_index::<i64>(3).unwrap(), 301);
+    assert_eq!(row.try_get_by_index::<String>(4).unwrap(), "resource");
+    assert_eq!(row.try_get_by_index::<String>(5).unwrap(), "exclusive");
+    assert_eq!(row.try_get_by_index::<String>(6).unwrap(), "webdav");
+    assert_eq!(row.try_get_by_index::<String>(7).unwrap(), "/locked.txt");
+    assert!(!has_column(
+        &sqlite_table_columns(&db, "files").await,
+        "is_locked"
+    ));
+    assert!(!has_column(
+        &sqlite_table_columns(&db, "folders").await,
+        "is_locked"
+    ));
+
+    CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect("representable typed resource lock should downgrade");
+    let legacy_row = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT entity_type, entity_id, path, owner_id, shared, deep \
+             FROM resource_locks WHERE token = 'legacy-token'",
+        ))
+        .await
+        .expect("downgraded lock should query")
+        .expect("downgraded lock should exist");
+    assert_eq!(legacy_row.try_get_by_index::<String>(0).unwrap(), "file");
+    assert_eq!(legacy_row.try_get_by_index::<i64>(1).unwrap(), 301);
+    assert_eq!(
+        legacy_row.try_get_by_index::<String>(2).unwrap(),
+        "/locked.txt"
+    );
+    assert_eq!(legacy_row.try_get_by_index::<i64>(3).unwrap(), 101);
+    assert!(!legacy_row.try_get_by_index::<bool>(4).unwrap());
+    assert!(!legacy_row.try_get_by_index::<bool>(5).unwrap());
+    let file_locked = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT is_locked FROM files WHERE id = 301",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get_by_index::<bool>(0)
+        .unwrap();
+    assert!(
+        file_locked,
+        "downgrade should restore the direct-lock projection"
+    );
+
+    CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect("downgraded resource lock migration should reapply");
+}
+
+#[tokio::test]
+async fn resource_lock_migration_rejects_unresolved_legacy_target() {
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(REFACTOR_RESOURCE_LOCKS_MIGRATION)),
+    )
+    .await
+    .expect("legacy resource-lock schema should apply");
+    db.execute_unprepared(
+        "INSERT INTO resource_locks (token, entity_type, entity_id, path, owner_id, owner_info, timeout_at, shared, deep, created_at) \
+         VALUES ('orphan-token', 'file', 999999, '/orphan', NULL, NULL, NULL, 0, 0, datetime('now'))",
+    )
+    .await
+    .expect("orphan legacy lock should insert");
+
+    let error = CurrentMigrator::up(&db, Some(1))
+        .await
+        .expect_err("unresolved legacy lock must block migration");
+    assert!(
+        error
+            .to_string()
+            .contains("unresolved or invalid workspace/root identity")
+    );
+    let count = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM resource_locks WHERE token = 'orphan-token'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get_by_index::<i64>(0)
+        .unwrap();
+    assert_eq!(count, 1, "failed migration must retain the legacy lock row");
+}
+
+#[tokio::test]
+async fn resource_lock_migration_rejects_unrepresentable_downgrade() {
+    let db = setup_current_schema().await;
+    db.execute_unprepared(
+        "INSERT INTO users (id, username, email, password_hash, role, status, storage_quota, storage_used, created_at, updated_at) \
+         VALUES (102, 'root-lock-owner', 'root-lock-owner@example.test', 'hash', 'user', 'active', 0, 0, datetime('now'), datetime('now')); \
+         INSERT INTO resource_lock_namespaces (id, workspace_type, workspace_id, generation, created_at, updated_at) \
+         VALUES (202, 'personal', 102, 1, datetime('now'), datetime('now')); \
+         INSERT INTO resource_locks (token, namespace_id, root_kind, root_folder_id, root_file_id, depth, mode, origin, holder_user_id, owner_info, timeout_at, lockroot_path, created_at) \
+         VALUES ('pathless-token', 202, 'workspace_root', NULL, NULL, 'infinity', 'exclusive', 'product', 102, NULL, NULL, NULL, datetime('now'))",
+    )
+    .await
+    .expect("pathless typed lock fixture should insert");
+
+    let error = CurrentMigrator::down(&db, Some(1))
+        .await
+        .expect_err("pathless typed lock must block downgrade");
+    assert!(
+        error
+            .to_string()
+            .contains("cannot be represented by the legacy lock schema")
+    );
+    assert!(has_column(
+        &sqlite_table_columns(&db, "resource_locks").await,
+        "namespace_id"
+    ));
+    let count = db
+        .query_one_raw(Statement::from_string(
+            DbBackend::Sqlite,
+            "SELECT COUNT(*) FROM resource_locks WHERE token = 'pathless-token'",
+        ))
+        .await
+        .unwrap()
+        .unwrap()
+        .try_get_by_index::<i64>(0)
+        .unwrap();
+    assert_eq!(count, 1, "failed downgrade must retain the typed lock row");
+}
 
 async fn setup_current_schema() -> sea_orm::DatabaseConnection {
     let db = Database::connect("sqlite::memory:")
@@ -354,10 +533,6 @@ fn steps_before_migration(migration_name: &str) -> u32 {
     u32::try_from(position).expect("migration step count should fit u32")
 }
 
-fn steps_to_roll_back_allow_shared_webdav_locks() -> u32 {
-    steps_to_roll_back_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION)
-}
-
 fn steps_to_roll_back_upload_session_object_fields() -> u32 {
     steps_to_roll_back_migration(RENAME_UPLOAD_SESSION_OBJECT_FIELDS_MIGRATION)
 }
@@ -381,7 +556,7 @@ fn steps_to_roll_back_storage_policy_remote_storage_target_key() -> u32 {
 async fn roll_back_allow_shared_webdav_locks(
     db: &sea_orm::DatabaseConnection,
 ) -> Result<(), DbErr> {
-    CurrentMigrator::down(db, Some(steps_to_roll_back_allow_shared_webdav_locks())).await
+    CurrentMigrator::down(db, Some(1)).await
 }
 
 async fn insert_resource_lock(
@@ -1159,7 +1334,15 @@ async fn remote_storage_target_max_file_size_migration_removes_target_level_limi
 
 #[tokio::test]
 async fn allow_shared_webdav_locks_down_recreates_unique_index_without_duplicates() {
-    let db = setup_current_schema().await;
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION) + 1),
+    )
+    .await
+    .expect("shared WebDAV lock schema should apply");
     insert_resource_lock(&db, "urn:uuid:one", "file", 1).await;
     insert_resource_lock(&db, "urn:uuid:two", "file", 2).await;
 
@@ -1189,7 +1372,15 @@ async fn allow_shared_webdav_locks_down_recreates_unique_index_without_duplicate
 
 #[tokio::test]
 async fn allow_shared_webdav_locks_down_reports_duplicate_entity_locks() {
-    let db = setup_current_schema().await;
+    let db = Database::connect("sqlite::memory:")
+        .await
+        .expect("sqlite memory database should connect");
+    CurrentMigrator::up(
+        &db,
+        Some(steps_before_migration(ALLOW_SHARED_WEBDAV_LOCKS_MIGRATION) + 1),
+    )
+    .await
+    .expect("shared WebDAV lock schema should apply");
     insert_resource_lock(&db, "urn:uuid:one", "file", 1).await;
     insert_resource_lock(&db, "urn:uuid:two", "file", 1).await;
 

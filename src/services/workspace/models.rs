@@ -6,6 +6,7 @@ use serde::Serialize;
 use utoipa::ToSchema;
 
 use crate::services::content::tag::TagSummary;
+use crate::services::files::lock::ResourceLockState;
 
 #[derive(Clone, Debug, Serialize)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
@@ -34,7 +35,7 @@ pub struct FileInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTime<Utc>>,
-    pub is_locked: bool,
+    pub lock_state: ResourceLockState,
     pub tags: Vec<TagSummary>,
 }
 
@@ -58,7 +59,7 @@ impl From<aster_drive_model::entities::file::Model> for FileInfo {
             created_at: model.created_at,
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,
-            is_locked: model.is_locked,
+            lock_state: ResourceLockState::Unlocked,
             tags: vec![],
         }
     }
@@ -67,6 +68,11 @@ impl From<aster_drive_model::entities::file::Model> for FileInfo {
 impl FileInfo {
     pub fn with_tags(mut self, tags: Vec<TagSummary>) -> Self {
         self.tags = tags;
+        self
+    }
+
+    pub fn with_lock_state(mut self, lock_state: ResourceLockState) -> Self {
+        self.lock_state = lock_state;
         self
     }
 
@@ -104,7 +110,7 @@ pub struct FolderInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[cfg_attr(all(debug_assertions, feature = "openapi"), schema(value_type = Option<String>))]
     pub deleted_at: Option<DateTime<Utc>>,
-    pub is_locked: bool,
+    pub lock_state: ResourceLockState,
     pub tags: Vec<TagSummary>,
 }
 
@@ -123,7 +129,7 @@ impl From<aster_drive_model::entities::folder::Model> for FolderInfo {
             created_at: model.created_at,
             updated_at: model.updated_at,
             deleted_at: model.deleted_at,
-            is_locked: model.is_locked,
+            lock_state: ResourceLockState::Unlocked,
             tags: vec![],
         }
     }
@@ -132,6 +138,11 @@ impl From<aster_drive_model::entities::folder::Model> for FolderInfo {
 impl FolderInfo {
     pub fn with_tags(mut self, tags: Vec<TagSummary>) -> Self {
         self.tags = tags;
+        self
+    }
+
+    pub fn with_lock_state(mut self, lock_state: ResourceLockState) -> Self {
+        self.lock_state = lock_state;
         self
     }
 

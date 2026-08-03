@@ -35,13 +35,13 @@ pub(super) struct PreparedStoreFromTemp {
     pub mime: String,
     pub now: chrono::DateTime<Utc>,
     pub actor_username: Option<String>,
+    pub lock_credentials: crate::services::files::lock::LockMutationCredentials,
 }
 
 #[derive(Clone)]
 pub(super) struct OverwriteContext {
     pub old_file: file::Model,
     pub old_blob: file_blob::Model,
-    pub skip_lock_check: bool,
 }
 
 fn upload_hash_temp_open_failed(message: String) -> AsterError {
@@ -64,7 +64,7 @@ pub(super) async fn prepare_store_from_temp(
         temp_path,
         size,
         existing_file_id,
-        skip_lock_check,
+        lock_credentials,
     } = params;
     let StoreFromTempHints {
         resolved_policy,
@@ -80,7 +80,7 @@ pub(super) async fn prepare_store_from_temp(
         filename = %filename,
         size,
         existing_file_id,
-        skip_lock_check,
+        lock_credentials = ?lock_credentials,
         policy_hint = resolved_policy.as_ref().map(|policy| policy.id),
         has_precomputed_hash = precomputed_hash.is_some(),
         "storing file from temp"
@@ -123,7 +123,7 @@ pub(super) async fn prepare_store_from_temp(
     .await?;
     operation_context.checkpoint()?;
     let overwrite_ctx =
-        load_overwrite_context(state, scope, existing_file_id, skip_lock_check).await?;
+        load_overwrite_context(state, scope, existing_file_id, &lock_credentials).await?;
     operation_context.checkpoint()?;
     let storage_delta = overwrite_ctx.as_ref().map_or(size, |_| size);
 
@@ -177,6 +177,7 @@ pub(super) async fn prepare_store_from_temp(
             .to_string(),
         now: Utc::now(),
         actor_username: actor_username.map(ToOwned::to_owned),
+        lock_credentials,
     })
 }
 
@@ -244,25 +245,21 @@ async fn load_overwrite_context(
     state: &PrimaryAppState,
     scope: WorkspaceStorageScope,
     existing_file_id: Option<i64>,
-    skip_lock_check: bool,
+    lock_credentials: &crate::services::files::lock::LockMutationCredentials,
 ) -> Result<Option<OverwriteContext>> {
     let Some(existing_id) = existing_file_id else {
         return Ok(None);
     };
 
     let old_file = verify_file_access(state, scope, existing_id).await?;
-    if old_file.is_locked && !skip_lock_check {
-        return Err(AsterError::resource_locked("file is locked"));
-    }
+    let submitted = lock_credentials.submitted();
+    crate::services::files::lock::enforce_file_mutation(state.writer_db(), &old_file, &submitted)
+        .await?;
 
     let old_blob = file_repo::find_blob_by_id(state.writer_db(), old_file.blob_id).await?;
     if let Err(err) = crate::services::media::processing::delete_thumbnail(state, &old_blob).await {
         tracing::warn!("failed to delete thumbnail for blob {}: {err}", old_blob.id);
     }
 
-    Ok(Some(OverwriteContext {
-        old_file,
-        old_blob,
-        skip_lock_check,
-    }))
+    Ok(Some(OverwriteContext { old_file, old_blob }))
 }

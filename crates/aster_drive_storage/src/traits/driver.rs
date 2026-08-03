@@ -145,12 +145,40 @@ pub trait StorageDriver: Send + Sync {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-    use tokio::io::AsyncReadExt;
+    use std::pin::Pin;
+    use std::sync::{
+        Arc, Mutex,
+        atomic::{AtomicU64, AtomicUsize, Ordering},
+    };
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncReadExt, ReadBuf};
+
+    struct CountingReader {
+        inner: std::io::Cursor<Vec<u8>>,
+        bytes_read: Arc<AtomicU64>,
+    }
+
+    impl tokio::io::AsyncRead for CountingReader {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            _context: &mut Context<'_>,
+            buffer: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            let result = std::io::Read::read(&mut self.inner, buffer.initialize_unfilled());
+            if let Ok(read) = result {
+                buffer.advance(read);
+                self.bytes_read
+                    .fetch_add(u64::try_from(read).unwrap(), Ordering::SeqCst);
+            }
+            Poll::Ready(result.map(|_| ()))
+        }
+    }
 
     struct MemoryDriver {
         data: Vec<u8>,
         writes: Mutex<Vec<(String, Vec<u8>)>>,
+        stream_opens: AtomicUsize,
+        bytes_read: Arc<AtomicU64>,
     }
 
     impl MemoryDriver {
@@ -158,6 +186,8 @@ mod tests {
             Self {
                 data: data.to_vec(),
                 writes: Mutex::new(Vec::new()),
+                stream_opens: AtomicUsize::new(0),
+                bytes_read: Arc::new(AtomicU64::new(0)),
             }
         }
     }
@@ -177,7 +207,11 @@ mod tests {
         }
 
         async fn get_stream(&self, _path: &str) -> Result<Box<dyn AsyncRead + Unpin + Send>> {
-            Ok(Box::new(std::io::Cursor::new(self.data.clone())))
+            self.stream_opens.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(CountingReader {
+                inner: std::io::Cursor::new(self.data.clone()),
+                bytes_read: self.bytes_read.clone(),
+            }))
         }
 
         async fn delete(&self, _path: &str) -> Result<()> {
@@ -205,6 +239,23 @@ mod tests {
         reader.read_to_end(&mut bytes).await.unwrap();
 
         assert_eq!(bytes, b"world");
+        assert_eq!(driver.stream_opens.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.bytes_read.load(Ordering::SeqCst), 12);
+    }
+
+    #[tokio::test]
+    async fn default_get_range_fallback_cost_is_bounded_by_prefix_plus_requested_length() {
+        let data = (0_u8..=127).collect::<Vec<_>>();
+        let driver = MemoryDriver::new(&data);
+
+        let mut reader = driver.get_range("sample.bin", 96, Some(8)).await.unwrap();
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).await.unwrap();
+
+        assert_eq!(bytes, data[96..104]);
+        assert_eq!(driver.stream_opens.load(Ordering::SeqCst), 1);
+        assert_eq!(driver.bytes_read.load(Ordering::SeqCst), 104);
+        assert!(!driver.supports_efficient_range());
     }
 
     #[tokio::test]

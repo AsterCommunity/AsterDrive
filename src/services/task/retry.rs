@@ -66,7 +66,8 @@ pub(super) fn default_retry_class(error: &AsterError) -> TaskRetryClass {
         | AsterError::UploadAssemblyFailed(_)
         | AsterError::ThumbnailGenerationFailed(_)
         | AsterError::PreconditionFailed(_)
-        | AsterError::UploadAssembling(_) => TaskRetryClass::Never,
+        | AsterError::UploadAssembling(_)
+        | AsterError::OperationResourceLimitExceeded(_) => TaskRetryClass::Never,
     }
 }
 
@@ -104,6 +105,8 @@ mod tests {
         for error in [
             AsterError::validation_error("invalid input"),
             AsterError::record_not_found("record missing"),
+            AsterError::upload_assembling("upload is assembling"),
+            AsterError::operation_resource_limit_exceeded("resource limit exceeded"),
             storage_driver_error(StorageErrorKind::NotFound, "object missing").into(),
             storage_driver_error(StorageErrorKind::Unsupported, "unsupported operation").into(),
         ] {

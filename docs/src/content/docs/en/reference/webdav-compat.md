@@ -1,5 +1,5 @@
 ---
-description: "AsterDrive WebDAV protocol compatibility reference: implemented methods and capabilities, PROPFIND / COPY / MOVE boundaries, lock and DeltaV limits, client validation scope, and the limits quick table."
+description: "AsterDrive WebDAV protocol compatibility reference: implemented methods and capabilities, PROPFIND / COPY / MOVE boundaries, lock and versioning boundaries, client validation scope, and the limits quick table."
 title: "WebDAV Protocol Compatibility"
 ---
 
@@ -17,7 +17,6 @@ For account creation, mounting, filename encoding, and same-name limits from the
 | Resource management | `MKCOL`, `DELETE`, `COPY`, `MOVE` | Creates collections, deletes, copies, and moves resources, with `Destination`, `Overwrite`, and related precondition handling |
 | Properties | `PROPFIND`, `PROPPATCH` | Reads live properties and stores dead properties on concrete files or folders |
 | Locks | `LOCK`, `UNLOCK` | Database-backed exclusive/shared write locks with `If` and `Lock-Token` handling |
-| Minimal DeltaV | `VERSION-CONTROL`, `REPORT` | Supports file `DAV:version-tree` reports generated from AsterDrive file versions |
 
 `GET` streams directly from the storage driver that owns the file. WebDAV does not bypass storage policies: data may still be on local disk, S3-compatible object storage, Azure Blob, OneDrive, or a remote follower node, depending on the workspace's active storage policy.
 
@@ -48,16 +47,13 @@ In a handwritten request, declare `xmlns="DAV:"` or use a prefix bound to `DAV:`
 - For a folder, `COPY Depth: 0` copies only the folder itself and its dead properties, not its children.
 - Requests apply ETag conditions, `If` / `Lock-Token`, and `Overwrite` handling.
 
-## Lock and DeltaV Limits
+## Lock and Versioning Boundaries
 
 AsterDrive supports persistent exclusive/shared write locks and checks relevant lock conditions before move, copy, delete, and overwrite operations. Expired locks are cleaned up, and administrators can remove abnormally retained locks from the admin console.
 
 A collection lock created with `Depth: infinity` covers descendant resources. When a client operates on a descendant and submits the same lock token in the `If` header according to WebDAV rules, AsterDrive validates it against the locked collection's own href instead of treating the valid parent lock token as unauthorized.
 
-Current boundaries:
-
-- DeltaV is a minimal subset: `VERSION-CONTROL` and file `REPORT DAV:version-tree`. AsterDrive's own version history is not a complete RFC 3253 version-control server.
-- `REPORT version-tree` supports files, not folders.
+AsterDrive file-version history is a product capability, not an RFC 3253 core versioning resource model. The current WebDAV capability snapshot does not advertise `version-control`; `REPORT` and `VERSION-CONTROL` return resource-aware `405 Method Not Allowed` responses with the applicable `Allow` header after authentication.
 
 ## How to Read Client Compatibility Claims
 
@@ -79,4 +75,4 @@ Regression coverage also includes common Finder-style `PUT` shapes, special file
 | Mount-root `PROPPATCH` | `403` | Store custom properties only on concrete files/folders |
 | Cross-server `COPY` / `MOVE` | Destination is rejected | Download/upload or use client-side synchronization |
 | Recursive collection locks | A `Depth: infinity` lock covers descendants, and descendant operations may submit the parent collection lock token | Confirm that the client keeps sending the lock token in the `If` header |
-| Complete DeltaV | Only a minimal file version-tree subset is implemented | Manage full version history in the AsterDrive web UI/API |
+| RFC 3253 DeltaV | `version-control` is not advertised; standard `REPORT` / `VERSION-CONTROL` are not exposed | Manage version history in the AsterDrive web UI/API |

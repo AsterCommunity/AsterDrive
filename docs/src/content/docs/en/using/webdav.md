@@ -26,7 +26,7 @@ WebDAV mounts use **Basic Auth with dedicated WebDAV credentials**. A Bearer JWT
 
 A personal account enters only its matching personal space. A team account enters only its matching team space and remains subject to team membership, role, and workspace permissions.
 
-For the global switch, path prefix, body limits, and system-file blocking rules, see [WebDAV Configuration](/en/reference/config/webdav/); for implemented protocol methods, property, lock, and DeltaV boundaries, see [WebDAV Protocol Compatibility](/en/reference/webdav-compat/).
+For the global switch, path prefix, body limits, and system-file blocking rules, see [WebDAV Configuration](/en/reference/config/webdav/); for implemented protocol methods, property, lock, and versioning boundaries, see [WebDAV Protocol Compatibility](/en/reference/webdav-compat/).
 
 ## Filenames Must Follow URL-Encoding Rules
 
@@ -90,7 +90,7 @@ For the in-repo protocol regression tests and compatibility baselines, see [WebD
 
 WebDAV uses more than `GET` and `PUT`. The reverse proxy must pass extension methods and their request headers, especially:
 
-- Methods: `PROPFIND`, `PROPPATCH`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`, `REPORT`, `VERSION-CONTROL`;
+- Methods: `PROPFIND`, `PROPPATCH`, `MKCOL`, `COPY`, `MOVE`, `LOCK`, `UNLOCK`;
 - Headers: `Authorization`, `Depth`, `Destination`, `Overwrite`, `If`, `Lock-Token`, `Timeout`.
 
 The proxy may also impose its own request-body limit, timeout, buffering, and path-encoding behavior. When small files work but large files fail, directory creation fails while downloads work, or special filenames change, compare direct AsterDrive access with access through the proxy.

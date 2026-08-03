@@ -107,7 +107,7 @@ describe("WopiPreview", () => {
 			"autoplay; fullscreen; picture-in-picture; clipboard-read 'src'; clipboard-write 'src'",
 		);
 		expect(frame).toHaveAttribute("referrerpolicy", "no-referrer");
-		expect(form).toHaveFormValues({
+		expect(Object.fromEntries(new FormData(form))).toEqual({
 			access_token: "token-1",
 			access_token_ttl: "3600",
 			user_id: "42",

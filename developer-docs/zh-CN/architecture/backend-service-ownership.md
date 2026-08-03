@@ -506,13 +506,13 @@ pub async fn create_xxx(state, input) -> Result<Output> {
 
 当前职责：
 
-- `src/webdav/*` 处理 WebDAV / DeltaV 协议、Basic Auth、path resolver、lock、property、transfer
+- `src/webdav/*` 处理 WebDAV Basic Auth、产品 path resolver、lock/property 持久化和 transfer adapter；产品中立协议语义由 AsterForge 提供
 - `src/services/webdav::tree.rs` 承接协议层需要复用的 folder tree soft delete、purge、copy 等产品动作
 - WebDAV 文件写入通过 `workspace::storage` 的统一链路落账
 
 应该保留：
 
-- WebDAV 专用鉴权、路径解析、锁、属性、Depth、Range、DeltaV 行为
+- WebDAV 专用鉴权、产品路径解析、锁/属性持久化和存储传输适配
 - 协议到 AsterDrive workspace/file/folder 语义的适配
 - 对 `file` / `folder` / `workspace::storage` 的复用
 

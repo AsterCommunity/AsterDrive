@@ -9,11 +9,15 @@ use utoipa::{IntoParams, ToSchema};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::api::pagination::SortBy;
 use crate::db::repository::search_repo::{self, TagSearchFilter, TagSearchMatch};
+use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result, validation_error_with_code};
 use crate::runtime::SharedRuntimeState;
 use crate::services::{
     content::tag,
-    files::folder::{FileListItem, FolderListItem, build_folder_list_items_with_tags},
+    files::{
+        folder::{FileListItem, FolderListItem, build_folder_list_items_with_tags_and_lock_states},
+        lock,
+    },
     share,
     workspace::storage::WorkspaceResourceScope,
     workspace::storage::{self, WorkspaceStorageScope},
@@ -94,6 +98,7 @@ fn build_search_file_list_items(
         (aster_drive_model::types::EntityType, i64),
         Vec<tag::TagSummary>,
     >,
+    lock_states: &crate::services::files::lock::LockStateMap,
 ) -> Vec<FileListItem> {
     files
         .into_iter()
@@ -106,7 +111,10 @@ fn build_search_file_list_items(
             compound_extension: file.compound_extension,
             file_category: file.file_category,
             updated_at: file.updated_at,
-            is_locked: file.is_locked,
+            lock_state: lock_states
+                .get(&(aster_drive_model::types::EntityType::File, file.id))
+                .cloned()
+                .unwrap_or(crate::services::files::lock::ResourceLockState::Unlocked),
             is_shared: shared_file_ids.contains(&file.id),
             tags: tags_by_entity
                 .get(&(aster_drive_model::types::EntityType::File, file.id))
@@ -534,9 +542,26 @@ pub(crate) async fn search_in_scope(
         }
     };
 
+    let lock_files = file_repo::find_by_ids(
+        state.reader_db(),
+        &files.iter().map(|file| file.id).collect::<Vec<_>>(),
+    )
+    .await?;
+    let lock_folders = folder_repo::find_by_ids(
+        state.reader_db(),
+        &folders.iter().map(|folder| folder.id).collect::<Vec<_>>(),
+    )
+    .await?;
+    let lock_states = lock::load_for_scope(state, scope.into(), &lock_files, &lock_folders).await?;
+
     let results = SearchResults {
-        files: build_search_file_list_items(files, &shared_file_ids, &tags_by_entity),
-        folders: build_folder_list_items_with_tags(folders, &shared_folder_ids, &tags_by_entity),
+        files: build_search_file_list_items(files, &shared_file_ids, &tags_by_entity, &lock_states),
+        folders: build_folder_list_items_with_tags_and_lock_states(
+            folders,
+            &shared_folder_ids,
+            &tags_by_entity,
+            &lock_states,
+        ),
         total_files,
         total_folders,
     };

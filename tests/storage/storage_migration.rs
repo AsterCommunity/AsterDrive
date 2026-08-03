@@ -841,7 +841,6 @@ async fn create_file_for_blob(state: &PrimaryAppState, blob_id: i64, name: &str)
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(state.writer_db())

@@ -283,7 +283,6 @@ async fn create_file(
         created_at: Set(now),
         updated_at: Set(now),
         deleted_at: Set(None),
-        is_locked: Set(false),
         ..Default::default()
     }
     .insert(db)

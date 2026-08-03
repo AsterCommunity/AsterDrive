@@ -110,6 +110,24 @@ async fn get_range_returns_partial_bytes() {
 }
 
 #[tokio::test]
+async fn get_range_uses_one_seekable_reader_and_reads_only_the_requested_bytes() {
+    let base = unique_temp_dir("native-range-cost-test");
+    tokio::fs::create_dir_all(&base).await.unwrap();
+    let policy = build_policy(&base);
+    let driver = super::LocalDriver::new(&policy).unwrap();
+    let data = (0_u8..=127).collect::<Vec<_>>();
+    driver.put("sample.bin", &data).await.unwrap();
+
+    let mut reader = driver.get_range("sample.bin", 96, Some(8)).await.unwrap();
+    let mut bytes = Vec::new();
+    reader.read_to_end(&mut bytes).await.unwrap();
+
+    assert_eq!(bytes, data[96..104]);
+    assert!(driver.supports_efficient_range());
+    tokio::fs::remove_dir_all(base).await.unwrap();
+}
+
+#[tokio::test]
 async fn capacity_info_reports_filesystem_space_for_base_path() {
     let base = unique_temp_dir("capacity-test");
     tokio::fs::create_dir_all(&base).await.unwrap();

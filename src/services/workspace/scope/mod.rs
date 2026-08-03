@@ -440,6 +440,18 @@ async fn verify_folder_access_with_db<C: ConnectionTrait>(
     Ok(folder)
 }
 
+pub(crate) async fn lock_folder_access_on<C: ConnectionTrait>(
+    db: &C,
+    state: &impl SharedRuntimeState,
+    scope: WorkspaceStorageScope,
+    folder_id: i64,
+) -> Result<folder::Model> {
+    require_scope_access_with_db(state, db, scope).await?;
+    let folder = folder_repo::lock_by_id(db, folder_id).await?;
+    ensure_active_folder_scope(&folder, scope)?;
+    Ok(folder)
+}
+
 pub(crate) async fn verify_file_access(
     state: &impl SharedRuntimeState,
     scope: WorkspaceStorageScope,
@@ -482,21 +494,6 @@ pub(crate) async fn list_files_in_folder(
         }
         WorkspaceStorageScope::Team { team_id, .. } => {
             file_repo::find_by_team_folder(state.reader_db(), team_id, folder_id).await
-        }
-    }
-}
-
-pub(crate) async fn list_folders_in_parent(
-    state: &impl SharedRuntimeState,
-    scope: WorkspaceStorageScope,
-    parent_id: Option<i64>,
-) -> Result<Vec<folder::Model>> {
-    match scope {
-        WorkspaceStorageScope::Personal { user_id } => {
-            folder_repo::find_children(state.reader_db(), user_id, parent_id).await
-        }
-        WorkspaceStorageScope::Team { team_id, .. } => {
-            folder_repo::find_team_children(state.reader_db(), team_id, parent_id).await
         }
     }
 }
@@ -764,7 +761,6 @@ mod tests {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )
@@ -783,7 +779,6 @@ mod tests {
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )

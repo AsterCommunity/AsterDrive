@@ -408,7 +408,7 @@ describe("ShareFolderView", () => {
 			{
 				id: 3,
 				name: "docs",
-				is_locked: false,
+				lock_state: { state: "unlocked" },
 				is_shared: false,
 			} as FolderListItem,
 		];

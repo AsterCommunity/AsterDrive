@@ -4,7 +4,7 @@ use aster_forge_db::transaction;
 use std::{borrow::Cow, collections::BTreeMap};
 
 use chrono::Utc;
-use sea_orm::{ActiveModelTrait, Set};
+use sea_orm::{ActiveModelTrait, ConnectionTrait, Set};
 
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
@@ -229,16 +229,29 @@ pub(crate) async fn duplicate_file_record_in_scope(
     dest_folder_id: Option<i64>,
     dest_name: &str,
 ) -> Result<file::Model> {
-    let blob = file_repo::find_blob_by_id(state.writer_db(), src.blob_id).await?;
+    let txn = transaction::begin(state.writer_db()).await?;
+    let new_file =
+        duplicate_file_record_in_scope_on(&txn, scope, src, dest_folder_id, dest_name).await?;
+    transaction::commit(txn).await?;
+    Ok(new_file)
+}
+
+pub(crate) async fn duplicate_file_record_in_scope_on<C: ConnectionTrait>(
+    db: &C,
+    scope: WorkspaceStorageScope,
+    src: &file::Model,
+    dest_folder_id: Option<i64>,
+    dest_name: &str,
+) -> Result<file::Model> {
+    let blob = file_repo::find_blob_by_id(db, src.blob_id).await?;
     let now = Utc::now();
     let blob_size = blob.size;
 
-    let txn = transaction::begin(state.writer_db()).await?;
-    storage::lock_storage_usage(&txn, scope).await?;
-    let created_by_username = load_scope_actor_username(&txn, scope).await?;
-    storage::check_quota(&txn, scope, blob_size).await?;
+    storage::lock_storage_usage(db, scope).await?;
+    let created_by_username = load_scope_actor_username(db, scope).await?;
+    storage::check_quota(db, scope, blob_size).await?;
 
-    file_repo::increment_blob_ref_count(&txn, blob.id).await?;
+    file_repo::increment_blob_ref_count(db, blob.id).await?;
     let classification = aster_forge_file_classification::classify_file(dest_name, &src.mime_type);
 
     let new_file = file::ActiveModel {
@@ -258,13 +271,11 @@ pub(crate) async fn duplicate_file_record_in_scope(
         updated_at: Set(now),
         ..Default::default()
     }
-    .insert(&txn)
+    .insert(db)
     .await
     .map_err(|err| file_repo::map_name_db_err(err, dest_name))?;
 
-    storage::update_storage_used(&txn, scope, blob_size).await?;
-
-    transaction::commit(txn).await?;
+    storage::update_storage_used(db, scope, blob_size).await?;
 
     Ok(new_file)
 }

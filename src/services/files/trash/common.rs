@@ -55,6 +55,7 @@ pub(super) fn build_trash_file_item(
     file: file::Model,
     folder_paths: &HashMap<i64, String>,
     retention_days: i64,
+    lock_state: crate::services::files::lock::ResourceLockState,
 ) -> Result<TrashFileItem> {
     let deleted_at = file
         .deleted_at
@@ -67,7 +68,7 @@ pub(super) fn build_trash_file_item(
         created_at: file.created_at,
         updated_at: file.updated_at,
         expires_at: deleted_at + chrono::Duration::days(retention_days),
-        is_locked: file.is_locked,
+        lock_state,
         original_path: resolve_folder_path(folder_paths, file.folder_id)?,
     })
 }
@@ -76,6 +77,7 @@ pub(super) fn build_trash_folder_item(
     folder: folder::Model,
     folder_paths: &HashMap<i64, String>,
     retention_days: i64,
+    lock_state: crate::services::files::lock::ResourceLockState,
 ) -> Result<TrashFolderItem> {
     let deleted_at = folder
         .deleted_at
@@ -86,7 +88,7 @@ pub(super) fn build_trash_folder_item(
         created_at: folder.created_at,
         updated_at: folder.updated_at,
         expires_at: deleted_at + chrono::Duration::days(retention_days),
-        is_locked: folder.is_locked,
+        lock_state,
         original_path: resolve_folder_path(folder_paths, folder.parent_id)?,
     })
 }
@@ -250,6 +252,7 @@ pub(super) async fn purge_folder_forest_in_resource_scope(
         scope,
         folder_ids,
         true,
+        None,
     )
     .await?;
     let file_count = all_files.len();

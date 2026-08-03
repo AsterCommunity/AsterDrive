@@ -5,9 +5,11 @@ use crate::common;
 use std::time::Duration;
 
 use aster_drive::runtime::SharedRuntimeState;
-use aster_forge_webdav::{DavFileSystem, DavPath, FsError, OpenOptions, ReadDirMeta};
+use aster_forge_webdav::{
+    DavBackendErrorKind, DavDirectoryEntry, DavDirectoryEnumerator, DavDirectoryPageRequest,
+    DavFileSystem, DavPath, DavWriteHandle, DavWriteOptions, DavWriteSystem, FsError,
+};
 use bytes::Bytes;
-use futures::StreamExt;
 use sea_orm::{ActiveModelTrait, Set};
 
 fn write_temp_fixture(name: &str, contents: &str) -> String {
@@ -18,16 +20,14 @@ fn write_temp_fixture(name: &str, contents: &str) -> String {
     path
 }
 
-fn write_open_options(create_new: bool) -> OpenOptions {
-    OpenOptions {
-        read: false,
-        write: true,
-        append: false,
-        truncate: false,
+fn write_open_options(create_new: bool) -> DavWriteOptions {
+    DavWriteOptions {
+        truncate: true,
         create: false,
         create_new,
-        size: None,
+        expected_length: None,
         checksum: None,
+        credentials: Default::default(),
     }
 }
 
@@ -504,14 +504,20 @@ async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
     let dav_fs = AsterDavFs::new(state.clone(), user.id, Some(scoped_root.id));
 
     let root_path = DavPath::new("/").unwrap();
-    let mut root_entries = dav_fs
-        .read_dir(&root_path, ReadDirMeta::Data)
+    let root_entries = dav_fs
+        .read_directory_page(DavDirectoryPageRequest {
+            path: &root_path,
+            cursor: None,
+            maximum_entries: 256,
+        })
         .await
         .unwrap();
-    let mut root_names = Vec::new();
-    while let Some(entry) = root_entries.next().await {
-        root_names.push(String::from_utf8(entry.unwrap().name()).unwrap());
-    }
+    assert!(root_entries.next_cursor.is_none());
+    let root_names = root_entries
+        .entries
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name().to_vec()).unwrap())
+        .collect::<Vec<_>>();
     assert_eq!(root_names, vec!["projects"]);
 
     let file_path = DavPath::new("/projects/docs/reports/q1.txt").unwrap();
@@ -520,17 +526,195 @@ async fn test_aster_dav_fs_handles_deep_paths_inside_scoped_root() {
     assert!(!metadata.is_dir());
 
     let dir_path = DavPath::new("/projects/docs/reports").unwrap();
-    let mut dir_entries = dav_fs.read_dir(&dir_path, ReadDirMeta::Data).await.unwrap();
-    let mut dir_names = Vec::new();
-    while let Some(entry) = dir_entries.next().await {
-        dir_names.push(String::from_utf8(entry.unwrap().name()).unwrap());
-    }
+    let dir_entries = dav_fs
+        .read_directory_page(DavDirectoryPageRequest {
+            path: &dir_path,
+            cursor: None,
+            maximum_entries: 256,
+        })
+        .await
+        .unwrap();
+    assert!(dir_entries.next_cursor.is_none());
+    let dir_names = dir_entries
+        .entries
+        .into_iter()
+        .map(|entry| String::from_utf8(entry.name().to_vec()).unwrap())
+        .collect::<Vec<_>>();
     assert_eq!(dir_names, vec!["q1.txt"]);
+}
 
-    assert!(matches!(
-        dav_fs.open(&file_path, OpenOptions::read()).await,
-        Err(FsError::Forbidden)
-    ));
+#[actix_web::test]
+async fn test_aster_dav_fs_directory_keyset_paging_boundaries() {
+    use aster_drive::services::files::{file, folder};
+    use aster_drive::webdav::backend::{AsterDavDirectoryCursor, AsterDavFs};
+    use aster_drive_model::entities::folder as folder_entity;
+    use chrono::Utc;
+    use sea_orm::EntityTrait;
+
+    let state = common::setup().await;
+    let user = common::create_test_account(&state, "davfspg", "davfspg@example.com", "pass1234")
+        .await
+        .unwrap();
+    let foreign_user =
+        common::create_test_account(&state, "davfspg2", "davfspg2@example.com", "pass1234")
+            .await
+            .unwrap();
+
+    let folder_a = folder::create(&state, user.id, "folder-a", None)
+        .await
+        .unwrap();
+    let deleted_folder = folder::create(&state, user.id, "folder-deleted", None)
+        .await
+        .unwrap();
+    let folder_c = folder::create(&state, user.id, "folder-c", None)
+        .await
+        .unwrap();
+    folder::create(&state, user.id, "nested-only", Some(folder_a.id))
+        .await
+        .unwrap();
+    folder::create(&state, foreign_user.id, "foreign-only", None)
+        .await
+        .unwrap();
+
+    for (id, deleted_at) in [
+        (deleted_folder.id, Some(Utc::now())),
+        (folder_a.id, None),
+        (folder_c.id, None),
+    ] {
+        let mut active: folder_entity::ActiveModel = folder_entity::Entity::find_by_id(id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+        active.deleted_at = Set(deleted_at);
+        active.update(state.writer_db()).await.unwrap();
+    }
+
+    for index in 0..3 {
+        let name = format!("file-{index}.txt");
+        let temp_path = write_temp_fixture(&name, &name);
+        let size = i64::try_from(name.len()).unwrap();
+        file::store_from_temp(
+            &state,
+            user.id,
+            file::StoreFromTempRequest::new(None, &name, &temp_path, size),
+        )
+        .await
+        .unwrap();
+    }
+    let nested_temp = write_temp_fixture("nested-file.txt", "nested");
+    file::store_from_temp(
+        &state,
+        user.id,
+        file::StoreFromTempRequest::new(Some(folder_a.id), "nested-file.txt", &nested_temp, 6),
+    )
+    .await
+    .unwrap();
+
+    let dav_fs = AsterDavFs::new(state.clone(), user.id, None);
+    let root = DavPath::new("/").unwrap();
+    let first = dav_fs
+        .read_directory_page(DavDirectoryPageRequest {
+            path: &root,
+            cursor: None,
+            maximum_entries: 2,
+        })
+        .await
+        .unwrap();
+    assert_eq!(first.entries.len(), 2, "exact page limit");
+    assert_eq!(
+        first
+            .entries
+            .iter()
+            .map(|entry| String::from_utf8(entry.name().to_vec()).unwrap())
+            .collect::<Vec<_>>(),
+        vec!["folder-a", "folder-c"]
+    );
+    let first_keys = first
+        .entries
+        .iter()
+        .map(|entry| entry.stable_key().to_vec())
+        .collect::<Vec<_>>();
+    let cursor = first.next_cursor.expect("files require continuation");
+    assert_eq!(cursor, AsterDavDirectoryCursor::Folders(folder_c.id));
+
+    let mut deleted_cursor_folder: folder_entity::ActiveModel =
+        folder_entity::Entity::find_by_id(folder_c.id)
+            .one(state.writer_db())
+            .await
+            .unwrap()
+            .unwrap()
+            .into();
+    deleted_cursor_folder.deleted_at = Set(Some(Utc::now()));
+    deleted_cursor_folder
+        .update(state.writer_db())
+        .await
+        .unwrap();
+
+    let second = dav_fs
+        .read_directory_page(DavDirectoryPageRequest {
+            path: &root,
+            cursor: Some(&cursor),
+            maximum_entries: 2,
+        })
+        .await
+        .unwrap();
+    assert_eq!(second.entries.len(), 2, "limit+1 must continue");
+    assert!(
+        second
+            .entries
+            .iter()
+            .all(|entry| entry.name().starts_with(b"file-"))
+    );
+    let second_keys = second
+        .entries
+        .iter()
+        .map(|entry| entry.stable_key().to_vec())
+        .collect::<Vec<_>>();
+    let cursor = second
+        .next_cursor
+        .expect("third file requires continuation");
+
+    let third = dav_fs
+        .read_directory_page(DavDirectoryPageRequest {
+            path: &root,
+            cursor: Some(&cursor),
+            maximum_entries: 2,
+        })
+        .await
+        .unwrap();
+    assert_eq!(third.entries.len(), 1);
+    assert!(third.next_cursor.is_none());
+
+    let all_keys = first_keys
+        .into_iter()
+        .chain(second_keys)
+        .chain(
+            third
+                .entries
+                .iter()
+                .map(|entry| entry.stable_key().to_vec()),
+        )
+        .collect::<Vec<_>>();
+    assert!(all_keys.windows(2).all(|pair| pair[0] < pair[1]));
+    let all_names = first
+        .entries
+        .into_iter()
+        .chain(second.entries)
+        .chain(third.entries)
+        .map(|entry| String::from_utf8(entry.name().to_vec()).unwrap())
+        .collect::<Vec<_>>();
+    assert_eq!(
+        all_names,
+        vec![
+            "folder-a",
+            "folder-c",
+            "file-0.txt",
+            "file-1.txt",
+            "file-2.txt"
+        ]
+    );
 }
 
 #[actix_web::test]
@@ -559,14 +743,14 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
 
     let new_file_path = DavPath::new("/projects/docs/reports/new.txt").unwrap();
     let mut new_file = dav_fs
-        .open(&new_file_path, write_open_options(true))
+        .open_write(&new_file_path, write_open_options(true))
         .await
         .unwrap();
     new_file
         .write_bytes(Bytes::from_static(b"first version"))
         .await
         .unwrap();
-    new_file.flush().await.unwrap();
+    new_file.finish().await.unwrap();
 
     let stored =
         file_repo::find_by_name_in_folder(state.writer_db(), user.id, Some(reports.id), "new.txt")
@@ -576,19 +760,19 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
     assert_eq!(stored.size, "first version".len() as i64);
 
     assert!(matches!(
-        dav_fs.open(&new_file_path, write_open_options(true)).await,
-        Err(FsError::Exists)
+        dav_fs.open_write(&new_file_path, write_open_options(true)).await,
+        Err(error) if error.kind == DavBackendErrorKind::AlreadyExists
     ));
 
     let mut overwrite = dav_fs
-        .open(&new_file_path, write_open_options(false))
+        .open_write(&new_file_path, write_open_options(false))
         .await
         .unwrap();
     overwrite
         .write_bytes(Bytes::from_static(b"updated"))
         .await
         .unwrap();
-    overwrite.flush().await.unwrap();
+    overwrite.finish().await.unwrap();
 
     let overwritten =
         file_repo::find_by_name_in_folder(state.writer_db(), user.id, Some(reports.id), "new.txt")
@@ -599,12 +783,12 @@ async fn test_aster_dav_fs_deep_write_create_new_and_overwrite_boundaries() {
 
     assert!(matches!(
         dav_fs
-            .open(
+            .open_write(
                 &DavPath::new("/projects/missing/new.txt").unwrap(),
                 write_open_options(false),
             )
             .await,
-        Err(FsError::NotFound)
+        Err(error) if error.kind == DavBackendErrorKind::Conflict
     ));
 
     let parent_names = [projects.name, docs.name, reports.name];

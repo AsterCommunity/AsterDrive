@@ -21,7 +21,7 @@ function parentKey(parentId: ParentFolderId) {
 function breadcrumbFolder(item: ShareBreadcrumbItem): FolderListItem {
 	return {
 		id: item.id as number,
-		is_locked: false,
+		lock_state: { state: "unlocked" },
 		is_shared: false,
 		name: item.name,
 		tags: [],

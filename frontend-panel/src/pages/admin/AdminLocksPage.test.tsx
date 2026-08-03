@@ -242,18 +242,22 @@ function createLock(
 ): LockPage["items"][number] {
 	return {
 		created_at: "2026-03-28T00:00:00Z",
-		deep: false,
-		entity_id: 42,
-		entity_type: "file",
+		depth: "resource",
 		id: 21,
+		lockroot_path: "/docs/report.pdf",
+		mode: "exclusive",
+		namespace_id: 3,
+		origin: "web_dav",
 		owner: createUserSummary(),
 		owner_info: {
 			kind: "text",
 			value: "user@example.com",
 		},
-		path: "/docs/report.pdf",
-		shared: false,
+		root_file_id: 42,
+		root_folder_id: null,
+		root_kind: "file",
 		timeout_at: null,
+		token: "urn:uuid:admin-lock-test",
 		...overrides,
 	};
 }
@@ -283,10 +287,10 @@ describe("AdminLocksPage", () => {
 				createLock(),
 				createLock({
 					id: 22,
-					path: "/docs/expired.pdf",
+					lockroot_path: "/docs/expired.pdf",
 					timeout_at: "2020-01-01T00:00:00Z",
-					shared: true,
-					deep: true,
+					mode: "shared",
+					depth: "infinity",
 				}),
 			],
 			loading: false,

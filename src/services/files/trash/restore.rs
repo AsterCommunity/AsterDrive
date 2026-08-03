@@ -78,7 +78,7 @@ async fn restore_folder_in_scope(
     let mut restored_parent_id = folder.parent_id;
     let mut restore_to_root = false;
     let (files, folder_ids) =
-        folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, id, true).await?;
+        folder_ops::collect_folder_tree_in_scope(state.writer_db(), scope, id, true, None).await?;
     let child_folder_ids: Vec<i64> = folder_ids.into_iter().filter(|&fid| fid != id).collect();
 
     if let Some(parent_id) = folder.parent_id {

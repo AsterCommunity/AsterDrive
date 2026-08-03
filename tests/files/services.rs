@@ -684,7 +684,10 @@ async fn test_file_lock_lock_unlock() {
     let folder = aster_drive::services::files::folder::create(&state, user.id, "LockTest", None)
         .await
         .unwrap();
-    assert!(!folder.is_locked);
+    assert!(matches!(
+        folder.lock_state,
+        aster_drive::services::files::lock::ResourceLockState::Unlocked
+    ));
 
     // 锁定
     let lock = aster_drive::services::files::lock::lock(
@@ -699,11 +702,12 @@ async fn test_file_lock_lock_unlock() {
     .unwrap();
     assert!(!lock.token.is_empty());
 
-    // 锁定后 is_locked 应该为 true
-    let f = aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
-        .await
-        .unwrap();
-    assert!(f.is_locked);
+    assert!(
+        aster_drive::db::repository::lock_repo::find_by_token(state.writer_db(), &lock.token)
+            .await
+            .unwrap()
+            .is_some()
+    );
 
     // 重复锁定应失败
     let err = aster_drive::services::files::lock::lock(
@@ -717,7 +721,7 @@ async fn test_file_lock_lock_unlock() {
     .await;
     assert!(err.is_err());
 
-    // 删除应失败（is_locked=true）
+    // 删除应失败（存在权威锁记录）
     let err = aster_drive::services::files::folder::delete(&state, folder.id, user.id).await;
     assert!(err.is_err());
 
@@ -731,11 +735,12 @@ async fn test_file_lock_lock_unlock() {
     .await
     .unwrap();
 
-    // is_locked 应该回到 false
-    let f = aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
-        .await
-        .unwrap();
-    assert!(!f.is_locked);
+    assert!(
+        aster_drive::db::repository::lock_repo::find_by_token(state.writer_db(), &lock.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
 
     // 删除成功
     aster_drive::services::files::folder::delete(&state, folder.id, user.id)
@@ -771,15 +776,17 @@ async fn test_file_lock_force_unlock() {
         .await
         .unwrap();
 
-    let f = aster_drive::db::repository::folder_repo::find_by_id(state.writer_db(), folder.id)
-        .await
-        .unwrap();
-    assert!(!f.is_locked);
+    assert!(
+        aster_drive::db::repository::lock_repo::find_by_token(state.writer_db(), &lock.token)
+            .await
+            .unwrap()
+            .is_none()
+    );
 }
 
 #[actix_web::test]
 async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
-    use aster_drive::db::repository::{file_repo, lock_repo};
+    use aster_drive::db::repository::lock_repo;
     use aster_drive::services::{files::file, files::lock};
 
     let state = common::setup().await;
@@ -812,17 +819,7 @@ async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
     .await
     .unwrap();
 
-    let locked = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .unwrap();
-    assert!(locked.is_locked);
-
     lock::unlock_by_token(&state, &lock.token).await.unwrap();
-
-    let unlocked = file_repo::find_by_id(state.writer_db(), file.id)
-        .await
-        .unwrap();
-    assert!(!unlocked.is_locked);
     assert!(
         lock_repo::find_by_token(state.writer_db(), &lock.token)
             .await
@@ -833,7 +830,7 @@ async fn test_file_lock_unlock_by_token_clears_file_lock_state() {
 
 #[actix_web::test]
 async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
-    use aster_drive::db::repository::{folder_repo, lock_repo};
+    use aster_drive::db::repository::lock_repo;
     use aster_drive::services::{files::folder, files::lock};
     use chrono::Duration;
 
@@ -850,16 +847,6 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
         .await
         .unwrap();
 
-    let expired_lock = lock::lock(
-        &state,
-        aster_drive_model::types::EntityType::Folder,
-        expired_folder.id,
-        Some(user.id),
-        None,
-        Some(Duration::seconds(-1)),
-    )
-    .await
-    .unwrap();
     let active_lock = lock::lock(
         &state,
         aster_drive_model::types::EntityType::Folder,
@@ -870,18 +857,28 @@ async fn test_file_lock_cleanup_expired_unlocks_only_expired_resources() {
     )
     .await
     .unwrap();
+    let expired_lock = lock::lock(
+        &state,
+        aster_drive_model::types::EntityType::Folder,
+        expired_folder.id,
+        Some(user.id),
+        None,
+        Some(Duration::seconds(-1)),
+    )
+    .await
+    .unwrap();
+
+    assert!(
+        lock_repo::find_by_token(state.writer_db(), &expired_lock.token)
+            .await
+            .unwrap()
+            .is_some(),
+        "cleanup fixture should retain an expired lock before cleanup starts"
+    );
 
     let cleaned = lock::cleanup_expired(&state).await.unwrap();
     assert_eq!(cleaned, 1);
 
-    let expired = folder_repo::find_by_id(state.writer_db(), expired_folder.id)
-        .await
-        .unwrap();
-    let active = folder_repo::find_by_id(state.writer_db(), active_folder.id)
-        .await
-        .unwrap();
-    assert!(!expired.is_locked);
-    assert!(active.is_locked);
     assert!(
         lock_repo::find_by_token(state.writer_db(), &expired_lock.token)
             .await
@@ -2223,7 +2220,6 @@ async fn test_folder_repo_find_expired_deleted_includes_team_folders() {
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
             deleted_at: Set(Some(deleted_at)),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2293,7 +2289,6 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2312,7 +2307,6 @@ async fn test_folder_repo_find_all_by_user_excludes_team_folders() {
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2354,7 +2348,6 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
             deleted_at: Set(Some(deleted_at)),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2373,7 +2366,6 @@ async fn test_folder_repo_top_level_deleted_pagination_is_stable_for_equal_times
             created_at: Set(deleted_at),
             updated_at: Set(deleted_at),
             deleted_at: Set(Some(deleted_at)),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2582,7 +2574,6 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2619,7 +2610,6 @@ async fn test_team_archive_cleanup_deletes_expired_team_data() {
             created_at: Set(now),
             updated_at: Set(now),
             deleted_at: Set(None),
-            is_locked: Set(false),
             ..Default::default()
         },
     )
@@ -2963,7 +2953,6 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )
@@ -2989,7 +2978,6 @@ async fn test_team_archive_cleanup_processes_multiple_file_and_folder_batches() 
                 created_at: Set(now),
                 updated_at: Set(now),
                 deleted_at: Set(None),
-                is_locked: Set(false),
                 ..Default::default()
             },
         )

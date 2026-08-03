@@ -281,8 +281,10 @@ pub(crate) async fn build_stream_outcome_with_disposition_and_range(
         None => driver.get_stream(&blob.storage_path).await?,
     };
 
-    // 64KB buffer — 比默认 4KB 减少系统调用和分配开销
-    let reader_stream = tokio_util::io::ReaderStream::with_capacity(stream, 64 * 1024);
+    let reader_stream = tokio_util::io::ReaderStream::with_capacity(
+        stream,
+        crate::storage::io_limits::DOWNLOAD_READER_BUFFER_BYTES,
+    );
     let content_length = match range {
         Some(range) => numbers::u64_to_i64(range.length(), "download range length")?,
         None => blob.size,

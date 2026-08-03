@@ -3,17 +3,13 @@
 use chrono::Utc;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, EntityTrait,
-    ExprTrait, PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set,
-    sea_query::{Expr, Query, SelectStatement},
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Select, Set, sea_query::Expr,
 };
 
 use crate::api::pagination::AdminLockSortBy;
 use crate::errors::{AsterError, Result};
-use aster_drive_model::entities::{
-    file, folder,
-    resource_lock::{self, Entity as ResourceLock},
-};
-use aster_drive_model::types::EntityType;
+use aster_drive_model::entities::resource_lock::{self, Entity as ResourceLock};
+use aster_drive_model::types::{EntityType, LockRootKind};
 use aster_forge_api::SortOrder;
 use aster_forge_db::pagination::fetch_offset_page;
 use aster_forge_db::sort::{order_by_column_with_id, order_by_id};
@@ -56,21 +52,21 @@ fn apply_admin_lock_sort(
 ) -> Select<ResourceLock> {
     match sort_by {
         AdminLockSortBy::Id => order_by_id(query, resource_lock::Column::Id, sort_order),
-        AdminLockSortBy::Path => order_by_column_with_id(
+        AdminLockSortBy::LockrootPath => order_by_column_with_id(
             query,
-            resource_lock::Column::Path,
+            resource_lock::Column::LockrootPath,
             sort_order,
             resource_lock::Column::Id,
         ),
-        AdminLockSortBy::EntityType => order_by_column_with_id(
+        AdminLockSortBy::RootKind => order_by_column_with_id(
             query,
-            resource_lock::Column::EntityType,
+            resource_lock::Column::RootKind,
             sort_order,
             resource_lock::Column::Id,
         ),
-        AdminLockSortBy::OwnerId => order_by_column_with_id(
+        AdminLockSortBy::HolderUserId => order_by_column_with_id(
             query,
-            resource_lock::Column::OwnerId,
+            resource_lock::Column::HolderUserId,
             sort_order,
             resource_lock::Column::Id,
         ),
@@ -80,15 +76,15 @@ fn apply_admin_lock_sort(
             sort_order,
             resource_lock::Column::Id,
         ),
-        AdminLockSortBy::Shared => order_by_column_with_id(
+        AdminLockSortBy::Mode => order_by_column_with_id(
             query,
-            resource_lock::Column::Shared,
+            resource_lock::Column::Mode,
             sort_order,
             resource_lock::Column::Id,
         ),
-        AdminLockSortBy::Deep => order_by_column_with_id(
+        AdminLockSortBy::Depth => order_by_column_with_id(
             query,
-            resource_lock::Column::Deep,
+            resource_lock::Column::Depth,
             sort_order,
             resource_lock::Column::Id,
         ),
@@ -122,6 +118,29 @@ pub async fn find_by_token<C: ConnectionTrait>(
         .map_err(AsterError::from)
 }
 
+pub async fn find_by_token_for_update<C: ConnectionTrait>(
+    db: &C,
+    token: &str,
+) -> Result<Option<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::Token.eq(token))
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_by_id_for_update<C: ConnectionTrait>(
+    db: &C,
+    id: i64,
+) -> Result<Option<resource_lock::Model>> {
+    ResourceLock::find_by_id(id)
+        .lock_exclusive()
+        .one(db)
+        .await
+        .map_err(AsterError::from)
+}
+
 /// 查询单个资源的第一把锁。
 ///
 /// WebDAV shared lock 允许同一资源存在多把锁；新代码需要完整判断锁集合时，
@@ -131,9 +150,7 @@ pub async fn find_by_entity<C: ConnectionTrait>(
     entity_type: EntityType,
     entity_id: i64,
 ) -> Result<Option<resource_lock::Model>> {
-    ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
+    entity_query(entity_type, entity_id)
         .order_by_asc(resource_lock::Column::Id)
         .one(db)
         .await
@@ -145,9 +162,7 @@ pub async fn find_all_by_entity<C: ConnectionTrait>(
     entity_type: EntityType,
     entity_id: i64,
 ) -> Result<Vec<resource_lock::Model>> {
-    ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
+    entity_query(entity_type, entity_id)
         .order_by_asc(resource_lock::Column::Id)
         .all(db)
         .await
@@ -159,9 +174,7 @@ pub async fn find_all_by_entity_for_update<C: ConnectionTrait>(
     entity_type: EntityType,
     entity_id: i64,
 ) -> Result<Vec<resource_lock::Model>> {
-    ResourceLock::find()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
+    entity_query(entity_type, entity_id)
         .order_by_asc(resource_lock::Column::Id)
         .lock_exclusive()
         .all(db)
@@ -190,10 +203,79 @@ pub async fn find_by_path_prefix<C: ConnectionTrait>(
     prefix: &str,
 ) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
-        .filter(resource_lock::Column::Path.starts_with(prefix))
+        .filter(resource_lock::Column::LockrootPath.starts_with(prefix))
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+pub async fn find_by_path_prefix_in_namespace<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    prefix: &str,
+) -> Result<Vec<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(resource_lock::Column::LockrootPath.starts_with(prefix))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_by_path<C: ConnectionTrait>(
+    db: &C,
+    path: &str,
+) -> Result<Vec<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::LockrootPath.eq(path))
+        .order_by_asc(resource_lock::Column::Id)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn rebind_path<C: ConnectionTrait>(
+    db: &C,
+    path: &str,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> Result<u64> {
+    let (root_kind, folder_id, file_id) = match entity_type {
+        EntityType::File => (LockRootKind::File, None, Some(entity_id)),
+        EntityType::Folder => (LockRootKind::Folder, Some(entity_id), None),
+    };
+    let result = ResourceLock::update_many()
+        .col_expr(resource_lock::Column::RootKind, Expr::value(root_kind))
+        .col_expr(resource_lock::Column::RootFolderId, Expr::value(folder_id))
+        .col_expr(resource_lock::Column::RootFileId, Expr::value(file_id))
+        .filter(resource_lock::Column::LockrootPath.eq(path))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
+}
+
+pub async fn rebind_path_in_namespace<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    path: &str,
+    entity_type: EntityType,
+    entity_id: i64,
+) -> Result<u64> {
+    let (root_kind, folder_id, file_id) = match entity_type {
+        EntityType::File => (LockRootKind::File, None, Some(entity_id)),
+        EntityType::Folder => (LockRootKind::Folder, Some(entity_id), None),
+    };
+    let result = ResourceLock::update_many()
+        .col_expr(resource_lock::Column::RootKind, Expr::value(root_kind))
+        .col_expr(resource_lock::Column::RootFolderId, Expr::value(folder_id))
+        .col_expr(resource_lock::Column::RootFileId, Expr::value(file_id))
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(resource_lock::Column::LockrootPath.eq(path))
+        .exec(db)
+        .await
+        .map_err(AsterError::from)?;
+    Ok(result.rows_affected)
 }
 
 /// 祖先路径查询（WebDAV check 用）
@@ -205,7 +287,23 @@ pub async fn find_ancestors<C: ConnectionTrait>(
         return Ok(vec![]);
     }
     ResourceLock::find()
-        .filter(resource_lock::Column::Path.is_in(paths.iter().map(|s| s.as_str())))
+        .filter(resource_lock::Column::LockrootPath.is_in(paths.iter().map(|s| s.as_str())))
+        .all(db)
+        .await
+        .map_err(AsterError::from)
+}
+
+pub async fn find_ancestors_in_namespace<C: ConnectionTrait>(
+    db: &C,
+    namespace_id: i64,
+    paths: &[String],
+) -> Result<Vec<resource_lock::Model>> {
+    if paths.is_empty() {
+        return Ok(vec![]);
+    }
+    ResourceLock::find()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(resource_lock::Column::LockrootPath.is_in(paths.iter().map(|s| s.as_str())))
         .all(db)
         .await
         .map_err(AsterError::from)
@@ -234,8 +332,7 @@ pub async fn delete_by_entity<C: ConnectionTrait>(
     entity_id: i64,
 ) -> Result<()> {
     ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
+        .filter(entity_condition(entity_type, entity_id))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -249,9 +346,8 @@ pub async fn delete_by_entity_and_owner<C: ConnectionTrait>(
     owner_id: i64,
 ) -> Result<()> {
     ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
-        .filter(resource_lock::Column::OwnerId.eq(owner_id))
+        .filter(entity_condition(entity_type, entity_id))
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -265,8 +361,7 @@ pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
     cutoff: chrono::DateTime<Utc>,
 ) -> Result<u64> {
     let res = ResourceLock::delete_many()
-        .filter(resource_lock::Column::EntityType.eq(entity_type))
-        .filter(resource_lock::Column::EntityId.eq(entity_id))
+        .filter(entity_condition(entity_type, entity_id))
         .filter(resource_lock::Column::TimeoutAt.is_not_null())
         .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
         .exec(db)
@@ -278,7 +373,7 @@ pub async fn delete_expired_by_entity_before<C: ConnectionTrait>(
 /// 删除路径前缀匹配的所有锁
 pub async fn delete_by_path_prefix<C: ConnectionTrait>(db: &C, prefix: &str) -> Result<u64> {
     let res = ResourceLock::delete_many()
-        .filter(resource_lock::Column::Path.starts_with(prefix))
+        .filter(resource_lock::Column::LockrootPath.starts_with(prefix))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
@@ -310,88 +405,44 @@ pub async fn delete_expired_before<C: ConnectionTrait>(
     Ok(res.rows_affected)
 }
 
-pub async fn clear_file_locked_flags_without_locks<C: ConnectionTrait>(
+pub async fn delete_expired_by_namespace_before<C: ConnectionTrait>(
     db: &C,
-    file_ids: &[i64],
+    namespace_id: i64,
+    cutoff: chrono::DateTime<Utc>,
 ) -> Result<u64> {
-    if file_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let result = file::Entity::update_many()
-        .col_expr(file::Column::IsLocked, Expr::value(false))
-        .col_expr(file::Column::UpdatedAt, Expr::value(Utc::now()))
-        .filter(file::Column::Id.is_in(file_ids.iter().copied()))
-        .filter(file::Column::IsLocked.eq(true))
-        .filter(Expr::not_exists(lock_exists_for_file_query()))
+    let result = ResourceLock::delete_many()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .filter(resource_lock::Column::TimeoutAt.is_not_null())
+        .filter(resource_lock::Column::TimeoutAt.lt(cutoff))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
     Ok(result.rows_affected)
 }
 
-pub async fn clear_file_locked_flag_without_lock<C: ConnectionTrait>(
+pub async fn find_all_by_namespace_for_update<C: ConnectionTrait>(
     db: &C,
-    file_id: i64,
-) -> Result<bool> {
-    Ok(clear_file_locked_flags_without_locks(db, &[file_id]).await? == 1)
-}
-
-pub async fn clear_folder_locked_flags_without_locks<C: ConnectionTrait>(
-    db: &C,
-    folder_ids: &[i64],
-) -> Result<u64> {
-    if folder_ids.is_empty() {
-        return Ok(0);
-    }
-
-    let result = folder::Entity::update_many()
-        .col_expr(folder::Column::IsLocked, Expr::value(false))
-        .col_expr(folder::Column::UpdatedAt, Expr::value(Utc::now()))
-        .filter(folder::Column::Id.is_in(folder_ids.iter().copied()))
-        .filter(folder::Column::IsLocked.eq(true))
-        .filter(Expr::not_exists(lock_exists_for_folder_query()))
-        .exec(db)
+    namespace_id: i64,
+) -> Result<Vec<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .order_by_asc(resource_lock::Column::Id)
+        .lock_exclusive()
+        .all(db)
         .await
-        .map_err(AsterError::from)?;
-    Ok(result.rows_affected)
+        .map_err(AsterError::from)
 }
 
-pub async fn clear_folder_locked_flag_without_lock<C: ConnectionTrait>(
+pub async fn find_all_by_namespace<C: ConnectionTrait>(
     db: &C,
-    folder_id: i64,
-) -> Result<bool> {
-    Ok(clear_folder_locked_flags_without_locks(db, &[folder_id]).await? == 1)
-}
-
-fn lock_exists_for_file_query() -> SelectStatement {
-    Query::select()
-        .expr(Expr::value(1i32))
-        .from(resource_lock::Entity)
-        .and_where(
-            Expr::col((resource_lock::Entity, resource_lock::Column::EntityType))
-                .eq(EntityType::File),
-        )
-        .and_where(
-            Expr::col((resource_lock::Entity, resource_lock::Column::EntityId))
-                .eq(Expr::col((file::Entity, file::Column::Id))),
-        )
-        .to_owned()
-}
-
-fn lock_exists_for_folder_query() -> SelectStatement {
-    Query::select()
-        .expr(Expr::value(1i32))
-        .from(resource_lock::Entity)
-        .and_where(
-            Expr::col((resource_lock::Entity, resource_lock::Column::EntityType))
-                .eq(EntityType::Folder),
-        )
-        .and_where(
-            Expr::col((resource_lock::Entity, resource_lock::Column::EntityId))
-                .eq(Expr::col((folder::Entity, folder::Column::Id))),
-        )
-        .to_owned()
+    namespace_id: i64,
+) -> Result<Vec<resource_lock::Model>> {
+    ResourceLock::find()
+        .filter(resource_lock::Column::NamespaceId.eq(namespace_id))
+        .order_by_asc(resource_lock::Column::Id)
+        .all(db)
+        .await
+        .map_err(AsterError::from)
 }
 
 pub async fn refresh<C: ConnectionTrait>(
@@ -417,10 +468,27 @@ pub async fn find_by_owner<C: ConnectionTrait>(
     owner_id: i64,
 ) -> Result<Vec<resource_lock::Model>> {
     ResourceLock::find()
-        .filter(resource_lock::Column::OwnerId.eq(owner_id))
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
         .all(db)
         .await
         .map_err(AsterError::from)
+}
+
+fn entity_query(entity_type: EntityType, entity_id: i64) -> Select<ResourceLock> {
+    ResourceLock::find()
+        .filter(entity_condition(entity_type, entity_id))
+        .order_by_asc(resource_lock::Column::Id)
+}
+
+fn entity_condition(entity_type: EntityType, entity_id: i64) -> Condition {
+    match entity_type {
+        EntityType::File => Condition::all()
+            .add(resource_lock::Column::RootKind.eq(LockRootKind::File))
+            .add(resource_lock::Column::RootFileId.eq(entity_id)),
+        EntityType::Folder => Condition::all()
+            .add(resource_lock::Column::RootKind.eq(LockRootKind::Folder))
+            .add(resource_lock::Column::RootFolderId.eq(entity_id)),
+    }
 }
 
 /// Count active locks owned by a user.
@@ -433,7 +501,7 @@ pub async fn count_active_by_owner<C: ConnectionTrait>(
     now: chrono::DateTime<Utc>,
 ) -> Result<u64> {
     ResourceLock::find()
-        .filter(resource_lock::Column::OwnerId.eq(owner_id))
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
         .filter(
             Condition::any()
                 .add(resource_lock::Column::TimeoutAt.is_null())
@@ -447,92 +515,9 @@ pub async fn count_active_by_owner<C: ConnectionTrait>(
 /// 批量删除用户持有的所有资源锁
 pub async fn delete_all_by_owner<C: ConnectionTrait>(db: &C, owner_id: i64) -> Result<u64> {
     let res = ResourceLock::delete_many()
-        .filter(resource_lock::Column::OwnerId.eq(owner_id))
+        .filter(resource_lock::Column::HolderUserId.eq(owner_id))
         .exec(db)
         .await
         .map_err(AsterError::from)?;
     Ok(res.rows_affected)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use sea_orm::{Database, DbBackend, QueryTrait};
-
-    #[test]
-    fn postgres_clear_file_locked_flags_sql_requires_absent_replacement_lock() {
-        let sql = file::Entity::update_many()
-            .col_expr(file::Column::IsLocked, Expr::value(false))
-            .filter(file::Column::Id.is_in([7, 9]))
-            .filter(Expr::not_exists(lock_exists_for_file_query()))
-            .build(DbBackend::Postgres)
-            .to_string();
-
-        assert!(sql.contains("NOT EXISTS"), "{sql}");
-        assert!(sql.contains(r#""resource_locks""#), "{sql}");
-        assert!(sql.contains(r#""entity_type" = 'file'"#), "{sql}");
-        assert!(
-            sql.contains(r#""resource_locks"."entity_id" = "files"."id""#),
-            "{sql}"
-        );
-    }
-
-    #[tokio::test]
-    async fn count_active_by_owner_counts_null_and_future_timeouts_only() {
-        let db = Database::connect("sqlite::memory:")
-            .await
-            .expect("in-memory sqlite should connect");
-        let schema = sea_orm::Schema::new(DbBackend::Sqlite);
-        db.execute(&schema.create_table_from_entity(ResourceLock))
-            .await
-            .expect("resource_locks test table should be created");
-
-        let now = Utc::now();
-        for (owner_id, timeout_at) in [
-            (42, None),
-            (42, Some(now + chrono::Duration::seconds(60))),
-            (42, Some(now - chrono::Duration::seconds(60))),
-            (7, Some(now + chrono::Duration::seconds(60))),
-        ] {
-            create(
-                &db,
-                resource_lock::ActiveModel {
-                    token: Set(format!("token-{owner_id}-{timeout_at:?}")),
-                    entity_type: Set(EntityType::File),
-                    entity_id: Set(owner_id),
-                    path: Set(format!("/{owner_id}-{timeout_at:?}.txt")),
-                    owner_id: Set(Some(owner_id)),
-                    timeout_at: Set(timeout_at),
-                    shared: Set(false),
-                    deep: Set(false),
-                    created_at: Set(now),
-                    ..Default::default()
-                },
-            )
-            .await
-            .expect("test lock should insert");
-        }
-
-        assert_eq!(count_active_by_owner(&db, 42, now).await.unwrap(), 2);
-        assert_eq!(count_active_by_owner(&db, 7, now).await.unwrap(), 1);
-        assert_eq!(count_active_by_owner(&db, 99, now).await.unwrap(), 0);
-    }
-
-    #[test]
-    fn postgres_clear_folder_locked_flags_sql_requires_absent_replacement_lock() {
-        let sql = folder::Entity::update_many()
-            .col_expr(folder::Column::IsLocked, Expr::value(false))
-            .filter(folder::Column::Id.is_in([11, 13]))
-            .filter(Expr::not_exists(lock_exists_for_folder_query()))
-            .build(DbBackend::Postgres)
-            .to_string();
-
-        assert!(sql.contains("NOT EXISTS"), "{sql}");
-        assert!(sql.contains(r#""resource_locks""#), "{sql}");
-        assert!(sql.contains(r#""entity_type" = 'folder'"#), "{sql}");
-        assert!(
-            sql.contains(r#""resource_locks"."entity_id" = "folders"."id""#),
-            "{sql}"
-        );
-    }
 }

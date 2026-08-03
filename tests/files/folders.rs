@@ -121,6 +121,19 @@ async fn test_folder_lock_unlock() {
     let resp = test::call_service(&app, req).await;
     assert!(resp.status() == 403 || resp.status() == 423);
 
+    // 锁定 collection 也保护其 membership，不能创建子目录。
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Blocked Child",
+            "parent_id": folder_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 403 || resp.status() == 423);
+
     // 重命名失败
     let req = test::TestRequest::patch()
         .uri(&format!("/api/v1/folders/{folder_id}"))
@@ -157,6 +170,63 @@ async fn test_folder_lock_unlock() {
         .to_request();
     let resp = test::call_service(&app, req).await;
     assert_eq!(resp.status(), 200);
+}
+
+#[actix_web::test]
+async fn test_folder_delete_fails_when_descendant_is_locked() {
+    let state = common::setup().await;
+    let app = create_test_app!(state);
+    let (token, _) = register_and_login!(app);
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "name": "Parent" }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let parent_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri("/api/v1/folders")
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({
+            "name": "Locked Child",
+            "parent_id": parent_id
+        }))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert_eq!(resp.status(), 201);
+    let body: Value = test::read_body_json(resp).await;
+    let child_id = body["data"]["id"].as_i64().unwrap();
+
+    let req = test::TestRequest::post()
+        .uri(&format!("/api/v1/folders/{child_id}/lock"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .set_json(serde_json::json!({ "locked": true }))
+        .to_request();
+    assert_eq!(test::call_service(&app, req).await.status(), 200);
+
+    let req = test::TestRequest::delete()
+        .uri(&format!("/api/v1/folders/{parent_id}"))
+        .insert_header(("Cookie", common::access_cookie_header(&token)))
+        .insert_header(common::csrf_header_for(&token))
+        .to_request();
+    let resp = test::call_service(&app, req).await;
+    assert!(resp.status() == 403 || resp.status() == 423);
+
+    for folder_id in [parent_id, child_id] {
+        let req = test::TestRequest::get()
+            .uri(&format!("/api/v1/folders/{folder_id}"))
+            .insert_header(("Cookie", common::access_cookie_header(&token)))
+            .insert_header(common::csrf_header_for(&token))
+            .to_request();
+        assert_eq!(test::call_service(&app, req).await.status(), 200);
+    }
 }
 
 #[actix_web::test]

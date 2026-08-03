@@ -348,7 +348,7 @@ export default function ShareViewPage() {
 						created_at: new Date().toISOString(),
 						updated_at: new Date().toISOString(),
 						deleted_at: null,
-						is_locked: false,
+						lock_state: { state: "unlocked" },
 						tags: [],
 					} satisfies FileInfo)
 				: null;

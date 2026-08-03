@@ -3,7 +3,10 @@
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
 use crate::runtime::SharedRuntimeState;
-use crate::services::workspace::storage::{self, WorkspaceStorageScope};
+use crate::services::{
+    files::lock,
+    workspace::storage::{self, WorkspaceStorageScope},
+};
 use aster_forge_utils::numbers::usize_to_u64;
 
 use super::common::{
@@ -82,6 +85,7 @@ async fn list_trash_in_scope(
     };
 
     let folder_paths = build_trash_path_cache(state.reader_db(), &raw_folders, &raw_files).await?;
+    let lock_states = lock::load_for_scope(state, scope.into(), &raw_files, &raw_folders).await?;
 
     let raw_file_count = usize_to_u64(raw_files.len(), "trash file count")?;
     let next_file_cursor = if file_limit > 0 && raw_file_count == file_limit {
@@ -97,12 +101,26 @@ async fn list_trash_in_scope(
 
     let folders = raw_folders
         .into_iter()
-        .map(|folder| build_trash_folder_item(folder, &folder_paths, retention_days))
+        .map(|folder| {
+            let lock_state = lock::state_for(
+                &lock_states,
+                aster_drive_model::types::EntityType::Folder,
+                folder.id,
+            );
+            build_trash_folder_item(folder, &folder_paths, retention_days, lock_state)
+        })
         .collect::<Result<Vec<_>>>()?;
 
     let files = raw_files
         .into_iter()
-        .map(|file| build_trash_file_item(file, &folder_paths, retention_days))
+        .map(|file| {
+            let lock_state = lock::state_for(
+                &lock_states,
+                aster_drive_model::types::EntityType::File,
+                file.id,
+            );
+            build_trash_file_item(file, &folder_paths, retention_days, lock_state)
+        })
         .collect::<Result<Vec<_>>>()?;
 
     let contents = TrashContents {

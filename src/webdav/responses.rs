@@ -45,10 +45,6 @@ pub(crate) fn bad_request_text(body: &'static str) -> HttpResponse {
     text(StatusCode::BAD_REQUEST, body)
 }
 
-pub(crate) fn conflict() -> HttpResponse {
-    empty(StatusCode::CONFLICT)
-}
-
 pub(crate) fn forbidden_text(body: &'static str) -> HttpResponse {
     text(StatusCode::FORBIDDEN, body)
 }

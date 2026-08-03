@@ -505,13 +505,13 @@ Side effects that must be explicit:
 
 Current responsibilities:
 
-- `src/webdav/*` handles WebDAV / DeltaV protocol behavior, Basic Auth, path resolution, locks, properties, and transfer
+- `src/webdav/*` handles WebDAV Basic Auth, product path resolution, lock/property persistence, and transfer adapters; AsterForge owns product-neutral protocol semantics
 - `src/services/webdav::tree.rs` exposes product actions needed by protocol code, such as folder tree soft delete, purge, and copy
 - WebDAV file writes use the unified `workspace::storage` path
 
 Should stay:
 
-- WebDAV-specific auth, path resolution, locks, properties, Depth, Range, and DeltaV behavior
+- WebDAV-specific auth, product path resolution, lock/property persistence, and storage-transfer adapters
 - Adaptation from protocol semantics to AsterDrive workspace/file/folder semantics
 - Reuse of `file`, `folder`, and `workspace::storage`
 

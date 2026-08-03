@@ -5,6 +5,7 @@ import type {
 } from "@/components/files/FileBrowserContext";
 import type { FileContextMenuProps } from "@/components/files/FileContextMenu";
 import { isExtractableArchiveFileName } from "@/lib/archiveFormats";
+import { isDirectResourceLock, isResourceLocked } from "@/lib/resourceLock";
 import type { FileListItem, FolderListItem } from "@/types/api";
 
 type ResolvedFileContextMenuProps = Omit<
@@ -121,9 +122,13 @@ function resolveWritableFolderMenuProps({
 	FileBrowserItemActionResolverInput,
 	{ isFolder: true }
 >): ResolvedFileContextMenuProps {
+	const isLocked = isResourceLocked(item.lock_state);
+	const canToggleLock =
+		item.lock_state.state === "unlocked" ||
+		isDirectResourceLock(item.lock_state);
 	return {
 		isFolder: true,
-		isLocked: item.is_locked ?? false,
+		isLocked,
 		onOpen: () => handlers.onFolderOpen(item.id, item.name),
 		onPageShare: () =>
 			handlers.onShare({
@@ -152,8 +157,9 @@ function resolveWritableFolderMenuProps({
 		onRename: handlers.onRename
 			? () => handlers.onRename?.("folder", item.id, item.name)
 			: undefined,
-		onToggleLock: () =>
-			handlers.onToggleLock("folder", item.id, item.is_locked ?? false),
+		onToggleLock: canToggleLock
+			? () => handlers.onToggleLock("folder", item.id, isLocked)
+			: undefined,
 		onDelete: handlers.onDelete
 			? () => handlers.onDelete?.("folder", item.id)
 			: undefined,
@@ -183,9 +189,13 @@ function resolveWritableFileMenuProps({
 	FileBrowserItemActionResolverInput,
 	{ isFolder: false }
 >): ResolvedFileContextMenuProps {
+	const isLocked = isResourceLocked(item.lock_state);
+	const canToggleLock =
+		item.lock_state.state === "unlocked" ||
+		isDirectResourceLock(item.lock_state);
 	return {
 		isFolder: false,
-		isLocked: item.is_locked ?? false,
+		isLocked,
 		onOpen: () => (handlers.onFileOpen ?? handlers.onFileClick)(item),
 		onChooseOpenMethod: handlers.onFileChooseOpenMethod
 			? () => handlers.onFileChooseOpenMethod?.(item)
@@ -225,8 +235,9 @@ function resolveWritableFileMenuProps({
 		onRename: handlers.onRename
 			? () => handlers.onRename?.("file", item.id, item.name)
 			: undefined,
-		onToggleLock: () =>
-			handlers.onToggleLock("file", item.id, item.is_locked ?? false),
+		onToggleLock: canToggleLock
+			? () => handlers.onToggleLock("file", item.id, isLocked)
+			: undefined,
 		onDelete: handlers.onDelete
 			? () => handlers.onDelete?.("file", item.id)
 			: undefined,
