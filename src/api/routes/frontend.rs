@@ -1,7 +1,7 @@
 //! API 路由：`frontend`。
 
 use crate::config::branding;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use actix_web::{HttpRequest, HttpResponse, web};
 use rust_embed::Embed;
 use std::path::PathBuf;

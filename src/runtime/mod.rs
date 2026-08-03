@@ -51,6 +51,10 @@ pub struct FollowerAppState {
     pub metrics: SharedMetricsRecorder,
 }
 
+/// Product runtime dependencies available on both primary and follower nodes.
+///
+/// Storage connectors receive a narrower [`crate::storage::connectors::StorageConnectorContext`]
+/// assembled from this state instead of depending on the product state directly.
 pub trait SharedRuntimeState {
     fn writer_db(&self) -> &DatabaseConnection;
     fn reader_db(&self) -> &DatabaseConnection;
@@ -98,6 +102,26 @@ impl PrimaryAppState {
         self.db_handles.sqlite_read_write_split()
     }
 
+    pub fn writer_db(&self) -> &DatabaseConnection {
+        self.db_handles.writer()
+    }
+
+    pub fn driver_registry(&self) -> &Arc<DriverRegistry> {
+        &self.driver_registry
+    }
+
+    pub fn runtime_config(&self) -> &Arc<RuntimeConfig> {
+        &self.runtime_config
+    }
+
+    pub fn config(&self) -> &Arc<Config> {
+        &self.config
+    }
+
+    pub fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime {
+        &self.config_sync
+    }
+
     pub fn should_record_audit_action(
         &self,
         action: aster_drive_model::types::AuditAction,
@@ -128,6 +152,26 @@ impl From<&PrimaryAppState> for FollowerAppState {
 impl FollowerAppState {
     pub fn sqlite_read_write_split(&self) -> bool {
         self.db_handles.sqlite_read_write_split()
+    }
+
+    pub fn writer_db(&self) -> &DatabaseConnection {
+        self.db_handles.writer()
+    }
+
+    pub fn driver_registry(&self) -> &Arc<DriverRegistry> {
+        &self.driver_registry
+    }
+
+    pub fn runtime_config(&self) -> &Arc<RuntimeConfig> {
+        &self.runtime_config
+    }
+
+    pub fn config(&self) -> &Arc<Config> {
+        &self.config
+    }
+
+    pub fn config_sync(&self) -> &aster_forge_config::ConfigSyncRuntime {
+        &self.config_sync
     }
 }
 

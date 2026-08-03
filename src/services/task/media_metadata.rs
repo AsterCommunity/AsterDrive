@@ -5,7 +5,7 @@ use aster_forge_tasks::{TaskRetryClass, set_task_step_active, set_task_step_succ
 
 use crate::db::repository::background_task_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState, TaskRuntimeState};
+use crate::runtime::{PrimaryAppState, TaskRuntimeState};
 use crate::services::media::metadata;
 use aster_drive_model::entities::{background_task, file, file_blob};
 use aster_drive_model::types::{

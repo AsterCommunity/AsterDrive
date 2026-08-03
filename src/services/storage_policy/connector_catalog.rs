@@ -18,11 +18,12 @@ pub enum StorageConnectorCatalogContext {
     InitialSetup,
 }
 
-pub fn list_storage_connector_catalog(
+pub(crate) fn list_storage_connector_catalog(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     config: &Config,
     context: StorageConnectorCatalogContext,
 ) -> Vec<StorageConnectorDescriptor> {
-    crate::storage::connectors::list_storage_driver_descriptors()
+    crate::storage::connectors::list_storage_driver_descriptors(registry)
         .into_iter()
         .filter(|descriptor| connector_visible_in_context(config, descriptor, context))
         .collect()
@@ -75,7 +76,9 @@ mod tests {
     use aster_drive_model::types::DriverType;
 
     fn driver_types(config: &Config, context: StorageConnectorCatalogContext) -> Vec<DriverType> {
-        list_storage_connector_catalog(config, context)
+        let registry = crate::storage::connectors::builtin_storage_connector_registry()
+            .expect("built-in connector registry");
+        list_storage_connector_catalog(&registry, config, context)
             .into_iter()
             .map(|descriptor| descriptor.driver_type)
             .collect()

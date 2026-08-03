@@ -428,7 +428,6 @@ mod tests {
         RuntimeTaskRunOutcome, SystemRuntimeTaskKind, record_runtime_task_run,
         record_scheduled_runtime_task_run, registered_system_runtime_tasks,
     };
-    use crate::runtime::SharedRuntimeState;
     use chrono::{Duration, Utc};
     use sea_orm::{ColumnTrait, EntityTrait, PaginatorTrait, QueryFilter};
 

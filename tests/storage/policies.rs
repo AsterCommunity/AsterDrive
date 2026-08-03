@@ -3,7 +3,6 @@
 use crate::common;
 use aster_drive::api::api_error_code::ApiErrorCode;
 use aster_drive::config::site_url;
-use aster_drive::runtime::SharedRuntimeState;
 
 use actix_web::test;
 use chrono::{Duration, Utc};
@@ -451,6 +450,8 @@ async fn test_initial_storage_setup_rejects_connectors_requiring_post_setup_conf
 
 #[actix_web::test]
 async fn test_onedrive_provider_download_strategy_create_update_and_driver_isolation() {
+    use aster_drive_model::types::{ProviderDownloadStrategy, parse_storage_policy_options};
+
     let state = common::setup().await;
     let app = create_test_app!(state.clone());
     let (token, _) = register_and_login!(app);
@@ -485,9 +486,10 @@ async fn test_onedrive_provider_download_strategy_create_update_and_driver_isola
     let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
         .await
         .expect("created OneDrive policy should be stored");
-    assert!(
-        aster_drive::storage::connectors::presigned_download_enabled(&stored)
-            .expect("OneDrive direct download should resolve")
+    assert_eq!(
+        parse_storage_policy_options(stored.options.as_ref())
+            .effective_provider_download_strategy(),
+        ProviderDownloadStrategy::FrontendDirect
     );
 
     let update = test::TestRequest::patch()
@@ -514,9 +516,10 @@ async fn test_onedrive_provider_download_strategy_create_update_and_driver_isola
     let stored = aster_drive::db::repository::policy_repo::find_by_id(state.writer_db(), policy_id)
         .await
         .expect("updated OneDrive policy should be stored");
-    assert!(
-        !aster_drive::storage::connectors::presigned_download_enabled(&stored)
-            .expect("OneDrive relay download should resolve")
+    assert_eq!(
+        parse_storage_policy_options(stored.options.as_ref())
+            .effective_provider_download_strategy(),
+        ProviderDownloadStrategy::ServerRelay
     );
 
     let invalid = test::TestRequest::post()

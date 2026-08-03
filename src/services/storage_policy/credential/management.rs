@@ -39,6 +39,7 @@ pub async fn validate_policy_credential(
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
     let credential_kind =
         crate::storage::connectors::ensure_storage_credential_validation_supported(
+            state.driver_registry().connectors(),
             policy.driver_type,
             provider,
         )?;
@@ -51,6 +52,7 @@ pub async fn validate_policy_credential(
     .await?
     .ok_or_else(|| AsterError::record_not_found("storage policy credential"))?;
     let validation = match crate::storage::connectors::validate_credential(
+        state.driver_registry().connectors(),
         state.writer_db(),
         state.config().as_ref(),
         &policy,

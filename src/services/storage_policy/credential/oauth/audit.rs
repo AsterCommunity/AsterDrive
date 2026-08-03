@@ -75,13 +75,16 @@ pub(super) async fn log_storage_credential_oauth_audit(
     details: StorageCredentialOauthAuditDetails<'_>,
 ) {
     let policy_id = details.policy_id;
-    audit::log_with_details(
-        state,
-        ctx,
-        audit::AuditAction::AdminTriggerStorageAction,
-        audit::AuditEntityType::StoragePolicy,
-        policy_id,
-        None,
+    audit::log_with_db_and_config(
+        state.writer_db(),
+        state.runtime_config(),
+        audit::AuditLogInput {
+            ctx,
+            action: audit::AuditAction::AdminTriggerStorageAction,
+            entity_type: audit::AuditEntityType::StoragePolicy,
+            entity_id: policy_id,
+            entity_name: None,
+        },
         || Some(storage_credential_oauth_audit_details(details)),
     )
     .await;

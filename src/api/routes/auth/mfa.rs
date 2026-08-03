@@ -3,7 +3,7 @@
 use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::auth::local::Claims;
 use crate::services::{auth::mfa, ops::audit};
 use actix_web::{HttpRequest, HttpResponse, web};

@@ -9,7 +9,7 @@ use sea_orm::{ActiveModelTrait, Set};
 
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
 use crate::db::repository::{file_repo, lock_repo};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_model::entities::{file, file_blob, resource_lock, storage_policy, user};

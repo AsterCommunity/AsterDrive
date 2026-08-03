@@ -2,7 +2,7 @@ use chrono::{Duration, Utc};
 
 use crate::api::constants::HOUR_SECS;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::upload::responses::InitUploadResponse;
 use crate::services::files::upload::shared::{
     UniqueUuidAttempt, delete_upload_session_record_after_init_error, with_unique_upload_id,
@@ -21,7 +21,8 @@ pub(super) async fn init_object_storage_upload(
     state: &PrimaryAppState,
     ctx: &InitUploadContext,
 ) -> Result<Option<InitUploadResponse>> {
-    let transport = resolve_policy_upload_transport(&ctx.policy)?;
+    let transport =
+        resolve_policy_upload_transport(state.driver_registry().connectors(), &ctx.policy)?;
     let PolicyUploadTransport::ObjectStorage(strategy) = transport else {
         return Ok(None);
     };

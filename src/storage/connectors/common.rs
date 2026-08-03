@@ -1,5 +1,5 @@
 use chrono::Utc;
-use sea_orm::ConnectionTrait;
+use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::policy_repo;
@@ -18,43 +18,42 @@ use aster_drive_storage::{StorageDriver, StorageErrorKind};
 
 use super::{StorageConnector, StorageConnectorConnectionInput};
 
-pub(super) async fn normalize_policy_connection_for<T, C>(
-    db: &C,
+pub(super) async fn normalize_policy_connection<C: StorageConnector + ?Sized>(
+    db: &DatabaseConnection,
+    connector: &C,
     input: StorageConnectorConnectionInput,
-) -> Result<StorageConnectorConnectionInput>
-where
-    T: StorageConnector,
-    C: ConnectionTrait + Sync,
-{
-    let (endpoint, bucket) = T::normalize_connection_fields(&input.endpoint, &input.bucket)?;
+) -> Result<StorageConnectorConnectionInput> {
+    let (endpoint, bucket) =
+        connector.normalize_connection_fields(&input.endpoint, &input.bucket)?;
     let mut normalized = StorageConnectorConnectionInput {
         endpoint,
         bucket,
         options: input.options.normalized(),
         ..input
     };
-    if normalized.driver_type != T::driver_type() {
+    if normalized.driver_type != connector.driver_type() {
         return Err(AsterError::internal_error(format!(
             "connector {:?} received connection for {:?}",
-            T::driver_type(),
+            connector.driver_type(),
             normalized.driver_type
         )));
     }
-    T::validate_connection_credentials(&normalized)?;
-    normalized.remote_node_id = T::validate_connection_binding(db, &normalized).await?;
+    connector.validate_connection_credentials(&normalized)?;
+    normalized.remote_node_id = connector
+        .validate_connection_binding(db, &normalized)
+        .await?;
     Ok(normalized)
 }
 
-pub(super) async fn build_connection_test_policy<T, C>(
-    db: &C,
+pub(super) async fn build_connection_test_policy<C: StorageConnector + ?Sized>(
+    db: &DatabaseConnection,
+    connector: &C,
     input: StorageConnectorConnectionInput,
-) -> Result<storage_policy::Model>
-where
-    T: StorageConnector,
-    C: ConnectionTrait + Sync,
-{
-    let input = normalize_policy_connection_for::<T, _>(db, input).await?;
-    T::validate_policy_options(db, input.remote_node_id, &input.options).await?;
+) -> Result<storage_policy::Model> {
+    let input = normalize_policy_connection(db, connector, input).await?;
+    connector
+        .validate_policy_options(db, input.remote_node_id, &input.options)
+        .await?;
     Ok(storage_policy::Model {
         id: 0,
         name: String::new(),

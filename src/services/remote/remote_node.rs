@@ -745,7 +745,6 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RuntimeConfig};
     use crate::db;
-    use crate::runtime::SharedRuntimeState;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use aster_drive_migration::Migrator;
     use aster_drive_model::types::RemoteNodeTransportMode;

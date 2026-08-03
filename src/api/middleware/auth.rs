@@ -12,7 +12,7 @@ use crate::api::api_error_code::ApiErrorCode;
 use crate::api::request_auth::{access_cookie_token, bearer_token};
 use crate::config::site_url;
 use crate::errors::{AsterError, auth_forbidden_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::auth::local;
 use aster_forge_actix_middleware::csrf::{self, RequestSourceMode};
 

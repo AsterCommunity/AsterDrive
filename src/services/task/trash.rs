@@ -1,7 +1,7 @@
 //! 回收站后台任务。
 
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{self, WorkspaceStorageScope};
 use aster_drive_model::entities::background_task;
 use aster_forge_tasks::TaskExecutionContext;

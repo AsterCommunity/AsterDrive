@@ -7,7 +7,9 @@ use utoipa::ToSchema;
 use validator::{Validate, ValidationError};
 
 /// 存储驱动类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, EnumIter, DeriveActiveEnum, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, EnumIter, DeriveActiveEnum, Serialize, Deserialize,
+)]
 #[cfg_attr(all(debug_assertions, feature = "openapi"), derive(ToSchema))]
 #[cfg_attr(
     all(debug_assertions, feature = "openapi"),

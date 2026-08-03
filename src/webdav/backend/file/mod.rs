@@ -150,17 +150,20 @@ impl AsterDavFile {
                     Some(policy),
                     hasher,
                 )
-            } else if storage::streaming_direct_upload_eligible(&policy, size_hint).map_err(
-                |error| {
-                    tracing::warn!(
-                        policy_id = policy.id,
-                        driver_type = %policy.driver_type.as_str(),
-                        error = %error,
-                        "failed to resolve WebDAV streaming direct upload eligibility"
-                    );
-                    FsError::GeneralFailure
-                },
-            )? {
+            } else if storage::streaming_direct_upload_eligible(
+                state.driver_registry().connectors(),
+                &policy,
+                size_hint,
+            )
+            .map_err(|error| {
+                tracing::warn!(
+                    policy_id = policy.id,
+                    driver_type = %policy.driver_type.as_str(),
+                    error = %error,
+                    "failed to resolve WebDAV streaming direct upload eligibility"
+                );
+                FsError::GeneralFailure
+            })? {
                 if policy.max_file_size > 0 && size_hint > policy.max_file_size {
                     return Err(FsError::TooLarge);
                 }
@@ -181,16 +184,20 @@ impl AsterDavFile {
                     .extensions()
                     .stream_upload
                     .ok_or(FsError::GeneralFailure)?;
-                let prepared_upload =
-                    storage::prepare_non_dedup_blob_upload(&policy, size_hint, Some(&filename))
-                        .map_err(|error| {
-                            tracing::warn!(
-                                policy_id = policy.id,
-                                driver_type = %policy.driver_type.as_str(),
-                                "failed to prepare WebDAV direct blob upload: {error}"
-                            );
-                            FsError::GeneralFailure
-                        })?;
+                let prepared_upload = storage::prepare_non_dedup_blob_upload(
+                    state.driver_registry().connectors(),
+                    &policy,
+                    size_hint,
+                    Some(&filename),
+                )
+                .map_err(|error| {
+                    tracing::warn!(
+                        policy_id = policy.id,
+                        driver_type = %policy.driver_type.as_str(),
+                        "failed to prepare WebDAV direct blob upload: {error}"
+                    );
+                    FsError::GeneralFailure
+                })?;
                 let storage_path = prepared_upload.storage_path().to_string();
                 let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);
                 let driver_for_task = driver.clone();

@@ -1,5 +1,4 @@
 use async_trait::async_trait;
-use sea_orm::ConnectionTrait;
 use serde::Deserialize;
 use std::sync::Arc;
 
@@ -7,7 +6,6 @@ use crate::db::repository::{
     storage_connector_application_config_repo, storage_policy_credential_repo,
 };
 use crate::errors::{AsterError, Result, storage_driver_error};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::drivers::onedrive::{
     MicrosoftGraphClient, MicrosoftGraphClientConfig, OneDriveDriver,
     microsoft_graph_upload_capabilities,
@@ -223,21 +221,33 @@ impl StorageConnectorDescriptorProvider for OneDriveConnector {
 
 #[async_trait]
 impl StorageConnector for OneDriveConnector {
-    fn driver_type() -> DriverType {
+    fn driver_type(&self) -> DriverType {
         DriverType::OneDrive
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::storage_connector_descriptor()
+    }
+
+    fn normalize_connection_fields(
+        &self,
+        endpoint: &str,
+        bucket: &str,
+    ) -> Result<(String, String)> {
         let _ = (endpoint, bucket);
         Ok((String::new(), String::new()))
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
+    fn validate_connection_credentials(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<()> {
         let _ = input;
         Ok(())
     }
 
     fn prepare_connection_for_storage(
+        &self,
         mut input: StorageConnectorConnectionInput,
         application_config: &StorageConnectorApplicationConfigInput,
     ) -> Result<StorageConnectorConnectionInput> {
@@ -250,18 +260,20 @@ impl StorageConnector for OneDriveConnector {
         Ok(input)
     }
 
-    async fn validate_policy_options<C: ConnectionTrait + Sync>(
-        db: &C,
+    async fn validate_policy_options(
+        &self,
+        db: &sea_orm::DatabaseConnection,
         remote_node_id: Option<i64>,
         options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
         let _ = (db, remote_node_id);
-        ensure_storage_native_processing_supported(Self::storage_connector_descriptor(), options)?;
+        ensure_storage_native_processing_supported(self.descriptor(), options)?;
         validate_onedrive_options(options)
     }
 
-    async fn persist_application_config<C: ConnectionTrait + Sync>(
-        db: &C,
+    async fn persist_application_config(
+        &self,
+        db: &sea_orm::DatabaseTransaction,
         encryption_key: &str,
         policy_id: i64,
         options: &aster_drive_model::types::StoragePolicyOptions,
@@ -280,35 +292,53 @@ impl StorageConnector for OneDriveConnector {
         Ok(())
     }
 
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = (state, policy);
-        Err(unsupported_draft_connection_test_error(
-            Self::storage_connector_descriptor(),
+        let _ = (context, policy);
+        Err(unsupported_draft_connection_test_error(self.descriptor()))
+    }
+
+    fn build_runtime_driver(
+        &self,
+        registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        let credential = registry.get_runtime_credential(policy.id).ok_or_else(|| {
+            storage_driver_error(
+                aster_drive_storage::StorageErrorKind::Auth,
+                format!(
+                    "OneDrive storage policy {} is missing authorized Microsoft Graph credentials",
+                    policy.id
+                ),
+            )
+        })?;
+        Ok(super::StorageConnectorDriver::storage(
+            self.build_authorized_driver(policy, credential)?,
         ))
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
         StorageConnectorUploadTransport::ProviderResumable(
             options.effective_provider_resumable_upload_strategy(),
         )
     }
 
-    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_provider_download_strategy() == ProviderDownloadStrategy::FrontendDirect
     }
 
-    fn presigned_download_requires_filename_match(policy: &storage_policy::Model) -> bool {
+    fn presigned_download_requires_filename_match(&self, policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_provider_download_filename_mode()
             == ProviderDownloadFilenameMode::StrictCurrent
     }
 
-    fn runtime_credential_requirement() -> Option<StorageConnectorCredentialRequirement> {
+    fn runtime_credential_requirement(&self) -> Option<StorageConnectorCredentialRequirement> {
         Some(StorageConnectorCredentialRequirement {
             provider: StorageCredentialProvider::MicrosoftGraph,
             credential_kind: StorageCredentialKind::OauthDelegated,
@@ -318,6 +348,7 @@ impl StorageConnector for OneDriveConnector {
     }
 
     async fn load_runtime_credential(
+        &self,
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
@@ -385,6 +416,7 @@ impl StorageConnector for OneDriveConnector {
     }
 
     fn build_authorized_driver(
+        &self,
         policy: &storage_policy::Model,
         credential: StorageConnectorRuntimeCredential,
     ) -> Result<Arc<dyn StorageDriver>> {
@@ -443,6 +475,7 @@ impl StorageConnector for OneDriveConnector {
     }
 
     async fn validate_credential(
+        &self,
         db: &sea_orm::DatabaseConnection,
         config: &crate::config::Config,
         policy: &storage_policy::Model,
@@ -496,44 +529,30 @@ impl StorageConnector for OneDriveConnector {
             root_item_name: root_item.name,
         })
     }
-}
 
-fn microsoft_graph_config_with_policy_options(
-    mut input: crate::storage::MicrosoftGraphApplicationConfigInput,
-    options: &aster_drive_model::types::StoragePolicyOptions,
-) -> crate::storage::MicrosoftGraphApplicationConfigInput {
-    // OneDrive keeps cloud/tenant in policy options for driver behavior; the
-    // app-config row mirrors them so OAuth start can be driven by saved provider
-    // metadata without reading legacy policy key fields.
-    input.cloud = input.cloud.or(options.onedrive_cloud);
-    if input
-        .tenant
-        .as_ref()
-        .is_none_or(|tenant| tenant.trim().is_empty())
-    {
-        input.tenant = options.onedrive_tenant.clone();
-    }
-    input
-}
-
-impl OneDriveConnector {
-    pub(super) async fn cleanup_snapshot_for_policy<S: SharedRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn cleanup_snapshot_for_policy(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Option<StoragePolicyCleanupDriverSnapshot>> {
-        onedrive_credential_snapshot_for_policy(state, policy)
+        onedrive_credential_snapshot_for_policy(context.writer_db(), policy)
             .await
             .map(|snapshot| snapshot.map(StoragePolicyCleanupDriverSnapshot::MicrosoftGraph))
     }
 
-    pub(super) async fn build_cleanup_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    fn cleanup_snapshot_required(&self) -> bool {
+        true
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
         snapshots: StoragePolicyCleanupSnapshots<'_>,
     ) -> Result<Arc<dyn StorageDriver>> {
         let credential = onedrive_snapshot_from_cleanup_input(snapshots)?;
         let token_provider = crate::services::storage_policy::credential::build_microsoft_graph_cleanup_token_provider(
-            state.config().auth.storage_credential_secret_key.clone(),
+            context.config().auth.storage_credential_secret_key.clone(),
             policy,
             crate::services::storage_policy::credential::MicrosoftGraphCleanupTokenSnapshot {
                 cloud: credential.cloud,
@@ -559,12 +578,30 @@ impl OneDriveConnector {
     }
 }
 
+fn microsoft_graph_config_with_policy_options(
+    mut input: crate::storage::MicrosoftGraphApplicationConfigInput,
+    options: &aster_drive_model::types::StoragePolicyOptions,
+) -> crate::storage::MicrosoftGraphApplicationConfigInput {
+    // OneDrive keeps cloud/tenant in policy options for driver behavior; the
+    // app-config row mirrors them so OAuth start can be driven by saved provider
+    // metadata without reading legacy policy key fields.
+    input.cloud = input.cloud.or(options.onedrive_cloud);
+    if input
+        .tenant
+        .as_ref()
+        .is_none_or(|tenant| tenant.trim().is_empty())
+    {
+        input.tenant = options.onedrive_tenant.clone();
+    }
+    input
+}
+
 async fn onedrive_credential_snapshot_for_policy(
-    state: &(impl SharedRuntimeState + ?Sized),
+    db: &sea_orm::DatabaseConnection,
     policy: &storage_policy::Model,
 ) -> Result<Option<StoragePolicyCleanupOneDriveCredentialSnapshot>> {
     let Some(credential) = storage_policy_credential_repo::find_by_policy_provider_kind(
-        state.writer_db(),
+        db,
         policy.id,
         StorageCredentialProvider::MicrosoftGraph,
         StorageCredentialKind::OauthDelegated,
@@ -601,7 +638,7 @@ async fn onedrive_credential_snapshot_for_policy(
     };
     let Some(application_config) =
         storage_connector_application_config_repo::find_by_policy_provider(
-            state.writer_db(),
+            db,
             policy.id,
             StorageCredentialProvider::MicrosoftGraph,
         )

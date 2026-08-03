@@ -2,7 +2,7 @@
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::{Config, DatabaseConfig, RuntimeConfig};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::mail::sender;
 use crate::storage::{DriverRegistry, PolicySnapshot};
 use aster_drive_migration::Migrator;
@@ -1113,7 +1113,13 @@ async fn preuploaded_quota_failure_cleans_local_blob() {
     let temp_file = temp_root.join("quota-fail-preuploaded.bin");
     tokio::fs::write(&temp_file, payload).await.unwrap();
 
-    let prepared = prepare_non_dedup_blob_upload(&policy, payload.len() as i64, None).unwrap();
+    let prepared = prepare_non_dedup_blob_upload(
+        state.driver_registry.connectors(),
+        &policy,
+        payload.len() as i64,
+        None,
+    )
+    .unwrap();
     upload_temp_file_to_prepared_blob(driver.as_ref(), &prepared, &temp_file.to_string_lossy())
         .await
         .unwrap();

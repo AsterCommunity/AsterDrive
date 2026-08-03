@@ -4,7 +4,7 @@ use tokio::io::AsyncWriteExt;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::{
     StorePreuploadedNondedupParams, check_quota, cleanup_preuploaded_blob_upload,
     prepare_non_dedup_blob_upload, store_preuploaded_nondedup,
@@ -53,8 +53,12 @@ pub(super) async fn upload_streaming_direct(
         if let Some(name) = is_file {
             let filename =
                 resolve_streaming_direct_filename(relative_path, resolved_filename, &name)?;
-            let prepared_upload =
-                prepare_non_dedup_blob_upload(policy, declared_size, Some(&filename))?;
+            let prepared_upload = prepare_non_dedup_blob_upload(
+                state.driver_registry().connectors(),
+                policy,
+                declared_size,
+                Some(&filename),
+            )?;
             let storage_path = prepared_upload.storage_path().to_string();
 
             let (writer, reader) = tokio::io::duplex(RELAY_DIRECT_BUFFER_SIZE);

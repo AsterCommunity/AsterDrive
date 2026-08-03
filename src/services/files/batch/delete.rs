@@ -7,7 +7,7 @@ use chrono::Utc;
 
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     events::storage_change,
     files::folder,

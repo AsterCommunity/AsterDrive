@@ -45,8 +45,9 @@ pub(crate) async fn create_storage_policy_temp_cleanup_task(
         return Ok(None);
     }
 
-    let driver_snapshot = cleanup_snapshot_for_policy(state, policy).await?;
-    if !can_create_cleanup_task_with_snapshot(policy.driver_type, &driver_snapshot) {
+    let connectors = state.driver_registry().connectors();
+    let driver_snapshot = cleanup_snapshot_for_policy(connectors, state, policy).await?;
+    if !can_create_cleanup_task_with_snapshot(connectors, policy.driver_type, &driver_snapshot) {
         return Err(AsterError::validation_error(format!(
             "storage policy #{} requires a cleanup driver snapshot, but none was available",
             policy.id
@@ -114,6 +115,7 @@ pub(super) async fn process_storage_policy_temp_cleanup_task(
 
     let policy = policy_model_from_snapshot(&payload.policy);
     let driver = build_cleanup_driver(
+        state.driver_registry().connectors(),
         state,
         &policy,
         StoragePolicyCleanupSnapshots {
@@ -362,16 +364,23 @@ mod tests {
     use super::*;
     use crate::storage::connectors::{
         StoragePolicyCleanupDriverSnapshot, StoragePolicyCleanupOneDriveCredentialSnapshot,
-        StoragePolicyCleanupRemoteNodeSnapshot,
+        StoragePolicyCleanupRemoteNodeSnapshot, builtin_storage_connector_registry,
     };
+
+    fn registry() -> crate::storage::connectors::StorageConnectorRegistry {
+        builtin_storage_connector_registry().expect("built-in connector registry")
+    }
 
     #[test]
     fn onedrive_cleanup_task_requires_driver_snapshot() {
+        let registry = registry();
         assert!(!can_create_cleanup_task_with_snapshot(
+            &registry,
             aster_drive_model::types::DriverType::OneDrive,
             &None
         ));
         assert!(can_create_cleanup_task_with_snapshot(
+            &registry,
             aster_drive_model::types::DriverType::Local,
             &None
         ));
@@ -388,6 +397,7 @@ mod tests {
             expires_at: None,
         };
         assert!(can_create_cleanup_task_with_snapshot(
+            &registry,
             aster_drive_model::types::DriverType::OneDrive,
             &Some(StoragePolicyCleanupDriverSnapshot::MicrosoftGraph(snapshot))
         ));
@@ -395,7 +405,9 @@ mod tests {
 
     #[test]
     fn remote_cleanup_task_requires_driver_snapshot() {
+        let registry = registry();
         assert!(!can_create_cleanup_task_with_snapshot(
+            &registry,
             aster_drive_model::types::DriverType::Remote,
             &None
         ));
@@ -410,6 +422,7 @@ mod tests {
             last_capabilities: "{}".to_string(),
         };
         assert!(can_create_cleanup_task_with_snapshot(
+            &registry,
             aster_drive_model::types::DriverType::Remote,
             &Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(snapshot))
         ));

@@ -8,7 +8,7 @@ use chrono::Utc;
 use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use super::{FollowerAppState, PrimaryAppState, SharedRuntimeState};
+use super::{FollowerAppState, PrimaryAppState};
 use crate::services::share::ShareDownloadRollbackWorker;
 use crate::services::task::SystemRuntimeTaskKind;
 use aster_forge_tasks::BackgroundTasks;

@@ -20,7 +20,7 @@
 use crate::api::dto::validate_request;
 use crate::api::dto::wopi::WopiAccessQuery;
 use crate::config::site_url;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{files::file, ops::audit, preview::wopi};
 use actix_web::http::header;
 use actix_web::{HttpRequest, HttpResponse, web};

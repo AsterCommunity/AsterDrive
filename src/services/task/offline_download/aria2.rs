@@ -10,7 +10,7 @@ use url::Url;
 
 use crate::config::operations;
 use crate::errors::{AsterError, MapAsterErr, Result, storage_driver_error_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use aster_drive_storage::StorageErrorKind;
 use aster_forge_tasks::{TaskStepInfo, set_task_step_active};
 use aster_forge_utils::numbers::u64_to_i64;

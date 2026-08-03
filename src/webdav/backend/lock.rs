@@ -10,7 +10,7 @@ use sea_orm::{ConnectionTrait, DatabaseConnection};
 
 use crate::config::webdav;
 use crate::db::repository::{file_repo, folder_repo, lock_repo, user_repo};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext};
 use crate::services::workspace::storage::WorkspaceStorageScope;
 use crate::webdav::backend::path_resolver::{self, ResolvedNode};

@@ -422,7 +422,7 @@ mod tests {
     use aster_forge_config::{ConfigChangeNotifier, ConfigNotificationSource};
 
     use super::{delete, set};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
 
     async fn test_state() -> (PrimaryAppState, aster_forge_config::ConfigNotification) {
         let db = crate::db::connect_with_metrics(

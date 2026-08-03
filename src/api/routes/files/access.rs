@@ -1062,7 +1062,7 @@ mod tests {
     };
     use crate::config::{Config, DatabaseConfig, RateLimitConfig, RuntimeConfig};
     use crate::db::repository::{background_task_repo, file_repo};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
     use crate::services::files::file::{ImagePreviewResult, ThumbnailResult};
     use crate::services::{auth::local, mail::sender, media::processing};
     use crate::storage::drivers::local::LocalDriver;

@@ -5,7 +5,7 @@ use image::{ImageFormat, ImageReader, Limits};
 use tokio::io::AsyncReadExt;
 
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use aster_drive_model::entities::file_blob;
 use aster_drive_storage::StorageDriver;
 

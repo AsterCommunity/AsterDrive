@@ -70,11 +70,12 @@ impl PreparedNonDedupBlobUpload {
 }
 
 pub(crate) fn prepare_non_dedup_blob_upload(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &aster_drive_model::entities::storage_policy::Model,
     size: i64,
     filename: Option<&str>,
 ) -> Result<PreparedNonDedupBlobUpload> {
-    match crate::storage::connectors::resolve_policy_upload_transport(policy)? {
+    match crate::storage::connectors::resolve_policy_upload_transport(registry, policy)? {
         StorageConnectorUploadTransport::Local => {
             let blob_key = aster_forge_utils::id::new_short_token();
             Ok(PreparedNonDedupBlobUpload::Local {
@@ -95,7 +96,8 @@ pub(crate) fn prepare_non_dedup_blob_upload(
                     policy.driver_type.as_str()
                 ))
             })?;
-            let storage_path = nondedup_storage_path_for_policy(policy, &upload_id, filename)?;
+            let storage_path =
+                nondedup_storage_path_for_policy(registry, policy, &upload_id, filename)?;
             Ok(PreparedNonDedupBlobUpload::Opaque {
                 storage_path,
                 upload_id,
@@ -108,11 +110,12 @@ pub(crate) fn prepare_non_dedup_blob_upload(
 }
 
 pub(crate) fn nondedup_storage_path_for_policy(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     policy: &aster_drive_model::entities::storage_policy::Model,
     upload_id: &str,
     filename: Option<&str>,
 ) -> Result<String> {
-    match resolve_policy_object_naming(policy)? {
+    match resolve_policy_object_naming(registry, policy)? {
         StorageConnectorObjectNamingMode::OpaqueUuid => {
             let upload_id = uuid::Uuid::parse_str(upload_id)
                 .map_err(|_| AsterError::validation_error("upload id must be a UUID"))?;
@@ -595,8 +598,10 @@ mod storage_path_tests {
 
     #[test]
     fn opaque_uuid_path_ignores_provider_filename_layout() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
         assert_eq!(
             nondedup_storage_path_for_policy(
+                &registry,
                 &policy(DriverType::S3),
                 UPLOAD_ID,
                 Some("../../ignored.txt"),
@@ -606,6 +611,7 @@ mod storage_path_tests {
         );
         assert!(
             nondedup_storage_path_for_policy(
+                &registry,
                 &policy(DriverType::S3),
                 "not-a-uuid",
                 Some("ignored.txt"),
@@ -616,8 +622,10 @@ mod storage_path_tests {
 
     #[test]
     fn policy_object_naming_capability_selects_path_layout_explicitly() {
+        let registry = crate::storage::connectors::builtin_storage_connector_registry().unwrap();
         assert_eq!(
             nondedup_storage_path_for_policy(
+                &registry,
                 &policy(DriverType::OneDrive),
                 UPLOAD_ID,
                 Some("video.mp4"),
@@ -627,6 +635,7 @@ mod storage_path_tests {
         );
         assert_eq!(
             nondedup_storage_path_for_policy(
+                &registry,
                 &policy(DriverType::S3),
                 UPLOAD_ID,
                 Some("video.mp4"),

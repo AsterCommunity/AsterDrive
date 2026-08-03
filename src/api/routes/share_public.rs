@@ -14,7 +14,7 @@ use crate::config::auth_runtime::RuntimeAuthPolicy;
 use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{AsterError, Result, auth_forbidden_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::files::file::ResolvedDownloadRange;
 use crate::services::ops::audit::AuditRequestInfo;
 use crate::services::{
@@ -1175,7 +1175,7 @@ mod tests {
     use super::{direct_routes, routes};
     use crate::config::{Config, DatabaseConfig, NetworkTrustConfig, RateLimitConfig};
     use crate::db::repository::{background_task_repo, file_repo, folder_repo};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
     use crate::services::{mail::sender, media::processing, share};
     use crate::storage::drivers::local::LocalDriver;
     use crate::storage::{DriverRegistry, PolicySnapshot};

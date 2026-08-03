@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::drivers::local::{DEFAULT_LOCAL_STORAGE_PATH, LocalDriver};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::DriverType;
@@ -94,28 +93,50 @@ impl StorageConnectorDescriptorProvider for LocalConnector {
 
 #[async_trait]
 impl StorageConnector for LocalConnector {
-    fn driver_type() -> DriverType {
+    fn driver_type(&self) -> DriverType {
         DriverType::Local
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::storage_connector_descriptor()
+    }
+
+    fn normalize_connection_fields(
+        &self,
+        endpoint: &str,
+        bucket: &str,
+    ) -> Result<(String, String)> {
         Ok((endpoint.trim().to_string(), bucket.trim().to_string()))
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
+    fn validate_connection_credentials(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<()> {
         let _ = input;
         Ok(())
     }
 
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = state;
+        let _ = context;
         Ok(Box::new(LocalDriver::new(policy)?))
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn build_runtime_driver(
+        &self,
+        _registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        Ok(super::StorageConnectorDriver::storage(std::sync::Arc::new(
+            LocalDriver::new(policy)?,
+        )))
+    }
+
+    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let _ = policy;
         StorageConnectorUploadTransport::Local
     }

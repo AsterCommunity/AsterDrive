@@ -7,7 +7,7 @@ use super::common::{
 };
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     events::storage_change,
     files::file,

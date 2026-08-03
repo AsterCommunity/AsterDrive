@@ -10,7 +10,7 @@ use crate::api::routes::team_scope;
 use crate::config::operations;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
 use crate::errors::{Result, auth_forbidden_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     auth::local::Claims,
     files::batch,

@@ -21,7 +21,7 @@ use aster_drive::db::repository::{
     background_task_repo, file_repo, policy_repo, storage_migration_checkpoint_repo,
 };
 use aster_drive::errors::{AsterError, MapAsterErr};
-use aster_drive::runtime::{PrimaryAppState, SharedRuntimeState};
+use aster_drive::runtime::PrimaryAppState;
 use aster_drive::services::task;
 use aster_drive_model::entities::{file, file_blob, file_version, storage_policy};
 use aster_drive_model::types::{

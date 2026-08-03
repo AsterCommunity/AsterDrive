@@ -249,6 +249,7 @@ pub async fn start_authorization(
 ) -> Result<StorageAuthorizationStartResponse> {
     let policy = policy_repo::find_by_id(state.writer_db(), policy_id).await?;
     crate::storage::connectors::ensure_storage_authorization_supported(
+        state.driver_registry().connectors(),
         policy.driver_type,
         input.provider,
     )?;
@@ -591,6 +592,7 @@ pub async fn finish_authorization_callback(
         }
     };
     if let Err(error) = crate::storage::connectors::ensure_storage_authorization_supported(
+        state.driver_registry().connectors(),
         policy.driver_type,
         flow.provider,
     )

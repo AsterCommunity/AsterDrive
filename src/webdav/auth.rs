@@ -254,7 +254,7 @@ mod tests {
         invalidate_webdav_auth_for_username,
     };
     use crate::config::{Config, DatabaseConfig, RateLimitTier, RuntimeConfig};
-    use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+    use crate::runtime::PrimaryAppState;
     use crate::services::mail::sender;
     use crate::storage::{DriverRegistry, PolicySnapshot};
     use actix_web::http::header::{self, HeaderValue};

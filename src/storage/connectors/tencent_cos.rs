@@ -3,7 +3,6 @@ use async_trait::async_trait;
 use crate::api::api_error_code::ApiErrorCode;
 use crate::config::site_url;
 use crate::errors::{Result, validation_error_with_code};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
 use crate::storage::drivers::tencent_cos::TencentCosDriver;
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
@@ -77,11 +76,11 @@ impl TencentCosConnector {
     }
 }
 
-async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState + ?Sized>(
-    state: &S,
+async fn configure_tencent_cos_cors_for_policy(
+    runtime_config: &crate::config::RuntimeConfig,
     policy: &storage_policy::Model,
 ) -> Result<TencentCosCorsConfigResult> {
-    let origins = resolve_cos_cors_allowed_origins(state)?;
+    let origins = resolve_cos_cors_allowed_origins(runtime_config)?;
     let driver = TencentCosDriver::new(policy)?;
     driver
         .configure_asterdrive_cors(&origins)
@@ -89,13 +88,13 @@ async fn configure_tencent_cos_cors_for_policy<S: SharedRuntimeState + ?Sized>(
         .map(Into::into)
 }
 
-async fn merge_draft_action_saved_credentials<S: SharedRuntimeState + ?Sized>(
-    state: &S,
+async fn merge_draft_action_saved_credentials(
+    db: &sea_orm::DatabaseConnection,
     policy_id: Option<i64>,
     connection: StorageConnectorConnectionInput,
 ) -> Result<StorageConnectorConnectionInput> {
     super::common::merge_saved_static_credentials_for_draft(
-        state.writer_db(),
+        db,
         policy_id,
         connection,
         "draft storage policy action",
@@ -104,9 +103,9 @@ async fn merge_draft_action_saved_credentials<S: SharedRuntimeState + ?Sized>(
 }
 
 fn resolve_cos_cors_allowed_origins(
-    state: &(impl SharedRuntimeState + ?Sized),
+    runtime_config: &crate::config::RuntimeConfig,
 ) -> Result<Vec<String>> {
-    let origins = site_url::public_site_urls(state.runtime_config());
+    let origins = site_url::public_site_urls(runtime_config);
     if origins.is_empty() {
         return Err(validation_error_with_code(
             ApiErrorCode::PolicyActionParameterRequired,
@@ -118,39 +117,63 @@ fn resolve_cos_cors_allowed_origins(
 
 #[async_trait]
 impl StorageConnector for TencentCosConnector {
-    fn driver_type() -> DriverType {
+    fn driver_type(&self) -> DriverType {
         DriverType::TencentCos
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::storage_connector_descriptor()
+    }
+
+    fn normalize_connection_fields(
+        &self,
+        endpoint: &str,
+        bucket: &str,
+    ) -> Result<(String, String)> {
         normalize_s3_connection_fields(endpoint, bucket)
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
+    fn validate_connection_credentials(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<()> {
         validate_static_secret_credentials(input, "tencent_cos")
     }
 
-    fn supports_saved_draft_credentials() -> bool {
+    fn supports_saved_draft_credentials(&self) -> bool {
         true
     }
 
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = state;
+        let _ = context;
         Ok(Box::new(TencentCosDriver::new(policy)?))
     }
 
-    async fn execute_saved_action<S: SharedRuntimeState + Sync + ?Sized>(
-        state: &S,
+    fn build_runtime_driver(
+        &self,
+        _registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        Ok(super::StorageConnectorDriver::multipart(
+            std::sync::Arc::new(TencentCosDriver::new(policy)?),
+        ))
+    }
+
+    async fn execute_saved_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
         action: StoragePolicyExecutableAction,
     ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(Self::storage_connector_descriptor(), action)?;
+        ensure_policy_action_supported(self.descriptor(), action)?;
         match action {
             StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let result = configure_tencent_cos_cors_for_policy(state, policy).await?;
+                let result =
+                    configure_tencent_cos_cors_for_policy(context.runtime_config(), policy).await?;
                 Ok(StorageConnectorActionResult {
                     action,
                     tencent_cos_cors: Some(result),
@@ -159,19 +182,25 @@ impl StorageConnector for TencentCosConnector {
         }
     }
 
-    async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn execute_draft_action(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         input: ExecuteDraftStorageConnectorActionInput,
     ) -> Result<StorageConnectorActionResult> {
-        ensure_policy_action_supported(Self::storage_connector_descriptor(), input.action)?;
+        ensure_policy_action_supported(self.descriptor(), input.action)?;
         match input.action {
             StoragePolicyExecutableAction::ConfigureTencentCosCors => {
-                let connection =
-                    merge_draft_action_saved_credentials(state, input.policy_id, input.connection)
-                        .await?;
+                let connection = merge_draft_action_saved_credentials(
+                    context.writer_db(),
+                    input.policy_id,
+                    input.connection,
+                )
+                .await?;
                 let policy =
-                    build_connection_test_policy::<Self, _>(state.writer_db(), connection).await?;
-                let result = configure_tencent_cos_cors_for_policy(state, &policy).await?;
+                    build_connection_test_policy(context.writer_db(), self, connection).await?;
+                let result =
+                    configure_tencent_cos_cors_for_policy(context.runtime_config(), &policy)
+                        .await?;
                 Ok(StorageConnectorActionResult {
                     action: input.action,
                     tencent_cos_cors: Some(result),
@@ -180,16 +209,20 @@ impl StorageConnector for TencentCosConnector {
         }
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
         StorageConnectorUploadTransport::ObjectStorage(
             options.effective_object_storage_upload_strategy(),
         )
     }
 
-    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_object_storage_download_strategy()
             == ObjectStorageDownloadStrategy::Presigned
+    }
+
+    fn validate_promotion_candidate(&self, policy: &storage_policy::Model) -> Result<()> {
+        Self::validate_promotion_candidate(policy)
     }
 }

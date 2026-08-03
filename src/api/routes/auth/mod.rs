@@ -13,7 +13,7 @@ use crate::api::middleware::rate_limit;
 use crate::api::request_auth::access_token;
 use crate::config::site_url;
 use crate::config::{NetworkTrustConfig, RateLimitConfig};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{auth::local, events::storage_change};
 use actix_governor::Governor;
 use actix_web::http::header;

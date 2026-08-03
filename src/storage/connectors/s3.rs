@@ -1,7 +1,6 @@
 use async_trait::async_trait;
 
 use crate::errors::Result;
-use crate::runtime::RemoteProtocolRuntimeState;
 use crate::storage::drivers::s3::{S3Driver, S3DriverOptions};
 use aster_drive_model::entities::storage_policy;
 use aster_drive_model::types::{
@@ -72,27 +71,39 @@ impl StorageConnectorDescriptorProvider for S3Connector {
 
 #[async_trait]
 impl StorageConnector for S3Connector {
-    fn driver_type() -> DriverType {
+    fn driver_type(&self) -> DriverType {
         DriverType::S3
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::storage_connector_descriptor()
+    }
+
+    fn normalize_connection_fields(
+        &self,
+        endpoint: &str,
+        bucket: &str,
+    ) -> Result<(String, String)> {
         normalize_s3_connection_fields(endpoint, bucket)
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
+    fn validate_connection_credentials(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<()> {
         validate_static_secret_credentials(input, "S3-compatible")
     }
 
-    fn supports_saved_draft_credentials() -> bool {
+    fn supports_saved_draft_credentials(&self) -> bool {
         true
     }
 
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
-        let _ = state;
+        let _ = context;
         Ok(Box::new(S3Driver::new(
             policy,
             S3DriverOptions::default(),
@@ -100,14 +111,28 @@ impl StorageConnector for S3Connector {
         )?))
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn build_runtime_driver(
+        &self,
+        _registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        Ok(super::StorageConnectorDriver::multipart(
+            std::sync::Arc::new(S3Driver::new(
+                policy,
+                S3DriverOptions::default(),
+                std::convert::identity,
+            )?),
+        ))
+    }
+
+    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
         StorageConnectorUploadTransport::ObjectStorage(
             options.effective_object_storage_upload_strategy(),
         )
     }
 
-    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_object_storage_download_strategy()
             == ObjectStorageDownloadStrategy::Presigned

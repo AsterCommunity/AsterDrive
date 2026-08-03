@@ -8,7 +8,7 @@ use crate::api::response::ApiResponse;
 use crate::config::site_url;
 use crate::db::repository::passkey_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::ops::audit::{self, AuditContext, AuditRequestInfo};
 use crate::services::{auth::local::Claims, auth::passkey};
 use actix_web::{HttpRequest, HttpResponse, web};

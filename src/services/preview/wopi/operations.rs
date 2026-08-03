@@ -7,7 +7,7 @@
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, precondition_failed_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::file,
     ops::audit::{self, AuditRequestInfo},

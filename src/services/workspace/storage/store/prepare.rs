@@ -7,7 +7,7 @@ use super::{DedupTarget, TempBlobPlan};
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, MapAsterErr, Result, file_upload_error_with_code};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::workspace::storage::HASH_BUF_SIZE;
 use crate::services::workspace::storage::{
     StorageOperationContext, StoreFromTempHints, StoreFromTempParams, WorkspaceStorageScope,
@@ -112,6 +112,7 @@ pub(super) async fn prepare_store_from_temp(
 
     let driver = state.driver_registry().get_driver(&policy)?;
     let blob_plan = build_temp_blob_plan(
+        state.driver_registry().connectors(),
         temp_path,
         size,
         &filename,
@@ -181,6 +182,7 @@ pub(super) async fn prepare_store_from_temp(
 }
 
 async fn build_temp_blob_plan(
+    registry: &crate::storage::connectors::StorageConnectorRegistry,
     temp_path: &str,
     size: i64,
     filename: &str,
@@ -196,6 +198,7 @@ async fn build_temp_blob_plan(
     }
 
     Ok(TempBlobPlan::Preuploaded(prepare_non_dedup_blob_upload(
+        registry,
         policy,
         size,
         Some(filename),

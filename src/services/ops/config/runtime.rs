@@ -41,26 +41,30 @@ pub async fn reconcile_storage_topology(state: &impl SharedRuntimeState) -> Resu
     Ok(())
 }
 
-pub async fn publish_storage_topology_reload(state: &impl SharedRuntimeState) -> Result<()> {
-    state
-        .config_sync()
-        .publish_reload(
-            [STORAGE_TOPOLOGY_RELOAD_KEY],
-            aster_forge_config::ConfigNotificationSource::Other("storage_topology".to_string()),
-        )
-        .await
-        .map_err(map_config_core_error)
-}
-
 pub async fn publish_storage_topology_reload_after_commit(
     state: &impl SharedRuntimeState,
     mutation: &'static str,
     entity_kind: &'static str,
     entity_id: i64,
 ) {
-    publish_reload_after_commit(mutation, entity_kind, entity_id, "storage_topology", || {
-        publish_storage_topology_reload(state)
-    })
+    publish_reload_after_commit(
+        mutation,
+        entity_kind,
+        entity_id,
+        "storage_topology",
+        || async {
+            state
+                .config_sync()
+                .publish_reload(
+                    [STORAGE_TOPOLOGY_RELOAD_KEY],
+                    aster_forge_config::ConfigNotificationSource::Other(
+                        "storage_topology".to_string(),
+                    ),
+                )
+                .await
+                .map_err(map_config_core_error)
+        },
+    )
     .await;
 }
 

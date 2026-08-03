@@ -13,7 +13,6 @@ use crate::config::DatabaseConfig;
 use crate::db::repository::background_task_repo;
 use crate::db::{self, repository::config_repo};
 use crate::errors::AsterError;
-use crate::runtime::SharedRuntimeState;
 use crate::services::task::{SystemRuntimeTaskKind, is_task_worker_shutdown_requested};
 use aster_drive_migration::Migrator;
 use aster_drive_model::entities::background_task;

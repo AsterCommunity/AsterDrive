@@ -130,9 +130,13 @@ pub async fn create(
         remote_storage_target_key.or_else(|| connection.remote_storage_target_key.clone()),
     );
     connection.remote_storage_target_key = remote_storage_target_key.clone();
-    let connection =
-        crate::storage::connectors::normalize_policy_connection(state.writer_db(), connection)
-            .await?;
+    let connectors = state.driver_registry().connectors();
+    let connection = crate::storage::connectors::normalize_policy_connection(
+        connectors,
+        state.writer_db(),
+        connection,
+    )
+    .await?;
     let StoragePolicyConnectionInput {
         driver_type,
         endpoint,
@@ -144,11 +148,17 @@ pub async fn create(
         remote_storage_target_key: normalized_connection_target_key,
         options: _,
     } = crate::storage::connectors::prepare_connection_for_storage(
+        connectors,
         connection,
         &application_config,
     )?;
-    crate::services::ops::deployment::validate_storage_policy_driver(state.config(), driver_type)?;
-    let descriptor = crate::storage::connectors::storage_driver_descriptor(driver_type)?;
+    crate::services::ops::deployment::validate_storage_policy_driver(
+        connectors,
+        state.config(),
+        driver_type,
+    )?;
+    let descriptor =
+        crate::storage::connectors::storage_driver_descriptor(connectors, driver_type)?;
     let setup_state_at_admission =
         crate::services::storage_policy::connector_catalog::validate_connector_for_current_setup_state(
             state.writer_db(),
@@ -162,6 +172,7 @@ pub async fn create(
         aster_drive_storage::field_contract::normalize_storage_policy_max_file_size(max_file_size)?;
     let chunk_size = chunk_size.unwrap_or(5_242_880);
     crate::storage::connectors::validate_policy_options(
+        connectors,
         state.writer_db(),
         driver_type,
         remote_node_id,
@@ -207,6 +218,7 @@ pub async fn create(
     };
     let result = policy_repo::create(&txn, model).await?;
     crate::storage::connectors::persist_application_config(
+        connectors,
         &txn,
         driver_type,
         &state.config().auth.storage_credential_secret_key,
@@ -387,6 +399,7 @@ pub async fn update(
         .clone()
         .unwrap_or_else(|| existing.base_path.clone());
     let normalized_connection = crate::storage::connectors::normalize_policy_connection(
+        state.driver_registry().connectors(),
         state.writer_db(),
         StoragePolicyConnectionInput {
             driver_type: existing_driver_type,
@@ -406,6 +419,7 @@ pub async fn update(
     )
     .await?;
     let normalized_connection = crate::storage::connectors::prepare_connection_for_storage(
+        state.driver_registry().connectors(),
         normalized_connection,
         &application_config,
     )?;
@@ -420,6 +434,7 @@ pub async fn update(
     let final_options = options.unwrap_or(existing_options).normalized();
     let serialized_final_options = serialize_options(&final_options)?;
     crate::storage::connectors::validate_policy_options(
+        state.driver_registry().connectors(),
         state.writer_db(),
         existing_driver_type,
         normalized_remote_node_id,
@@ -505,6 +520,7 @@ pub async fn update(
         .map_aster_err(AsterError::database_operation)?;
 
     crate::storage::connectors::persist_application_config(
+        state.driver_registry().connectors(),
         &txn,
         existing_driver_type,
         &state.config().auth.storage_credential_secret_key,
@@ -546,14 +562,17 @@ pub async fn promote_s3_compatible_driver(
     input: PromoteS3CompatiblePolicyDriverInput,
 ) -> Result<StoragePolicy> {
     let existing = policy_repo::find_by_id(state.writer_db(), id).await?;
-    crate::storage::connectors::validate_driver_promotion_source(existing.driver_type)?;
+    let connectors = state.driver_registry().connectors();
+    crate::storage::connectors::validate_driver_promotion_source(connectors, existing.driver_type)?;
     crate::storage::connectors::validate_driver_promotion_target(
+        connectors,
         existing.driver_type,
         input.target_driver_type,
     )?;
 
     let existing_options = parse_storage_policy_options(existing.options.as_ref());
     let normalized_connection = crate::storage::connectors::normalize_policy_connection(
+        connectors,
         state.writer_db(),
         StoragePolicyConnectionInput {
             driver_type: input.target_driver_type,
@@ -636,7 +655,10 @@ async fn validate_s3_compatible_promotion_candidate(
     state: &impl SharedRuntimeState,
     candidate_policy: &storage_policy::Model,
 ) -> Result<()> {
-    crate::storage::connectors::validate_driver_promotion_candidate(candidate_policy)?;
+    crate::storage::connectors::validate_driver_promotion_candidate(
+        state.driver_registry().connectors(),
+        candidate_policy,
+    )?;
 
     verify_s3_compatible_promotion_sample(state, candidate_policy).await
 }
@@ -767,19 +789,34 @@ pub async fn test_default_connection<S: SharedRuntimeState + Sync>(state: &S) ->
         .ok_or_else(|| {
             AsterError::storage_policy_not_found("system default storage policy not found")
         })?;
-    crate::storage::connectors::test_saved_connection(state, &policy).await
+    crate::storage::connectors::test_saved_connection(
+        state.driver_registry().connectors(),
+        state,
+        &policy,
+    )
+    .await
 }
 
 pub async fn test_connection<S: SharedRuntimeState + Sync>(state: &S, id: i64) -> Result<()> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
-    crate::storage::connectors::test_saved_connection(state, &policy).await
+    crate::storage::connectors::test_saved_connection(
+        state.driver_registry().connectors(),
+        state,
+        &policy,
+    )
+    .await
 }
 
 pub async fn test_connection_params<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: TestDraftStoragePolicyConnectionInput,
 ) -> Result<()> {
-    crate::storage::connectors::test_draft_connection(state, input).await
+    crate::storage::connectors::test_draft_connection(
+        state.driver_registry().connectors(),
+        state,
+        input,
+    )
+    .await
 }
 
 pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
@@ -788,18 +825,27 @@ pub async fn execute_saved_action<S: SharedRuntimeState + Sync>(
     input: ExecuteSavedStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
     let policy = policy_repo::find_by_id(state.writer_db(), id).await?;
-    crate::storage::connectors::execute_saved_action(state, &policy, input.action)
-        .await
-        .map(Into::into)
+    crate::storage::connectors::execute_saved_action(
+        state.driver_registry().connectors(),
+        state,
+        &policy,
+        input.action,
+    )
+    .await
+    .map(Into::into)
 }
 
 pub async fn execute_draft_action<S: RemoteProtocolRuntimeState + Sync>(
     state: &S,
     input: ExecuteDraftStoragePolicyActionInput,
 ) -> Result<StoragePolicyActionResult> {
-    crate::storage::connectors::execute_draft_action(state, input)
-        .await
-        .map(Into::into)
+    crate::storage::connectors::execute_draft_action(
+        state.driver_registry().connectors(),
+        state,
+        input,
+    )
+    .await
+    .map(Into::into)
 }
 
 #[cfg(test)]

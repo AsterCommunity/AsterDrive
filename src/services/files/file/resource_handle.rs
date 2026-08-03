@@ -172,7 +172,10 @@ async fn presigned_original_url(
     }
 
     let policy = state.policy_snapshot().get_policy_or_err(blob.policy_id)?;
-    if !crate::storage::connectors::presigned_download_enabled(&policy)? {
+    if !crate::storage::connectors::presigned_download_enabled(
+        state.driver_registry().connectors(),
+        &policy,
+    )? {
         return Ok(None);
     }
 
@@ -189,6 +192,7 @@ async fn presigned_original_url(
                 download_name: Some(file.name.clone()),
                 require_download_name_match:
                     crate::storage::connectors::presigned_download_requires_filename_match(
+                        state.driver_registry().connectors(),
                         &policy,
                     )?,
                 response_cache_control: Some("private, max-age=0, must-revalidate".to_string()),

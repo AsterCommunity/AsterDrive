@@ -1,6 +1,6 @@
 use crate::db::repository::file_repo;
 use crate::errors::{AsterError, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{events::storage_change, workspace::storage::WorkspaceStorageScope};
 
 pub(crate) async fn delete_in_scope(

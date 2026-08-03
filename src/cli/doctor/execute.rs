@@ -138,7 +138,21 @@ async fn doctor_deployment_topology_check(
     db: &DatabaseConnection,
     config: &crate::config::Config,
 ) -> DoctorCheck {
-    match crate::services::ops::deployment::inspect_primary_topology(db, config).await {
+    let connectors = match crate::storage::connectors::builtin_storage_connector_registry() {
+        Ok(connectors) => connectors,
+        Err(error) => {
+            return doctor_check(
+                "deployment_topology",
+                "Deployment topology",
+                DoctorStatus::Fail,
+                "storage connector registry initialization failed",
+                vec![error.to_string()],
+                None,
+            );
+        }
+    };
+    match crate::services::ops::deployment::inspect_primary_topology(&connectors, db, config).await
+    {
         Ok(report) if report.has_issues() => doctor_check(
             "deployment_topology",
             "Deployment topology",

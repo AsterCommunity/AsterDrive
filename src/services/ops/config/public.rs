@@ -192,6 +192,7 @@ fn build_public_thumbnail_support(
         // Public capability aggregation must stay descriptor-based: this endpoint
         // may scan every policy, and constructing drivers would warm remote clients.
         if crate::storage::connectors::storage_connector_supports_native_thumbnail(
+            state.driver_registry().connectors(),
             policy.driver_type,
         )? {
             image_thumbnail_extensions.extend(options.thumbnail_extensions);
@@ -224,6 +225,7 @@ fn build_public_media_data_support(
         // Same boundary as thumbnails: descriptor capabilities are the source of
         // truth for static support without instantiating policy drivers.
         if crate::storage::connectors::storage_connector_supports_native_media_metadata(
+            state.driver_registry().connectors(),
             policy.driver_type,
         )? {
             storage_native_extensions.extend(options.media_metadata_extensions);

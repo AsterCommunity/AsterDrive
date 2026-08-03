@@ -24,12 +24,18 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     crate::config::deployment::validate_static(cfg.as_ref())?;
     crate::services::mail::template::validate_template_registry()?;
     let metrics = aster_drive_metrics::create_metrics_recorder();
+    let connector_registry =
+        Arc::new(crate::storage::connectors::builtin_storage_connector_registry()?);
 
     let database = db::connect_with_metrics(&cfg.database, metrics.clone()).await?;
     initialize_database_state(&database, cfg.as_ref(), mode).await?;
     if matches!(mode, NodeRuntimeMode::Primary) {
-        crate::services::ops::deployment::validate_primary_topology(&database, cfg.as_ref())
-            .await?;
+        crate::services::ops::deployment::validate_primary_topology(
+            &connector_registry,
+            &database,
+            cfg.as_ref(),
+        )
+        .await?;
     }
     let db_handles = db::connect_reader_for_writer_with_metrics(
         &cfg.database,
@@ -41,7 +47,10 @@ pub(super) async fn prepare_common(mode: NodeRuntimeMode) -> Result<CommonRuntim
     let policy_snapshot = Arc::new(crate::storage::PolicySnapshot::new());
     policy_snapshot.reload(&database).await?;
 
-    let driver_registry = Arc::new(DriverRegistry::new(metrics.clone()));
+    let driver_registry = Arc::new(DriverRegistry::with_connectors(
+        metrics.clone(),
+        connector_registry,
+    ));
     match mode {
         NodeRuntimeMode::Primary => {
             driver_registry

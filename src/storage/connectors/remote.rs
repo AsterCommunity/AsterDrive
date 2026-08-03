@@ -1,16 +1,17 @@
 use async_trait::async_trait;
 use chrono::Utc;
-use sea_orm::ConnectionTrait;
 use std::sync::Arc;
 
 use crate::api::api_error_code::ApiErrorCode;
 use crate::db::repository::managed_follower_repo;
-use crate::errors::{AsterError, Result, validation_error_with_code};
-use crate::runtime::{RemoteProtocolRuntimeState, SharedRuntimeState};
+use crate::errors::{
+    AsterError, Result, precondition_failed_with_code, validation_error_with_code,
+};
+use crate::services::remote::capability::RemoteCapabilityResolver;
 use crate::services::storage_policy::credential::crypto;
+use crate::storage::drivers::remote::RemoteDriver;
 use aster_drive_model::entities::{managed_follower, storage_policy};
 use aster_drive_model::types::{DriverType, RemoteNodeTransportMode, parse_storage_policy_options};
-use aster_drive_storage::StorageDriver;
 use aster_drive_storage::connector_descriptor::{
     ObjectMultipartUploadCapabilitiesInput, StorageConnectorCapabilities,
     StorageConnectorCredentialMode, StorageConnectorDeploymentScope, StorageConnectorDescriptor,
@@ -21,6 +22,7 @@ use aster_drive_storage::connector_descriptor::{
     server_relay_simple_upload_capabilities, storage_connector_field,
     storage_connector_field_with_options, storage_connector_ui_descriptor,
 };
+use aster_drive_storage::{StorageDriver, StorageErrorKind, storage_driver_error};
 
 use super::common::{ensure_onedrive_options_absent, ensure_storage_native_processing_supported};
 use super::{
@@ -125,22 +127,34 @@ impl StorageConnectorDescriptorProvider for RemoteConnector {
 
 #[async_trait]
 impl StorageConnector for RemoteConnector {
-    fn driver_type() -> DriverType {
+    fn driver_type(&self) -> DriverType {
         DriverType::Remote
     }
 
-    fn normalize_connection_fields(endpoint: &str, bucket: &str) -> Result<(String, String)> {
+    fn descriptor(&self) -> StorageConnectorDescriptor {
+        Self::storage_connector_descriptor()
+    }
+
+    fn normalize_connection_fields(
+        &self,
+        endpoint: &str,
+        bucket: &str,
+    ) -> Result<(String, String)> {
         let _ = (endpoint, bucket);
         Ok((String::new(), String::new()))
     }
 
-    fn validate_connection_credentials(input: &StorageConnectorConnectionInput) -> Result<()> {
+    fn validate_connection_credentials(
+        &self,
+        input: &StorageConnectorConnectionInput,
+    ) -> Result<()> {
         let _ = input;
         Ok(())
     }
 
-    async fn validate_connection_binding<C: ConnectionTrait + Sync>(
-        db: &C,
+    async fn validate_connection_binding(
+        &self,
+        db: &sea_orm::DatabaseConnection,
         input: &StorageConnectorConnectionInput,
     ) -> Result<Option<i64>> {
         let remote_node_id = input.remote_node_id.ok_or_else(|| {
@@ -167,12 +181,13 @@ impl StorageConnector for RemoteConnector {
         Ok(Some(remote_node_id))
     }
 
-    async fn validate_policy_options<C: ConnectionTrait + Sync>(
-        db: &C,
+    async fn validate_policy_options(
+        &self,
+        db: &sea_orm::DatabaseConnection,
         remote_node_id: Option<i64>,
         options: &aster_drive_model::types::StoragePolicyOptions,
     ) -> Result<()> {
-        ensure_storage_native_processing_supported(Self::storage_connector_descriptor(), options)?;
+        ensure_storage_native_processing_supported(self.descriptor(), options)?;
         ensure_onedrive_options_absent(options)?;
         let Some(remote_node_id) = remote_node_id else {
             return Ok(());
@@ -194,8 +209,9 @@ impl StorageConnector for RemoteConnector {
         Ok(())
     }
 
-    async fn build_draft_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn build_draft_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Box<dyn StorageDriver>> {
         let remote_node_id = policy.remote_node_id.ok_or_else(|| {
@@ -205,36 +221,80 @@ impl StorageConnector for RemoteConnector {
             )
         })?;
         let remote_node =
-            managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
+            managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
         Ok(Box::new(
-            state
-                .remote_protocol()
+            context
+                .remote_protocol()?
                 .driver_for_policy(policy, &remote_node)?,
         ))
     }
 
-    fn upload_transport(policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
+    fn build_runtime_driver(
+        &self,
+        registry: &crate::storage::DriverRegistry,
+        policy: &storage_policy::Model,
+    ) -> Result<super::StorageConnectorDriver> {
+        let remote_node_id = policy.remote_node_id.ok_or_else(|| {
+            AsterError::from(storage_driver_error(
+                StorageErrorKind::Misconfigured,
+                "remote storage policy missing remote_node_id",
+            ))
+        })?;
+        let remote_node = registry
+            .get_managed_follower(remote_node_id)
+            .ok_or_else(|| {
+                AsterError::from(storage_driver_error(
+                    StorageErrorKind::Misconfigured,
+                    format!("remote node #{remote_node_id} not loaded in registry"),
+                ))
+            })?;
+        if !remote_node.is_enabled {
+            return Err(precondition_failed_with_code(
+                ApiErrorCode::RemoteNodeDisabled,
+                format!("remote node #{remote_node_id} is disabled"),
+            ));
+        }
+        let capabilities = RemoteCapabilityResolver::from_remote_node(&remote_node);
+        let options = parse_storage_policy_options(policy.options.as_ref());
+        if let Err(error) = capabilities.ensure_remote_policy_options_supported(policy.id, &options)
+        {
+            tracing::warn!(
+                remote_node_id,
+                policy_id = policy.id,
+                protocol_version = %capabilities.capabilities().protocol_version,
+                min_supported_protocol_version = %capabilities.capabilities().min_supported_protocol_version,
+                "remote storage policy protocol compatibility check failed: {error}"
+            );
+            return Err(error);
+        }
+        let driver = if let Some(remote_protocol) = registry.remote_protocol() {
+            Arc::new(remote_protocol.driver_for_policy(policy, &remote_node)?)
+        } else {
+            Arc::new(RemoteDriver::new(policy, &remote_node)?)
+        };
+        Ok(super::StorageConnectorDriver::multipart(driver))
+    }
+
+    fn upload_transport(&self, policy: &storage_policy::Model) -> StorageConnectorUploadTransport {
         let options = parse_storage_policy_options(policy.options.as_ref());
         StorageConnectorUploadTransport::Remote(options.effective_remote_upload_strategy())
     }
 
-    fn presigned_download_enabled(policy: &storage_policy::Model) -> bool {
+    fn presigned_download_enabled(&self, policy: &storage_policy::Model) -> bool {
         let options = parse_storage_policy_options(policy.options.as_ref());
         options.effective_remote_download_strategy()
             == aster_drive_model::types::RemoteDownloadStrategy::Presigned
     }
-}
-
-impl RemoteConnector {
-    pub(super) async fn cleanup_snapshot_for_policy<S: SharedRuntimeState + Sync + ?Sized>(
-        state: &S,
+    async fn cleanup_snapshot_for_policy(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
     ) -> Result<Option<StoragePolicyCleanupDriverSnapshot>> {
         let remote_node_id = policy.remote_node_id.ok_or_else(|| {
             AsterError::validation_error("remote storage policy requires remote_node_id")
         })?;
-        let remote = managed_follower_repo::find_by_id(state.writer_db(), remote_node_id).await?;
-        let encryption_key = &state.config().auth.storage_credential_secret_key;
+        let remote = managed_follower_repo::find_by_id(context.writer_db(), remote_node_id).await?;
+        let encryption_key = &context.config().auth.storage_credential_secret_key;
         Ok(Some(StoragePolicyCleanupDriverSnapshot::RemoteNode(
             StoragePolicyCleanupRemoteNodeSnapshot {
                 id: remote.id,
@@ -260,13 +320,18 @@ impl RemoteConnector {
         )))
     }
 
-    pub(super) async fn build_cleanup_driver<S: RemoteProtocolRuntimeState + Sync + ?Sized>(
-        state: &S,
+    fn cleanup_snapshot_required(&self) -> bool {
+        true
+    }
+
+    async fn build_cleanup_driver(
+        &self,
+        context: &super::StorageConnectorContext<'_>,
         policy: &storage_policy::Model,
         snapshots: StoragePolicyCleanupSnapshots<'_>,
     ) -> Result<Arc<dyn StorageDriver>> {
         let remote = remote_snapshot_from_cleanup_input(snapshots)?;
-        let encryption_key = &state.config().auth.storage_credential_secret_key;
+        let encryption_key = &context.config().auth.storage_credential_secret_key;
         let follower = managed_follower::Model {
             id: remote.id,
             name: remote.name.clone(),
@@ -287,7 +352,11 @@ impl RemoteConnector {
             )?,
             is_enabled: true,
             transport_mode: remote.transport_mode,
-            last_capabilities: remote_capabilities_from_snapshot_or_current(state, remote).await?,
+            last_capabilities: remote_capabilities_from_snapshot_or_current(
+                context.writer_db(),
+                remote,
+            )
+            .await?,
             last_error: String::new(),
             last_checked_at: None,
             tunnel_last_error: String::new(),
@@ -296,8 +365,8 @@ impl RemoteConnector {
             updated_at: Utc::now(),
         };
         Ok(Arc::new(
-            state
-                .remote_protocol()
+            context
+                .remote_protocol()?
                 .driver_for_policy(policy, &follower)?,
         ))
     }
@@ -353,7 +422,7 @@ fn decrypt_remote_snapshot_secret(
 }
 
 async fn remote_capabilities_from_snapshot_or_current(
-    state: &(impl RemoteProtocolRuntimeState + ?Sized),
+    db: &sea_orm::DatabaseConnection,
     remote: &StoragePolicyCleanupRemoteNodeSnapshot,
 ) -> Result<String> {
     if !remote.last_capabilities.trim().is_empty() {
@@ -363,7 +432,7 @@ async fn remote_capabilities_from_snapshot_or_current(
     // Pre-0.3.0 cleanup payloads did not store remote capabilities. Use the
     // current node row only as a fallback so newly created cleanup tasks remain
     // self-contained snapshots.
-    managed_follower_repo::find_by_id(state.writer_db(), remote.id)
+    managed_follower_repo::find_by_id(db, remote.id)
         .await
         .map(|node| node.last_capabilities)
 }

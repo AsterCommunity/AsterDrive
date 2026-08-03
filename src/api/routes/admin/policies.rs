@@ -11,7 +11,7 @@ use crate::api::dto::validate_request;
 use crate::api::response::{ApiEmptyData, ApiResponse};
 use crate::config::site_url;
 use crate::errors::Result;
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::storage_policy::credential;
 use crate::services::{auth::local::Claims, ops::audit, storage_policy::policy};
 use actix_web::{HttpRequest, HttpResponse, http::header, web};
@@ -253,6 +253,7 @@ pub async fn list_storage_driver_descriptors(
 ) -> Result<HttpResponse> {
     Ok(HttpResponse::Ok().json(ApiResponse::ok(
         crate::services::storage_policy::connector_catalog::list_storage_connector_catalog(
+            state.driver_registry().connectors(),
             state.config(),
             query.context.into(),
         ),

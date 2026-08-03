@@ -9,7 +9,7 @@ use sea_orm::{DatabaseConnection, Set};
 
 use crate::db::repository::{file_repo, folder_repo};
 use crate::errors::{AsterError, MapAsterErr, Result};
-use crate::runtime::{PrimaryAppState, SharedRuntimeState};
+use crate::runtime::PrimaryAppState;
 use crate::services::{
     files::folder as folder_ops,
     workspace::storage::{WorkspaceStorageScope, load_scope_actor_username},
